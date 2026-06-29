@@ -14,6 +14,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Protocol
 
 from .config import Settings
+from .fundamentals import FundamentalsSource, NullFundamentals, fundamentals_record
 from .logging import get_logger
 from .scanner import Candidate
 from .storage import Store
@@ -109,6 +110,7 @@ class CaptureService:
     bars: BarSource
     news: NewsSource
     settings: Settings
+    fundamentals: FundamentalsSource = field(default_factory=NullFundamentals)
     _active: dict[str, _Active] = field(default_factory=dict)
 
     async def on_scan_tick(self, candidates: Sequence[Candidate], now: datetime) -> None:
@@ -138,8 +140,18 @@ class CaptureService:
             self.store.append(
                 "news", [news_record(oid, c.symbol, n) for n in items], partition_date=trading_date
             )
+        fund = await self.fundamentals.fetch(c)
+        if fund is not None:
+            self.store.append(
+                "fundamentals", [fundamentals_record(oid, fund, now)], partition_date=trading_date
+            )
         self._active[oid] = _Active(candidate=c)
-        log.info("capture.opportunity_opened", opportunity_id=oid, news=len(items))
+        log.info(
+            "capture.opportunity_opened",
+            opportunity_id=oid,
+            news=len(items),
+            float_shares=(fund.float_shares if fund else None),
+        )
 
     async def capture_bars(self, now: datetime) -> None:
         """Append any new 5-min bars for every active opportunity."""

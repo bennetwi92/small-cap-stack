@@ -14,6 +14,7 @@ from datetime import timedelta
 from .capture import CaptureService
 from .clock import now_et, within_window
 from .config import Settings, get_settings
+from .fundamentals import YFinanceFundamentals
 from .ibkr.subscriptions import SubscriptionRegistry
 from .ibkr.supervisor import ConnectionSupervisor
 from .ibkr.transport import IBKRTransport
@@ -40,7 +41,11 @@ class Application:
         self.store = Store(settings.data_dir)
         self.market_data = IBKRMarketData(self.transport.ib, settings)
         self.capture = CaptureService(
-            store=self.store, bars=self.market_data, news=self.market_data, settings=settings
+            store=self.store,
+            bars=self.market_data,
+            news=self.market_data,
+            settings=settings,
+            fundamentals=YFinanceFundamentals(),
         )
         self.supervisor = ConnectionSupervisor(
             self.transport,
