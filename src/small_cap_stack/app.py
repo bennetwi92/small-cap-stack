@@ -20,6 +20,7 @@ from .logging import configure_logging, get_logger
 from .pipeline import DagResult, Task, run_dag
 from .scanner import Candidate, Scanner
 from .scheduler import build_scheduler
+from .storage import Store
 
 log = get_logger(__name__)
 
@@ -35,6 +36,7 @@ class Application:
         self.subscriptions = SubscriptionRegistry()
         self.transport = IBKRTransport(settings, self.subscriptions)
         self.scanner = Scanner(settings)
+        self.store = Store(settings.data_dir)
         self.supervisor = ConnectionSupervisor(
             self.transport,
             on_connect=self.transport.resync,
