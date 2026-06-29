@@ -25,6 +25,10 @@
 - **Entry trigger (from `notes.md`):** the **tick above the high of the last consolidation candle**.
 - **Stop (CONFIRMED 2026-06-29):** the **low of the consolidation candle(s)** (the flag low). This is the R denominator.
 
+## Strategy notes captured 2026-06-29 (from `notes.md`)
+- **Opportunity exhaustion / re-entry (issue #36):** a symbol can form >1 opportunity/day (runs, exhausts, extends again). Phase-1 stores raw bars continuously, so re-entries are segmented **at analysis time**, not in live capture. Current `opportunity_id=<date>:<symbol>` is the Phase-1 starting point.
+- **Pre-market orders (issue #37):** pre-market is **limit-only**; stops/TP must be **app-monitored** pre-market (broker-native stops only in the regular session). Reuse tradepilot's app-side exit logic. Execution concern (P2/P3).
+
 ## Scope (from user, 2026-06-29)
 - User only ever acts on the **top 2–3 scanner rows, mostly the top 1.** The system only needs the *top few* candidates correct — the 50-row API cap and broad-universe concerns are largely moot.
 
