@@ -18,6 +18,7 @@ from .ibkr.supervisor import ConnectionSupervisor
 from .ibkr.transport import IBKRTransport
 from .logging import configure_logging, get_logger
 from .pipeline import DagResult, Task, run_dag
+from .scanner import Candidate, Scanner
 from .scheduler import build_scheduler
 
 log = get_logger(__name__)
@@ -33,6 +34,7 @@ class Application:
 
         self.subscriptions = SubscriptionRegistry()
         self.transport = IBKRTransport(settings, self.subscriptions)
+        self.scanner = Scanner(settings)
         self.supervisor = ConnectionSupervisor(
             self.transport,
             on_connect=self.transport.resync,
@@ -106,16 +108,23 @@ class Application:
         log.info("report.eod_start")
 
     async def _run_pipeline(self) -> DagResult:
-        """Placeholder DAG showing the scan→gate→capture dependency shape."""
+        """Scan → gate → capture. Scan is real (#13); gate/capture are placeholders (#14/#15)."""
+        candidates: list[Candidate] = []
 
         async def scan() -> int:
-            return 0  # no candidates yet — real scanner is #13
+            if not self.transport.is_connected():
+                log.warning("scan.skipped_disconnected")
+                return 0
+            found = await self.scanner.scan(self.transport.ib)
+            candidates.extend(found)
+            log.info("scan.candidates", count=len(found), symbols=[c.symbol for c in found])
+            return len(found)
 
         async def gate() -> int:
-            return 0
+            return 0  # gate engine is #15
 
         async def capture() -> int:
-            return 0
+            return 0  # raw capture is #14
 
         tasks = [
             Task("scan", scan),
