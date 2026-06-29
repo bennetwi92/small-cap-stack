@@ -1,0 +1,46 @@
+# Phase-1 tracker: IB Gateway (gnzsnz image + IBC) + the app, on one host.
+# Secrets come from .env (gitignored). See deploy/RUNBOOK.md.
+services:
+  ibgateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: unless-stopped
+    environment:
+      TWS_USERID: ${TWS_USERID:?set in .env}
+      TWS_PASSWORD: ${TWS_PASSWORD:?set in .env}
+      TRADING_MODE: ${IBKR_TRADING_MODE:-paper}
+      READ_ONLY_API: ${READ_ONLY_API:-no}
+      TWS_ACCEPT_INCOMING: accept
+      AUTO_RESTART_TIME: ${AUTO_RESTART_TIME:-23:45 PM}
+      TIME_ZONE: ${TZ:-America/New_York}
+      TWOFA_TIMEOUT_ACTION: restart
+      RELOGIN_AFTER_2FA_TIMEOUT: "yes"
+    healthcheck:
+      # Gateway is up once the API socket accepts connections.
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/4002' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      start_period: 120s
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      ibgateway:
+        condition: service_healthy
+    environment:
+      IBKR_HOST: ibgateway
+      IBKR_PORT: ${IBKR_PORT:-4002}
+      IBKR_TRADING_MODE: ${IBKR_TRADING_MODE:-paper}
+      IBKR_CLIENT_ID: ${IBKR_CLIENT_ID:-1}
+      HEALTHCHECKS_PING_URL: ${HEALTHCHECKS_PING_URL:-}
+      JSON_LOGS: "true"
+      METRICS_PORT: "9090"
+      TZ: ${TZ:-America/New_York}
+    volumes:
+      - scs-data:/data
+    ports:
+      - "127.0.0.1:9090:9090"  # /metrics, bound to localhost (scrape via tunnel/agent)
+
+volumes:
+  scs-data:
