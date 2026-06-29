@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     scan_min_5m_volume: int = 100_000  # trailing 5-min volume -> stVolume5minAbove
     scan_max_rows: int = 10  # we only ever act on the top few
 
+    # Gate thresholds (issue #15) — most reuse the scan_* values above.
+    float_max_shares: int = 20_000_000  # float < 20M shares
+
     # Capture (issue #14). Scanning stops at scan_end; we keep recording flagged
     # opportunities' bars/news until capture_end (regular close).
     capture_end: time = time(16, 0)
