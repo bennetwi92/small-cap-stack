@@ -16,6 +16,7 @@ from typing import Any, Protocol
 from .config import Settings
 from .fundamentals import FundamentalsSource, NullFundamentals, fundamentals_record
 from .logging import get_logger
+from .monitoring import BARS_APPENDED, OPPORTUNITIES
 from .scanner import Candidate
 from .storage import Store
 
@@ -146,6 +147,7 @@ class CaptureService:
                 "fundamentals", [fundamentals_record(oid, fund, now)], partition_date=trading_date
             )
         self._active[oid] = _Active(candidate=c)
+        OPPORTUNITIES.inc()
         log.info(
             "capture.opportunity_opened",
             opportunity_id=oid,
@@ -171,6 +173,7 @@ class CaptureService:
                 partition_date=trading_date,
             )
             active.last_bar_start = max(b.start for b in new)
+            BARS_APPENDED.inc(len(new))
             log.info("capture.bars_appended", opportunity_id=oid, count=len(new))
 
     def reset(self) -> None:

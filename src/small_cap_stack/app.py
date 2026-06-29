@@ -20,6 +20,13 @@ from .ibkr.supervisor import ConnectionSupervisor
 from .ibkr.transport import IBKRTransport
 from .logging import configure_logging, get_logger
 from .marketdata import IBKRMarketData
+from .monitoring import (
+    COLD_DISCONNECTS,
+    IBKR_CONNECTED,
+    SCAN_TICKS,
+    Heartbeat,
+    start_metrics_server,
+)
 from .report import EodReport, analysis_records, build_eod_report
 from .scanner import Scanner
 from .scheduler import build_scheduler
@@ -48,9 +55,10 @@ class Application:
             settings=settings,
             fundamentals=YFinanceFundamentals(),
         )
+        self.heartbeat = Heartbeat(settings.healthchecks_ping_url)
         self.supervisor = ConnectionSupervisor(
             self.transport,
-            on_connect=self.transport.resync,
+            on_connect=self._on_connect,
             on_cold_disconnect=self._alert_cold_disconnect,
             is_expected_restart=self._is_expected_restart,
         )
@@ -64,6 +72,8 @@ class Application:
 
     async def run(self) -> None:
         self._install_signal_handlers()
+        if self.settings.metrics_enabled:
+            start_metrics_server(self.settings.metrics_port)
         self.scheduler.start()
         self._conn_task = asyncio.create_task(self.supervisor.run(), name="ibkr-supervisor")
         log.info(
@@ -92,9 +102,15 @@ class Application:
         end = start + timedelta(minutes=self.settings.gateway_restart_window_min)
         return start <= now <= end
 
+    async def _on_connect(self) -> None:
+        IBKR_CONNECTED.set(1)
+        await self.transport.resync()
+
     async def _alert_cold_disconnect(self) -> None:
-        # TODO(#5): ping Healthchecks.io / alert channel. For now, a loud structured error.
+        IBKR_CONNECTED.set(0)
+        COLD_DISCONNECTS.inc()
         log.error("ibkr.cold_disconnect_alert")
+        await self.heartbeat.fail()
 
     def request_shutdown(self) -> None:
         log.info("app.shutdown_requested")
@@ -112,6 +128,8 @@ class Application:
 
     async def _on_tick(self) -> None:
         """Scan during the scan window; keep capturing flagged opportunities until close."""
+        SCAN_TICKS.inc()
+        await self.heartbeat.ping()  # dead-man's switch: process is alive
         if not self.transport.is_connected():
             return
         now = now_et()

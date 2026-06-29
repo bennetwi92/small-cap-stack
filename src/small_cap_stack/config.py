@@ -24,8 +24,10 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
     duckdb_path: Path = Path("./data/small_cap_stack.duckdb")
 
-    # Monitoring
+    # Monitoring (issue #5)
     healthchecks_ping_url: str = ""
+    metrics_enabled: bool = True
+    metrics_port: int = 9090
 
     # Logging
     log_level: str = "INFO"
