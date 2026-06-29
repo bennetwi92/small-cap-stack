@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Project board
+    url: https://github.com/users/bennetwi92/projects/3
+    about: Track status (Todo / In Progress / Done) on the board.
+  - name: Working agreement (CLAUDE.md)
+    url: https://github.com/bennetwi92/small-cap-stack/blob/main/CLAUDE.md
+    about: Conventions, branching, CI gates, and issue/board hygiene.
