@@ -12,7 +12,7 @@ import signal
 from datetime import timedelta
 
 from .capture import CaptureService
-from .clock import now_et, within_window
+from .clock import ET_NAME, now_et, within_window
 from .config import Settings, get_settings
 from .fundamentals import YFinanceFundamentals
 from .ibkr.subscriptions import SubscriptionRegistry
@@ -53,9 +53,11 @@ class Application:
             bars=self.market_data,
             news=self.market_data,
             settings=settings,
-            fundamentals=YFinanceFundamentals(),
+            fundamentals=YFinanceFundamentals(timeout_sec=settings.fundamentals_timeout_sec),
         )
-        self.heartbeat = Heartbeat(settings.healthchecks_ping_url)
+        self.heartbeat = Heartbeat(
+            settings.healthchecks_ping_url, timeout_sec=settings.heartbeat_timeout_sec
+        )
         self.supervisor = ConnectionSupervisor(
             self.transport,
             on_connect=self._on_connect,
@@ -79,14 +81,16 @@ class Application:
         log.info(
             "app.started",
             mode=self.settings.ibkr_trading_mode,
-            tz=self.settings.timezone,
+            tz=ET_NAME,
             scan_window=f"{self.settings.scan_start:%H:%M}-{self.settings.scan_end:%H:%M}",
         )
         try:
             await self._shutdown.wait()
         finally:
-            self.supervisor.stop()
+            # Stop launching new ticks before tearing down the connection, so a tick can't fire
+            # against a half-closed Gateway during shutdown.
             self.scheduler.shutdown(wait=False)
+            self.supervisor.stop()
             if self._conn_task is not None:
                 try:
                     await asyncio.wait_for(self._conn_task, timeout=10)
@@ -98,13 +102,20 @@ class Application:
         """True during the daily Gateway-restart window (disconnects there aren't cold)."""
         now = now_et()
         r = self.settings.gateway_restart
+        window = timedelta(minutes=self.settings.gateway_restart_window_min)
         start = now.replace(hour=r.hour, minute=r.minute, second=0, microsecond=0)
-        end = start + timedelta(minutes=self.settings.gateway_restart_window_min)
-        return start <= now <= end
+        # Check today's window and the one that began yesterday (it may wrap past midnight).
+        return any(s <= now <= s + window for s in (start, start - timedelta(days=1)))
 
     async def _on_connect(self) -> None:
         IBKR_CONNECTED.set(1)
         await self.transport.resync()
+        # Bar streams are stateful and dropped on disconnect — re-open them on every (re)connect.
+        # Guarded so a replay hiccup degrades to "no bars this cycle", not a dropped connection.
+        try:
+            await self.market_data.resubscribe()
+        except Exception:  # noqa: BLE001 — best-effort replay; never fail the connect
+            log.warning("marketdata.resubscribe_failed")
 
     async def _alert_cold_disconnect(self) -> None:
         IBKR_CONNECTED.set(0)
@@ -157,6 +168,7 @@ class Application:
             )
             self._write_report_markdown(report)
         log.info("report.eod_done", **report.aggregates)
+        self.market_data.cancel_all()  # tear down the day's bar streams
         self.capture.reset()
 
     def _write_report_markdown(self, report: EodReport) -> None:

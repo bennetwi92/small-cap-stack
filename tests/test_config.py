@@ -15,7 +15,6 @@ def test_defaults() -> None:
     assert s.ibkr_trading_mode == "paper"
     assert s.scan_start == time(4, 0)
     assert s.scan_end == time(11, 59)
-    assert s.timezone == "America/New_York"
 
 
 def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:

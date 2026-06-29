@@ -21,6 +21,7 @@ import polars as pl
 from .bullflag import detect_with_settings
 from .capture import Bar
 from .config import Settings
+from .gates import GateInputs, float_gate, news_gate
 from .rmetrics import compute_r_metrics
 from .storage import Store
 
@@ -108,6 +109,13 @@ def _analyze(
 
     rm = compute_r_metrics(obars, s)
     setup_count = _count_setups(obars, s)
+    # Single source of truth for the threshold predicates: reuse the gate engine rather than
+    # re-deriving them here (a None datum stays None to distinguish "no data" from "fails gate").
+    gi = GateInputs(
+        ts_utc=row["first_seen_utc"],
+        float_shares=float_shares,
+        has_recent_news=news_count > 0,
+    )
     return OpportunityAnalysis(
         opportunity_id=oid,
         symbol=row["symbol"],
@@ -116,8 +124,8 @@ def _analyze(
         news_count=news_count,
         float_shares=float_shares,
         short_percent=short_percent,
-        float_ok=(float_shares < s.float_max_shares) if float_shares is not None else None,
-        has_news=news_count > 0,
+        float_ok=float_gate(gi, s).passed if float_shares is not None else None,
+        has_news=news_gate(gi, s).passed,
         bull_flag=setup_count > 0,  # a flag formed at some point in the day
         setup_count=setup_count,
         triggered=rm.triggered,

@@ -52,8 +52,10 @@ class Store:
         con = duckdb.connect()
         try:
             con.execute("SET TimeZone='UTC'")  # deterministic, host-tz-independent
+            # union_by_name tolerates schema drift across append files (e.g. a nullable column
+            # that's all-null on some days), matching columns by name rather than position.
             result: pl.DataFrame = con.execute(
-                "SELECT * FROM read_parquet(?, hive_partitioning=1)", [str(glob)]
+                "SELECT * FROM read_parquet(?, hive_partitioning=1, union_by_name=1)", [str(glob)]
             ).pl()
             return result
         finally:
@@ -66,9 +68,10 @@ class Store:
             con.execute("SET TimeZone='UTC'")  # deterministic, host-tz-independent
             for dataset in self._datasets():
                 glob = str(self.data_dir / dataset / "**" / "*.parquet").replace("'", "''")
+                view = dataset.replace('"', '""')  # quote the identifier defensively
                 con.execute(
-                    f'CREATE VIEW "{dataset}" AS '
-                    f"SELECT * FROM read_parquet('{glob}', hive_partitioning=1)"
+                    f'CREATE VIEW "{view}" AS '
+                    f"SELECT * FROM read_parquet('{glob}', hive_partitioning=1, union_by_name=1)"
                 )
             result: pl.DataFrame = con.execute(sql).pl()
             return result

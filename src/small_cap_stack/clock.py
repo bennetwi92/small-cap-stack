@@ -5,7 +5,10 @@ from __future__ import annotations
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
-ET = ZoneInfo("America/New_York")
+# The market timezone is a domain constant (US small-cap), not configuration — this module is the
+# single source of truth for it, used by the gates, the windows, and the scheduler alike.
+ET_NAME = "America/New_York"
+ET = ZoneInfo(ET_NAME)
 
 
 def now_et() -> datetime:

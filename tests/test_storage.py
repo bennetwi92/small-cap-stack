@@ -56,6 +56,28 @@ def test_append_accumulates_across_partitions(tmp_path: Path) -> None:
     assert set(df["dt"].to_list()) == {date(2026, 6, 29), date(2026, 6, 30)}
 
 
+def test_read_tolerates_cross_file_schema_drift(tmp_path: Path) -> None:
+    # A nullable column that is all-null on one day and populated on another must still read
+    # back as one frame (union_by_name) rather than raising a Parquet schema mismatch.
+    store = Store(tmp_path)
+    store.append(
+        "fundamentals",
+        [{"symbol": "AZI", "float_shares": None}],
+        partition_date=date(2026, 6, 29),
+    )
+    store.append(
+        "fundamentals",
+        [{"symbol": "BZI", "float_shares": 8_000_000}],
+        partition_date=date(2026, 6, 30),
+    )
+    df = store.read("fundamentals")
+    assert df.height == 2
+    assert set(df["symbol"].to_list()) == {"AZI", "BZI"}
+    # also reachable via the query() view path
+    out = store.query("SELECT count(*) AS n FROM fundamentals WHERE float_shares IS NULL")
+    assert out["n"].to_list() == [1]
+
+
 def test_query_computes_on_read(tmp_path: Path) -> None:
     store = Store(tmp_path)
     store.append("candidates", _rows(), partition_date=date(2026, 6, 29))

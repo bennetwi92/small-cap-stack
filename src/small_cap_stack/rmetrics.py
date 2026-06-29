@@ -8,6 +8,12 @@ have happened:
 - after entry, the peak favourable excursion in R (**Max R**) and the worst adverse excursion
   (MAE in R), and whether the stop was hit.
 
+Intrabar ordering is unknowable from OHLC alone, so measurement adopts a deliberately
+conservative **stop-first** convention: on (and after) the entry bar, if a bar breaches the
+stop we treat the trade as closed at the stop on that bar — its adverse excursion is recorded
+but its high is *not* credited to Max R, and no later bar is measured. This never overstates the
+strategy's edge (the whole point of Phase-1 measurement).
+
 Pure and replayable over the cached raw bars, so the entry/stop definition can change and be
 recomputed retroactively.
 """
@@ -64,21 +70,29 @@ def compute_r_metrics(bars: list[Bar], settings: Settings) -> RMetrics:
     for j in range(setup_idx + 1, len(bars)):
         bar = bars[j]
         if not triggered:
-            if bar.high >= bf.entry_trigger:
-                triggered = True
-                entry_index = j
-                max_high = bar.high
-                min_low = bar.low
-                bars_to_max_r = 0
+            if bar.high < bf.entry_trigger:
+                continue
+            triggered = True
+            entry_index = j
+            min_low = bar.low
+            bars_to_max_r = 0
+            # Same-bar trigger+stop: stop-first convention credits no favourable excursion.
+            if bar.low <= bf.stop:
+                max_high = bf.entry_trigger
+                stopped_out = True
+                break
+            max_high = bar.high
             continue
-        # post-entry tracking
-        assert max_high is not None and min_low is not None
+        # post-entry tracking — check the stop first (conservative intrabar ordering).
+        assert max_high is not None and min_low is not None and entry_index is not None
+        if bar.low <= bf.stop:
+            min_low = min(min_low, bar.low)
+            stopped_out = True
+            break
         if bar.high > max_high:
             max_high = bar.high
-            bars_to_max_r = j - (entry_index or j)
+            bars_to_max_r = j - entry_index
         min_low = min(min_low, bar.low)
-        if bar.low <= bf.stop:
-            stopped_out = True
 
     if not triggered:
         return RMetrics(

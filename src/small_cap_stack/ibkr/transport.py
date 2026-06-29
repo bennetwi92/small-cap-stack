@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import cast
+from typing import Any, cast
 
 from ib_async import IB, Contract
 
@@ -32,6 +32,7 @@ class IBKRTransport:
         self.registry = registry if registry is not None else SubscriptionRegistry()
         self._disconnected = asyncio.Event()
         self._disconnected.set()  # starts disconnected
+        self._bg_tasks: set[asyncio.Task[None]] = set()  # keep fire-and-forget tasks alive
         self.ib.disconnectedEvent += self._on_ib_disconnected
         self.ib.errorEvent += self._on_ib_error
 
@@ -76,11 +77,24 @@ class IBKRTransport:
     def _on_ib_disconnected(self) -> None:
         self._disconnected.set()
 
+    def _spawn(self, coro: Any) -> None:
+        """Fire-and-forget a coroutine from a sync ib_async callback, retaining a reference and
+        logging any failure (an unreferenced task can be GC'd mid-flight and swallow errors)."""
+        task = asyncio.get_running_loop().create_task(coro)
+        self._bg_tasks.add(task)
+
+        def _done(t: asyncio.Task[None]) -> None:
+            self._bg_tasks.discard(t)
+            if not t.cancelled() and (exc := t.exception()) is not None:
+                log.warning("ibkr.background_task_failed", error=str(exc))
+
+        task.add_done_callback(_done)
+
     def _on_ib_error(self, reqId: int, code: int, msg: str, *_: object) -> None:
         action = classify_connection_error(code)
         if action is ConnAction.RESUBSCRIBE:
             log.warning("ibkr.data_lost_resubscribing", code=code)
-            asyncio.get_event_loop().create_task(self.replay_subscriptions())
+            self._spawn(self.replay_subscriptions())
         elif action is ConnAction.CONNECTIVITY_LOST:
             log.warning("ibkr.connectivity_lost", code=code)
         elif action is ConnAction.DATA_OK:

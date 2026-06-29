@@ -20,9 +20,8 @@ class Settings(BaseSettings):
     ibkr_client_id: int = 1
     ibkr_trading_mode: str = "paper"  # paper | live
 
-    # Storage (DuckDB + Parquet — issue #7)
+    # Storage (DuckDB + Parquet — issue #7). DuckDB is opened in-memory over the Parquet globs.
     data_dir: Path = Path("./data")
-    duckdb_path: Path = Path("./data/small_cap_stack.duckdb")
 
     # Monitoring (issue #5)
     healthchecks_ping_url: str = ""
@@ -33,8 +32,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     json_logs: bool = False
 
-    # Schedule (US/Eastern). Trading window 04:00–11:59 ET; EOD report after the close.
-    timezone: str = "America/New_York"
+    # Schedule (US/Eastern; the market tz lives in clock.ET). Window 04:00–11:59 ET.
     scan_start: time = time(4, 0)
     scan_end: time = time(11, 59)
     eod_report: time = time(16, 30)
@@ -69,6 +67,11 @@ class Settings(BaseSettings):
     news_providers: str = "BRFG+DJ-N+DJNL"
     news_lookback_days: int = 7
     news_max: int = 10
+
+    # Async safety — bound blocking/remote calls so a hung dependency can't wedge the loop.
+    ibkr_request_timeout_sec: float = 30.0
+    fundamentals_timeout_sec: float = 10.0
+    heartbeat_timeout_sec: float = 10.0
 
 
 @lru_cache

@@ -85,6 +85,34 @@ def test_second_tick_does_not_reopen_but_logs_hit(tmp_path: Path) -> None:
     assert store.read("scanner_hits").height == 2  # both appearances logged
 
 
+class BoomBars:
+    """A bar source that raises for one symbol but works for the rest."""
+
+    def __init__(self, bad_symbol: str, good: list[Bar]) -> None:
+        self.bad_symbol = bad_symbol
+        self.good = good
+
+    async def fetch_5m_bars(self, candidate: Candidate, *, lookback_sec: int) -> list[Bar]:
+        if candidate.symbol == self.bad_symbol:
+            raise RuntimeError("ib timeout")
+        return list(self.good)
+
+
+def test_one_symbol_failure_does_not_stall_the_tick(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    svc = CaptureService(
+        store=store, bars=BoomBars("BAD", [_bar(30)]), news=FakeNews([]), settings=_settings()
+    )
+    now = datetime(2026, 6, 29, 9, 40, tzinfo=UTC)
+    # BAD raises on bar fetch; GOOD must still be captured.
+    asyncio.run(svc.on_scan_tick([_candidate("BAD"), _candidate("GOOD")], now))
+
+    assert store.read("opportunities").height == 2  # both opened
+    bars = store.read("bars")
+    assert bars.height == 1  # only GOOD's bar persisted
+    assert bars["symbol"].to_list() == ["GOOD"]
+
+
 def test_bars_are_deduped_across_ticks(tmp_path: Path) -> None:
     store = Store(tmp_path)
     bars = FakeBars([_bar(30), _bar(35)])
