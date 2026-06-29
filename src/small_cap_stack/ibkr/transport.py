@@ -29,7 +29,7 @@ class IBKRTransport:
     def __init__(self, settings: Settings, registry: SubscriptionRegistry | None = None) -> None:
         self._s = settings
         self.ib = IB()
-        self.registry = registry or SubscriptionRegistry()
+        self.registry = registry if registry is not None else SubscriptionRegistry()
         self._disconnected = asyncio.Event()
         self._disconnected.set()  # starts disconnected
         self.ib.disconnectedEvent += self._on_ib_disconnected

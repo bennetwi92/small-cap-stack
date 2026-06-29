@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     scan_end: time = time(11, 59)
     eod_report: time = time(16, 30)
 
+    # IB Gateway daily auto-restart (IBC AUTO_RESTART_TIME). Disconnects in this window are
+    # treated as expected, not cold failures.
+    gateway_restart: time = time(23, 45)
+    gateway_restart_window_min: int = 10
+
 
 @lru_cache
 def get_settings() -> Settings:
