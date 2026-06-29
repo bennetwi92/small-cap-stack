@@ -1,16 +1,21 @@
-"""The long-lived asyncio application: scheduler + graceful shutdown.
+"""The long-lived asyncio application: scheduler + IBKR connection + graceful shutdown.
 
-Phase-1 skeleton (issue #12). The scheduled callbacks currently just log and run a placeholder
-pipeline; the real scanner/gate/capture/report tasks (#13–#19) and the IBKR connection (#11)
-plug in here later.
+Phase-1 runtime (issues #12, #11, #31). Owns the IBKR connection supervisor and the scheduler.
+The scheduled callbacks still run a placeholder pipeline; the real scanner/gate/capture/report
+tasks (#13–#19) plug into the same shape.
 """
 
 from __future__ import annotations
 
 import asyncio
 import signal
+from datetime import timedelta
 
+from .clock import now_et
 from .config import Settings, get_settings
+from .ibkr.subscriptions import SubscriptionRegistry
+from .ibkr.supervisor import ConnectionSupervisor
+from .ibkr.transport import IBKRTransport
 from .logging import configure_logging, get_logger
 from .pipeline import DagResult, Task, run_dag
 from .scheduler import build_scheduler
@@ -19,11 +24,21 @@ log = get_logger(__name__)
 
 
 class Application:
-    """Owns the scheduler and the process lifecycle."""
+    """Owns the IBKR connection, the scheduler, and the process lifecycle."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._shutdown = asyncio.Event()
+        self._conn_task: asyncio.Task[None] | None = None
+
+        self.subscriptions = SubscriptionRegistry()
+        self.transport = IBKRTransport(settings, self.subscriptions)
+        self.supervisor = ConnectionSupervisor(
+            self.transport,
+            on_connect=self.transport.resync,
+            on_cold_disconnect=self._alert_cold_disconnect,
+            is_expected_restart=self._is_expected_restart,
+        )
         self.scheduler = build_scheduler(
             settings,
             on_scan_start=self._on_scan_start,
@@ -34,6 +49,7 @@ class Application:
     async def run(self) -> None:
         self._install_signal_handlers()
         self.scheduler.start()
+        self._conn_task = asyncio.create_task(self.supervisor.run(), name="ibkr-supervisor")
         log.info(
             "app.started",
             mode=self.settings.ibkr_trading_mode,
@@ -43,8 +59,26 @@ class Application:
         try:
             await self._shutdown.wait()
         finally:
+            self.supervisor.stop()
             self.scheduler.shutdown(wait=False)
+            if self._conn_task is not None:
+                try:
+                    await asyncio.wait_for(self._conn_task, timeout=10)
+                except (TimeoutError, asyncio.CancelledError):
+                    self._conn_task.cancel()
             log.info("app.stopped")
+
+    def _is_expected_restart(self) -> bool:
+        """True during the daily Gateway-restart window (disconnects there aren't cold)."""
+        now = now_et()
+        r = self.settings.gateway_restart
+        start = now.replace(hour=r.hour, minute=r.minute, second=0, microsecond=0)
+        end = start + timedelta(minutes=self.settings.gateway_restart_window_min)
+        return start <= now <= end
+
+    async def _alert_cold_disconnect(self) -> None:
+        # TODO(#5): ping Healthchecks.io / alert channel. For now, a loud structured error.
+        log.error("ibkr.cold_disconnect_alert")
 
     def request_shutdown(self) -> None:
         log.info("app.shutdown_requested")
