@@ -15,7 +15,7 @@
 | 7 | Weekly 2FA | **Accepted for now** (one manual phone tap/week). User aware of a second-username / relaxed-2FA workaround to apply later himself. |
 | 8 | Branching | **Trunk-based: protected `main` + short-lived branches, all work via PRs**, required CI checks before merge. Chosen because much work happens in PRs / Claude Code on mobile. |
 | 9 | Stack | **Python + `ib_async`** (the maintained fork). Prior repos' raw-`ibapi` code is adapted, not lifted verbatim. |
-| 10 | Storage | **Self-hosted PostgreSQL (+ TimescaleDB) on the Oracle VM's free 200 GB block volume** as primary store; raw per-opportunity bars/snapshots archived as **Parquet on disk**; periodic backup to free object storage. Chosen over SQLite / Neon-Supabase free tiers because **data requirements will only grow** and managed free tiers cap at ~0.5 GB. |
+| 10 | Storage | ⚠️ **SUPERSEDED 2026-06-29 by [architecture-review.md](./architecture-review.md): use DuckDB-over-Parquet** (not Postgres/TimescaleDB) for Phase 1. ~~Self-hosted PostgreSQL (+ TimescaleDB) on the Oracle VM's 200 GB block volume.~~ Parquet-on-disk + growth-friendly intent unchanged; the embedded analytical engine changed. |
 | 11 | Phase-1 scope | **Tracker only — places no orders.** Records every scanner-flagged opportunity, which gates it passed, whether a notional entry would have triggered, and Max R achieved + other stats. **All stats computed on the fly from cached raw data** so methodology can change retroactively. |
 
 ## Core architectural principle (from Q11)
@@ -35,6 +35,14 @@
 - **B. Pre-market bar completeness** (#9): ✅ **GREEN** — active names get contiguous gap-free 5-min bars from 04:00 ET; only a leading absence before first trade. No interpolation needed.
 - **C. IBKR news sufficiency** (#10): ✅ **GREEN to start** — account entitled to 8 providers incl. Dow Jones DJ-N (per-symbol headlines + retrievable bodies + halt notices). Start with included feed; measure timeliness in Phase 1 before paying.
 - **D. Tradability gate** (#25, new): ✅ **GREEN** — `whatIfOrder` + error 201 reliably flags symbols IBKR blocks for the account even while they trade. Confirmed CBRG BLOCKED (PRIIPs/KID). **Account is under EU/UK PRIIPs rules** → expect some US small-cap SPAC/warrant/ETP runners to be un-orderable. **Add a tradability gate to the gate engine (#15).** Re-validate on live in P3.
+
+## Architecture decisions (2026-06-29) — see [architecture-review.md](./architecture-review.md)
+- **Trading core:** assemble on **`ib_async`** (no framework) for P1–P2; revisit NautilusTrader at P3 only if justified.
+- **Runtime (#12):** one long-lived **asyncio** process — `TaskGroup`/`anyio` for in-process task dependencies + **APScheduler 3.x** for time triggers. No external orchestrator (Airflow/Prefect/Dagster).
+- **Supervision/deploy:** **systemd** (`Restart=always`) runs the app; **Docker Compose** runs IB Gateway (gnzsnz image + IBC). No K8s/Terraform.
+- **IBKR connection (#11):** thin (~200-line) **reconnect-and-resync supervisor**; rely on IBC+Docker for login/daily-restart/2FA; do NOT use `ib_async.Watchdog` (wrong tool for the container split).
+- **Storage (#7):** **DuckDB + partitioned Parquet** (+ SQLite for mutable state).
+- **DataFrames:** polars (pandas for glue). **Indicators:** TA-Lib (ARM wheels now) + custom pattern logic. **Validation:** Pydantic v2 + pandera. **Observability:** structlog + prometheus-client → Grafana Cloud + Healthchecks.io. **Calendar:** pandas-market-calendars + zoneinfo (UTC).
 
 ## Repo visibility (CONFIRMED 2026-06-29)
 - **Public, by choice** — the user is happy for anyone to use what's built. Bonus: unlimited GitHub Actions. Never commit secrets/credentials (enforced via `.gitignore` + `.env`).
