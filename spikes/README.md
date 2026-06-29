@@ -81,3 +81,18 @@ python spikes/ibkr_news_check.py --port 4002 --symbols NNBR,AZI --days 7 --body
 ```
 Judge: are there headlines near the spike time, and are bodies retrievable? If the entitled
 providers only give stale commentary, scope a paid feed.
+
+## `ibkr_tradability_check.py` — issue #25
+
+Is a symbol actually **orderable on IBKR** (not just un-halted)? Some symbols trade actively
+yet IBKR blocks order entry for the account. Probes each symbol non-intrusively: contract
+qualification → live snapshot (proves it trades) → `whatIfOrder` margin preview (NO execution).
+A block surfaces as an order-rejection error (e.g. **201** "No Trading Permission / Customer
+Ineligible") which we map to a hard "not tradable" verdict, separate from the halted check.
+
+```bash
+python spikes/ibkr_tradability_check.py --port 4002 --symbols NNBR,AZI,SKYQ,PETS,CBRG
+```
+Confirmed live: a scanner hit (CBRG) came back **BLOCKED** (PRIIPs/KID restriction) while the
+rest were TRADABLE — so this gate is load-bearing. Re-validate verdicts on a **live** account
+in Phase 3 (paper may not perfectly mirror restrictions).
