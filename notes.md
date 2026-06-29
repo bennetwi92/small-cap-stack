@@ -1,0 +1,1 @@
+- entry should be at the tick above the high of the last consolidation candle.
