@@ -3,21 +3,18 @@
 
 The headless system cannot use the Mosaic GUI scanner — it must use the API
 (`reqScannerData` / `ScannerSubscription`). This script runs an API scan tuned to the
-strategy universe (low-priced small-cap gainers) and saves the ranked results so they can
-be eyeballed against a Mosaic screenshot taken at the same moment.
+strategy universe (low-priced small-cap gainers with a short-term volume spike) and saves
+the ranked results so they can be eyeballed against a Mosaic screenshot.
 
-Goal: a go / no-go on whether the API scanner surfaces the same candidates as Mosaic, and
-the achievable scan definition. Float < 20M shares is NOT an API scan parameter — it is a
-post-filter, so the API scan is expected to be broader; we are checking it is not *missing*
-names Mosaic finds.
-
-Run it against a logged-in TWS or IB Gateway, ideally pre-market (e.g. 07:00-09:00 ET) to
-exercise the real-world window, and at the same time capture your Mosaic scan for comparison.
+Volume: the strategy wants TRAILING 5-MIN volume, not day volume. IBKR exposes this
+natively via the `stVolume5minAbove` filter (also 3min/10min), so we filter on that
+directly — no need to derive it from bars. (`--quotes` still shows cumulative day volume
+for reference only.) Use `--dump-params` to write the full parameter list.
 
     # inside the project venv (pip install -e ".[dev]")
-    python spikes/api_scanner_vs_mosaic.py --port 7497            # TWS paper
-    python spikes/api_scanner_vs_mosaic.py --port 4002 --quotes   # Gateway paper + snapshots
-    python spikes/api_scanner_vs_mosaic.py --dump-params          # write all valid scan tags
+    python spikes/api_scanner_vs_mosaic.py --port 4002 --quotes
+    python spikes/api_scanner_vs_mosaic.py --port 4002 --vol-window 5min --min-volume 100000
+    python spikes/api_scanner_vs_mosaic.py --dump-params
 
 Ports: TWS paper 7497 / live 7496 · Gateway paper 4002 / live 4001.
 """
@@ -37,6 +34,14 @@ from ib_async import IB, ScanData, ScannerSubscription, Stock, TagValue, Ticker
 
 ET = ZoneInfo("America/New_York")
 
+# Maps a volume window to the IBKR scanner filter code (from reqScannerParameters).
+VOL_FILTER = {
+    "day": "volumeAbove",
+    "3min": "stVolume3minAbove",
+    "5min": "stVolume5minAbove",
+    "10min": "stVolume10minAbove",
+}
+
 
 @dataclass
 class ScanRow:
@@ -46,11 +51,11 @@ class ScanRow:
     exchange: str
     currency: str
     con_id: int
-    # populated only with --quotes
+    # populated only with --quotes (reference only; day-cumulative, NOT the 5-min window)
     last: float | None = None
     prev_close: float | None = None
     change_pct: float | None = None
-    volume: float | None = None
+    day_volume: float | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,14 +66,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--port", type=int, default=7497, help="TWS 7497/7496, Gateway 4002/4001")
     p.add_argument("--client-id", type=int, default=77)
     p.add_argument("--dump-params", action="store_true", help="write scan params XML and exit")
-    p.add_argument("--scan-code", default="TOP_PERC_GAIN", help="e.g. TOP_PERC_GAIN, HOT_BY_VOLUME")
+    p.add_argument(
+        "--scan-code", default="TOP_PERC_GAIN", help="e.g. TOP_PERC_GAIN, HIGH_STVOLUME_5MIN"
+    )
     p.add_argument("--location", default="STK.US.MAJOR", help="STK.US.MAJOR or STK.US (incl OTC)")
     p.add_argument("--min-price", type=float, default=2.0)
     p.add_argument("--max-price", type=float, default=10.0)
     p.add_argument("--change-pct", type=float, default=10.0, help="changePercAbove filter")
-    p.add_argument("--min-volume", type=int, default=100_000, help="volumeAbove filter (shares)")
+    p.add_argument("--vol-window", choices=list(VOL_FILTER), default="5min", help="volume window")
+    p.add_argument(
+        "--min-volume", type=int, default=100_000, help="min volume in the chosen window"
+    )
     p.add_argument("--rows", type=int, default=50, help="numberOfRows (API hard cap is 50)")
-    p.add_argument("--quotes", action="store_true", help="also snapshot last/change/volume per hit")
+    p.add_argument("--quotes", action="store_true", help="snapshot last/change/DAY volume per hit")
     p.add_argument("--out-dir", default="data/spikes", help="where to write CSV/JSON (gitignored)")
     return p.parse_args()
 
@@ -95,17 +105,18 @@ def build_subscription(a: argparse.Namespace) -> tuple[ScannerSubscription, list
         numberOfRows=min(a.rows, 50),
     )
     # Strategy filters as TagValues (the API equivalent of Mosaic's filter rows).
+    # Volume uses the short-term-window filter so it matches "5-min volume > 100k".
     filters = [
         TagValue("priceAbove", str(a.min_price)),
         TagValue("priceBelow", str(a.max_price)),
         TagValue("changePercAbove", str(a.change_pct)),
-        TagValue("volumeAbove", str(a.min_volume)),
+        TagValue(VOL_FILTER[a.vol_window], str(a.min_volume)),
     ]
     return sub, filters
 
 
 def add_quotes(ib: IB, rows: list[ScanRow]) -> None:
-    """Snapshot last/prev-close/volume so results can be compared to Mosaic columns."""
+    """Snapshot last/prev-close/DAY volume — reference only (not the 5-min window)."""
     ib.reqMarketDataType(3)  # delayed-frozen if no live entitlement; fine for the spike
     contracts = [Stock(r.symbol, r.exchange or "SMART", r.currency or "USD") for r in rows]
     ib.qualifyContracts(*contracts)
@@ -120,7 +131,7 @@ def add_quotes(ib: IB, rows: list[ScanRow]) -> None:
         r.prev_close = None if t.close != t.close else round(t.close, 4)
         if r.last is not None and r.prev_close:
             r.change_pct = round((r.last - r.prev_close) / r.prev_close * 100, 2)
-        r.volume = None if t.volume != t.volume else t.volume
+        r.day_volume = None if t.volume != t.volume else t.volume
 
 
 def main() -> int:
@@ -141,10 +152,10 @@ def main() -> int:
         sub, filters = build_subscription(a)
         print(
             f"Scan: {a.scan_code} @ {a.location} | price {a.min_price}-{a.max_price} "
-            f"| change>{a.change_pct}% | vol>{a.min_volume:,} | rows<={min(a.rows, 50)}"
+            f"| change>{a.change_pct}% | {a.vol_window} vol>{a.min_volume:,} "
+            f"({VOL_FILTER[a.vol_window]}) | rows<={min(a.rows, 50)}"
         )
         data: list[ScanData] = ib.reqScannerData(sub, [], filters)
-
         rows = [to_row(d) for d in data]
 
         if a.quotes and rows:
@@ -166,6 +177,8 @@ def main() -> int:
                 "min_price": a.min_price,
                 "max_price": a.max_price,
                 "change_pct": a.change_pct,
+                "vol_window": a.vol_window,
+                "vol_filter": VOL_FILTER[a.vol_window],
                 "min_volume": a.min_volume,
             },
             "count": len(rows),
@@ -180,16 +193,14 @@ def main() -> int:
 
         print(f"\n{len(rows)} result(s):")
         for r in rows:
-            extra = ""
-            if a.quotes:
-                extra = f"  last={r.last} chg%={r.change_pct} vol={r.volume}"
+            extra = f"  last={r.last} chg%={r.change_pct} dayVol={r.day_volume}" if a.quotes else ""
             print(f"  #{r.rank:<2} {r.symbol:<6} {r.exchange:<10}{extra}")
         if len(rows) >= 50:
             print("\n!! Hit the 50-row API cap — true universe may be larger than shown here.")
         print(f"\nSaved: {csv_path}\n       {json_path}")
         print(
-            "Now compare these against a Mosaic scan captured at the same time and "
-            "note any names Mosaic found that the API missed (and vice-versa)."
+            "Compare against a Mosaic scan captured at the same time; note any names "
+            "Mosaic found that the API missed (and vice-versa)."
         )
         return 0
     finally:
