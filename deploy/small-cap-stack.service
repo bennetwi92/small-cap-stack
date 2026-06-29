@@ -1,0 +1,17 @@
+[Unit]
+Description=small-cap-stack (IBKR Phase-1 tracker)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/small-cap-stack
+ExecStart=/usr/bin/docker compose up -d --build
+ExecStop=/usr/bin/docker compose down
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
