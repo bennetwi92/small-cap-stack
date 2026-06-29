@@ -16,7 +16,12 @@ dependencies = [
     "python-dotenv>=1.0",
     "pytz>=2024.2",
     "pandas>=2.2",
+    "APScheduler>=3.10,<4",
+    "structlog>=24.1",
 ]
+
+[project.scripts]
+small-cap-stack = "small_cap_stack.app:run_sync"
 
 [project.optional-dependencies]
 dev = [
@@ -45,6 +50,10 @@ packages = ["small_cap_stack"]
 mypy_path = "src"
 strict = true
 warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = ["apscheduler.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
