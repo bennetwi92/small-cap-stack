@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     # Gate thresholds (issue #15) — most reuse the scan_* values above.
     float_max_shares: int = 20_000_000  # float < 20M shares
 
+    # Bull-flag detection (issue #16).
+    bull_flag_max_green: int = 2  # max green extension (pole) candles
+    bull_flag_max_red: int = 2  # max red consolidation (flag) candles
+    entry_tick: float = 0.01  # tick added above the breakout level (US $2-10 names)
+
     # Capture (issue #14). Scanning stops at scan_end; we keep recording flagged
     # opportunities' bars/news until capture_end (regular close).
     capture_end: time = time(16, 0)
