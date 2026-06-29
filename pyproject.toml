@@ -61,5 +61,5 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --cov=small_cap_stack --cov-report=term-missing"
+addopts = "-ra --cov=small_cap_stack --cov-report=term-missing --cov-fail-under=80"
 pythonpath = ["src"]
