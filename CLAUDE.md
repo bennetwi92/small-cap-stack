@@ -54,3 +54,16 @@ Toolchain lives in `.venv`. CI runs ruff + mypy + pytest on every PR.
 - `spikes/` — de-risking experiments.
 - `research/` — research reports + `decisions.md` + `findings-index.md`.
 - `data/` — local runtime data (gitignored).
+- `scripts/` — repo helpers (e.g. `board.sh`).
+
+## Quick commands
+`make help` lists everything. Common ones: `make setup` (venv + deps), `make check` (all CI gates), `make lint` / `make fmt` / `make typecheck` / `make test`. Run `make check` before every push.
+
+## Helper scripts
+- `scripts/board.sh <issue#> <Todo|"In Progress"|Done>` — set an issue's status on project board #3 (encapsulates the project/field IDs). Use it instead of re-deriving `gh project item-edit` calls.
+
+## Working remotely (Claude Code on mobile / web)
+The cloud environment has GitHub access (issues, PRs, board, CI all work) and can run `make setup`/`make check`, but it does **NOT** have: the local `.venv`, the local `gh` keyring token, the `.env` file, or any **live IBKR connection**. Therefore:
+- ✅ Safe remotely: code, tests, docs, issues, PRs, reviewing CI.
+- ❌ Not possible remotely: running `spikes/` or the trading app — anything needing IB Gateway must run on the **Mac or the VPS** (Gateway lives at `127.0.0.1`, with credentials + market-data entitlement that aren't in the cloud).
+- **Secrets** live in three places, never in git: `.env` (local dev), GitHub Actions secrets (CI), and the VPS environment (runtime).
