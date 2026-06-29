@@ -1,0 +1,56 @@
+# CLAUDE.md — working agreement for small-cap-stack
+
+Automated systematic trading system for US small-cap momentum (Warrior-style), via IBKR.
+Read `research/decisions.md` for locked decisions and `research/findings-index.md` for the
+research record. This file documents **how we work** — follow it on every task.
+
+## Project shape
+- **Phases:** P1 = tracker only (no orders, 3 months data collection) · P2 = paper trading · P3 = live.
+- **Strategy:** price $2–10 · float < 20M **shares** · breaking news · trailing 5-min volume > 100k · change > 10% · bull-flag (≤2 green extension / ≤2 red consolidation candles) · window 04:00–11:59 ET. Entry = tick above the high of the last consolidation candle; stop = low of the consolidation.
+- **Core principle:** *store raw, compute derived on read* — capture raw data at flag time; gate/stat logic is replayable pure functions so methodology can change retroactively.
+
+## Branching & PRs (trunk-based)
+- `main` is protected: **all changes go through a PR**; no direct pushes. Required check: `lint-typecheck-test`. Linear history (squash-merge), no force-push. Solo self-merge is allowed (0 approvals required).
+- Branch names: `feat/…`, `fix/…`, `chore/…`, `spike/…`, `docs/…`.
+- Commit/PR titles: conventional prefixes (`feat:`, `fix:`, `chore:`, `spike:`, `docs:`).
+- Link issues in the PR body: `Closes #N` when the PR completes the issue, else `Refs #N`; always reference the epic (`Refs #1`) for Phase-1 work.
+- End commit messages with the `Co-Authored-By:` trailer for Claude.
+- Squash-merge and delete the branch after merge.
+
+## CI / quality gates (run locally before pushing)
+Toolchain lives in `.venv`. CI runs ruff + mypy + pytest on every PR.
+```bash
+.venv/bin/ruff check .          # lint
+.venv/bin/ruff format --check . # format
+.venv/bin/mypy                  # type-check (strict; package only)
+.venv/bin/pytest                # tests + coverage
+```
+- Python **3.11**. mypy is `--strict` and only checks `src/small_cap_stack` (so `spikes/` is exempt).
+- Trading logic (gates, sizing, stats) must be exhaustively unit-tested — it is the product.
+
+## Issue & project hygiene (keep these current — every task)
+- **Every unit of work is a GitHub issue** with labels: `epic`, `phase-1`, `spike`, `infra`, `setup`, `ibkr`, `data`, `strategy`. Epic is **#1**.
+- **Project board:** `https://github.com/users/bennetwi92/projects/3` (project id `PVT_kwHOCGbB5M4Bb_HY`, Status field `PVTSSF_lAHOCGbB5M4Bb_HYzhWrRtM`; options Todo `f75ad846` / In Progress `47fc9ee4` / Done `98236657`).
+  - When creating an issue: `gh issue create` then add it to the board (`gh project item-add 3 --owner bennetwi92 --url <issue-url>`) and set Status.
+  - **Status lifecycle:** Todo → In Progress (when work starts) → Done (when its PR merges / issue closes).
+  - Set status: `gh project item-edit --project-id <PROJ_ID> --id <itemId> --field-id <FIELD_ID> --single-select-option-id <optId>`.
+- **Record findings on the issue**, not just in chat — spikes/experiments get a results comment on their issue (`gh issue comment N`).
+- When a decision is made, update `research/decisions.md` (and memory).
+
+## Spikes (de-risking experiments)
+- Throwaway harnesses live in `spikes/`; documented in `spikes/README.md`; exempt from mypy/tests but ruff-linted.
+- Outputs (CSV/JSON/XML) go to `data/spikes/` which is **gitignored** — never commit data.
+- Each spike maps to an issue; record the go/no-go + findings as an issue comment.
+
+## IBKR / runtime
+- Library: **`ib_async`** (asyncio). Ports: TWS paper 7497 / live 7496 · IB Gateway paper 4002 / live 4001.
+- `reqHistoricalData` uses `barSizeSetting=` (not `barSize`). Short-term volume is native: `stVolume5minAbove` etc. — do not derive 5-min volume from bars.
+- Pacing: ≤50 scanner rows, ~50 msg/sec, historical < 60 req / 10 min. Always `outsideRth=True` for pre-market.
+- Secrets via `.env` (gitignored); see `.env.example`. Never commit credentials.
+
+## Repo layout
+- `src/small_cap_stack/` — the package (typed, tested).
+- `tests/` — pytest suite.
+- `spikes/` — de-risking experiments.
+- `research/` — research reports + `decisions.md` + `findings-index.md`.
+- `data/` — local runtime data (gitignored).
