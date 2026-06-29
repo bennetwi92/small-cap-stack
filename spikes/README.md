@@ -16,7 +16,7 @@ API scan can't surface the same candidates, the whole approach needs rethinking.
 2. In the project venv:
    ```bash
    pip install -e ".[dev]"
-   python spikes/api_scanner_vs_mosaic.py --port 7497          # TWS paper (4002 = Gateway paper)
+   python spikes/api_scanner_vs_mosaic.py --port 4002 --quotes   # Gateway paper (7497 = TWS paper)
    ```
 3. **Discover the right filters first** (one-off):
    ```bash
@@ -24,6 +24,21 @@ API scan can't surface the same candidates, the whole approach needs rethinking.
    ```
    This writes `data/spikes/scanner_parameters.xml` — search it for the `scanCode` and
    `<AbstractField>` tags that match the columns/filters you use in Mosaic.
+
+### Volume: use the native short-term filter, not day volume
+The strategy wants **trailing 5-min volume > 100k**, NOT cumulative day volume. The scanner's
+`volumeAbove` filter and the snapshot `dayVol` are both day-cumulative. IBKR exposes the
+short-term window natively, so we filter on it directly (`--vol-window 5min` → `stVolume5minAbove`):
+
+```bash
+# rank by % gain, require a 5-min volume spike (closest to the Mosaic "top gainers" view)
+python spikes/api_scanner_vs_mosaic.py --port 4002 --vol-window 5min --min-volume 100000
+# or rank by the 5-min spike itself
+python spikes/api_scanner_vs_mosaic.py --port 4002 --scan-code HIGH_STVOLUME_5MIN
+```
+
+Related native codes worth trying: `stVolume3min/10minAbove`, `stVolumeVsAvg5minAbove`
+(relative-volume spike), `volumeRateAbove`, scan code `TOP_VOLUME_RATE`.
 
 ### The actual experiment
 Run this **pre-market (≈07:00–09:00 ET)** on a few active mornings, and at the same moment
