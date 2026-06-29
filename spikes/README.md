@@ -57,3 +57,27 @@ Results are saved to `data/spikes/api_scan_<timestamp>_ET.{csv,json}` (gitignore
 - The achievable `ScannerSubscription` definition (scanCode, location, filters).
 - Which criteria must be post-filters (expected: float, short interest, news, bull-flag).
 - Any pre-market coverage gap and the fallback if the API scanner is inadequate.
+
+## `premarket_bar_completeness.py` — issue #9
+
+Are pre-market 5-min bars complete enough to detect a bull-flag and count ≤2 green / ≤2 red
+candles on thin names? Fetches today's `5 mins` TRADES bars (`useRTH=0`) and reports, per
+symbol, how many 5-min slots from 04:00 ET are filled and the largest contiguous gap.
+
+```bash
+python spikes/premarket_bar_completeness.py --port 4002 --symbols NNBR,AZI,SKYQ,PETS,CBRG
+```
+A leading absence (first bar after 04:00) just means the stock hadn't traded yet — fine.
+Internal gaps (`longest_gap > 0`) are what would distort candle counting → need a gap policy.
+
+## `ibkr_news_check.py` — issue #10
+
+Does IBKR deliver per-symbol breaking news before we pay for a feed? Lists entitled providers
+(`reqNewsProviders`), pulls recent per-symbol headlines (`reqHistoricalNews`), and optionally
+the article body (`reqNewsArticle`).
+
+```bash
+python spikes/ibkr_news_check.py --port 4002 --symbols NNBR,AZI --days 7 --body
+```
+Judge: are there headlines near the spike time, and are bodies retrievable? If the entitled
+providers only give stale commentary, scope a paid feed.
