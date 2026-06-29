@@ -1,0 +1,64 @@
+"""Tests for the DuckDB + Parquet storage layer (#7)."""
+
+from __future__ import annotations
+
+from datetime import date
+from pathlib import Path
+
+from small_cap_stack.storage import Store
+
+
+def _rows() -> list[dict[str, object]]:
+    return [
+        {"symbol": "AZI", "rank": 0, "change_pct": 56.7},
+        {"symbol": "NNBR", "rank": 1, "change_pct": 38.0},
+    ]
+
+
+def test_append_writes_partitioned_parquet(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    path = store.append("candidates", _rows(), partition_date=date(2026, 6, 29))
+    assert path is not None
+    assert path.parent.name == "dt=2026-06-29"
+    assert path.suffix == ".parquet"
+    assert path.exists()
+
+
+def test_append_empty_is_noop(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    assert store.append("candidates", [], partition_date=date(2026, 6, 29)) is None
+
+
+def test_read_roundtrip_includes_partition_column(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    store.append("candidates", _rows(), partition_date=date(2026, 6, 29))
+    df = store.read("candidates")
+    assert df.height == 2
+    assert set(df["symbol"].to_list()) == {"AZI", "NNBR"}
+    assert "dt" in df.columns  # hive partition surfaced
+    assert df["dt"].to_list()[0] == date(2026, 6, 29)
+
+
+def test_read_missing_dataset_is_empty(tmp_path: Path) -> None:
+    assert Store(tmp_path).read("nope").is_empty()
+
+
+def test_append_accumulates_across_partitions(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    store.append("candidates", _rows(), partition_date=date(2026, 6, 29))
+    store.append(
+        "candidates",
+        [{"symbol": "TSLG", "rank": 0, "change_pct": 12.0}],
+        partition_date=date(2026, 6, 30),
+    )
+    df = store.read("candidates")
+    assert df.height == 3
+    assert set(df["dt"].to_list()) == {date(2026, 6, 29), date(2026, 6, 30)}
+
+
+def test_query_computes_on_read(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    store.append("candidates", _rows(), partition_date=date(2026, 6, 29))
+    out = store.query("SELECT count(*) AS n, max(change_pct) AS top FROM candidates")
+    assert out["n"].to_list() == [2]
+    assert out["top"].to_list() == [56.7]
