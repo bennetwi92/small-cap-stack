@@ -134,9 +134,13 @@ class CaptureService:
             [opportunity_record(c, oid, now, trading_date)],
             partition_date=trading_date,
         )
-        items = await self.news.fetch_news(
-            c, lookback_days=self.settings.news_lookback_days, limit=self.settings.news_max
-        )
+        try:
+            items = await self.news.fetch_news(
+                c, lookback_days=self.settings.news_lookback_days, limit=self.settings.news_max
+            )
+        except Exception:  # noqa: BLE001 — news is best-effort; never block opening the record
+            log.warning("capture.news_fetch_failed", opportunity_id=oid)
+            items = []
         if items:
             self.store.append(
                 "news", [news_record(oid, c.symbol, n) for n in items], partition_date=trading_date
@@ -159,9 +163,13 @@ class CaptureService:
         """Append any new 5-min bars for every active opportunity."""
         trading_date = now.date()
         for oid, active in self._active.items():
-            bars = await self.bars.fetch_5m_bars(
-                active.candidate, lookback_sec=self.settings.capture_bars_lookback_sec
-            )
+            try:
+                bars = await self.bars.fetch_5m_bars(
+                    active.candidate, lookback_sec=self.settings.capture_bars_lookback_sec
+                )
+            except Exception:  # noqa: BLE001 — one symbol's data hiccup must not stall the tick
+                log.warning("capture.bars_fetch_failed", opportunity_id=oid)
+                continue
             new = [
                 b for b in bars if active.last_bar_start is None or b.start > active.last_bar_start
             ]

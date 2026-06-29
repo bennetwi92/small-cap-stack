@@ -171,6 +171,32 @@ def test_reconnects_and_alerts_on_cold_disconnect() -> None:
     asyncio.run(scenario())
 
 
+def test_on_connect_failure_retries_not_fatal() -> None:
+    async def scenario() -> None:
+        t = FakeTransport()
+        attempts = 0
+        connected = asyncio.Event()
+
+        async def on_connect() -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("resync blew up")  # first resync fails
+            connected.set()
+
+        sup = ConnectionSupervisor(t, on_connect=on_connect, sleep=_instant_sleep)
+        task = asyncio.create_task(sup.run())
+        await asyncio.wait_for(connected.wait(), 1)  # supervisor survived and retried
+        sup.stop()
+        await asyncio.wait_for(task, 1)
+
+        assert attempts == 2  # retried after the resync failure
+        assert t.connect_calls == 2  # reconnected to retry the resync
+        assert t.disconnect_calls >= 1  # half-initialised connection was dropped
+
+    asyncio.run(scenario())
+
+
 def test_expected_restart_does_not_alert() -> None:
     async def scenario() -> None:
         t = FakeTransport()

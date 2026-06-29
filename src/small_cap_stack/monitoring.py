@@ -39,9 +39,12 @@ def _http_get(url: str) -> None:
 class Heartbeat:
     """Healthchecks.io dead-man's switch. No-op when no URL is configured."""
 
-    def __init__(self, url: str, fetch: Callable[[str], None] | None = None) -> None:
+    def __init__(
+        self, url: str, fetch: Callable[[str], None] | None = None, timeout_sec: float = 10.0
+    ) -> None:
         self.url = url.rstrip("/")
         self._fetch = fetch or _http_get
+        self.timeout_sec = timeout_sec
 
     async def ping(self) -> None:
         await self._send(self.url)
@@ -53,6 +56,7 @@ class Heartbeat:
         if not self.url:
             return
         try:
-            await asyncio.to_thread(self._fetch, url)
+            async with asyncio.timeout(self.timeout_sec):
+                await asyncio.to_thread(self._fetch, url)
         except Exception:  # noqa: BLE001 — heartbeat is best-effort, never break the loop
             log.warning("heartbeat.failed", url=url)

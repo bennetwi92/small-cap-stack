@@ -86,12 +86,16 @@ def fundamentals_record(oid: str, f: Fundamentals, ts: datetime) -> dict[str, An
 
 
 class YFinanceFundamentals:
-    """Free float/short source via yfinance (blocking lib run off-thread)."""
+    """Free float/short source via yfinance (blocking lib run off-thread, time-bounded)."""
+
+    def __init__(self, timeout_sec: float = 10.0) -> None:
+        self.timeout_sec = timeout_sec
 
     async def fetch(self, candidate: Candidate) -> Fundamentals | None:
         try:
-            info = await asyncio.to_thread(self._info, candidate.symbol)
-        except Exception:  # noqa: BLE001 — best-effort; never break capture on a data hiccup
+            async with asyncio.timeout(self.timeout_sec):
+                info = await asyncio.to_thread(self._info, candidate.symbol)
+        except Exception:  # noqa: BLE001 — best-effort; a hang/hiccup must not break capture
             return None
         if not info:
             return None

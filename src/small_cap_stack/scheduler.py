@@ -9,6 +9,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from .clock import ET_NAME
 from .config import Settings
 
 Job = Callable[[], Awaitable[None]]
@@ -27,10 +28,10 @@ def build_scheduler(
     The `tick` interval job drives the real scan/capture loop (it self-gates by time window);
     the cron jobs just mark the window boundaries.
     """
-    scheduler = AsyncIOScheduler(timezone=settings.timezone)
+    scheduler = AsyncIOScheduler(timezone=ET_NAME)
 
     def cron(t: time) -> CronTrigger:
-        return CronTrigger(hour=t.hour, minute=t.minute, timezone=settings.timezone)
+        return CronTrigger(hour=t.hour, minute=t.minute, timezone=ET_NAME)
 
     scheduler.add_job(on_tick, IntervalTrigger(seconds=settings.tick_interval_sec), id="tick")
     scheduler.add_job(on_scan_start, cron(settings.scan_start), id="scan_start")

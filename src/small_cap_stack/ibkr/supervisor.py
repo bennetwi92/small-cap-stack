@@ -86,10 +86,18 @@ class ConnectionSupervisor:
                 await self._sleep(delay)
                 continue
 
-            attempt = 0
             self._t.disconnected.clear()
             log.info("ibkr.connected")
-            await self._on_connect()
+            try:
+                await self._on_connect()
+            except Exception as exc:  # noqa: BLE001 — a resync failure must not kill the supervisor
+                attempt += 1
+                delay = self._retry.delay(attempt)
+                log.warning("ibkr.on_connect_failed", attempt=attempt, delay=delay, error=str(exc))
+                self._t.disconnect()
+                await self._sleep(delay)
+                continue
+            attempt = 0  # fully connected and resynced
 
             await self._t.disconnected.wait()
             if self._stopped:
