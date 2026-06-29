@@ -51,6 +51,15 @@ class Settings(BaseSettings):
     scan_min_5m_volume: int = 100_000  # trailing 5-min volume -> stVolume5minAbove
     scan_max_rows: int = 10  # we only ever act on the top few
 
+    # Capture (issue #14). Scanning stops at scan_end; we keep recording flagged
+    # opportunities' bars/news until capture_end (regular close).
+    capture_end: time = time(16, 0)
+    tick_interval_sec: int = 60  # how often the scan/capture loop runs
+    capture_bars_lookback_sec: int = 1800  # 5-min bars window fetched each tick
+    news_providers: str = "BRFG+DJ-N+DJNL"
+    news_lookback_days: int = 7
+    news_max: int = 10
+
 
 @lru_cache
 def get_settings() -> Settings:

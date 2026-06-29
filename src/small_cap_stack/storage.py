@@ -51,6 +51,7 @@ class Store:
             return pl.DataFrame()
         con = duckdb.connect()
         try:
+            con.execute("SET TimeZone='UTC'")  # deterministic, host-tz-independent
             result: pl.DataFrame = con.execute(
                 "SELECT * FROM read_parquet(?, hive_partitioning=1)", [str(glob)]
             ).pl()
@@ -62,6 +63,7 @@ class Store:
         """Run SQL with each populated dataset exposed as a view of its raw Parquet."""
         con = duckdb.connect()
         try:
+            con.execute("SET TimeZone='UTC'")  # deterministic, host-tz-independent
             for dataset in self._datasets():
                 glob = str(self.data_dir / dataset / "**" / "*.parquet").replace("'", "''")
                 con.execute(

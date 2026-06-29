@@ -1,8 +1,8 @@
-"""The long-lived asyncio application: scheduler + IBKR connection + graceful shutdown.
+"""The long-lived asyncio application: scheduler + IBKR connection + capture loop.
 
-Phase-1 runtime (issues #12, #11, #31). Owns the IBKR connection supervisor and the scheduler.
-The scheduled callbacks still run a placeholder pipeline; the real scanner/gate/capture/report
-tasks (#13–#19) plug into the same shape.
+Phase-1 runtime. Owns the IBKR connection supervisor, the scheduler, and the capture service.
+A periodic `tick` drives the real work: scan for candidates during the scan window and record
+each flagged opportunity's evolving record (bars/news) until the capture window closes.
 """
 
 from __future__ import annotations
@@ -11,14 +11,15 @@ import asyncio
 import signal
 from datetime import timedelta
 
-from .clock import now_et
+from .capture import CaptureService
+from .clock import now_et, within_window
 from .config import Settings, get_settings
 from .ibkr.subscriptions import SubscriptionRegistry
 from .ibkr.supervisor import ConnectionSupervisor
 from .ibkr.transport import IBKRTransport
 from .logging import configure_logging, get_logger
-from .pipeline import DagResult, Task, run_dag
-from .scanner import Candidate, Scanner
+from .marketdata import IBKRMarketData
+from .scanner import Scanner
 from .scheduler import build_scheduler
 from .storage import Store
 
@@ -26,7 +27,7 @@ log = get_logger(__name__)
 
 
 class Application:
-    """Owns the IBKR connection, the scheduler, and the process lifecycle."""
+    """Owns the IBKR connection, the scheduler, the capture service, and the lifecycle."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -37,6 +38,10 @@ class Application:
         self.transport = IBKRTransport(settings, self.subscriptions)
         self.scanner = Scanner(settings)
         self.store = Store(settings.data_dir)
+        self.market_data = IBKRMarketData(self.transport.ib, settings)
+        self.capture = CaptureService(
+            store=self.store, bars=self.market_data, news=self.market_data, settings=settings
+        )
         self.supervisor = ConnectionSupervisor(
             self.transport,
             on_connect=self.transport.resync,
@@ -45,6 +50,7 @@ class Application:
         )
         self.scheduler = build_scheduler(
             settings,
+            on_tick=self._on_tick,
             on_scan_start=self._on_scan_start,
             on_scan_end=self._on_scan_end,
             on_eod_report=self._on_eod_report,
@@ -96,44 +102,31 @@ class Application:
             except NotImplementedError:  # e.g. on Windows
                 log.warning("app.signal_handler_unavailable", signal=sig.name)
 
-    # --- scheduled callbacks (placeholders for the Phase-1 pipeline) ---------------------
+    # --- the periodic work loop ---------------------------------------------------------
+
+    async def _on_tick(self) -> None:
+        """Scan during the scan window; keep capturing flagged opportunities until close."""
+        if not self.transport.is_connected():
+            return
+        now = now_et()
+        if within_window(now, self.settings.scan_start, self.settings.scan_end):
+            candidates = await self.scanner.scan(self.transport.ib)
+            log.info(
+                "scan.candidates", count=len(candidates), symbols=[c.symbol for c in candidates]
+            )
+            await self.capture.on_scan_tick(candidates, now)
+        elif within_window(now, self.settings.scan_end, self.settings.capture_end):
+            await self.capture.capture_bars(now)
 
     async def _on_scan_start(self) -> None:
         log.info("scan.window_open")
-        result = await self._run_pipeline()
-        log.info("scan.tick_complete", ok=result.ok)
 
     async def _on_scan_end(self) -> None:
         log.info("scan.window_closed")
 
     async def _on_eod_report(self) -> None:
         log.info("report.eod_start")
-
-    async def _run_pipeline(self) -> DagResult:
-        """Scan → gate → capture. Scan is real (#13); gate/capture are placeholders (#14/#15)."""
-        candidates: list[Candidate] = []
-
-        async def scan() -> int:
-            if not self.transport.is_connected():
-                log.warning("scan.skipped_disconnected")
-                return 0
-            found = await self.scanner.scan(self.transport.ib)
-            candidates.extend(found)
-            log.info("scan.candidates", count=len(found), symbols=[c.symbol for c in found])
-            return len(found)
-
-        async def gate() -> int:
-            return 0  # gate engine is #15
-
-        async def capture() -> int:
-            return 0  # raw capture is #14
-
-        tasks = [
-            Task("scan", scan),
-            Task("gate", gate, deps=("scan",)),
-            Task("capture", capture, deps=("gate",)),
-        ]
-        return await run_dag(tasks)
+        self.capture.reset()
 
 
 async def main() -> None:
