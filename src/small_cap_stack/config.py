@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     gateway_restart: time = time(23, 45)
     gateway_restart_window_min: int = 10
 
+    # Scanner (issue #13) — validated definition from spike #8.
+    scan_code: str = "TOP_PERC_GAIN"
+    scan_location: str = "STK.US.MAJOR"
+    scan_min_price: float = 2.0
+    scan_max_price: float = 10.0
+    scan_change_pct: float = 10.0
+    scan_min_5m_volume: int = 100_000  # trailing 5-min volume -> stVolume5minAbove
+    scan_max_rows: int = 10  # we only ever act on the top few
+
 
 @lru_cache
 def get_settings() -> Settings:
