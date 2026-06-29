@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "small-cap-stack"
+version = "0.0.1"
+description = "Automated systematic trading system for US small-cap momentum (Warrior-style), via IBKR."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "ib-async>=2.0.1",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.6",
+    "python-dotenv>=1.0",
+    "pytz>=2024.2",
+    "pandas>=2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pandas-stubs",
+    "types-pytz",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/small_cap_stack"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["small_cap_stack"]
+mypy_path = "src"
+strict = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --cov=small_cap_stack --cov-report=term-missing"
+pythonpath = ["src"]
