@@ -1,8 +1,7 @@
-"""Tests for the application wiring (scheduler jobs, pipeline, restart window)."""
+"""Tests for the application wiring (scheduler jobs, restart window, services)."""
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, time
 
 import pytest
@@ -17,23 +16,17 @@ def _settings(**overrides: object) -> Settings:
     return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
 
 
-def test_scheduler_registers_window_jobs() -> None:
+def test_scheduler_registers_jobs() -> None:
     app = Application(_settings())
     ids = {job.id for job in app.scheduler.get_jobs()}
-    assert ids == {"scan_start", "scan_end", "eod_report"}
+    assert ids == {"tick", "scan_start", "scan_end", "eod_report"}
 
 
-def test_builds_connection_supervisor() -> None:
+def test_builds_services() -> None:
     app = Application(_settings())
     assert app.supervisor is not None
+    assert app.capture is not None
     assert app.transport.registry is app.subscriptions
-
-
-def test_placeholder_pipeline_runs_clean() -> None:
-    app = Application(_settings())
-    result = asyncio.run(app._run_pipeline())
-    assert result.ok
-    assert set(result.results) == {"scan", "gate", "capture"}
 
 
 def test_is_expected_restart_window(monkeypatch: pytest.MonkeyPatch) -> None:
