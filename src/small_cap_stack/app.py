@@ -20,6 +20,7 @@ from .ibkr.supervisor import ConnectionSupervisor
 from .ibkr.transport import IBKRTransport
 from .logging import configure_logging, get_logger
 from .marketdata import IBKRMarketData
+from .report import EodReport, analysis_records, build_eod_report
 from .scanner import Scanner
 from .scheduler import build_scheduler
 from .storage import Store
@@ -131,7 +132,19 @@ class Application:
 
     async def _on_eod_report(self) -> None:
         log.info("report.eod_start")
+        report = build_eod_report(self.store, self.settings, now_et().date())
+        if report.analyses:
+            self.store.append(
+                "analysis", analysis_records(report), partition_date=report.trading_date
+            )
+            self._write_report_markdown(report)
+        log.info("report.eod_done", **report.aggregates)
         self.capture.reset()
+
+    def _write_report_markdown(self, report: EodReport) -> None:
+        out = self.settings.data_dir / "reports"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / f"eod_{report.trading_date.isoformat()}.md").write_text(report.markdown)
 
 
 async def main() -> None:
