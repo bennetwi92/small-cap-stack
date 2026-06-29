@@ -14,7 +14,7 @@ from datetime import timedelta
 from .capture import CaptureService
 from .clock import now_et, within_window
 from .config import Settings, get_settings
-from .fundamentals import YFinanceFundamentals
+from .fundamentals import build_fundamentals
 from .ibkr.subscriptions import SubscriptionRegistry
 from .ibkr.supervisor import ConnectionSupervisor
 from .ibkr.transport import IBKRTransport
@@ -53,7 +53,7 @@ class Application:
             bars=self.market_data,
             news=self.market_data,
             settings=settings,
-            fundamentals=YFinanceFundamentals(),
+            fundamentals=build_fundamentals(settings),
         )
         self.heartbeat = Heartbeat(settings.healthchecks_ping_url)
         self.supervisor = ConnectionSupervisor(

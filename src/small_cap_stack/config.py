@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     # Gate thresholds (issue #15) — most reuse the scan_* values above.
     float_max_shares: int = 20_000_000  # float < 20M shares
 
+    # Fundamentals sources (issues #17, #41). yfinance is the always-on free fallback; these
+    # harden it — FMP for float, FINRA for authoritative short interest. Empty = source disabled.
+    fmp_api_key: str = ""
+    finra_client_id: str = ""
+    finra_client_secret: str = ""
+
     # Bull-flag detection (issue #16).
     bull_flag_max_green: int = 2  # max green extension (pole) candles
     bull_flag_max_red: int = 2  # max red consolidation (flag) candles
