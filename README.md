@@ -30,6 +30,11 @@ make help      # list all commands
 
 Contributors: see [CONTRIBUTING.md](./CONTRIBUTING.md) and the working agreement in [CLAUDE.md](./CLAUDE.md).
 
+**On Claude Code web/mobile:** a `SessionStart` hook runs `make setup` automatically, so a fresh
+cloud session can `make check` on turn one — the test suite is fully offline (no IB Gateway needed).
+Deploys are driven from GitHub (see [`deploy/RUNBOOK.md`](./deploy/RUNBOOK.md) §11 "Operating from
+mobile").
+
 ## Repo layout
 
 | Path | What |

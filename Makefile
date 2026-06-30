@@ -6,7 +6,7 @@ RUFF := $(VENV)/bin/ruff
 MYPY := $(VENV)/bin/mypy
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: help setup lint fmt fmt-check typecheck test check clean
+.PHONY: help setup lint fmt fmt-check typecheck test check clean fetch-fixtures
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -31,6 +31,9 @@ typecheck: ## Mypy (strict, package only)
 
 test: ## Pytest + coverage
 	$(PYTEST)
+
+fetch-fixtures: ## Pull a sanitized sample dataset into data/fixtures/ (set FIXTURES_URI)
+	./scripts/fetch_fixtures.sh
 
 check: lint fmt-check typecheck test ## Run all CI gates locally (do this before pushing)
 

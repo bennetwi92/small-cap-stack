@@ -53,3 +53,31 @@
 
 ## Repo visibility (CONFIRMED 2026-06-29)
 - **Public, by choice** — the user is happy for anyone to use what's built. Bonus: unlimited GitHub Actions. Never commit secrets/credentials (enforced via `.gitignore` + `.env`).
+
+## Phone-driven control plane (2026-06-30, issues #51–#55)
+Goal: build, test, fetch data, and deploy entirely from the Claude Code web/mobile container.
+
+- **GitHub is the control plane.** The cloud container has full GitHub access (PRs, Actions, board)
+  but cannot hold long-lived secrets, reach `127.0.0.1` on the Mac/VPS, or run IB Gateway. So every
+  action taken from the phone is a GitHub action; data and deploys flow *through* GitHub / object
+  storage, never via secrets baked into the ephemeral container.
+- **Build/test in the container.** A `SessionStart` hook (`.claude/hooks/session-setup.sh`) runs
+  `make setup` idempotently so `make check` works on turn one. The suite is fully offline — the
+  IBKR-touching tests mock the connection; no Gateway needed (#51).
+- **Data access without a broker.** VPS captures raw → pushes a *sanitized sample* to Oracle Object
+  Storage; the dev session pulls it with `make fetch-fixtures` (`FIXTURES_URI`). Live IBKR
+  entitlement + weekly 2FA stay on the VPS (#52, pairs with the backup job #48).
+- **Deploy = GitHub → self-hosted runner on the Oracle VM (DECISION, #53).** Chosen over
+  SSH-from-hosted-runner because the box keeps **no inbound ports** (RUNBOOK) — a self-hosted runner
+  polls GitHub *outbound*, so no inbound exposure and **no SSH key in the container**. Deploy is a
+  manual `workflow_dispatch` (`deploy.yml`) triggerable from the phone; secrets live in GitHub
+  Actions secrets + the VPS environment only.
+- **Pull-based images (#54).** CI builds `linux/arm64` (Ampere) and pushes to GHCR so the VM deploys
+  by pulling a versioned tag rather than building on-box. (Compose `build:` → `image:` switch is
+  deferred to the deploy wiring so local dev / the un-provisioned VM keep working.)
+- **Network policy.** Pulling fixtures (and any future VPS read endpoint) requires the web
+  environment's network policy to allow that egress — a deliberate config choice, documented in the
+  RUNBOOK.
+- **Blocked on the VM (#6):** the deploy *execution* and the VPS-side fixture *producer*. The
+  VM-independent halves (SessionStart hook, fixtures consumer scaffolding, the GHCR build job, the
+  deploy workflow definition, and these docs) land now.
