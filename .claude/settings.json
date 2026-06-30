@@ -30,7 +30,20 @@
       "Bash(gh pr diff:*)",
       "Bash(gh project:*)",
       "Bash(gh label:*)",
-      "Bash(scripts/board.sh:*)"
+      "Bash(scripts/board.sh:*)",
+      "Bash(scripts/fetch_fixtures.sh:*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/session-setup.sh"
+          }
+        ]
+      }
     ]
   }
 }

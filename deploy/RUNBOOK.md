@@ -77,3 +77,26 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
 ## 10. Reminders
 - Phase 1 places **no orders** — it only records opportunities for ~3 months.
 - Re-validate symbol tradability (#25) and any execution paths on a **live** account before Phase 3.
+
+## 11. Operating from mobile (Claude Code web/app)
+The whole loop — code, test, fetch data, deploy — is driven from the phone with **GitHub as the
+control plane**. The cloud container has full GitHub access but holds no long-lived secrets, can't
+reach the VM's `127.0.0.1`, and can't run IB Gateway — so nothing here exposes a credential to it.
+See `research/decisions.md` → "Phone-driven control plane".
+
+- **Build/test:** a `SessionStart` hook (`.claude/hooks/session-setup.sh`) runs `make setup`
+  idempotently, so a fresh web session can `make check` immediately. The test suite is fully
+  offline (IBKR tests are mocked) — no Gateway required.
+- **Data for dev:** `make fetch-fixtures` pulls a sanitized sample from object storage
+  (`FIXTURES_URI`). The VPS-side producer that pushes the sample is part of the backup job (§8, #48).
+- **Deploy (this needs the VM provisioned, #6):**
+  1. Register a **self-hosted GitHub Actions runner** on the VM, labelled `self-hosted, oracle`,
+     as a systemd service (`./config.sh --labels oracle && ./svc.sh install && ./svc.sh start`).
+     The runner polls GitHub outbound — **no inbound ports, no SSH key off-box**.
+  2. From the phone, trigger **Actions → `deploy` → Run workflow** (or via the GitHub MCP
+     `actions_run_trigger`). Inputs: `ref` (branch/tag/SHA) and `restart_only`. The job updates the
+     working tree, restarts the service, and asserts `:9090/metrics` is healthy.
+  3. Optional pull-based path: `build-image` publishes a `linux/arm64` image to GHCR; point the VM
+     at the tag instead of `build: .` once you wire it in.
+- **Network policy:** pulling fixtures/images requires the web environment's network policy to
+  allow egress to the object-storage / GHCR host — set this when creating the environment.

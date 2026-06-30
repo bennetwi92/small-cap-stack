@@ -1,0 +1,63 @@
+name: deploy
+
+# Phone-triggerable deploy of the Phase-1 tracker to the Oracle Ampere VM.
+#
+# Control-plane decision (research/decisions.md): GitHub drives deploys via a SELF-HOSTED runner
+# registered on the Oracle VM. The runner polls GitHub *outbound*, so the box keeps NO inbound
+# ports open and no SSH key ever lives in the ephemeral Claude Code container. Trigger from the
+# phone with the GitHub UI / MCP "Run workflow" (workflow_dispatch).
+#
+# PREREQUISITE (blocked on #6): the VM must exist with a self-hosted runner registered and
+# labelled [self-hosted, oracle]. Until then this workflow is inert — it only ever runs on manual
+# dispatch, so it will not queue or fail on its own.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (branch/tag/SHA) to deploy"
+        required: false
+        default: main
+      restart_only:
+        description: "Restart the running service without pulling new code"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: deploy-oracle
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy to oracle-ampere
+    runs-on: [self-hosted, oracle]
+    steps:
+      - name: Update working tree
+        if: ${{ !inputs.restart_only }}
+        working-directory: /opt/small-cap-stack
+        run: |
+          set -euo pipefail
+          git fetch --all --prune
+          git checkout "${{ inputs.ref }}"
+          git pull --ff-only origin "${{ inputs.ref }}" || true
+
+      - name: Restart service
+        working-directory: /opt/small-cap-stack
+        run: |
+          set -euo pipefail
+          sudo systemctl restart small-cap-stack
+
+      - name: Health gate
+        working-directory: /opt/small-cap-stack
+        run: |
+          set -euo pipefail
+          # Give compose a moment, then assert both services are up and metrics answer.
+          for i in $(seq 1 30); do
+            if curl -fsS localhost:9090/metrics | grep -q '^scs_'; then
+              echo "metrics healthy"; break
+            fi
+            echo "waiting for metrics ($i)…"; sleep 5
+          done
+          docker compose -f docker-compose.yml ps
+          curl -fsS localhost:9090/metrics | grep -q '^scs_' || { echo "metrics not healthy"; exit 1; }
