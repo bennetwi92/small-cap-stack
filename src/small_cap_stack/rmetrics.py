@@ -42,6 +42,8 @@ class RMetrics:
     mae_r: float | None = None  # worst adverse excursion after entry, in R
     stopped_out: bool = False
     bars_to_max_r: int | None = None
+    flag_len: int | None = None  # consolidation count of the traded setup (#98)
+    retracement: float | None = None  # flag's retracement into the pole, fraction (#98)
 
 
 def _iter_setups(bars: list[Bar], settings: Settings) -> Iterator[tuple[int, BullFlag]]:
@@ -95,6 +97,8 @@ def _measure(bars: list[Bar], bf: BullFlag, risk: float, entry_j: int) -> RMetri
         mae_r=round((entry - min_low) / risk, 3),
         stopped_out=stopped_out,
         bars_to_max_r=bars_to_max_r,
+        flag_len=bf.flag_len,
+        retracement=bf.retracement,
     )
 
 
@@ -132,4 +136,6 @@ def compute_r_metrics(
         entry_trigger=bf.entry_trigger,
         stop=bf.stop,
         initial_risk=risk,
+        flag_len=bf.flag_len,
+        retracement=bf.retracement,
     )

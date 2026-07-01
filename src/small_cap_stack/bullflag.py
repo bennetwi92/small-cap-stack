@@ -29,10 +29,14 @@ def classify(bar: Bar) -> str:
 @dataclass(frozen=True)
 class BullFlag:
     pole_len: int
-    flag_len: int
+    flag_len: int  # number of consolidation candles (#98 — bucket profitability by this)
     breakout_level: float  # high of the last complete consolidation candle
     entry_trigger: float  # breakout_level + entry offset (5 ticks)
     stop: float  # consolidation (flag) low
+    # How deep the flag pulls back into the pole, as a fraction of the pole's height (#98):
+    # 0.0 = held at the pole high, →1.0 = retraced to the pole base. Always in [0, 1) because the
+    # flag low must hold above the pole base for a valid setup.
+    retracement: float
 
 
 def detect(
@@ -71,9 +75,16 @@ def detect(
     pole.reverse()
 
     # The pullback must hold above the pole's base (not erase the move).
+    pole_base = pole[0].low
     flag_low = min(b.low for b in flag)
-    if flag_low <= pole[0].low:
+    if flag_low <= pole_base:
         return None
+
+    # Retracement of the flag into the pole, as a fraction of the pole's height. The pole is a run
+    # of green candles so pole_high > pole_base (denominator > 0); flag_low is clamped into [base,
+    # high] so the ratio stays in [0, 1) (flag_low > base was just enforced).
+    pole_high = max(b.high for b in pole)
+    retracement = (pole_high - min(flag_low, pole_high)) / (pole_high - pole_base)
 
     breakout = flag[-1].high
     return BullFlag(
@@ -82,6 +93,7 @@ def detect(
         breakout_level=round(breakout, 4),
         entry_trigger=round(breakout + entry_offset, 4),
         stop=round(flag_low, 4),
+        retracement=round(retracement, 4),
     )
 
 

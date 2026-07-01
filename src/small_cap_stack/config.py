@@ -63,9 +63,10 @@ class Settings(BaseSettings):
     # Gate thresholds (issue #15) — most reuse the scan_* values above.
     float_max_shares: int = 20_000_000  # float < 20M shares
 
-    # Bull-flag detection (issue #16).
+    # Bull-flag detection (issue #16). max_red raised to 6 to collect data on which consolidation
+    # count is most profitable (#98) — the count + retracement are recorded, not just gated on.
     bull_flag_max_green: int = 2  # max green extension (pole) candles
-    bull_flag_max_red: int = 2  # max red consolidation (flag) candles
+    bull_flag_max_red: int = 6  # max red consolidation (flag) candles
     tick_size: float = 0.01  # min US price increment for $2-10 names
     entry_offset_ticks: int = 5  # entry = last complete consolidation high + 5 ticks ($0.05)
 
