@@ -99,6 +99,10 @@ class ConnectionSupervisor:
                 continue
             attempt = 0  # fully connected and resynced
 
+            # stop() may have fired during connect()/on_connect(): it sets the disconnected event,
+            # but we just cleared it above — so re-check before blocking, or the wait never wakes.
+            if self._stopped:
+                break
             await self._t.disconnected.wait()
             if self._stopped:
                 break

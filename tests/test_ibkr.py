@@ -114,6 +114,26 @@ def test_connects_runs_on_connect_then_stops() -> None:
     asyncio.run(scenario())
 
 
+def test_stop_during_connect_does_not_hang() -> None:
+    # If stop() fires while connect() is awaiting (the shutdown signal), it sets the disconnected
+    # event — but run() clears that event right after connect, so without a re-check the following
+    # wait() would block forever. run() must instead exit promptly.
+    async def scenario() -> None:
+        t = FakeTransport()
+        sup = ConnectionSupervisor(t, sleep=_instant_sleep)
+        orig_connect = t.connect
+
+        async def connect_then_stop() -> None:
+            await orig_connect()
+            sup.stop()  # shutdown lands inside the connect() await
+
+        t.connect = connect_then_stop  # type: ignore[method-assign]
+        await asyncio.wait_for(sup.run(), 1)  # must not hang
+        assert t.disconnect_calls >= 1  # cleaned up on exit
+
+    asyncio.run(scenario())
+
+
 def test_retries_with_backoff_until_connected() -> None:
     async def scenario() -> None:
         t = FakeTransport(fail_connects=2)
