@@ -8,19 +8,27 @@ ENV PYTHONUNBUFFERED=1 \
     METRICS_PORT=9090
 
 WORKDIR /app
-COPY pyproject.toml README.md ./
+
+# 1. Dependencies in their OWN layer — only re-runs when pyproject.toml changes, so a source-only
+#    deploy skips the (slow) dependency reinstall (#72). Extract [project].dependencies to a
+#    requirements file (tomllib is stdlib on 3.11); the BuildKit cache also avoids re-downloads.
+COPY pyproject.toml ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip \
+ && python -c "import tomllib, pathlib; deps = tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']; pathlib.Path('/tmp/requirements.txt').write_text(chr(10).join(deps))" \
+ && pip install -r /tmp/requirements.txt
+
+# 2. The package itself installs with --no-deps (fast) and re-runs only when the source changes.
+COPY README.md ./
 COPY src ./src
-# BuildKit pip cache persists downloaded wheels across builds, so a source-only change
-# doesn't re-download every dependency — the slow part of an on-box rebuild (#72).
-RUN --mount=type=cache,target=/root/.cache/pip pip install --upgrade pip && pip install .
+RUN --mount=type=cache,target=/root/.cache/pip pip install --no-deps .
 
 RUN mkdir -p /data
 VOLUME ["/data"]
 EXPOSE 9090
 
 # Deployed commit — baked by the deploy via --build-arg GIT_SHA (compose reads $GIT_SHA).
-# Placed after the pip layer so a commit-only change doesn't invalidate the dependency install.
-# The app reads DEPLOYED_COMMIT (config.deployed_commit) and surfaces it on the dashboard (#68).
+# After the install layers so a commit-only change doesn't invalidate them.
 ARG GIT_SHA=""
 ENV DEPLOYED_COMMIT=$GIT_SHA
 
