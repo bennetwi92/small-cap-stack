@@ -66,14 +66,24 @@ def test_thresholds_are_strict() -> None:
     assert _gate(base, s, float_shares=19_999_999)["float"].passed
 
 
-def test_missing_inputs_fail_conservatively() -> None:
+def test_every_gate_fails_closed_on_missing_input() -> None:
+    # Safety contract: a gate with no datum must NOT pass (missing data can't satisfy a gate).
+    # trading_window is excluded — ts_utc is always present, so it has no missing path.
     s = _settings()
     base = vars(_passing_inputs())
-    res = _gate(base, s, price=None, float_shares=None, has_recent_news=None)
-    assert res["price"].detail == {"missing": True}
-    assert not res["price"].passed
-    assert not res["float"].passed
-    assert not res["news"].passed
+    field_to_gate = {
+        "price": "price",
+        "change_pct": "change_pct",
+        "volume_5m": "volume_5m",
+        "float_shares": "float",
+        "has_recent_news": "news",
+        "tradable": "tradable",
+        "bull_flag": "bull_flag",
+    }
+    for field, gate_name in field_to_gate.items():
+        res = _gate(base, s, **{field: None})
+        assert res[gate_name].passed is False, f"{gate_name} passed on missing {field}"
+        assert res[gate_name].detail == {"missing": True}
 
 
 def test_outside_trading_window_fails() -> None:
