@@ -28,7 +28,7 @@
 - **Stop (CONFIRMED 2026-06-29):** the **low of the consolidation candle(s)** (the flag low). This is the R denominator; `R = entry − stop`.
 
 ## Strategy notes captured 2026-06-29 (from `notes.md`)
-- **Opportunity exhaustion / re-entry (issue #36):** a symbol can form >1 opportunity/day (runs, exhausts, extends again). Phase-1 stores the full day's raw bars (EOD batch, #62), so re-entries are segmented **at analysis time**, not in live capture. Current `opportunity_id=<date>:<symbol>` is the Phase-1 starting point.
+- **Opportunity exhaustion / re-entry (issue #36) — RULE CONFIRMED 2026-07-01:** a symbol can form >1 opportunity/day (runs, exhausts, extends again). **Rule (from the user):** once spotted, a symbol can't be re-spotted for **60 min** — a gap of ≥60 min with no scanner hits begins a *new* opportunity (e.g. pre-market pop → fade → market-open pop = the 2nd is new). Segmented **at analysis time** in `report.py` from the raw `scanner_hits` (not in live capture): each run gets its own bar window (extended back `reentry_lookback_min`=30 so the pole is captured), independent bull-flag/R-metrics, id `<date>:<symbol>#<run>`. Configurable via `Settings.reentry_gap_min`/`reentry_lookback_min`. Recomputes retroactively over already-collected data.
 - **Pre-market orders (issue #37):** pre-market is **limit-only**; stops/TP must be **app-monitored** pre-market (broker-native stops only in the regular session). Reuse tradepilot's app-side exit logic. Execution concern (P2/P3).
 
 ## Scope (from user, 2026-06-29)
