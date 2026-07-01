@@ -147,7 +147,11 @@ def _analyze(
 def build_eod_report(store: Store, settings: Settings, trading_date: date) -> EodReport:
     opps = store.read("opportunities")
     if not opps.is_empty():
-        opps = opps.filter(pl.col("trading_date") == trading_date)
+        # One analysis per opportunity: the raw dataset may hold duplicate rows (a mid-day restart
+        # re-opening an already-known name), so dedup by id on read (store-raw / compute-on-read).
+        opps = opps.filter(pl.col("trading_date") == trading_date).unique(
+            subset="opportunity_id", keep="first"
+        )
     if opps.is_empty():
         empty = {
             "opportunities": 0,
@@ -163,8 +167,10 @@ def build_eod_report(store: Store, settings: Settings, trading_date: date) -> Eo
 
     bars = store.read("bars")
     news = store.read("news")
+    if not news.is_empty():  # dedup re-fetched news (same article) so news_count isn't inflated
+        news = news.unique(subset=["opportunity_id", "article_id"], keep="first")
     funds = store.read("fundamentals")
-    scans = store.read("scanner_hits")
+    scans = store.read("scanner_hits")  # NOT deduped: each row is a distinct scanner appearance
 
     analyses: list[OpportunityAnalysis] = []
     for row in opps.iter_rows(named=True):
