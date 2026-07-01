@@ -94,9 +94,10 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
   set -a && . /etc/scs-backup.env && set +a
   restic snapshots                                   # list backups
   restic restore latest --target /restore            # pull the newest into /restore
-  # then repopulate a fresh volume:
-  docker volume create scs-data
-  docker run --rm -v scs-data:/d -v /restore:/r alpine sh -c 'cp -a /r/_data/. /d/'
+  # then repopulate the compose-managed volume (created by `docker compose up`, so it is
+  # project-prefixed: small-cap-stack_scs-data). Restore into it while the app is stopped:
+  docker compose -f /opt/small-cap-stack/docker-compose.yml create   # makes the volume
+  docker run --rm -v small-cap-stack_scs-data:/d -v /restore:/r alpine sh -c 'cp -a /r/_data/. /d/'
   ```
 - **Monitoring:** the backup pings a dedicated Healthchecks check (`HEALTHCHECKS_BACKUP_URL`) on
   start/success and `/fail` on error — so a silently-failing backup alerts you. Grafana's node

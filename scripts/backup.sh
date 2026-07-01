@@ -18,7 +18,7 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 # restic reads RESTIC_REPOSITORY / RESTIC_PASSWORD / B2_ACCOUNT_ID / B2_ACCOUNT_KEY from env.
-DATA_PATH="${DATA_PATH:-/var/lib/docker/volumes/scs-data/_data}"
+DATA_PATH="${DATA_PATH:-/var/lib/docker/volumes/small-cap-stack_scs-data/_data}"
 HC="${HEALTHCHECKS_BACKUP_URL:-}"
 
 hc() { [ -n "$HC" ] && curl -fsS -m 10 --retry 3 "${HC}${1:-}" -o /dev/null 2>/dev/null || true; }
