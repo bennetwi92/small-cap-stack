@@ -9,6 +9,7 @@ can swap in a more reliable source (FMP float / FINRA short interest) later with
 from __future__ import annotations
 
 import asyncio
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -36,30 +37,27 @@ class NullFundamentals:
         return None
 
 
-def _to_int(v: object) -> int | None:
-    if isinstance(v, bool):
-        return None
-    if isinstance(v, int | float):
-        return int(v)
-    if isinstance(v, str):
-        try:
-            return int(float(v))
-        except ValueError:
-            return None
-    return None
-
-
 def _to_float(v: object) -> float | None:
+    # yfinance's .info returns NaN (and occasionally inf) for missing/unknown fields — reject any
+    # non-finite value so it maps to None rather than propagating garbage or crashing _to_int.
     if isinstance(v, bool):
         return None
     if isinstance(v, int | float):
-        return float(v)
+        f = float(v)
+        return f if math.isfinite(f) else None
     if isinstance(v, str):
         try:
-            return float(v)
+            f = float(v)
         except ValueError:
             return None
+        return f if math.isfinite(f) else None
     return None
+
+
+def _to_int(v: object) -> int | None:
+    # Via _to_float so NaN/inf -> None instead of `int(nan)` raising ValueError.
+    f = _to_float(v)
+    return int(f) if f is not None else None
 
 
 def from_info(info: dict[str, Any], symbol: str) -> Fundamentals:

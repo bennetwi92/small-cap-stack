@@ -8,7 +8,7 @@ from pathlib import Path
 
 from small_cap_stack.capture import CaptureService
 from small_cap_stack.config import Settings
-from small_cap_stack.fundamentals import Fundamentals, from_info
+from small_cap_stack.fundamentals import Fundamentals, _to_float, _to_int, from_info
 from small_cap_stack.scanner import Candidate
 from small_cap_stack.storage import Store
 
@@ -29,6 +29,29 @@ def test_from_info_missing_and_bad_values() -> None:
     assert f.shares_outstanding is None
     assert f.short_percent is None
     assert f.source == "yfinance"
+
+
+def test_from_info_nan_maps_to_none() -> None:
+    # yfinance returns NaN/inf for unknown fields — must map to None, not crash (int(nan) raises).
+    f = from_info(
+        {
+            "floatShares": float("nan"),
+            "sharesOutstanding": float("inf"),
+            "shortPercentOfFloat": float("nan"),
+        },
+        "NANC",
+    )
+    assert f.float_shares is None
+    assert f.shares_outstanding is None
+    assert f.short_percent is None
+
+
+def test_numeric_coercion_edges() -> None:
+    assert _to_int(float("nan")) is None and _to_int(float("inf")) is None
+    assert _to_float(float("nan")) is None and _to_float(float("-inf")) is None
+    assert _to_int(True) is None and _to_float(False) is None  # bool is not a numeric datum
+    assert _to_int("12.9") == 12 and _to_float("0.21") == 0.21
+    assert _to_int(8_000_000) == 8_000_000
 
 
 class _FakeFundamentals:
