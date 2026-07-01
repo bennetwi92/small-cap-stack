@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     scan_end: time = time(11, 59)
     eod_bars_fetch: time = time(16, 20)  # batch-fetch the day's 5-min bars (before the report)
     eod_report: time = time(16, 30)
+    # Daily cron jobs tolerate a brief event-loop delay before being counted as misfired/skipped
+    # (APScheduler's default is 1s — too tight for once-a-day critical jobs). Kept well inside the
+    # 16:20 -> 16:30 eod_bars -> eod_report gap.
+    cron_misfire_grace_sec: int = 300
 
     # IB Gateway daily auto-restart (IBC AUTO_RESTART_TIME). Disconnects in this window are
     # treated as expected, not cold failures.

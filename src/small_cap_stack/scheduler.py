@@ -34,9 +34,19 @@ def build_scheduler(
     def cron(t: time) -> CronTrigger:
         return CronTrigger(hour=t.hour, minute=t.minute, timezone=ET_NAME)
 
+    # Daily jobs get a generous misfire grace so a transient event-loop block doesn't skip the
+    # day's bar batch / report (APScheduler's default is 1s). The interval tick keeps the tight
+    # default — a late tick is harmless and coalesce=True prevents pile-up.
+    grace = settings.cron_misfire_grace_sec
     scheduler.add_job(on_tick, IntervalTrigger(seconds=settings.tick_interval_sec), id="tick")
-    scheduler.add_job(on_scan_start, cron(settings.scan_start), id="scan_start")
-    scheduler.add_job(on_scan_end, cron(settings.scan_end), id="scan_end")
-    scheduler.add_job(on_eod_bars, cron(settings.eod_bars_fetch), id="eod_bars")
-    scheduler.add_job(on_eod_report, cron(settings.eod_report), id="eod_report")
+    scheduler.add_job(
+        on_scan_start, cron(settings.scan_start), id="scan_start", misfire_grace_time=grace
+    )
+    scheduler.add_job(on_scan_end, cron(settings.scan_end), id="scan_end", misfire_grace_time=grace)
+    scheduler.add_job(
+        on_eod_bars, cron(settings.eod_bars_fetch), id="eod_bars", misfire_grace_time=grace
+    )
+    scheduler.add_job(
+        on_eod_report, cron(settings.eod_report), id="eod_report", misfire_grace_time=grace
+    )
     return scheduler
