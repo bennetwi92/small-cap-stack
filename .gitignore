@@ -23,6 +23,9 @@ coverage.xml
 .env.*
 !.env.example
 
+# Local ops notes (host access, connection strings) — never commit
+*.local.md
+
 # Data (raw bars, parquet, db dumps) — never commit
 data/
 *.parquet
