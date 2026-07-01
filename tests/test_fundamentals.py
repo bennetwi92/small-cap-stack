@@ -40,7 +40,7 @@ class _FakeFundamentals:
 
 
 class _NoBars:
-    async def fetch_5m_bars(self, candidate: Candidate, *, lookback_sec: int) -> list:  # type: ignore[type-arg]
+    async def fetch_day_bars(self, candidate: Candidate, *, trading_date: object) -> list:  # type: ignore[type-arg]
         return []
 
 

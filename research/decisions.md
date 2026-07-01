@@ -21,12 +21,14 @@
 ## Core architectural principle (from Q11)
 **Store raw, compute derived on read.** Capture everything raw at flag time (bars, scanner snapshot, fundamentals, news, short interest) and keep gate evaluation + stat computation as **replayable pure functions** over that raw data. Changing gate definitions or the entry/stop spec later must NOT require re-collecting data — only re-running the computation over the cached raw record.
 
+**Capture split — discovery intraday, bars at EOD (DECISION 2026-07-01, #62).** The intraday 60s tick does **discovery only**: scanner hits + opening opportunities + news/fundamentals at flag time (all point-in-time — not reconstructable later). The day's **5-min bars are pulled once in an end-of-day batch** (~16:20 ET, before the 16:30 report): a single `reqHistoricalData(durationStr="1 D", "5 mins", useRTH=False)` returns the whole session (04:00 ET→close) per flagged symbol. Replaces the fragile keepUpToDate streaming, which lost data + duplicated bars on a mid-session restart (observed after a deploy) and implicitly assumed a real-time feed we don't have (data is ~15 min delayed). The EOD job reads opportunities from storage and discovery rehydrates its open-set from storage on startup, so **restarts/deploys during market hours no longer create gaps**. Phase-1 places no orders, so real-time bars have no operational value.
+
 ## Entry / stop spec (for Max-R measurement)
 - **Entry trigger (CONFIRMED 2026-07-01):** **5 ticks above the high of the last _complete_ consolidation candle** (i.e. `breakout_high + 5 × tick_size`; for $2–10 names tick = $0.01, so +$0.05). Revised from the earlier "1 tick above" (`notes.md`) after the user confirmed the real entry. Configurable via `Settings.entry_offset_ticks` / `tick_size`.
 - **Stop (CONFIRMED 2026-06-29):** the **low of the consolidation candle(s)** (the flag low). This is the R denominator; `R = entry − stop`.
 
 ## Strategy notes captured 2026-06-29 (from `notes.md`)
-- **Opportunity exhaustion / re-entry (issue #36):** a symbol can form >1 opportunity/day (runs, exhausts, extends again). Phase-1 stores raw bars continuously, so re-entries are segmented **at analysis time**, not in live capture. Current `opportunity_id=<date>:<symbol>` is the Phase-1 starting point.
+- **Opportunity exhaustion / re-entry (issue #36):** a symbol can form >1 opportunity/day (runs, exhausts, extends again). Phase-1 stores the full day's raw bars (EOD batch, #62), so re-entries are segmented **at analysis time**, not in live capture. Current `opportunity_id=<date>:<symbol>` is the Phase-1 starting point.
 - **Pre-market orders (issue #37):** pre-market is **limit-only**; stops/TP must be **app-monitored** pre-market (broker-native stops only in the regular session). Reuse tradepilot's app-side exit logic. Execution concern (P2/P3).
 
 ## Scope (from user, 2026-06-29)

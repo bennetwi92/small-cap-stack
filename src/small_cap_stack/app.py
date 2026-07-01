@@ -69,6 +69,7 @@ class Application:
             on_tick=self._on_tick,
             on_scan_start=self._on_scan_start,
             on_scan_end=self._on_scan_end,
+            on_eod_bars=self._on_eod_bars,
             on_eod_report=self._on_eod_report,
         )
 
@@ -110,12 +111,6 @@ class Application:
     async def _on_connect(self) -> None:
         IBKR_CONNECTED.set(1)
         await self.transport.resync()
-        # Bar streams are stateful and dropped on disconnect — re-open them on every (re)connect.
-        # Guarded so a replay hiccup degrades to "no bars this cycle", not a dropped connection.
-        try:
-            await self.market_data.resubscribe()
-        except Exception:  # noqa: BLE001 — best-effort replay; never fail the connect
-            log.warning("marketdata.resubscribe_failed")
 
     async def _alert_cold_disconnect(self) -> None:
         IBKR_CONNECTED.set(0)
@@ -138,7 +133,7 @@ class Application:
     # --- the periodic work loop ---------------------------------------------------------
 
     async def _on_tick(self) -> None:
-        """Scan during the scan window; keep capturing flagged opportunities until close."""
+        """Intraday discovery: scan for candidates during the scan window (bars come at EOD)."""
         SCAN_TICKS.inc()
         await self.heartbeat.ping()  # dead-man's switch: process is alive
         if not self.transport.is_connected():
@@ -150,14 +145,21 @@ class Application:
                 "scan.candidates", count=len(candidates), symbols=[c.symbol for c in candidates]
             )
             await self.capture.on_scan_tick(candidates, now)
-        elif within_window(now, self.settings.scan_end, self.settings.capture_end):
-            await self.capture.capture_bars(now)
 
     async def _on_scan_start(self) -> None:
         log.info("scan.window_open")
 
     async def _on_scan_end(self) -> None:
         log.info("scan.window_closed")
+
+    async def _on_eod_bars(self) -> None:
+        """Batch-fetch the day's 5-min bars for every flagged opportunity (before the report)."""
+        log.info("bars.eod_start")
+        if not self.transport.is_connected():
+            log.warning("bars.eod_skipped_disconnected")
+            return
+        await self.capture.capture_day_bars(now_et().date())
+        log.info("bars.eod_done")
 
     async def _on_eod_report(self) -> None:
         log.info("report.eod_start")
@@ -168,7 +170,6 @@ class Application:
             )
             self._write_report_markdown(report)
         log.info("report.eod_done", **report.aggregates)
-        self.market_data.cancel_all()  # tear down the day's bar streams
         self.capture.reset()
 
     def _write_report_markdown(self, report: EodReport) -> None:

@@ -21,12 +21,13 @@ def build_scheduler(
     on_tick: Job,
     on_scan_start: Job,
     on_scan_end: Job,
+    on_eod_bars: Job,
     on_eod_report: Job,
 ) -> AsyncIOScheduler:
     """Build a scheduler with the periodic tick + daily boundary jobs (not yet started).
 
-    The `tick` interval job drives the real scan/capture loop (it self-gates by time window);
-    the cron jobs just mark the window boundaries.
+    The `tick` interval job drives the intraday discovery loop (it self-gates by time window);
+    the cron jobs mark the window boundaries, batch-fetch the day's bars, then build the report.
     """
     scheduler = AsyncIOScheduler(timezone=ET_NAME)
 
@@ -36,5 +37,6 @@ def build_scheduler(
     scheduler.add_job(on_tick, IntervalTrigger(seconds=settings.tick_interval_sec), id="tick")
     scheduler.add_job(on_scan_start, cron(settings.scan_start), id="scan_start")
     scheduler.add_job(on_scan_end, cron(settings.scan_end), id="scan_end")
+    scheduler.add_job(on_eod_bars, cron(settings.eod_bars_fetch), id="eod_bars")
     scheduler.add_job(on_eod_report, cron(settings.eod_report), id="eod_report")
     return scheduler
