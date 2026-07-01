@@ -44,6 +44,9 @@ Toolchain lives in `.venv`. CI runs ruff + mypy + pytest on every PR.
 
 ## IBKR / runtime
 - Library: **`ib_async`** (asyncio). Ports: TWS paper 7497 / live 7496 · IB Gateway paper 4002 / live 4001.
+  In the docker-compose stack the app connects to the `gnzsnz/ib-gateway` container via **socat** (paper
+  **4004** / live **4003**) — the raw 4002/4001 API binds localhost-only with `TrustedIPs=127.0.0.1`, so a
+  cross-container client on those ports connects then gets dropped. Set `IBKR_PORT` to the socat port.
 - `reqHistoricalData` uses `barSizeSetting=` (not `barSize`). Short-term volume is native: `stVolume5minAbove` etc. — do not derive 5-min volume from bars.
 - Pacing: ≤50 scanner rows, ~50 msg/sec, historical < 60 req / 10 min. Always `outsideRth=True` for pre-market.
 - Secrets via `.env` (gitignored); see `.env.example`. Never commit credentials.
