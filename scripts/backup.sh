@@ -21,6 +21,10 @@ fi
 DATA_PATH="${DATA_PATH:-/var/lib/docker/volumes/small-cap-stack_scs-data/_data}"
 HC="${HEALTHCHECKS_BACKUP_URL:-}"
 
+# systemd oneshot units don't set $HOME, so restic can't find its default cache — pin it.
+export RESTIC_CACHE_DIR="${RESTIC_CACHE_DIR:-/var/cache/restic}"
+mkdir -p "$RESTIC_CACHE_DIR"
+
 hc() { [ -n "$HC" ] && curl -fsS -m 10 --retry 3 "${HC}${1:-}" -o /dev/null 2>/dev/null || true; }
 
 trap 'hc /fail' ERR
