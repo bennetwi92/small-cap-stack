@@ -1,6 +1,6 @@
 name: build-image
 
-# Build the app image for arm64 (Oracle Ampere A1) so the VM can deploy by *pulling* a versioned
+# Build the app image for amd64 (Hetzner CX / x86 VPS) so the VM can deploy by *pulling* a versioned
 # image instead of building on-box. PRs build-only (validate the Dockerfile); main + tags push to GHCR.
 # Pairs with deploy.yml (the self-hosted runner / a pull-based updater consumes the pushed tag).
 
@@ -31,16 +31,13 @@ env:
 
 jobs:
   build:
-    name: build (linux/arm64)
+    name: build (linux/amd64)
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up QEMU (arm64 emulation)
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -68,7 +65,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/arm64
+          platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

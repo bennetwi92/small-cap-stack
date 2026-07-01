@@ -1,14 +1,14 @@
 name: deploy
 
-# Phone-triggerable deploy of the Phase-1 tracker to the Oracle Ampere VM.
+# Phone-triggerable deploy of the Phase-1 tracker to the Hetzner VM.
 #
 # Control-plane decision (research/decisions.md): GitHub drives deploys via a SELF-HOSTED runner
-# registered on the Oracle VM. The runner polls GitHub *outbound*, so the box keeps NO inbound
+# registered on the VM. The runner polls GitHub *outbound*, so the box keeps NO inbound
 # ports open and no SSH key ever lives in the ephemeral Claude Code container. Trigger from the
 # phone with the GitHub UI / MCP "Run workflow" (workflow_dispatch).
 #
 # PREREQUISITE (blocked on #6): the VM must exist with a self-hosted runner registered and
-# labelled [self-hosted, oracle]. Until then this workflow is inert — it only ever runs on manual
+# labelled [self-hosted, vps]. Until then this workflow is inert — it only ever runs on manual
 # dispatch, so it will not queue or fail on its own.
 
 on:
@@ -25,13 +25,13 @@ on:
         default: false
 
 concurrency:
-  group: deploy-oracle
+  group: deploy-vps
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: deploy to oracle-ampere
-    runs-on: [self-hosted, oracle]
+    name: deploy to vps
+    runs-on: [self-hosted, vps]
     steps:
       - name: Update working tree
         if: ${{ !inputs.restart_only }}

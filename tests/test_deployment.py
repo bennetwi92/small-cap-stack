@@ -29,7 +29,7 @@ def test_systemd_unit() -> None:
 
 
 def test_runbook_present() -> None:
-    assert "Ampere" in (ROOT / "deploy" / "RUNBOOK.md").read_text()
+    assert "Hetzner" in (ROOT / "deploy" / "RUNBOOK.md").read_text()
 
 
 def test_env_example_has_no_committed_secrets() -> None:
