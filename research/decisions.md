@@ -81,6 +81,13 @@ Goal: build, test, fetch data, and deploy entirely from the Claude Code web/mobi
 - **Network policy.** Pulling fixtures (and any future VPS read endpoint) requires the web
   environment's network policy to allow that egress — a deliberate config choice, documented in the
   RUNBOOK.
+- **Off-box backups = restic → Backblaze B2 (DECISION 2026-07-01, #48).** The 3-month dataset (the
+  product) is backed up nightly by a host `systemd` timer running `scripts/backup.sh`: **restic**
+  (incremental + encrypted + deduplicated, retention keep-daily 7/weekly 5/monthly 4) to a **B2**
+  bucket (10 GB free). Chosen over a nightly `tar` because append-only Parquet dedups perfectly and
+  restic gives integrity checks + one-command restore. Config in root-only `/etc/scs-backup.env`;
+  the backup pings a dedicated Healthchecks check (alerts on silent failure). The `RESTIC_PASSWORD`
+  is stored off-box (password manager) so a box loss is recoverable.
 - **Blocked on the VM (#6):** the deploy *execution* and the VPS-side fixture *producer*. The
   VM-independent halves (SessionStart hook, fixtures consumer scaffolding, the GHCR build job, the
   deploy workflow definition, and these docs) land now.

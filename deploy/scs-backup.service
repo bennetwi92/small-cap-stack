@@ -1,0 +1,13 @@
+[Unit]
+Description=small-cap-stack off-box backup (restic -> Backblaze B2)
+Documentation=https://github.com/bennetwi92/small-cap-stack/blob/main/deploy/RUNBOOK.md
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Config (repo, password, B2 keys, Healthchecks URL) is sourced by the script from
+# /etc/scs-backup.env — keep that file root-only (chmod 600).
+ExecStart=/opt/small-cap-stack/scripts/backup.sh
+Nice=10
+IOSchedulingClass=idle
