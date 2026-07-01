@@ -2,8 +2,8 @@
 
 Strategy pattern (Warrior-style, see README): a short up-thrust *pole* of green extension
 candles, immediately followed by a shallow *flag* of red consolidation candles that holds above
-the pole's base. The breakout/entry is the tick above the high of the last consolidation candle
-(notes.md); the stop is the consolidation low (decisions.md). Constraints: **≤2 green extension
+the pole's base. The breakout/entry is **5 ticks above the high of the last complete consolidation
+candle** (decisions.md); the stop is the consolidation low. Constraints: **≤2 green extension
 candles, ≤2 red consolidation candles**.
 
 Pure and replayable — runs over the cached raw bars, so the definition can change retroactively.
@@ -30,8 +30,8 @@ def classify(bar: Bar) -> str:
 class BullFlag:
     pole_len: int
     flag_len: int
-    breakout_level: float  # high of the last consolidation candle
-    entry_trigger: float  # breakout_level + one tick
+    breakout_level: float  # high of the last complete consolidation candle
+    entry_trigger: float  # breakout_level + entry offset (5 ticks)
     stop: float  # consolidation (flag) low
 
 
@@ -40,7 +40,7 @@ def detect(
     *,
     max_green: int = 2,
     max_red: int = 2,
-    tick: float = 0.01,
+    entry_offset: float = 0.05,
 ) -> BullFlag | None:
     """Detect a bull flag at the END of the series (the just-formed setup), else None."""
     if len(bars) < 2:
@@ -80,7 +80,7 @@ def detect(
         pole_len=len(pole),
         flag_len=len(flag),
         breakout_level=round(breakout, 4),
-        entry_trigger=round(breakout + tick, 4),
+        entry_trigger=round(breakout + entry_offset, 4),
         stop=round(flag_low, 4),
     )
 
@@ -90,5 +90,5 @@ def detect_with_settings(bars: list[Bar], settings: Settings) -> BullFlag | None
         bars,
         max_green=settings.bull_flag_max_green,
         max_red=settings.bull_flag_max_red,
-        tick=settings.entry_tick,
+        entry_offset=settings.entry_offset_ticks * settings.tick_size,
     )

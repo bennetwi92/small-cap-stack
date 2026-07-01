@@ -57,7 +57,8 @@ class Settings(BaseSettings):
     # Bull-flag detection (issue #16).
     bull_flag_max_green: int = 2  # max green extension (pole) candles
     bull_flag_max_red: int = 2  # max red consolidation (flag) candles
-    entry_tick: float = 0.01  # tick added above the breakout level (US $2-10 names)
+    tick_size: float = 0.01  # min US price increment for $2-10 names
+    entry_offset_ticks: int = 5  # entry = last complete consolidation high + 5 ticks ($0.05)
 
     # Capture (issue #14). Scanning stops at scan_end; we keep recording flagged
     # opportunities' bars/news until capture_end (regular close).

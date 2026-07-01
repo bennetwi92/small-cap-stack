@@ -2,8 +2,8 @@
 
 Phase-1 places no orders — but to learn the strategy we measure, per opportunity, what *would*
 have happened:
-- the bull-flag setup defines the **entry trigger** (tick above the last consolidation candle's
-  high) and the **stop** (consolidation low) — so initial risk R = entry - stop;
+- the bull-flag setup defines the **entry trigger** (5 ticks above the last complete consolidation
+  candle's high) and the **stop** (consolidation low) — so initial risk R = entry - stop;
 - did a later bar's high reach the entry trigger (did it fill)?
 - after entry, the peak favourable excursion in R (**Max R**) and the worst adverse excursion
   (MAE in R), and whether the stop was hit.
