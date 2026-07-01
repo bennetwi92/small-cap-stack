@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly small-cap-stack off-box backup
+Documentation=https://github.com/bennetwi92/small-cap-stack/blob/main/deploy/RUNBOOK.md
+
+[Timer]
+# 02:30 ET nightly — quiet window (well after the 16:30 EOD report and the 23:45 Gateway restart).
+OnCalendar=*-*-* 02:30:00 America/New_York
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

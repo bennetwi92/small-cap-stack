@@ -72,10 +72,35 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
   Hetzner has no such reclamation.
 
 ## 8. Data + backups
-- Data lives in the `scs-data` Docker volume (`/data` in the container): DuckDB + Parquet + EOD reports.
-- Back it up off-box (issue #48 automates this): e.g. nightly
-  `docker run --rm -v scs-data:/d -v /backup:/b alpine tar czf /b/scs-$(date +%F).tgz /d`
-  then sync `/backup` to cheap/free object storage (Hetzner Storage Box, Backblaze B2 10 GB free, etc.).
+- Data lives in the `scs-data` Docker volume (`/data` in the container): Parquet datasets + EOD
+  reports + dashboard JSON. It is the 3-month Phase-1 dataset — **the product** — so it is backed
+  up off-box nightly (#48).
+- **Automated off-box backup (restic → Backblaze B2).** Incremental, encrypted, deduplicated:
+  each night only new Parquet partitions upload; retention `keep-daily 7 / weekly 5 / monthly 4`.
+  ```bash
+  # [YOU] one-time: B2 bucket + application key; a Healthchecks check for the backup job.
+  apt-get install -y restic
+  cp deploy/scs-backup.env.example /etc/scs-backup.env && nano /etc/scs-backup.env   # fill creds
+  chmod 600 /etc/scs-backup.env
+  set -a && . /etc/scs-backup.env && set +a && restic init          # once, creates the repo
+  cp deploy/scs-backup.{service,timer} /etc/systemd/system/
+  systemctl daemon-reload && systemctl enable --now scs-backup.timer
+  systemctl start scs-backup.service && journalctl -u scs-backup -n 20   # test run now
+  ```
+  > ⚠️ The **`RESTIC_PASSWORD`** encrypts the repo — store it in your password manager too. Without
+  > it, backups can't be restored after a box loss.
+- **Restore** (on any host with restic + the same `/etc/scs-backup.env`):
+  ```bash
+  set -a && . /etc/scs-backup.env && set +a
+  restic snapshots                                   # list backups
+  restic restore latest --target /restore            # pull the newest into /restore
+  # then repopulate a fresh volume:
+  docker volume create scs-data
+  docker run --rm -v scs-data:/d -v /restore:/r alpine sh -c 'cp -a /r/_data/. /d/'
+  ```
+- **Monitoring:** the backup pings a dedicated Healthchecks check (`HEALTHCHECKS_BACKUP_URL`) on
+  start/success and `/fail` on error — so a silently-failing backup alerts you. Grafana's node
+  metrics also show disk usage on the box.
 
 ## 9. Operations
 - **Update:** `cd /opt/small-cap-stack && git pull && systemctl restart small-cap-stack` (or use the
