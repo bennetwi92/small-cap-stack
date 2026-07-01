@@ -34,7 +34,7 @@ services:
         condition: service_healthy
     environment:
       IBKR_HOST: ibgateway
-      IBKR_PORT: ${IBKR_PORT:-4002}
+      IBKR_PORT: ${IBKR_PORT:-4004}  # socat port (paper 4004 / live 4003); raw API 4002/4001 is localhost-only
       IBKR_TRADING_MODE: ${IBKR_TRADING_MODE:-paper}
       IBKR_CLIENT_ID: ${IBKR_CLIENT_ID:-1}
       HEALTHCHECKS_PING_URL: ${HEALTHCHECKS_PING_URL:-}

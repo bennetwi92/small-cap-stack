@@ -79,7 +79,8 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
   phone-triggered `deploy` workflow — §11).
 - **Logs:** `docker compose logs -f app` (JSON in prod).
 - **Daily Gateway restart:** handled by IBC (`AUTO_RESTART_TIME`); the app auto-reconnects + resyncs.
-- **Go live (Phase 3, later):** set `IBKR_TRADING_MODE=live`, `IBKR_PORT=4001`, restart.
+- **Go live (Phase 3, later):** set `IBKR_TRADING_MODE=live`, `IBKR_PORT=4003` (the live socat port;
+  paper is `4004`), restart.
 
 ## 10. Reminders
 - Phase 1 places **no orders** — it only records opportunities for ~3 months.
