@@ -130,6 +130,19 @@ def test_eod_report(tmp_path: Path) -> None:
     assert "EOD report" in report.markdown and "AZI" in report.markdown
 
 
+def test_duplicate_bars_are_deduped_on_read(tmp_path: Path) -> None:
+    # Append the AZI setup twice (simulating re-fetched/duplicated raw bar rows). The report
+    # must dedup by bar_start_utc so the flag/R-metrics see 4 bars, not 8, and stay correct.
+    store = Store(tmp_path)
+    _seed(store)
+    _seed(store)  # second append -> every row duplicated in the raw datasets
+
+    report = build_eod_report(store, _settings(), _DAY)
+    azi = {a.symbol: a for a in report.analyses}["AZI"]
+    assert azi.bars == 4  # deduped from 8 raw rows
+    assert azi.triggered and azi.max_r is not None and azi.max_r >= 2.0
+
+
 def test_eod_report_empty(tmp_path: Path) -> None:
     report = build_eod_report(Store(tmp_path), _settings(), _DAY)
     assert report.aggregates["opportunities"] == 0
