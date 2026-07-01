@@ -129,6 +129,7 @@ def test_eod_report(tmp_path: Path) -> None:
     assert azi.triggered and azi.max_r is not None and azi.max_r >= 2.0
     assert azi.float_shares == 8_000_000 and azi.float_ok is True
     assert azi.scanner_hits == 2
+    assert azi.flag_len == 1 and azi.retracement is not None  # traded setup's shape (#98)
     dud = by_sym["DUD"]
     assert not dud.triggered and not dud.bull_flag and dud.float_shares is None
 

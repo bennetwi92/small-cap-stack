@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from small_cap_stack.bullflag import classify, detect
+from small_cap_stack.bullflag import classify, detect, detect_with_settings
 from small_cap_stack.capture import Bar
+from small_cap_stack.config import Settings
 
 _T0 = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
 
@@ -80,3 +81,43 @@ def test_pullback_erasing_pole_rejected() -> None:
 
 def test_needs_two_bars() -> None:
     assert detect([_green(0, 5.0)]) is None
+
+
+def test_retracement_measures_pullback_into_pole() -> None:
+    # pole: high 6.2, base (low) 4.9 -> height 1.3. flag low 5.6 -> retrace (6.2-5.6)/1.3.
+    bars = [_bar(0, 5.0, 6.2, 4.9, 6.0), _bar(1, 6.0, 6.1, 5.6, 5.7)]
+    bf = detect(bars)
+    assert bf is not None
+    assert bf.retracement == round((6.2 - 5.6) / (6.2 - 4.9), 4)
+    assert 0.0 <= bf.retracement < 1.0
+
+
+# Six shallow red consolidation candles that all hold above the pole's base (low 4.9).
+_SIX_REDS = [
+    _bar(1, 6.00, 6.05, 5.70, 5.75),
+    _bar(2, 5.75, 5.80, 5.60, 5.65),
+    _bar(3, 5.65, 5.70, 5.55, 5.60),
+    _bar(4, 5.60, 5.65, 5.50, 5.55),
+    _bar(5, 5.55, 5.60, 5.45, 5.50),
+    _bar(6, 5.50, 5.55, 5.40, 5.45),
+]
+
+
+def test_six_consolidations_accepted() -> None:
+    bars = [_bar(0, 5.0, 6.2, 4.9, 6.0), *_SIX_REDS]
+    bf = detect(bars, max_red=6)
+    assert bf is not None
+    assert bf.flag_len == 6
+    assert bf.stop == 5.40  # flag low across all six reds
+
+
+def test_seven_consolidations_rejected() -> None:
+    bars = [_bar(0, 5.0, 6.2, 4.9, 6.0), *_SIX_REDS, _bar(7, 5.45, 5.50, 5.35, 5.40)]
+    assert detect(bars, max_red=6) is None  # consolidation longer than max_red -> invalid
+
+
+def test_default_settings_allow_six_consolidations() -> None:
+    # The default max_red is now 6 (#98) — a six-candle flag is valid under Settings defaults.
+    bars = [_bar(0, 5.0, 6.2, 4.9, 6.0), *_SIX_REDS]
+    bf = detect_with_settings(bars, Settings(_env_file=None))  # type: ignore[call-arg]
+    assert bf is not None and bf.flag_len == 6
