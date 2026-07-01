@@ -1,0 +1,100 @@
+/* Dashboard styling on top of Pico.css (#70). */
+:root {
+  --pico-spacing: 0.75rem;
+}
+main.container {
+  max-width: 60rem;
+}
+hgroup h1 {
+  margin-bottom: 0.1rem;
+}
+article {
+  margin-bottom: 0.9rem;
+}
+article > header {
+  font-weight: 600;
+  padding: 0.5rem 0.9rem;
+}
+.muted {
+  color: var(--pico-muted-color);
+}
+.warn {
+  color: #e0a100;
+  font-weight: 600;
+}
+#refresh {
+  display: inline;
+  width: auto;
+  padding: 0.05rem 0.55rem;
+  margin-left: 0.4rem;
+}
+
+/* health bar */
+.health {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.9rem;
+  align-items: center;
+}
+.badge {
+  padding: 0.15rem 0.55rem;
+  border-radius: 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #fff;
+}
+.badge.ok {
+  background: #1a7f37;
+}
+.badge.bad {
+  background: #c0362c;
+}
+.tag {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+}
+
+/* data-count cards */
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+.stat {
+  flex: 1 1 5rem;
+  text-align: center;
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.3rem;
+}
+.stat .k {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.stat .v {
+  font-size: 1.55rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* tables */
+table {
+  font-size: 0.9rem;
+  margin: 0;
+}
+:where(table td, table th) {
+  padding: 0.3rem 0.5rem;
+}
+.scroll {
+  overflow-x: auto;
+}
+
+.error {
+  background: #c0362c;
+  color: #fff;
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.5rem;
+}
