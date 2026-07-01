@@ -6,7 +6,14 @@ import asyncio
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from small_cap_stack.capture import Bar, CaptureService, NewsItem, opportunity_id
+from small_cap_stack.capture import (
+    Bar,
+    CaptureService,
+    NewsItem,
+    news_record,
+    opportunity_id,
+    parse_news_ts,
+)
 from small_cap_stack.config import Settings
 from small_cap_stack.scanner import Candidate
 from small_cap_stack.storage import Store
@@ -153,3 +160,29 @@ def test_one_symbol_failure_does_not_stall_the_batch(tmp_path: Path) -> None:
     bars = store.read("bars")
     assert bars.height == 1  # only GOOD's bar persisted
     assert bars["symbol"].to_list() == ["GOOD"]
+
+
+def test_parse_news_ts() -> None:
+    assert parse_news_ts("2026-06-29 13:45:00.0") == datetime(2026, 6, 29, 13, 45, tzinfo=UTC)
+    assert parse_news_ts("2026-06-29 13:45:00") == datetime(2026, 6, 29, 13, 45, tzinfo=UTC)
+    assert parse_news_ts("garbage") is None
+    assert parse_news_ts("") is None
+
+
+def test_news_record_carries_utc_timestamp() -> None:
+    rec = news_record("2026-06-29:AZI", "AZI", NewsItem("2026-06-29 13:45:00.0", "DJ-N", "h", "a1"))
+    assert rec["ts_utc"] == datetime(2026, 6, 29, 13, 45, tzinfo=UTC)
+    assert rec["time"] == "2026-06-29 13:45:00.0"  # raw string kept for provenance
+
+
+def test_eod_news_refetch_appends_with_timestamp(tmp_path: Path) -> None:
+    # A story that breaks after first sighting is captured by the EOD re-fetch (#97).
+    store = Store(tmp_path)
+    svc = _svc(store, FakeBars([]), FakeNews([NewsItem("2026-06-29 12:00:00", "DJ-N", "n", "a2")]))
+    asyncio.run(svc.on_scan_tick([_candidate()], datetime(2026, 6, 29, 9, 40, tzinfo=UTC)))
+    before = store.read("news").height
+
+    asyncio.run(svc.capture_day_news(_TRADING_DATE))
+    news = store.read("news")
+    assert news.height > before  # re-fetch appended (duplicates deduped later on read)
+    assert "ts_utc" in news.columns

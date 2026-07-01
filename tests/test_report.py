@@ -310,3 +310,63 @@ def test_reentry_segments_into_two_runs(tmp_path: Path) -> None:
     assert r1.bars == 4 and r2.bars == 4  # each run sees only its own bars
     assert r1.triggered and r2.triggered  # each pop is a distinct entry
     assert r1.scanner_hits == 2 and r2.scanner_hits == 2
+
+
+def _news_row(oid: str, ts: datetime | None, aid: str) -> dict:  # type: ignore[type-arg]
+    return {
+        "opportunity_id": oid,
+        "symbol": "RUN",
+        "time": "raw",
+        "ts_utc": ts,
+        "provider": "DJ-N",
+        "headline": aid,
+        "article_id": aid,
+    }
+
+
+def test_news_attributed_to_run_by_publish_time(tmp_path: Path) -> None:
+    # Two runs (pops at 14:00 and 15:30). A story dated into each run's window belongs to that run;
+    # an undated (unparseable/legacy) story falls back to run 1 (#97).
+    store = Store(tmp_path)
+    oid = "2026-06-29:RUN"
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "RUN",
+                "con_id": 3,
+                "trading_date": _DAY,
+                "first_seen_utc": _T0,
+                "first_rank": 0,
+            }
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "scanner_hits",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "RUN",
+                "ts_utc": _T0 + timedelta(minutes=m),
+                "rank": 0,
+            }
+            for m in (0, 5, 90, 95)
+        ],
+        partition_date=_DAY,
+    )
+    store.append("bars", _flag(oid, "RUN", 0) + _flag(oid, "RUN", 18), partition_date=_DAY)
+    store.append(
+        "news",
+        [
+            _news_row(oid, _T0 + timedelta(minutes=2), "early"),  # run 1 window
+            _news_row(oid, _T0 + timedelta(minutes=92), "late"),  # run 2 window
+            _news_row(oid, None, "undated"),  # falls back to run 1
+        ],
+        partition_date=_DAY,
+    )
+
+    by_id = {a.opportunity_id: a for a in build_eod_report(store, _settings(), _DAY).analyses}
+    assert by_id["2026-06-29:RUN#1"].news_count == 2  # early + undated
+    assert by_id["2026-06-29:RUN#2"].news_count == 1  # late only
