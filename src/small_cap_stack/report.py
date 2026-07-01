@@ -58,7 +58,14 @@ class EodReport:
 def _bars_for(bars: pl.DataFrame, oid: str) -> list[Bar]:
     if bars.is_empty():
         return []
-    sub = bars.filter(pl.col("opportunity_id") == oid).sort("bar_start_utc")
+    # The raw `bars` dataset is append-only and may hold duplicate (opportunity_id, bar_start_utc)
+    # rows (re-fetched across EOD runs / restarts) — dedup on read so the flag/R logic sees each
+    # 5-min bar once (store-raw / compute-on-read). Duplicate rows are identical, so keep any.
+    sub = (
+        bars.filter(pl.col("opportunity_id") == oid)
+        .unique(subset="bar_start_utc", keep="first")
+        .sort("bar_start_utc")
+    )
     return [
         Bar(
             start=r["bar_start_utc"],
