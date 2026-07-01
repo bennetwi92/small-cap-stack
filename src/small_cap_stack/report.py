@@ -50,6 +50,7 @@ class OpportunityAnalysis:
     stopped_out: bool
     flag_len: int | None = None  # consolidation count of the traded setup (#98)
     retracement: float | None = None  # flag retracement into the pole, fraction (#98)
+    news_recent: bool = False  # a news story dated today or yesterday (ET) for the symbol (#101)
     run: int = 1  # 1-based run index within the symbol's day (#36 re-entry segmentation)
     run_count: int = 1  # total runs the symbol formed that day
 
@@ -118,6 +119,15 @@ def _news_for(news: pl.DataFrame, oid: str) -> tuple[list[datetime], int]:
     return dated, sub.height - len(dated)
 
 
+def _news_recent(news_times: list[datetime], trading_date: date) -> bool:
+    """True if any news is dated today or yesterday (ET) relative to the trading date (#101).
+
+    A tighter recency signal than the 7-day `has_news`: 'was there a fresh catalyst?' rather than
+    'any story this week'. Compared in ET so a late-UTC print lands on the right market day."""
+    recent = {trading_date, trading_date - timedelta(days=1)}
+    return any(t.astimezone(ET).date() in recent for t in news_times)
+
+
 def _segment_runs(hit_times: list[datetime], gap_min: int) -> list[datetime]:
     """Run start times: a gap of >= gap_min with no scanner hits begins a new run (#36)."""
     if not hit_times:
@@ -166,6 +176,7 @@ def _analyze_run(
     first_seen: datetime,
     first_hit: datetime | None,
     news_count: int,
+    news_recent: bool,
     float_shares: int | None,
     short_percent: float | None,
     scanner_hits: int,
@@ -200,6 +211,7 @@ def _analyze_run(
         stopped_out=rm.stopped_out,
         flag_len=rm.flag_len,
         retracement=rm.retracement,
+        news_recent=news_recent,
         run=run,
         run_count=run_count,
     )
@@ -227,6 +239,7 @@ def _analyses_for_symbol(
     # News is attributed per-run by publish time (#97): a later run gets only the stories that
     # broke in its window. Undated news (unparseable / legacy) falls back to run 1 so it's not lost.
     news_times, news_undated = _news_for(news, oid)
+    news_recent = _news_recent(news_times, row["trading_date"])  # day-level recency (#101)
     float_shares, short_percent = _funds_for(funds, oid)
     run_count = len(windows)
 
@@ -250,6 +263,7 @@ def _analyses_for_symbol(
                 first_seen=start or row["first_seen_utc"],
                 first_hit=first_hit,
                 news_count=news_count,
+                news_recent=news_recent,
                 float_shares=float_shares,
                 short_percent=short_percent,
                 scanner_hits=hits,
@@ -273,6 +287,7 @@ def build_eod_report(store: Store, settings: Settings, trading_date: date) -> Eo
         empty = {
             "opportunities": 0,
             "with_news": 0,
+            "with_recent_news": 0,
             "float_ok": 0,
             "bull_flag": 0,
             "triggered": 0,
@@ -299,6 +314,9 @@ def build_eod_report(store: Store, settings: Settings, trading_date: date) -> Eo
     aggregates = {
         "opportunities": len(analyses),  # segmented — a 2-run symbol counts as 2 (#36)
         "with_news": sum(1 for a in analyses if a.has_news),
+        "with_recent_news": sum(
+            1 for a in analyses if a.news_recent
+        ),  # news today/yesterday (#101)
         "float_ok": sum(1 for a in analyses if a.float_ok),
         "bull_flag": sum(1 for a in analyses if a.bull_flag),
         "triggered": sum(1 for a in analyses if a.triggered),
@@ -316,19 +334,22 @@ def _to_markdown(d: date, analyses: list[OpportunityAnalysis], agg: dict[str, An
         f"# EOD report — {d}",
         "",
         f"- opportunities: **{agg['opportunities']}** | with news: {agg['with_news']} | "
+        f"news today/yest: {agg['with_recent_news']} | "
         f"float<20M: {agg['float_ok']} | bull-flag: {agg['bull_flag']}",
         f"- would-trigger: **{agg['triggered']}** | reached ≥1R: {agg['reached_1r']} | "
         f"≥2R: {agg['reached_2r']} | ≥3R: {agg['reached_3r']}",
         "",
-        "| name | bars | news | float | flag | setups | cons | retr | trig | MaxR | MAE_R | stop |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| name | bars | news | recent | float | flag | setups | cons | retr | "
+        "trig | MaxR | MAE_R | stop |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     # Sort by Max R desc; untriggered (max_r None) sink to the bottom. Use an explicit None check
     # so a triggered max_r of exactly 0.0 (same-bar stop-out) isn't mistaken for missing (`0.0 or`).
     for a in sorted(analyses, key=lambda x: x.max_r if x.max_r is not None else -1.0, reverse=True):
         name = a.symbol if a.run_count == 1 else f"{a.symbol}#{a.run}"
         lines.append(
-            f"| {name} | {a.bars} | {a.news_count} | {a.float_shares or '-'} | "
+            f"| {name} | {a.bars} | {a.news_count} | {'Y' if a.news_recent else '-'} | "
+            f"{a.float_shares or '-'} | "
             f"{'Y' if a.bull_flag else '-'} | {a.setup_count} | "
             f"{a.flag_len if a.flag_len is not None else '-'} | "
             f"{a.retracement if a.retracement is not None else '-'} | "

@@ -226,6 +226,7 @@ def test_markdown_sort_keeps_zero_max_r_above_untriggered() -> None:
         (
             "opportunities",
             "with_news",
+            "with_recent_news",
             "float_ok",
             "bull_flag",
             "triggered",
@@ -370,3 +371,43 @@ def test_news_attributed_to_run_by_publish_time(tmp_path: Path) -> None:
     by_id = {a.opportunity_id: a for a in build_eod_report(store, _settings(), _DAY).analyses}
     assert by_id["2026-06-29:RUN#1"].news_count == 2  # early + undated
     assert by_id["2026-06-29:RUN#2"].news_count == 1  # late only
+
+
+def test_news_recent_flags_today_or_yesterday(tmp_path: Path) -> None:
+    # A tighter recency signal than 7-day has_news (#101): today/yesterday (ET) is 'recent'; a
+    # 5-day-old story still counts as has_news but is NOT recent.
+    store = Store(tmp_path)
+    cases = {"TODAY": _T0, "YEST": _T0 - timedelta(days=1), "OLD": _T0 - timedelta(days=5)}
+    for sym in cases:
+        oid = f"2026-06-29:{sym}"
+        store.append(
+            "opportunities",
+            [
+                {
+                    "opportunity_id": oid,
+                    "symbol": sym,
+                    "con_id": 1,
+                    "trading_date": _DAY,
+                    "first_seen_utc": _T0,
+                    "first_rank": 0,
+                }
+            ],
+            partition_date=_DAY,
+        )
+        store.append(
+            "scanner_hits",
+            [{"opportunity_id": oid, "symbol": sym, "ts_utc": _T0, "rank": 0}],
+            partition_date=_DAY,
+        )
+    store.append(
+        "news",
+        [_news_row(f"2026-06-29:{sym}", ts, f"{sym}-story") for sym, ts in cases.items()],
+        partition_date=_DAY,
+    )
+
+    report = build_eod_report(store, _settings(), _DAY)
+    by_id = {a.opportunity_id: a for a in report.analyses}
+    assert by_id["2026-06-29:TODAY"].news_recent is True
+    assert by_id["2026-06-29:YEST"].news_recent is True
+    assert by_id["2026-06-29:OLD"].news_recent is False  # 5-day-old story is not 'recent'
+    assert report.aggregates["with_recent_news"] == 2  # TODAY + YEST, not OLD
