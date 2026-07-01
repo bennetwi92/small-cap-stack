@@ -40,6 +40,7 @@ def test_triggers_and_measures_max_r() -> None:
     assert m.entry_index == 2
     assert m.max_r == round((7.64 - 6.15) / 0.55, 3)  # 1.49 / 0.55 == 2.709
     assert not m.stopped_out
+    assert m.flag_len == 1 and m.retracement is not None  # traded setup's shape (#98)
 
 
 def test_setup_but_never_triggers() -> None:

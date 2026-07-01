@@ -48,6 +48,8 @@ class OpportunityAnalysis:
     max_r: float | None
     mae_r: float | None
     stopped_out: bool
+    flag_len: int | None = None  # consolidation count of the traded setup (#98)
+    retracement: float | None = None  # flag retracement into the pole, fraction (#98)
     run: int = 1  # 1-based run index within the symbol's day (#36 re-entry segmentation)
     run_count: int = 1  # total runs the symbol formed that day
 
@@ -185,6 +187,8 @@ def _analyze_run(
         max_r=rm.max_r,
         mae_r=rm.mae_r,
         stopped_out=rm.stopped_out,
+        flag_len=rm.flag_len,
+        retracement=rm.retracement,
         run=run,
         run_count=run_count,
     )
@@ -302,8 +306,8 @@ def _to_markdown(d: date, analyses: list[OpportunityAnalysis], agg: dict[str, An
         f"- would-trigger: **{agg['triggered']}** | reached ≥1R: {agg['reached_1r']} | "
         f"≥2R: {agg['reached_2r']} | ≥3R: {agg['reached_3r']}",
         "",
-        "| name | bars | news | float | flag | setups | trig | MaxR | MAE_R | stop |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| name | bars | news | float | flag | setups | cons | retr | trig | MaxR | MAE_R | stop |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     # Sort by Max R desc; untriggered (max_r None) sink to the bottom. Use an explicit None check
     # so a triggered max_r of exactly 0.0 (same-bar stop-out) isn't mistaken for missing (`0.0 or`).
@@ -311,7 +315,10 @@ def _to_markdown(d: date, analyses: list[OpportunityAnalysis], agg: dict[str, An
         name = a.symbol if a.run_count == 1 else f"{a.symbol}#{a.run}"
         lines.append(
             f"| {name} | {a.bars} | {a.news_count} | {a.float_shares or '-'} | "
-            f"{'Y' if a.bull_flag else '-'} | {a.setup_count} | {'Y' if a.triggered else '-'} | "
+            f"{'Y' if a.bull_flag else '-'} | {a.setup_count} | "
+            f"{a.flag_len if a.flag_len is not None else '-'} | "
+            f"{a.retracement if a.retracement is not None else '-'} | "
+            f"{'Y' if a.triggered else '-'} | "
             f"{a.max_r if a.max_r is not None else '-'} | "
             f"{a.mae_r if a.mae_r is not None else '-'} | {'Y' if a.stopped_out else '-'} |"
         )
