@@ -42,11 +42,20 @@ jobs:
           git checkout "${{ inputs.ref }}"
           git pull --ff-only origin "${{ inputs.ref }}" || true
 
-      - name: Restart service
+      - name: Deploy
         working-directory: /opt/small-cap-stack
         run: |
           set -euo pipefail
-          sudo systemctl restart small-cap-stack
+          if [ "${{ inputs.restart_only }}" = "true" ]; then
+            # Full restart of both services (the "something's wedged" escape hatch).
+            systemctl restart small-cap-stack
+          else
+            # Fast path: rebuild + recreate ONLY the app container — the Gateway keeps its
+            # session (no re-login / healthcheck wait), and BuildKit's pip cache makes the
+            # rebuild quick. GIT_SHA is baked into DEPLOYED_COMMIT.
+            export GIT_SHA="$(git rev-parse --short HEAD)"
+            docker compose up -d --build app
+          fi
 
       - name: Health gate
         working-directory: /opt/small-cap-stack
