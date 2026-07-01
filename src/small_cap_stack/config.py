@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     tick_interval_sec: int = 60  # how often the scan/discovery loop runs
     eod_bars_duration: str = "1 D"  # reqHistoricalData duration for the EOD 5-min bar batch
     news_providers: str = "BRFG+DJ-N+DJNL"
+
+    # Re-entry segmentation (issue #36) — a symbol can form >1 opportunity/day. A gap of
+    # >= reentry_gap_min with no scanner hits starts a NEW run (e.g. pre-market pop → fade →
+    # market-open pop). Each run is analysed over its own bar window, extended back
+    # reentry_lookback_min so the run's pole is included.
+    reentry_gap_min: int = 60
+    reentry_lookback_min: int = 30
     news_lookback_days: int = 7
     news_max: int = 10
 

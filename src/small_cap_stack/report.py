@@ -5,15 +5,17 @@ day and, per opportunity, computes float/news signals, bull-flag setups, and R-m
 (would-trigger? Max R, MAE, stop-out). Everything is derived on read, so changing the
 methodology and re-running reproduces history (store-raw / compute-on-read).
 
-#36 (exhaustion / re-entry) is honoured lightly here via `setup_count` — how many distinct
-bull-flag setups formed in the day (each is a potential separate entry); full segmentation into
-distinct opportunity ids remains future work on #36.
+**Re-entry segmentation (#36):** a symbol can form more than one opportunity in a day — it pops,
+fades, then pops again later (e.g. pre-market open, then market open). Segmentation happens here at
+analysis time from the raw `scanner_hits`: a gap of >= `reentry_gap_min` with no hits starts a new
+*run*. Each run is analysed independently over its own bar window (extended back
+`reentry_lookback_min` so the run's pole is captured) and reported as `<date>:<symbol>#<run>`.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import polars as pl
@@ -45,6 +47,8 @@ class OpportunityAnalysis:
     max_r: float | None
     mae_r: float | None
     stopped_out: bool
+    run: int = 1  # 1-based run index within the symbol's day (#36 re-entry segmentation)
+    run_count: int = 1  # total runs the symbol formed that day
 
 
 @dataclass(frozen=True)
@@ -55,12 +59,10 @@ class EodReport:
     markdown: str
 
 
-def _bars_for(bars: pl.DataFrame, oid: str) -> list[Bar]:
+def _all_bars(bars: pl.DataFrame, oid: str) -> list[Bar]:
+    """All of a symbol's day bars, deduped + sorted (raw store may hold duplicate rows)."""
     if bars.is_empty():
         return []
-    # The raw `bars` dataset is append-only and may hold duplicate (opportunity_id, bar_start_utc)
-    # rows (re-fetched across EOD runs / restarts) — dedup on read so the flag/R logic sees each
-    # 5-min bar once (store-raw / compute-on-read). Duplicate rows are identical, so keep any.
     sub = (
         bars.filter(pl.col("opportunity_id") == oid)
         .unique(subset="bar_start_utc", keep="first")
@@ -79,14 +81,58 @@ def _bars_for(bars: pl.DataFrame, oid: str) -> list[Bar]:
     ]
 
 
+def _hit_times(scans: pl.DataFrame, oid: str) -> list[datetime]:
+    if scans.is_empty():
+        return []
+    sub = scans.filter(pl.col("opportunity_id") == oid)
+    return sorted(sub["ts_utc"].to_list()) if not sub.is_empty() else []
+
+
+def _funds_for(funds: pl.DataFrame, oid: str) -> tuple[int | None, float | None]:
+    if funds.is_empty():
+        return None, None
+    fsub = funds.filter(pl.col("opportunity_id") == oid)
+    if fsub.is_empty():
+        return None, None
+    r0 = fsub.row(0, named=True)
+    return r0["float_shares"], r0["short_percent"]
+
+
 def _count_in(df: pl.DataFrame, oid: str) -> int:
     if df.is_empty():
         return 0
     return int(df.filter(pl.col("opportunity_id") == oid).height)
 
 
+def _segment_runs(hit_times: list[datetime], gap_min: int) -> list[datetime]:
+    """Run start times: a gap of >= gap_min with no scanner hits begins a new run (#36)."""
+    if not hit_times:
+        return []
+    times = sorted(hit_times)
+    gap = timedelta(minutes=gap_min)
+    starts = [times[0]]
+    for prev, cur in zip(times, times[1:], strict=False):
+        if cur - prev >= gap:
+            starts.append(cur)
+    return starts
+
+
+def _run_windows(
+    starts: list[datetime], lookback_min: int
+) -> list[tuple[datetime | None, datetime | None]]:
+    """Half-open [start, end) bar window per run, extended back lookback so the pole is included.
+
+    The lookback zone sits inside the (>= gap_min) quiet period before a pop, so it never overlaps
+    the previous run's hits. Empty starts -> a single unbounded window (defensive)."""
+    if not starts:
+        return [(None, None)]
+    lb = timedelta(minutes=lookback_min)
+    bounds = [s - lb for s in starts]
+    return [(bounds[i], bounds[i + 1] if i + 1 < len(bounds) else None) for i in range(len(bounds))]
+
+
 def _count_setups(bars: list[Bar], settings: Settings) -> int:
-    """Distinct (non-overlapping) bull-flag setups across the day — re-entry potential (#36)."""
+    """Distinct (non-overlapping) bull-flag setups within the run's bars."""
     count = 0
     last_end = -1
     for i in range(1, len(bars)):
@@ -98,42 +144,36 @@ def _count_setups(bars: list[Bar], settings: Settings) -> int:
     return count
 
 
-def _analyze(
-    row: dict[str, Any], bars: pl.DataFrame, news: pl.DataFrame, funds: pl.DataFrame, s: Settings
+def _analyze_run(
+    seg_id: str,
+    symbol: str,
+    obars: list[Bar],
+    *,
+    first_seen: datetime,
+    news_count: int,
+    float_shares: int | None,
+    short_percent: float | None,
+    scanner_hits: int,
+    run: int,
+    run_count: int,
+    s: Settings,
 ) -> OpportunityAnalysis:
-    oid = row["opportunity_id"]
-    obars = _bars_for(bars, oid)
-    news_count = _count_in(news, oid)
-
-    float_shares: int | None = None
-    short_percent: float | None = None
-    if not funds.is_empty():
-        fsub = funds.filter(pl.col("opportunity_id") == oid)
-        if not fsub.is_empty():
-            r0 = fsub.row(0, named=True)
-            float_shares = r0["float_shares"]
-            short_percent = r0["short_percent"]
-
     rm = compute_r_metrics(obars, s)
     setup_count = _count_setups(obars, s)
     # Single source of truth for the threshold predicates: reuse the gate engine rather than
     # re-deriving them here (a None datum stays None to distinguish "no data" from "fails gate").
-    gi = GateInputs(
-        ts_utc=row["first_seen_utc"],
-        float_shares=float_shares,
-        has_recent_news=news_count > 0,
-    )
+    gi = GateInputs(ts_utc=first_seen, float_shares=float_shares, has_recent_news=news_count > 0)
     return OpportunityAnalysis(
-        opportunity_id=oid,
-        symbol=row["symbol"],
-        scanner_hits=0,  # filled from the scanner_hits dataset in build_eod_report
+        opportunity_id=seg_id,
+        symbol=symbol,
+        scanner_hits=scanner_hits,
         bars=len(obars),
         news_count=news_count,
         float_shares=float_shares,
         short_percent=short_percent,
         float_ok=float_gate(gi, s).passed if float_shares is not None else None,
         has_news=news_gate(gi, s).passed,
-        bull_flag=setup_count > 0,  # a flag formed at some point in the day
+        bull_flag=setup_count > 0,
         setup_count=setup_count,
         triggered=rm.triggered,
         entry=rm.entry_price,
@@ -141,14 +181,60 @@ def _analyze(
         max_r=rm.max_r,
         mae_r=rm.mae_r,
         stopped_out=rm.stopped_out,
+        run=run,
+        run_count=run_count,
     )
+
+
+def _analyses_for_symbol(
+    row: dict[str, Any],
+    bars: pl.DataFrame,
+    news: pl.DataFrame,
+    funds: pl.DataFrame,
+    scans: pl.DataFrame,
+    s: Settings,
+) -> list[OpportunityAnalysis]:
+    oid = row["opportunity_id"]
+    all_bars = _all_bars(bars, oid)
+    times = _hit_times(scans, oid)
+    windows = _run_windows(_segment_runs(times, s.reentry_gap_min), s.reentry_lookback_min)
+    news_count = _count_in(
+        news, oid
+    )  # day-level for the symbol (news/fundamentals are static facts)
+    float_shares, short_percent = _funds_for(funds, oid)
+    run_count = len(windows)
+
+    def in_win(t: datetime, start: datetime | None, end: datetime | None) -> bool:
+        return (start is None or t >= start) and (end is None or t < end)
+
+    out: list[OpportunityAnalysis] = []
+    for idx, (start, end) in enumerate(windows, start=1):
+        rbars = [b for b in all_bars if in_win(b.start, start, end)]
+        hits = sum(1 for t in times if in_win(t, start, end))
+        seg_id = oid if run_count == 1 else f"{oid}#{idx}"
+        out.append(
+            _analyze_run(
+                seg_id,
+                row["symbol"],
+                rbars,
+                first_seen=start or row["first_seen_utc"],
+                news_count=news_count,
+                float_shares=float_shares,
+                short_percent=short_percent,
+                scanner_hits=hits,
+                run=idx,
+                run_count=run_count,
+                s=s,
+            )
+        )
+    return out
 
 
 def build_eod_report(store: Store, settings: Settings, trading_date: date) -> EodReport:
     opps = store.read("opportunities")
     if not opps.is_empty():
-        # One analysis per opportunity: the raw dataset may hold duplicate rows (a mid-day restart
-        # re-opening an already-known name), so dedup by id on read (store-raw / compute-on-read).
+        # One base opportunity per symbol/day: the raw dataset may hold duplicate rows (a mid-day
+        # restart re-opening a name), so dedup by id on read (store-raw / compute-on-read).
         opps = opps.filter(pl.col("trading_date") == trading_date).unique(
             subset="opportunity_id", keep="first"
         )
@@ -174,16 +260,13 @@ def build_eod_report(store: Store, settings: Settings, trading_date: date) -> Eo
 
     analyses: list[OpportunityAnalysis] = []
     for row in opps.iter_rows(named=True):
-        a = _analyze(row, bars, news, funds, settings)
-        # scanner_hits is its own dataset; override the placeholder above
-        a = OpportunityAnalysis(**{**asdict(a), "scanner_hits": _count_in(scans, a.opportunity_id)})
-        analyses.append(a)
+        analyses.extend(_analyses_for_symbol(row, bars, news, funds, scans, settings))
 
     def reached(r: float) -> int:
         return sum(1 for a in analyses if a.max_r is not None and a.max_r >= r)
 
     aggregates = {
-        "opportunities": len(analyses),
+        "opportunities": len(analyses),  # segmented — a 2-run symbol counts as 2 (#36)
         "with_news": sum(1 for a in analyses if a.has_news),
         "float_ok": sum(1 for a in analyses if a.float_ok),
         "bull_flag": sum(1 for a in analyses if a.bull_flag),
@@ -206,12 +289,13 @@ def _to_markdown(d: date, analyses: list[OpportunityAnalysis], agg: dict[str, An
         f"- would-trigger: **{agg['triggered']}** | reached ≥1R: {agg['reached_1r']} | "
         f"≥2R: {agg['reached_2r']} | ≥3R: {agg['reached_3r']}",
         "",
-        "| symbol | bars | news | float | flag | setups | trig | MaxR | MAE_R | stop |",
+        "| name | bars | news | float | flag | setups | trig | MaxR | MAE_R | stop |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for a in sorted(analyses, key=lambda x: x.max_r or -999, reverse=True):
+        name = a.symbol if a.run_count == 1 else f"{a.symbol}#{a.run}"
         lines.append(
-            f"| {a.symbol} | {a.bars} | {a.news_count} | {a.float_shares or '-'} | "
+            f"| {name} | {a.bars} | {a.news_count} | {a.float_shares or '-'} | "
             f"{'Y' if a.bull_flag else '-'} | {a.setup_count} | {'Y' if a.triggered else '-'} | "
             f"{a.max_r if a.max_r is not None else '-'} | "
             f"{a.mae_r if a.mae_r is not None else '-'} | {'Y' if a.stopped_out else '-'} |"

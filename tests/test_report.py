@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from small_cap_stack.config import Settings
-from small_cap_stack.report import build_eod_report
+from small_cap_stack.report import _segment_runs, build_eod_report
 from small_cap_stack.storage import Store
 
 _DAY = date(2026, 6, 29)
@@ -149,3 +149,69 @@ def test_eod_report_empty(tmp_path: Path) -> None:
     report = build_eod_report(Store(tmp_path), _settings(), _DAY)
     assert report.aggregates["opportunities"] == 0
     assert "No opportunities" in report.markdown
+
+
+def test_segment_runs_gap_rule() -> None:
+    def t(m: int) -> datetime:
+        return _T0 + timedelta(minutes=m)
+
+    assert _segment_runs([], 60) == []
+    assert _segment_runs([t(0), t(1), t(2)], 60) == [t(0)]  # continuous -> one run
+    assert _segment_runs([t(0), t(40)], 60) == [t(0)]  # <60min gap -> same run
+    assert _segment_runs([t(0), t(60)], 60) == [t(0), t(60)]  # exactly 60 -> new run (>=)
+    assert _segment_runs([t(0), t(5), t(90), t(95)], 60) == [t(0), t(90)]  # fade then re-pop
+
+
+def _flag(oid: str, sym: str, base_i: int) -> list:  # type: ignore[type-arg]
+    # pole (green) / flag (red) / trigger / run-up — a setup that triggers to ~ several R.
+    return [
+        _bar_row(oid, sym, base_i + 0, 5.0, 6.2, 4.9, 6.0),
+        _bar_row(oid, sym, base_i + 1, 6.0, 6.1, 5.6, 5.7),
+        _bar_row(oid, sym, base_i + 2, 5.7, 7.0, 5.7, 6.9),
+        _bar_row(oid, sym, base_i + 3, 6.9, 7.64, 6.8, 7.5),
+    ]
+
+
+def test_reentry_segments_into_two_runs(tmp_path: Path) -> None:
+    # RUN pops at 14:00 (bars i=0..3), fades, then pops again at 15:30 (bars i=18..21) — an
+    # 85-min gap in scanner hits => two distinct opportunities, each analysed on its own bars.
+    store = Store(tmp_path)
+    oid = "2026-06-29:RUN"
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "RUN",
+                "con_id": 3,
+                "trading_date": _DAY,
+                "first_seen_utc": _T0,
+                "first_rank": 0,
+            }
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "scanner_hits",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "RUN",
+                "ts_utc": _T0 + timedelta(minutes=m),
+                "rank": 0,
+            }
+            for m in (0, 5, 90, 95)
+        ],
+        partition_date=_DAY,
+    )
+    store.append("bars", _flag(oid, "RUN", 0) + _flag(oid, "RUN", 18), partition_date=_DAY)
+
+    report = build_eod_report(store, _settings(), _DAY)
+    assert report.aggregates["opportunities"] == 2  # segmented, not 1
+    by_id = {a.opportunity_id: a for a in report.analyses}
+    assert set(by_id) == {"2026-06-29:RUN#1", "2026-06-29:RUN#2"}
+    r1, r2 = by_id["2026-06-29:RUN#1"], by_id["2026-06-29:RUN#2"]
+    assert (r1.run, r1.run_count) == (1, 2) and (r2.run, r2.run_count) == (2, 2)
+    assert r1.bars == 4 and r2.bars == 4  # each run sees only its own bars
+    assert r1.triggered and r2.triggered  # each pop is a distinct entry
+    assert r1.scanner_hits == 2 and r2.scanner_hits == 2
