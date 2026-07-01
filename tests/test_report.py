@@ -6,7 +6,12 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from small_cap_stack.config import Settings
-from small_cap_stack.report import _segment_runs, build_eod_report
+from small_cap_stack.report import (
+    OpportunityAnalysis,
+    _segment_runs,
+    _to_markdown,
+    build_eod_report,
+)
 from small_cap_stack.storage import Store
 
 _DAY = date(2026, 6, 29)
@@ -149,6 +154,55 @@ def test_eod_report_empty(tmp_path: Path) -> None:
     report = build_eod_report(Store(tmp_path), _settings(), _DAY)
     assert report.aggregates["opportunities"] == 0
     assert "No opportunities" in report.markdown
+
+
+def _analysis(sym: str, max_r: float | None) -> OpportunityAnalysis:
+    return OpportunityAnalysis(
+        opportunity_id=sym,
+        symbol=sym,
+        scanner_hits=1,
+        bars=4,
+        news_count=0,
+        float_shares=None,
+        short_percent=None,
+        float_ok=None,
+        has_news=False,
+        bull_flag=True,
+        setup_count=1,
+        triggered=max_r is not None,
+        entry=6.15,
+        stop=5.6,
+        max_r=max_r,
+        mae_r=0.1,
+        stopped_out=(max_r == 0.0),
+    )
+
+
+def test_markdown_sort_keeps_zero_max_r_above_untriggered() -> None:
+    # A triggered same-bar stop-out has max_r == 0.0 (a real value) and must sort ABOVE an
+    # untriggered (max_r None) row, even when None is listed first (regression for `max_r or ...`).
+    agg = dict.fromkeys(
+        (
+            "opportunities",
+            "with_news",
+            "float_ok",
+            "bull_flag",
+            "triggered",
+            "reached_1r",
+            "reached_2r",
+            "reached_3r",
+        ),
+        0,
+    )
+    md = _to_markdown(
+        _DAY, [_analysis("NONE", None), _analysis("ZERO", 0.0), _analysis("HALF", 0.5)], agg
+    )
+    order = [
+        ln.split("|")[1].strip()
+        for ln in md.splitlines()
+        if ln.startswith("| ") and "name" not in ln
+    ]
+    assert order == ["HALF", "ZERO", "NONE"]
 
 
 def test_segment_runs_gap_rule() -> None:

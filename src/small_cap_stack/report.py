@@ -292,7 +292,9 @@ def _to_markdown(d: date, analyses: list[OpportunityAnalysis], agg: dict[str, An
         "| name | bars | news | float | flag | setups | trig | MaxR | MAE_R | stop |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
-    for a in sorted(analyses, key=lambda x: x.max_r or -999, reverse=True):
+    # Sort by Max R desc; untriggered (max_r None) sink to the bottom. Use an explicit None check
+    # so a triggered max_r of exactly 0.0 (same-bar stop-out) isn't mistaken for missing (`0.0 or`).
+    for a in sorted(analyses, key=lambda x: x.max_r if x.max_r is not None else -1.0, reverse=True):
         name = a.symbol if a.run_count == 1 else f"{a.symbol}#{a.run}"
         lines.append(
             f"| {name} | {a.bars} | {a.news_count} | {a.float_shares or '-'} | "
