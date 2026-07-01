@@ -73,6 +73,7 @@ class Application:
             on_scan_end=self._on_scan_end,
             on_eod_bars=self._on_eod_bars,
             on_eod_report=self._on_eod_report,
+            on_eod_backfill=self._on_eod_backfill,
         )
 
     async def run(self) -> None:
@@ -180,16 +181,45 @@ class Application:
         """Batch-fetch the day's 5-min bars + re-fetch news for every flagged opportunity.
 
         Both run before the report. The news re-fetch (#97) captures stories that broke after a
-        symbol's first sighting so they can be attributed to the right run at analysis time.
+        symbol's first sighting. Retries on a disconnect / transient failure rather than skipping
+        outright (#100); if every attempt fails, the morning back-fill recovers the day.
         """
         log.info("bars.eod_start")
-        if not self.transport.is_connected():
-            log.warning("bars.eod_skipped_disconnected")
-            return
         trading_date = now_et().date()
-        await self.capture.capture_day_bars(trading_date)
-        await self.capture.capture_day_news(trading_date)
-        log.info("bars.eod_done")
+        for attempt in range(1, self.settings.eod_retry_attempts + 1):
+            try:
+                if not self.transport.is_connected():
+                    raise ConnectionError("ibkr disconnected")
+                await self.capture.capture_day_bars(trading_date)
+                await self.capture.capture_day_news(trading_date)
+                log.info("bars.eod_done")
+                return
+            except Exception:  # noqa: BLE001 — retry any transient failure; back-fill is the net
+                log.warning(
+                    "bars.eod_attempt_failed", attempt=attempt, of=self.settings.eod_retry_attempts
+                )
+                if attempt < self.settings.eod_retry_attempts:
+                    await asyncio.sleep(self.settings.eod_retry_delay_sec)
+        log.error("bars.eod_failed_after_retries")  # the morning back-fill (#100) will recover it
+
+    async def _on_eod_backfill(self) -> None:
+        """Morning catch-up: fill bars for any recent day whose opportunities are missing them.
+
+        Recovers days where the EOD batch never completed (Gateway down at 16:20). Idempotent —
+        bars dedup on read — and it refreshes the report markdown for each day it repairs (#100).
+        """
+        log.info("backfill.start")
+        if not self.transport.is_connected():
+            log.warning("backfill.skipped_disconnected")
+            return
+        filled = await self.capture.backfill_recent(
+            now_et().date(), days=self.settings.backfill_days
+        )
+        for d in filled:
+            report = build_eod_report(self.store, self.settings, d)
+            if report.analyses:
+                self._write_report_markdown(report)  # refresh the artifact with the repaired bars
+        log.info("backfill.done", days_filled=len(filled))
 
     async def _on_eod_report(self) -> None:
         log.info("report.eod_start")

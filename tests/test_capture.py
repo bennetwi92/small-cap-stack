@@ -40,9 +40,13 @@ class FakeBars:
     def __init__(self, bars: list[Bar]) -> None:
         self.bars = bars
         self.calls = 0
+        self.symbols: list[str] = []
 
-    async def fetch_day_bars(self, candidate: Candidate, *, trading_date: date) -> list[Bar]:
+    async def fetch_day_bars(
+        self, candidate: Candidate, *, trading_date: date, end: datetime | None = None
+    ) -> list[Bar]:
         self.calls += 1
+        self.symbols.append(candidate.symbol)
         return list(self.bars)
 
 
@@ -144,7 +148,9 @@ class BoomBars:
         self.bad_symbol = bad_symbol
         self.good = good
 
-    async def fetch_day_bars(self, candidate: Candidate, *, trading_date: date) -> list[Bar]:
+    async def fetch_day_bars(
+        self, candidate: Candidate, *, trading_date: date, end: datetime | None = None
+    ) -> list[Bar]:
         if candidate.symbol == self.bad_symbol:
             raise RuntimeError("ib timeout")
         return list(self.good)
@@ -186,3 +192,59 @@ def test_eod_news_refetch_appends_with_timestamp(tmp_path: Path) -> None:
     news = store.read("news")
     assert news.height > before  # re-fetch appended (duplicates deduped later on read)
     assert "ts_utc" in news.columns
+
+
+def test_backfill_fetches_only_opportunities_missing_bars(tmp_path: Path) -> None:
+    # AAA already has bars (EOD batch succeeded for it); BBB has none (it was missed). The catch-up
+    # must fetch ONLY BBB — no redundant IBKR request for a symbol that already has bars (#100).
+    store = Store(tmp_path)
+    bars = FakeBars([_bar(30)])
+    svc = _svc(store, bars, FakeNews([]))
+    now = datetime(2026, 6, 29, 9, 40, tzinfo=UTC)
+    asyncio.run(svc.on_scan_tick([_candidate("AAA"), _candidate("BBB")], now))
+    # Seed bars for AAA only.
+    store.append(
+        "bars",
+        [
+            {
+                "opportunity_id": "2026-06-29:AAA",
+                "symbol": "AAA",
+                "bar_start_utc": _bar(30).start,
+                "open": 1.0,
+                "high": 2.0,
+                "low": 0.5,
+                "close": 1.5,
+                "volume": 1000.0,
+            }
+        ],
+        partition_date=_TRADING_DATE,
+    )
+
+    added = asyncio.run(svc.capture_missing_bars(_TRADING_DATE))
+    assert added is True
+    assert bars.symbols == ["BBB"]  # only the missing symbol was fetched
+    assert set(store.read("bars")["symbol"].to_list()) == {"AAA", "BBB"}
+
+
+def test_backfill_is_noop_when_all_bars_present(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    bars = FakeBars([_bar(30)])
+    svc = _svc(store, bars, FakeNews([]))
+    asyncio.run(svc.on_scan_tick([_candidate("AAA")], datetime(2026, 6, 29, 9, 40, tzinfo=UTC)))
+    asyncio.run(svc.capture_day_bars(_TRADING_DATE))
+    calls_after_eod = bars.calls
+
+    assert asyncio.run(svc.capture_missing_bars(_TRADING_DATE)) is False
+    assert bars.calls == calls_after_eod  # nothing re-fetched
+
+
+def test_backfill_recent_scans_multiple_days(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    bars = FakeBars([_bar(30)])
+    svc = _svc(store, bars, FakeNews([]))
+    # An opportunity on 2026-06-29 with no bars; back-fill scanning back from 2026-06-30 repairs it.
+    asyncio.run(svc.on_scan_tick([_candidate("AAA")], datetime(2026, 6, 29, 9, 40, tzinfo=UTC)))
+
+    filled = asyncio.run(svc.backfill_recent(date(2026, 6, 30), days=3))
+    assert filled == [_TRADING_DATE]  # only the day that had a missing opportunity
+    assert store.read("bars")["symbol"].to_list() == ["AAA"]

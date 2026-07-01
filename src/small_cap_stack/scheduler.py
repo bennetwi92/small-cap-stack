@@ -23,6 +23,7 @@ def build_scheduler(
     on_scan_end: Job,
     on_eod_bars: Job,
     on_eod_report: Job,
+    on_eod_backfill: Job,
 ) -> AsyncIOScheduler:
     """Build a scheduler with the periodic tick + daily boundary jobs (not yet started).
 
@@ -48,5 +49,9 @@ def build_scheduler(
     )
     scheduler.add_job(
         on_eod_report, cron(settings.eod_report), id="eod_report", misfire_grace_time=grace
+    )
+    # Morning catch-up: back-fill bars for any recent day the EOD batch missed (#100).
+    scheduler.add_job(
+        on_eod_backfill, cron(settings.eod_backfill), id="eod_backfill", misfire_grace_time=grace
     )
     return scheduler

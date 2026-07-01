@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Protocol
 
 import polars as pl
 
+from .clock import ET
 from .config import Settings
 from .fundamentals import FundamentalsSource, NullFundamentals, fundamentals_record
 from .logging import get_logger
@@ -51,7 +52,9 @@ class NewsItem:
 
 
 class BarSource(Protocol):
-    async def fetch_day_bars(self, candidate: Candidate, *, trading_date: date) -> list[Bar]: ...
+    async def fetch_day_bars(
+        self, candidate: Candidate, *, trading_date: date, end: datetime | None = None
+    ) -> list[Bar]: ...
 
 
 class NewsSource(Protocol):
@@ -200,26 +203,28 @@ class CaptureService:
             float_shares=(fund.float_shares if fund else None),
         )
 
-    async def capture_day_bars(self, trading_date: date) -> None:
-        """End-of-day batch: one historical request per flagged opportunity → append its bars.
-
-        Reads the day's opportunities from storage (not in-memory state), so it is unaffected by
-        any restart during the session. One symbol's data hiccup never stalls the rest.
-        """
+    def _day_opportunities(self, trading_date: date) -> pl.DataFrame:
+        """The day's opportunities, deduped by id (a mid-day restart may re-open a name)."""
         opps = self.store.read("opportunities")
         if opps.is_empty():
-            return
-        # Dedup by id: the raw dataset may hold duplicate rows (a mid-day restart re-opening a
-        # name), which would otherwise fire a redundant historical request per duplicate — needless
-        # IBKR pacing pressure (< 60 req / 10 min) and duplicate bar writes.
-        opps = opps.filter(pl.col("trading_date") == trading_date).unique(
+            return opps
+        return opps.filter(pl.col("trading_date") == trading_date).unique(
             subset="opportunity_id", keep="first"
         )
+
+    async def _fetch_bars_for(
+        self, opps: pl.DataFrame, trading_date: date, *, end: datetime | None = None
+    ) -> int:
+        """Fetch + append the day's bars for each opportunity row; returns how many got bars.
+
+        One symbol's data hiccup never stalls the rest. Bars dedup by bar_start_utc on read, so
+        re-running (retry / back-fill) is idempotent."""
+        filled = 0
         for row in opps.iter_rows(named=True):
             oid = row["opportunity_id"]
             cand = _candidate_from_row(row)
             try:
-                bars = await self.bars.fetch_day_bars(cand, trading_date=trading_date)
+                bars = await self.bars.fetch_day_bars(cand, trading_date=trading_date, end=end)
             except Exception:  # noqa: BLE001 — one symbol's failure must not stall the batch
                 log.warning("capture.day_bars_failed", opportunity_id=oid)
                 continue
@@ -232,6 +237,57 @@ class CaptureService:
             )
             BARS_APPENDED.inc(len(bars))
             log.info("capture.day_bars_appended", opportunity_id=oid, count=len(bars))
+            filled += 1
+        return filled
+
+    async def capture_day_bars(self, trading_date: date) -> None:
+        """End-of-day batch: one historical request per flagged opportunity → append its bars.
+
+        Reads the day's opportunities from storage (not in-memory state), so it is unaffected by
+        any restart during the session.
+        """
+        opps = self._day_opportunities(trading_date)
+        if not opps.is_empty():
+            await self._fetch_bars_for(opps, trading_date)
+
+    def _opportunities_with_bars(self) -> set[str]:
+        """opportunity_ids that already have at least one stored bar (ids encode the date)."""
+        bars = self.store.read("bars")
+        if bars.is_empty():
+            return set()
+        return set(bars["opportunity_id"].unique().to_list())
+
+    async def capture_missing_bars(self, trading_date: date) -> bool:
+        """Back-fill bars for the day's opportunities that have none stored; True if any were added.
+
+        Recovers a missed/failed EOD batch (e.g. the Gateway was down at 16:20). Fetches only the
+        opportunities still lacking bars — no redundant IBKR requests — and requests up to that
+        day's extended-session close so a historical window for a *past* day is bounded correctly.
+        Idempotent: bars dedup on read.
+        """
+        opps = self._day_opportunities(trading_date)
+        if opps.is_empty():
+            return False
+        have = self._opportunities_with_bars()
+        missing = opps.filter(~pl.col("opportunity_id").is_in(list(have)))
+        if missing.is_empty():
+            return False
+        end = datetime.combine(trading_date, time(20, 0), tzinfo=ET)  # cover the extended session
+        return await self._fetch_bars_for(missing, trading_date, end=end) > 0
+
+    async def backfill_recent(self, today: date, *, days: int) -> list[date]:
+        """Fill missing bars across the last ``days`` calendar days; returns the dates it filled.
+
+        A no-op for days with no opportunities (weekends / already-complete days)."""
+        filled: list[date] = []
+        for i in range(days):
+            d = today - timedelta(days=i)
+            try:
+                if await self.capture_missing_bars(d):
+                    filled.append(d)
+            except Exception:  # noqa: BLE001 — one day's failure must not stall the rest
+                log.warning("capture.backfill_failed", date=d.isoformat())
+        return filled
 
     async def capture_day_news(self, trading_date: date) -> None:
         """End-of-day batch: re-fetch each opportunity's news so *late-breaking* stories are kept.

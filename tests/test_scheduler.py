@@ -20,6 +20,7 @@ def _job_grace() -> dict[str, int | None]:
             on_scan_end=_noop,
             on_eod_bars=_noop,
             on_eod_report=_noop,
+            on_eod_backfill=_noop,
         )
         sch.start(paused=True)  # applies pending jobs so misfire_grace_time is readable
         try:
@@ -34,6 +35,6 @@ def test_daily_jobs_have_generous_misfire_grace() -> None:
     grace = _job_grace()
     expected = Settings(_env_file=None).cron_misfire_grace_sec  # type: ignore[call-arg]
     assert expected >= 60  # a brief block shouldn't skip a once-a-day critical job
-    for jid in ("scan_start", "scan_end", "eod_bars", "eod_report"):
+    for jid in ("scan_start", "scan_end", "eod_bars", "eod_report", "eod_backfill"):
         assert grace[jid] == expected
     assert grace["tick"] == 1  # interval tick keeps the tight default (a late tick is harmless)
