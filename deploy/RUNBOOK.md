@@ -104,8 +104,11 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
   metrics also show disk usage on the box.
 
 ## 9. Operations
-- **Update:** `cd /opt/small-cap-stack && git pull && systemctl restart small-cap-stack` (or use the
-  phone-triggered `deploy` workflow — §11).
+- **Update:** use the phone-triggered `deploy` workflow (§11) — it recreates **only the app**
+  container (`GIT_SHA=$(git rev-parse --short HEAD) docker compose up -d --build app`), so the
+  Gateway keeps its session (no re-login) and the BuildKit pip cache keeps the rebuild quick (#72).
+  `restart_only=true` does a full `systemctl restart` of both services (the wedged-Gateway case).
+  The deployed short-SHA is baked into `DEPLOYED_COMMIT` and shown on the dashboard.
 - **Logs:** `docker compose logs -f app` (JSON in prod).
 - **Daily Gateway restart:** handled by IBC (`AUTO_RESTART_TIME`); the app auto-reconnects + resyncs.
 - **Go live (Phase 3, later):** set `IBKR_TRADING_MODE=live`, `IBKR_PORT=4003` (the live socat port;

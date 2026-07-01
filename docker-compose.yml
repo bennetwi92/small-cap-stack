@@ -27,7 +27,10 @@ services:
       start_period: 120s
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-}  # baked into DEPLOYED_COMMIT by the deploy (#72)
     restart: unless-stopped
     depends_on:
       ibgateway:
