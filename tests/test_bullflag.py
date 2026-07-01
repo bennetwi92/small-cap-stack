@@ -32,13 +32,20 @@ def test_classify() -> None:
 
 def test_simple_one_pole_one_flag() -> None:
     bars = [_green(0, 5.0), _red(1, 6.0)]
-    bf = detect(bars, tick=0.01)
+    bf = detect(bars)  # default entry_offset = 5 ticks ($0.05)
     assert bf is not None
     assert bf.pole_len == 1
     assert bf.flag_len == 1
     assert bf.breakout_level == bars[-1].high
-    assert bf.entry_trigger == round(bars[-1].high + 0.01, 4)
+    assert bf.entry_trigger == round(bars[-1].high + 0.05, 4)
     assert bf.stop == bars[-1].low
+
+
+def test_entry_offset_is_configurable() -> None:
+    bars = [_green(0, 5.0), _red(1, 6.0)]
+    bf = detect(bars, entry_offset=0.03)
+    assert bf is not None
+    assert bf.entry_trigger == round(bars[-1].high + 0.03, 4)
 
 
 def test_two_pole_two_flag() -> None:

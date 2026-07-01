@@ -22,8 +22,8 @@
 **Store raw, compute derived on read.** Capture everything raw at flag time (bars, scanner snapshot, fundamentals, news, short interest) and keep gate evaluation + stat computation as **replayable pure functions** over that raw data. Changing gate definitions or the entry/stop spec later must NOT require re-collecting data — only re-running the computation over the cached raw record.
 
 ## Entry / stop spec (for Max-R measurement)
-- **Entry trigger (from `notes.md`):** the **tick above the high of the last consolidation candle**.
-- **Stop (CONFIRMED 2026-06-29):** the **low of the consolidation candle(s)** (the flag low). This is the R denominator.
+- **Entry trigger (CONFIRMED 2026-07-01):** **5 ticks above the high of the last _complete_ consolidation candle** (i.e. `breakout_high + 5 × tick_size`; for $2–10 names tick = $0.01, so +$0.05). Revised from the earlier "1 tick above" (`notes.md`) after the user confirmed the real entry. Configurable via `Settings.entry_offset_ticks` / `tick_size`.
+- **Stop (CONFIRMED 2026-06-29):** the **low of the consolidation candle(s)** (the flag low). This is the R denominator; `R = entry − stop`.
 
 ## Strategy notes captured 2026-06-29 (from `notes.md`)
 - **Opportunity exhaustion / re-entry (issue #36):** a symbol can form >1 opportunity/day (runs, exhausts, extends again). Phase-1 stores raw bars continuously, so re-entries are segmented **at analysis time**, not in live capture. Current `opportunity_id=<date>:<symbol>` is the Phase-1 starting point.
