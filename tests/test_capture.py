@@ -90,6 +90,21 @@ def test_eod_batch_writes_day_bars(tmp_path: Path) -> None:
     assert set(bars["symbol"].to_list()) == {"AAA", "BBB"}
 
 
+def test_eod_batch_dedups_duplicate_opportunities(tmp_path: Path) -> None:
+    # A duplicate opportunities row (a mid-day restart re-opened the name) must not fire a
+    # redundant historical request / duplicate bar write for the same symbol.
+    store = Store(tmp_path)
+    bars = FakeBars([_bar(30), _bar(35)])
+    svc = _svc(store, bars, FakeNews([]))
+    asyncio.run(svc.on_scan_tick([_candidate("AAA")], datetime(2026, 6, 29, 9, 40, tzinfo=UTC)))
+    dup = store.read("opportunities").row(0, named=True)  # same opportunity_id, appended again
+    store.append("opportunities", [dup], partition_date=_TRADING_DATE)
+
+    asyncio.run(svc.capture_day_bars(_TRADING_DATE))
+    assert bars.calls == 1  # fetched once, not once per duplicate row
+    assert store.read("bars").height == 2  # one symbol's bars, not doubled
+
+
 def test_second_tick_does_not_reopen_but_logs_hit(tmp_path: Path) -> None:
     store = Store(tmp_path)
     svc = _svc(store, FakeBars([_bar(30)]), FakeNews([]))

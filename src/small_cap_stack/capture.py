@@ -194,7 +194,12 @@ class CaptureService:
         opps = self.store.read("opportunities")
         if opps.is_empty():
             return
-        opps = opps.filter(pl.col("trading_date") == trading_date)
+        # Dedup by id: the raw dataset may hold duplicate rows (a mid-day restart re-opening a
+        # name), which would otherwise fire a redundant historical request per duplicate — needless
+        # IBKR pacing pressure (< 60 req / 10 min) and duplicate bar writes.
+        opps = opps.filter(pl.col("trading_date") == trading_date).unique(
+            subset="opportunity_id", keep="first"
+        )
         for row in opps.iter_rows(named=True):
             oid = row["opportunity_id"]
             cand = _candidate_from_row(row)
