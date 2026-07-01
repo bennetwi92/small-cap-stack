@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     metrics_enabled: bool = True
     metrics_port: int = 9090
 
+    # Dashboard exporter (issue #68) — writes status.json/stats.json under data_dir/dashboard.
+    dashboard_enabled: bool = True
+    deployed_commit: str = ""  # optional; set via env DEPLOYED_COMMIT (baked at build, #72)
+
     # Logging
     log_level: str = "INFO"
     json_logs: bool = False

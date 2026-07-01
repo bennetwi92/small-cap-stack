@@ -1,0 +1,230 @@
+"""Tests for the dashboard state exporter (#68)."""
+
+from __future__ import annotations
+
+import json
+from datetime import UTC, date, datetime
+from pathlib import Path
+
+from small_cap_stack.dashboard import StatusInputs, build_stats, build_status, write_json
+from small_cap_stack.report import EodReport, OpportunityAnalysis
+from small_cap_stack.storage import Store
+
+_DAY = date(2026, 6, 29)
+_TS1 = datetime(2026, 6, 29, 13, 0, tzinfo=UTC)
+_TS2 = datetime(2026, 6, 29, 13, 1, tzinfo=UTC)  # a later tick
+_NOW = datetime(2026, 6, 29, 13, 1, 30, tzinfo=UTC)
+
+
+def _seed(store: Store) -> None:
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": "2026-06-29:AZI",
+                "symbol": "AZI",
+                "con_id": 1,
+                "trading_date": _DAY,
+                "first_seen_utc": _TS1,
+                "first_rank": 0,
+            },
+            {
+                "opportunity_id": "2026-06-29:DUD",
+                "symbol": "DUD",
+                "con_id": 2,
+                "trading_date": _DAY,
+                "first_seen_utc": _TS1,
+                "first_rank": 1,
+            },
+            # duplicate row (a restart re-opened AZI) — must not double-count
+            {
+                "opportunity_id": "2026-06-29:AZI",
+                "symbol": "AZI",
+                "con_id": 1,
+                "trading_date": _DAY,
+                "first_seen_utc": _TS1,
+                "first_rank": 0,
+            },
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "scanner_hits",
+        [
+            {"opportunity_id": "2026-06-29:AZI", "symbol": "AZI", "ts_utc": _TS1, "rank": 0},
+            {"opportunity_id": "2026-06-29:DUD", "symbol": "DUD", "ts_utc": _TS1, "rank": 1},
+            # latest tick (_TS2): BZI ranks above AZI
+            {"opportunity_id": "2026-06-29:BZI", "symbol": "BZI", "ts_utc": _TS2, "rank": 0},
+            {"opportunity_id": "2026-06-29:AZI", "symbol": "AZI", "ts_utc": _TS2, "rank": 1},
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "bars",
+        [
+            {
+                "opportunity_id": "2026-06-29:AZI",
+                "symbol": "AZI",
+                "bar_start_utc": _TS1,
+                "open": 1.0,
+                "high": 2.0,
+                "low": 0.5,
+                "close": 1.5,
+                "volume": 1e3,
+            },
+            {
+                "opportunity_id": "2026-06-29:AZI",
+                "symbol": "AZI",
+                "bar_start_utc": _TS2,
+                "open": 1.5,
+                "high": 2.2,
+                "low": 1.4,
+                "close": 2.0,
+                "volume": 1e3,
+            },
+            # duplicate bar row — distinct count must ignore it
+            {
+                "opportunity_id": "2026-06-29:AZI",
+                "symbol": "AZI",
+                "bar_start_utc": _TS2,
+                "open": 1.5,
+                "high": 2.2,
+                "low": 1.4,
+                "close": 2.0,
+                "volume": 1e3,
+            },
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "news",
+        [
+            {
+                "opportunity_id": "2026-06-29:AZI",
+                "symbol": "AZI",
+                "time": "t",
+                "provider": "DJ-N",
+                "headline": "h",
+                "article_id": "a1",
+            }
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "fundamentals",
+        [
+            {
+                "opportunity_id": "2026-06-29:AZI",
+                "symbol": "AZI",
+                "ts_utc": _TS1,
+                "float_shares": 8_000_000,
+                "shares_outstanding": 12_000_000,
+                "short_percent": 0.2,
+                "source": "yfinance",
+            }
+        ],
+        partition_date=_DAY,
+    )
+
+
+def _inputs() -> StatusInputs:
+    return StatusInputs(
+        now=_NOW,
+        trading_date=_DAY,
+        connected=True,
+        trading_mode="paper",
+        in_scan_window=True,
+        deployed_commit="abc1234",
+        scan_ticks_total=42,
+        jobs=[("tick", datetime(2026, 6, 29, 13, 2, tzinfo=UTC)), ("eod_bars", None)],
+    )
+
+
+def test_build_status_shape_and_values(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    _seed(store)
+    st = build_status(store, _inputs())
+
+    assert st["generated_utc"] == _NOW.isoformat()
+    assert st["trading_date"] == "2026-06-29"
+
+    svc = st["service"]
+    assert svc["connected"] is True and svc["trading_mode"] == "paper"
+    assert svc["in_scan_window"] is True and svc["deployed_commit"] == "abc1234"
+    assert svc["jobs"] == [
+        {"id": "tick", "next_run_utc": "2026-06-29T13:02:00+00:00"},
+        {"id": "eod_bars", "next_run_utc": None},
+    ]
+
+    scn = st["scanner"]
+    assert scn["scan_ticks_total"] == 42
+    assert scn["last_scan_utc"] == _TS2.isoformat()
+    # latest tick, ordered by rank: BZI (0) before AZI (1)
+    assert scn["latest_candidates"] == [
+        {"symbol": "BZI", "rank": 0},
+        {"symbol": "AZI", "rank": 1},
+    ]
+
+    assert st["opportunities"] == {"open_today": 2, "symbols": ["AZI", "DUD"]}
+
+
+def test_build_status_counts_are_distinct_aware(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    _seed(store)
+    data = build_status(store, _inputs())["data"]
+
+    assert data["opportunities"] == {"today": 2, "total": 2}  # dup AZI row collapsed
+    assert data["bars"] == {"today": 2, "total": 2}  # dup bar row collapsed
+    assert data["scanner_hits"] == {"today": 4, "total": 4}  # each hit is a real event
+    assert data["news"] == {"today": 1, "total": 1}
+    assert data["fundamentals"] == {"today": 1, "total": 1}
+
+
+def test_build_status_empty_store(tmp_path: Path) -> None:
+    st = build_status(Store(tmp_path), _inputs())
+    assert st["scanner"]["latest_candidates"] == [] and st["scanner"]["last_scan_utc"] is None
+    assert st["opportunities"] == {"open_today": 0, "symbols": []}
+    assert st["data"]["bars"] == {"today": 0, "total": 0}
+
+
+def test_build_stats_from_report() -> None:
+    analysis = OpportunityAnalysis(
+        opportunity_id="2026-06-29:AZI",
+        symbol="AZI",
+        scanner_hits=2,
+        bars=4,
+        news_count=1,
+        float_shares=8_000_000,
+        short_percent=0.2,
+        float_ok=True,
+        has_news=True,
+        bull_flag=True,
+        setup_count=1,
+        triggered=True,
+        entry=6.15,
+        stop=5.6,
+        max_r=2.7,
+        mae_r=0.3,
+        stopped_out=False,
+    )
+    report = EodReport(_DAY, [analysis], {"opportunities": 1, "triggered": 1}, "md")
+    stats = build_stats(report, _NOW)
+
+    assert stats["generated_utc"] == _NOW.isoformat()
+    assert stats["trading_date"] == "2026-06-29"
+    assert stats["aggregates"]["opportunities"] == 1
+    assert stats["opportunities"][0]["symbol"] == "AZI"
+    assert stats["opportunities"][0]["max_r"] == 2.7
+    assert stats["opportunities"][0]["trading_date"] == _DAY  # analysis_records stamps it
+
+
+def test_write_json_atomic_and_valid(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    _seed(store)
+    out = tmp_path / "dashboard" / "status.json"
+    write_json(out, build_status(store, _inputs()))
+
+    assert out.exists()
+    assert not (tmp_path / "dashboard" / "status.json.tmp").exists()  # tmp cleaned up
+    loaded = json.loads(out.read_text())
+    assert loaded["service"]["deployed_commit"] == "abc1234"
