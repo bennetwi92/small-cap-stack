@@ -98,6 +98,41 @@ def test_same_bar_trigger_and_stop_counts_as_stopped() -> None:
     assert m.mae_r is not None and m.mae_r >= 1.0  # adverse excursion reaches >= 1R
 
 
+def test_pre_appearance_trigger_is_not_counted() -> None:
+    # The only breakout fires at +10min, but the symbol didn't appear on the scanner until +12min.
+    # We can't take a move we weren't aware of (#99): it must read as setup-found, not triggered.
+    bars = [_POLE, _FLAG, _bar(2, 5.7, 7.0, 5.7, 6.9)]  # triggers at bar2 (+10min)
+    appear = _T0 + timedelta(minutes=12)
+    m = compute_r_metrics(bars, _settings(), first_hit=appear)
+    assert m.setup_found and not m.triggered
+    assert m.max_r is None
+    # Sanity: without the appearance gate the same bars DO trigger (the gate is what changes it).
+    assert compute_r_metrics(bars, _settings()).triggered
+
+
+def test_setup_forms_before_appearance_but_triggers_after() -> None:
+    # The flag forms at +5min (pre-appearance) but only triggers at +15min (post): allowed.
+    bars = [
+        _POLE,
+        _FLAG,
+        _bar(2, 5.7, 6.0, 5.65, 5.8),  # +10min: high 6.0 < entry 6.15, no trigger yet
+        _bar(3, 5.8, 7.0, 5.75, 6.9),  # +15min: triggers here
+    ]
+    appear = _T0 + timedelta(minutes=12)
+    m = compute_r_metrics(bars, _settings(), first_hit=appear)
+    assert m.triggered
+    assert m.entry_trigger == 6.15
+    assert m.entry_index == 3
+
+
+def test_trigger_exactly_at_appearance_counts() -> None:
+    # A trigger on the very bar the symbol appears counts (the gate is inclusive: >= first_hit).
+    bars = [_POLE, _FLAG, _bar(2, 5.7, 7.0, 5.7, 6.9)]  # triggers at bar2 (+10min)
+    appear = _T0 + timedelta(minutes=10)
+    m = compute_r_metrics(bars, _settings(), first_hit=appear)
+    assert m.triggered and m.entry_index == 2
+
+
 def test_thin_risk_setup_stays_finite() -> None:
     # The 5-tick entry offset puts a floor on risk (entry is >=5 ticks above breakout, and the
     # stop is at/below breakout, so risk >= $0.05). A tight flag still yields a thin-but-finite R.
