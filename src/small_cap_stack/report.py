@@ -151,6 +151,7 @@ def _analyze_run(
     obars: list[Bar],
     *,
     first_seen: datetime,
+    first_hit: datetime | None,
     news_count: int,
     float_shares: int | None,
     short_percent: float | None,
@@ -159,7 +160,9 @@ def _analyze_run(
     run_count: int,
     s: Settings,
 ) -> OpportunityAnalysis:
-    rm = compute_r_metrics(obars, s)
+    # R is gated to the run's appearance: a setup may form in the pre-appearance lookback, but the
+    # entry may only trigger at/after the first scanner hit (#99) — never crediting an unseen move.
+    rm = compute_r_metrics(obars, s, first_hit=first_hit)
     setup_count = _count_setups(obars, s)
     # Single source of truth for the threshold predicates: reuse the gate engine rather than
     # re-deriving them here (a None datum stays None to distinguish "no data" from "fails gate").
@@ -202,7 +205,10 @@ def _analyses_for_symbol(
     # window is bounded on read (decision: issue #93).
     all_bars = [b for b in all_bars if b.start.astimezone(ET).time() < s.capture_end]
     times = _hit_times(scans, oid)
-    windows = _run_windows(_segment_runs(times, s.reentry_gap_min), s.reentry_lookback_min)
+    # run_starts are the actual first scanner-hit per run; windows extend back by the lookback so
+    # the pole is captured. Keep run_starts to gate R at the real appearance time (#99).
+    run_starts = _segment_runs(times, s.reentry_gap_min)
+    windows = _run_windows(run_starts, s.reentry_lookback_min)
     news_count = _count_in(
         news, oid
     )  # day-level for the symbol (news/fundamentals are static facts)
@@ -217,12 +223,14 @@ def _analyses_for_symbol(
         rbars = [b for b in all_bars if in_win(b.start, start, end)]
         hits = sum(1 for t in times if in_win(t, start, end))
         seg_id = oid if run_count == 1 else f"{oid}#{idx}"
+        first_hit = run_starts[idx - 1] if run_starts else None
         out.append(
             _analyze_run(
                 seg_id,
                 row["symbol"],
                 rbars,
                 first_seen=start or row["first_seen_utc"],
+                first_hit=first_hit,
                 news_count=news_count,
                 float_shares=float_shares,
                 short_percent=short_percent,
