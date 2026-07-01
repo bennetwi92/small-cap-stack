@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     # Schedule (US/Eastern; the market tz lives in clock.ET). Window 04:00–11:59 ET.
     scan_start: time = time(4, 0)
     scan_end: time = time(11, 59)
+    eod_bars_fetch: time = time(16, 20)  # batch-fetch the day's 5-min bars (before the report)
     eod_report: time = time(16, 30)
 
     # IB Gateway daily auto-restart (IBC AUTO_RESTART_TIME). Disconnects in this window are
@@ -60,11 +61,12 @@ class Settings(BaseSettings):
     tick_size: float = 0.01  # min US price increment for $2-10 names
     entry_offset_ticks: int = 5  # entry = last complete consolidation high + 5 ticks ($0.05)
 
-    # Capture (issue #14). Scanning stops at scan_end; we keep recording flagged
-    # opportunities' bars/news until capture_end (regular close).
+    # Capture (issue #14). The intraday tick only does discovery (scanner_hits + opportunities +
+    # news/fundamentals). The day's 5-min bars are fetched once in an end-of-day batch (#62) —
+    # capture_end marks the last bar time we care about (regular close).
     capture_end: time = time(16, 0)
-    tick_interval_sec: int = 60  # how often the scan/capture loop runs
-    capture_bars_lookback_sec: int = 1800  # 5-min bars window fetched each tick
+    tick_interval_sec: int = 60  # how often the scan/discovery loop runs
+    eod_bars_duration: str = "1 D"  # reqHistoricalData duration for the EOD 5-min bar batch
     news_providers: str = "BRFG+DJ-N+DJNL"
     news_lookback_days: int = 7
     news_max: int = 10

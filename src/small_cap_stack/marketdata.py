@@ -1,22 +1,23 @@
 """ib_async market-data adapter: implements capture's BarSource + NewsSource.
 
-Thin live glue (exercised against a real Gateway, not unit-tested). 5-min bars use a
-``keepUpToDate=True`` historical subscription: the initial request is made *once* per symbol and
-IBKR then *pushes* updates into the returned ``BarDataList`` in place — so the capture loop reads
-an in-memory snapshot each tick instead of re-requesting (no historical-pacing pressure). Streams
-are stateful, so they are re-established on reconnect via :meth:`IBKRMarketData.resubscribe` and
-torn down at end of day via :meth:`IBKRMarketData.cancel_all`. News stays a one-shot request.
+Thin live glue (exercised against a real Gateway, not unit-tested). Phase-1 places no orders and
+the account's feed is ~15 min delayed, so bars are **not streamed** — instead the day's 5-min
+bars are pulled once per flagged symbol in an end-of-day batch (#62): a single
+``reqHistoricalData`` returns the whole session (04:00 ET → close) in one request. This removes
+the fragile keepUpToDate streaming (no restart gaps / duplicate bars) and tolerates delayed data.
+News stays a one-shot request per opportunity.
 """
 
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 from ib_async import IB, Stock
 
 from .capture import Bar, NewsItem
+from .clock import ET
 from .config import Settings
 from .logging import get_logger
 from .scanner import Candidate
@@ -24,55 +25,44 @@ from .scanner import Candidate
 log = get_logger(__name__)
 
 _NEWS_FMT = "%Y-%m-%d %H:%M:%S.0"
-# Soft ceiling: IBKR allows ~50 simultaneous historical subscriptions; warn before we get close.
-_MAX_STREAMS_WARN = 45
 
 
 class IBKRMarketData:
-    """Fetches 5-min bars (streaming) and per-symbol news (one-shot) via ib_async."""
+    """Fetches a day's 5-min bars (one-shot historical) and per-symbol news via ib_async."""
 
     def __init__(self, ib: IB, settings: Settings) -> None:
         self.ib = ib
         self.settings = settings
-        self._streams: dict[str, Any] = {}  # symbol -> live, self-updating BarDataList
-        self._contracts: dict[str, Stock] = {}  # symbol -> contract, for replay after reconnect
 
     def _contract(self, c: Candidate) -> Stock:
         return Stock(c.symbol, "SMART", c.currency or "USD")
 
-    async def _subscribe(self, symbol: str, contract: Stock, lookback_sec: int) -> Any:
-        """Open a keepUpToDate 5-min bar stream; IBKR pushes updates into the returned list."""
+    async def fetch_day_bars(self, candidate: Candidate, *, trading_date: date) -> list[Bar]:
+        """One historical request for the full day's 5-min bars, kept to ``trading_date`` (ET).
+
+        ``useRTH=False`` includes the pre-market session; the request is not ``keepUpToDate`` so
+        every returned bar is finalised. The duration may spill into the prior day's extended
+        session, so bars are filtered to the requested trading day by their ET calendar date.
+        """
+        contract = self._contract(candidate)
         async with asyncio.timeout(self.settings.ibkr_request_timeout_sec):
-            bar_list = await self.ib.reqHistoricalDataAsync(
+            rows = await self.ib.reqHistoricalDataAsync(
                 contract,
-                endDateTime="",  # required empty for keepUpToDate
-                durationStr=f"{lookback_sec} S",
+                endDateTime="",  # up to now; run after close so the whole session is settled
+                durationStr=self.settings.eod_bars_duration,
                 barSizeSetting="5 mins",
                 whatToShow="TRADES",
                 useRTH=False,
-                formatDate=2,
-                keepUpToDate=True,
+                formatDate=2,  # UTC timestamps
+                keepUpToDate=False,
             )
-        self._streams[symbol] = bar_list
-        self._contracts[symbol] = contract
-        if len(self._streams) >= _MAX_STREAMS_WARN:
-            log.warning("marketdata.stream_count_high", streams=len(self._streams))
-        return bar_list
-
-    @staticmethod
-    def _settled(bar_list: Any) -> list[Bar]:
-        """Map a BarDataList to completed bars, dropping the last (still-forming) bar.
-
-        With keepUpToDate the final element is the live bar being updated in place, so excluding
-        it means only finalised 5-min bars are ever persisted (append-only). The capture loop's
-        own dedup still guards against any duplicate/late bars IBKR may re-emit.
-        """
-        settled = list(bar_list)[:-1]
         out: list[Bar] = []
-        for b in settled:
+        for b in rows:
             start = cast(datetime, b.date)
             if start.tzinfo is None:
                 start = start.replace(tzinfo=UTC)
+            if start.astimezone(ET).date() != trading_date:
+                continue  # drop bars belonging to an adjacent day's extended session
             out.append(
                 Bar(
                     start=start,
@@ -84,34 +74,6 @@ class IBKRMarketData:
                 )
             )
         return out
-
-    async def fetch_5m_bars(self, candidate: Candidate, *, lookback_sec: int) -> list[Bar]:
-        """Ensure a stream exists for the symbol, then return its settled-bar snapshot."""
-        bar_list = self._streams.get(candidate.symbol)
-        if bar_list is None:
-            bar_list = await self._subscribe(
-                candidate.symbol, self._contract(candidate), lookback_sec
-            )
-        return self._settled(bar_list)
-
-    async def resubscribe(self) -> None:
-        """Re-open every bar stream after a (re)connect (the old BarDataLists are dead)."""
-        contracts = dict(self._contracts)
-        self._streams.clear()
-        for symbol, contract in contracts.items():
-            await self._subscribe(symbol, contract, self.settings.capture_bars_lookback_sec)
-        if contracts:
-            log.info("marketdata.streams_replayed", count=len(contracts))
-
-    def cancel_all(self) -> None:
-        """Cancel all live bar streams (call at end of the capture window / new session)."""
-        for bar_list in self._streams.values():
-            try:
-                self.ib.cancelHistoricalData(bar_list)
-            except Exception:  # noqa: BLE001 — best-effort teardown; never break shutdown
-                log.warning("marketdata.cancel_failed")
-        self._streams.clear()
-        self._contracts.clear()
 
     async def fetch_news(
         self, candidate: Candidate, *, lookback_days: int, limit: int

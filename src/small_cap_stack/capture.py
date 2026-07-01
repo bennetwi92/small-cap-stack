@@ -1,9 +1,11 @@
 """Raw capture per opportunity (issue #14): the evolving longitudinal record.
 
-When a candidate is flagged it becomes an *opportunity* (`<trading_date>:<symbol>`). We write
-its static-at-flag facts once (opportunities + news), log every scanner appearance
-(scanner_hits), and keep appending its 5-min bars until the capture window closes. Everything
-is append-only via the Store; nothing is mutated. Float/short-interest land with #17.
+When a candidate is flagged it becomes an *opportunity* (`<trading_date>:<symbol>`). The intraday
+loop records only *discovery* — it writes the static-at-flag facts once (opportunities + news +
+fundamentals) and logs every scanner appearance (scanner_hits). The day's 5-min **bars are pulled
+once in an end-of-day batch** (`capture_day_bars`, #62), because a single historical request
+returns the whole session and survives mid-day restarts (no streaming, no gaps/dups). Everything
+is append-only via the Store; nothing is mutated.
 """
 
 from __future__ import annotations
@@ -12,6 +14,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any, Protocol
+
+import polars as pl
 
 from .config import Settings
 from .fundamentals import FundamentalsSource, NullFundamentals, fundamentals_record
@@ -47,7 +51,7 @@ class NewsItem:
 
 
 class BarSource(Protocol):
-    async def fetch_5m_bars(self, candidate: Candidate, *, lookback_sec: int) -> list[Bar]: ...
+    async def fetch_day_bars(self, candidate: Candidate, *, trading_date: date) -> list[Bar]: ...
 
 
 class NewsSource(Protocol):
@@ -63,6 +67,8 @@ def opportunity_record(
         "opportunity_id": oid,
         "symbol": c.symbol,
         "con_id": c.con_id,
+        "exchange": c.exchange,
+        "currency": c.currency,
         "trading_date": trading_date,
         "first_seen_utc": first_seen.astimezone(UTC),
         "first_rank": c.rank,
@@ -97,10 +103,18 @@ def bar_record(oid: str, symbol: str, b: Bar) -> dict[str, Any]:
     }
 
 
-@dataclass
-class _Active:
-    candidate: Candidate
-    last_bar_start: datetime | None = None
+def _candidate_from_row(row: dict[str, Any]) -> Candidate:
+    """Rebuild the (minimal) Candidate needed to fetch bars from a stored opportunity row.
+
+    Tolerates rows written before exchange/currency were persisted (they fall back to defaults;
+    only symbol/currency actually shape the SMART contract)."""
+    return Candidate(
+        rank=row.get("first_rank") or 0,
+        symbol=row["symbol"],
+        con_id=row["con_id"],
+        exchange=row.get("exchange") or "SMART",
+        currency=row.get("currency") or "USD",
+    )
 
 
 @dataclass
@@ -112,19 +126,31 @@ class CaptureService:
     news: NewsSource
     settings: Settings
     fundamentals: FundamentalsSource = field(default_factory=NullFundamentals)
-    _active: dict[str, _Active] = field(default_factory=dict)
+    _open: set[str] = field(default_factory=set)  # opportunity_ids already opened today
+    _hydrated_date: date | None = None
+
+    def _ensure_hydrated(self, trading_date: date) -> None:
+        """Seed the open-opportunity set from storage so a mid-day restart doesn't re-open/dup."""
+        if self._hydrated_date == trading_date:
+            return
+        self._open = set()
+        opps = self.store.read("opportunities")
+        if not opps.is_empty():
+            today = opps.filter(pl.col("trading_date") == trading_date)
+            self._open = set(today["opportunity_id"].to_list())
+        self._hydrated_date = trading_date
 
     async def on_scan_tick(self, candidates: Sequence[Candidate], now: datetime) -> None:
-        """Record this scan tick: new opportunities, scanner hits, then bars for all active."""
+        """Discovery only: open new opportunities and log every scanner appearance."""
         trading_date = now.date()
+        self._ensure_hydrated(trading_date)
         for c in candidates:
             oid = opportunity_id(trading_date, c.symbol)
-            if oid not in self._active:
+            if oid not in self._open:
                 await self._open_opportunity(oid, c, now, trading_date)
             self.store.append(
                 "scanner_hits", [scanner_hit_record(oid, c, now)], partition_date=trading_date
             )
-        await self.capture_bars(now)
 
     async def _open_opportunity(
         self, oid: str, c: Candidate, now: datetime, trading_date: date
@@ -150,7 +176,7 @@ class CaptureService:
             self.store.append(
                 "fundamentals", [fundamentals_record(oid, fund, now)], partition_date=trading_date
             )
-        self._active[oid] = _Active(candidate=c)
+        self._open.add(oid)
         OPPORTUNITIES.inc()
         log.info(
             "capture.opportunity_opened",
@@ -159,31 +185,35 @@ class CaptureService:
             float_shares=(fund.float_shares if fund else None),
         )
 
-    async def capture_bars(self, now: datetime) -> None:
-        """Append any new 5-min bars for every active opportunity."""
-        trading_date = now.date()
-        for oid, active in self._active.items():
+    async def capture_day_bars(self, trading_date: date) -> None:
+        """End-of-day batch: one historical request per flagged opportunity → append its bars.
+
+        Reads the day's opportunities from storage (not in-memory state), so it is unaffected by
+        any restart during the session. One symbol's data hiccup never stalls the rest.
+        """
+        opps = self.store.read("opportunities")
+        if opps.is_empty():
+            return
+        opps = opps.filter(pl.col("trading_date") == trading_date)
+        for row in opps.iter_rows(named=True):
+            oid = row["opportunity_id"]
+            cand = _candidate_from_row(row)
             try:
-                bars = await self.bars.fetch_5m_bars(
-                    active.candidate, lookback_sec=self.settings.capture_bars_lookback_sec
-                )
-            except Exception:  # noqa: BLE001 — one symbol's data hiccup must not stall the tick
-                log.warning("capture.bars_fetch_failed", opportunity_id=oid)
+                bars = await self.bars.fetch_day_bars(cand, trading_date=trading_date)
+            except Exception:  # noqa: BLE001 — one symbol's failure must not stall the batch
+                log.warning("capture.day_bars_failed", opportunity_id=oid)
                 continue
-            new = [
-                b for b in bars if active.last_bar_start is None or b.start > active.last_bar_start
-            ]
-            if not new:
+            if not bars:
                 continue
             self.store.append(
                 "bars",
-                [bar_record(oid, active.candidate.symbol, b) for b in new],
+                [bar_record(oid, cand.symbol, b) for b in bars],
                 partition_date=trading_date,
             )
-            active.last_bar_start = max(b.start for b in new)
-            BARS_APPENDED.inc(len(new))
-            log.info("capture.bars_appended", opportunity_id=oid, count=len(new))
+            BARS_APPENDED.inc(len(bars))
+            log.info("capture.day_bars_appended", opportunity_id=oid, count=len(bars))
 
     def reset(self) -> None:
-        """Clear active opportunities (call at end of the capture window / new session)."""
-        self._active.clear()
+        """Clear open-opportunity state (call at end of the capture window / new session)."""
+        self._open = set()
+        self._hydrated_date = None
