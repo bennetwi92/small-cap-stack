@@ -1,0 +1,55 @@
+name: publish-dashboard
+
+# Publish the box's dashboard JSON (status.json / stats.json — written by the app under
+# /data/dashboard, issue #68) to a single-commit orphan branch `dashboard-data` that the
+# GitHub Pages frontend (#70) polls via raw.githubusercontent.com.
+#
+# Runs on the SELF-HOSTED runner (on the box), so it reads the docker volume directly with
+# `docker cp`. Outbound-only, uses GITHUB_TOKEN — no new secrets, no inbound ports (#69).
+# Force-pushing a fresh single commit each run keeps the branch (and repo) from growing, and
+# keeps dashboard data entirely off `main`.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *" # ~15-min freshness (GitHub's scheduled runs can lag under load)
+  workflow_dispatch: {}
+
+concurrency:
+  group: publish-dashboard
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: publish dashboard data
+    runs-on: [self-hosted, vps]
+    steps:
+      - name: Extract dashboard JSON from the app container
+        run: |
+          set -euo pipefail
+          rm -rf out && mkdir out
+          cid="$(docker ps --filter 'name=small-cap-stack-app' --format '{{.ID}}' | head -1)"
+          if [ -n "$cid" ]; then
+            docker cp "$cid:/data/dashboard/." out/ 2>/dev/null || true
+          fi
+          # Guarantee the branch/URL always exists, even before the first tick / EOD.
+          [ -f out/status.json ] || echo '{"status":"no data yet"}' > out/status.json
+          printf '{"published_utc":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > out/published.json
+          ls -la out
+
+      - name: Force-update the dashboard-data branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd out
+          git init -q
+          git checkout -q -b dashboard-data
+          git config user.email "actions@github.com"
+          git config user.name "scs-dashboard-bot"
+          git add -A
+          git commit -qm "dashboard data $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" dashboard-data

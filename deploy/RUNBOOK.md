@@ -65,6 +65,9 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
   The app pings each tick; you get alerted if it goes silent. Set the period to a few minutes.
 - **Grafana Cloud** (optional): run Grafana Alloy/agent on the host to scrape `localhost:9090/metrics`
   (`scs_ibkr_connected`, `scs_scan_ticks_total`, `scs_opportunities_total`, `scs_cold_disconnects_total`).
+- **Dashboard data** (#68/#69): the app writes `status.json`/`stats.json` under `/data/dashboard`; the
+  `publish-dashboard` workflow (self-hosted runner, every ~15 min + manual dispatch) force-pushes them
+  to the orphan **`dashboard-data`** branch for the Pages frontend (#70) to poll via `raw.githubusercontent.com`.
 - (Oracle only) it reclaims idle Always-Free VMs after ~30 days — add a weekly keep-alive cron.
   Hetzner has no such reclamation.
 
