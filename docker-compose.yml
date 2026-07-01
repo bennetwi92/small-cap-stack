@@ -14,6 +14,10 @@ services:
       TIME_ZONE: ${TZ:-America/New_York}
       TWOFA_TIMEOUT_ACTION: restart
       RELOGIN_AFTER_2FA_TIMEOUT: "yes"
+      # What IBC does when IBKR reports this username is already logged in elsewhere.
+      # 'manual' (IBC default) blocks on the dialog forever; 'primary' takes over the
+      # session (kicks the other login); 'secondary' yields. Set per-host in .env.
+      EXISTING_SESSION_DETECTED_ACTION: ${EXISTING_SESSION_DETECTED_ACTION:-manual}
     healthcheck:
       # Gateway is up once the API socket accepts connections.
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/4002' || exit 1"]
