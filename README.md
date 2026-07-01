@@ -2,6 +2,8 @@
 
 this repo will deliver an automated systematic trading system that trades US small cap stocks in a manner similar to warrior trading.
 
+📊 **Live tracker dashboard:** https://bennetwi92.github.io/small-cap-stack/ — scanner activity, task status, data collected, and EOD statistics (refreshes ~every 15 min).
+
 There are two old repos that I worked on that could provide useful code and background:
 - "https://github.com/bennetwi92/entresys_light"
 - "https://github.com/bennetwi92/tradepilot" - when i built this repo i was actually trading this very same strategy.

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>small-cap-stack · tracker dashboard</title>
+    <meta name="robots" content="noindex" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <hgroup>
+        <h1>small-cap-stack</h1>
+        <p>
+          Phase-1 tracker ·
+          <span id="updated" class="muted">loading…</span>
+          <button id="refresh" class="secondary outline" title="Refresh now">↻</button>
+        </p>
+      </hgroup>
+
+      <p id="error" class="error" hidden></p>
+
+      <article>
+        <header>Status</header>
+        <div id="health" class="health muted">loading…</div>
+      </article>
+
+      <div class="grid">
+        <article>
+          <header>Scanner activity</header>
+          <div id="scanner"></div>
+        </article>
+        <article>
+          <header>Tasks / schedule</header>
+          <div id="tasks"></div>
+        </article>
+      </div>
+
+      <article>
+        <header>Opportunities today (<span id="opps-count">0</span>)</header>
+        <p id="opps-symbols" class="muted">—</p>
+      </article>
+
+      <article>
+        <header>Data collected (today / total)</header>
+        <div id="data" class="stats"></div>
+      </article>
+
+      <article>
+        <header>Statistics</header>
+        <div id="stats"></div>
+      </article>
+
+      <footer class="muted">
+        <small>
+          Auto-refreshes from the box (~15 min). Times in ET. Phase-1 = tracking only, no orders.
+          · <a href="https://github.com/bennetwi92/small-cap-stack">repo</a>
+        </small>
+      </footer>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
