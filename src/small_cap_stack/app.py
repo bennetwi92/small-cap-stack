@@ -177,12 +177,18 @@ class Application:
         log.info("scan.window_closed")
 
     async def _on_eod_bars(self) -> None:
-        """Batch-fetch the day's 5-min bars for every flagged opportunity (before the report)."""
+        """Batch-fetch the day's 5-min bars + re-fetch news for every flagged opportunity.
+
+        Both run before the report. The news re-fetch (#97) captures stories that broke after a
+        symbol's first sighting so they can be attributed to the right run at analysis time.
+        """
         log.info("bars.eod_start")
         if not self.transport.is_connected():
             log.warning("bars.eod_skipped_disconnected")
             return
-        await self.capture.capture_day_bars(now_et().date())
+        trading_date = now_et().date()
+        await self.capture.capture_day_bars(trading_date)
+        await self.capture.capture_day_news(trading_date)
         log.info("bars.eod_done")
 
     async def _on_eod_report(self) -> None:

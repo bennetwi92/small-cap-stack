@@ -79,11 +79,26 @@ def scanner_hit_record(oid: str, c: Candidate, ts: datetime) -> dict[str, Any]:
     return {"opportunity_id": oid, "symbol": c.symbol, "ts_utc": ts.astimezone(UTC), "rank": c.rank}
 
 
+def parse_news_ts(raw: str) -> datetime | None:
+    """Parse an IBKR news timestamp string to a UTC datetime (best-effort, None if unparseable).
+
+    IBKR historical-news times look like ``2026-07-01 13:45:00.0`` (GMT); we normalise to UTC so
+    news can be attributed to a run window at analysis time (#97) and bucketed by recency (#101)."""
+    s = (raw or "").strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y%m%d %H:%M:%S"):
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=UTC)
+        except ValueError:
+            continue
+    return None
+
+
 def news_record(oid: str, symbol: str, n: NewsItem) -> dict[str, Any]:
     return {
         "opportunity_id": oid,
         "symbol": symbol,
-        "time": n.time,
+        "time": n.time,  # raw provider string, kept for provenance (store-raw)
+        "ts_utc": parse_news_ts(n.time),  # normalised for run attribution / recency (#97)
         "provider": n.provider,
         "headline": n.headline,
         "article_id": n.article_id,
@@ -217,6 +232,40 @@ class CaptureService:
             )
             BARS_APPENDED.inc(len(bars))
             log.info("capture.day_bars_appended", opportunity_id=oid, count=len(bars))
+
+    async def capture_day_news(self, trading_date: date) -> None:
+        """End-of-day batch: re-fetch each opportunity's news so *late-breaking* stories are kept.
+
+        The intraday fetch happens once at first sighting, so a catalyst that breaks later in the
+        day — or for a second run of the same symbol — is otherwise never captured (#97). The EOD
+        re-fetch closes that gap; duplicates (same article) are deduped on read by article_id. Reads
+        opportunities from storage, so a mid-day restart doesn't matter.
+        """
+        opps = self.store.read("opportunities")
+        if opps.is_empty():
+            return
+        opps = opps.filter(pl.col("trading_date") == trading_date).unique(
+            subset="opportunity_id", keep="first"
+        )
+        for row in opps.iter_rows(named=True):
+            oid = row["opportunity_id"]
+            cand = _candidate_from_row(row)
+            try:
+                items = await self.news.fetch_news(
+                    cand,
+                    lookback_days=self.settings.news_lookback_days,
+                    limit=self.settings.news_max,
+                )
+            except Exception:  # noqa: BLE001 — one symbol's failure must not stall the batch
+                log.warning("capture.day_news_failed", opportunity_id=oid)
+                continue
+            if items:
+                self.store.append(
+                    "news",
+                    [news_record(oid, cand.symbol, n) for n in items],
+                    partition_date=trading_date,
+                )
+                log.info("capture.day_news_appended", opportunity_id=oid, count=len(items))
 
     def reset(self) -> None:
         """Clear open-opportunity state (call at end of the capture window / new session)."""

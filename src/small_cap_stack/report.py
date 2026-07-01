@@ -101,10 +101,21 @@ def _funds_for(funds: pl.DataFrame, oid: str) -> tuple[int | None, float | None]
     return r0["float_shares"], r0["short_percent"]
 
 
-def _count_in(df: pl.DataFrame, oid: str) -> int:
-    if df.is_empty():
-        return 0
-    return int(df.filter(pl.col("opportunity_id") == oid).height)
+def _news_for(news: pl.DataFrame, oid: str) -> tuple[list[datetime], int]:
+    """A symbol's news split into (dated timestamps, count of undated rows).
+
+    News is attributed to a run by comparing its publish time to the run window (#97). Rows whose
+    timestamp couldn't be parsed — and legacy rows written before ts_utc existed — are 'undated'
+    and fall back to the first run so they're never lost."""
+    if news.is_empty():
+        return [], 0
+    sub = news.filter(pl.col("opportunity_id") == oid)
+    if sub.is_empty():
+        return [], 0
+    if "ts_utc" not in sub.columns:
+        return [], sub.height
+    dated = [t for t in sub["ts_utc"].to_list() if t is not None]
+    return dated, sub.height - len(dated)
 
 
 def _segment_runs(hit_times: list[datetime], gap_min: int) -> list[datetime]:
@@ -213,9 +224,9 @@ def _analyses_for_symbol(
     # the pole is captured. Keep run_starts to gate R at the real appearance time (#99).
     run_starts = _segment_runs(times, s.reentry_gap_min)
     windows = _run_windows(run_starts, s.reentry_lookback_min)
-    news_count = _count_in(
-        news, oid
-    )  # day-level for the symbol (news/fundamentals are static facts)
+    # News is attributed per-run by publish time (#97): a later run gets only the stories that
+    # broke in its window. Undated news (unparseable / legacy) falls back to run 1 so it's not lost.
+    news_times, news_undated = _news_for(news, oid)
     float_shares, short_percent = _funds_for(funds, oid)
     run_count = len(windows)
 
@@ -226,6 +237,9 @@ def _analyses_for_symbol(
     for idx, (start, end) in enumerate(windows, start=1):
         rbars = [b for b in all_bars if in_win(b.start, start, end)]
         hits = sum(1 for t in times if in_win(t, start, end))
+        news_count = sum(1 for t in news_times if in_win(t, start, end))
+        if idx == 1:
+            news_count += news_undated  # undated news attributed to the first run
         seg_id = oid if run_count == 1 else f"{oid}#{idx}"
         first_hit = run_starts[idx - 1] if run_starts else None
         out.append(
