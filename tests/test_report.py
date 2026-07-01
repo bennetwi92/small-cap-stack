@@ -150,6 +150,46 @@ def test_duplicate_raw_rows_are_deduped_on_read(tmp_path: Path) -> None:
     assert azi.triggered and azi.max_r is not None and azi.max_r >= 2.0
 
 
+def test_analysis_excludes_after_hours_bars(tmp_path: Path) -> None:
+    # Bars at/after the 16:00 ET regular close (capture_end) must not enter the analysis, even
+    # though they're stored raw (#93). _T0 (14:00 UTC) is 10:00 ET, so i=78 (+390min) = 16:30 ET.
+    store = Store(tmp_path)
+    oid = "2026-06-29:AH"
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "AH",
+                "con_id": 1,
+                "trading_date": _DAY,
+                "first_seen_utc": _T0,
+                "first_rank": 0,
+            }
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "scanner_hits",
+        [{"opportunity_id": oid, "symbol": "AH", "ts_utc": _T0, "rank": 0}],
+        partition_date=_DAY,
+    )
+    store.append(
+        "bars",
+        [
+            _bar_row(oid, "AH", 0, 5.0, 6.2, 4.9, 6.0),  # pole
+            _bar_row(oid, "AH", 1, 6.0, 6.1, 5.6, 5.7),  # flag
+            _bar_row(oid, "AH", 2, 5.7, 6.3, 5.7, 6.2),  # trigger (modest high 6.3)
+            _bar_row(oid, "AH", 78, 6.2, 9.9, 6.2, 9.8),  # 16:30 ET after-hours spike — excluded
+        ],
+        partition_date=_DAY,
+    )
+
+    ah = build_eod_report(store, _settings(), _DAY).analyses[0]
+    assert ah.bars == 3  # after-hours bar dropped from the analysis
+    assert ah.triggered and ah.max_r is not None and ah.max_r < 1.0  # not the 9.9 spike (~6.8R)
+
+
 def test_eod_report_empty(tmp_path: Path) -> None:
     report = build_eod_report(Store(tmp_path), _settings(), _DAY)
     assert report.aggregates["opportunities"] == 0

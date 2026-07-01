@@ -22,6 +22,7 @@ import polars as pl
 
 from .bullflag import detect_with_settings
 from .capture import Bar
+from .clock import ET
 from .config import Settings
 from .gates import GateInputs, float_gate, news_gate
 from .rmetrics import compute_r_metrics
@@ -196,6 +197,10 @@ def _analyses_for_symbol(
 ) -> list[OpportunityAnalysis]:
     oid = row["opportunity_id"]
     all_bars = _all_bars(bars, oid)
+    # Bound the analysis at the regular close (capture_end, 16:00 ET): after-hours prints must not
+    # set Max R / MAE / trigger. Store-raw is preserved — all bars stay in storage; the analysis
+    # window is bounded on read (decision: issue #93).
+    all_bars = [b for b in all_bars if b.start.astimezone(ET).time() < s.capture_end]
     times = _hit_times(scans, oid)
     windows = _run_windows(_segment_runs(times, s.reentry_gap_min), s.reentry_lookback_min)
     news_count = _count_in(
