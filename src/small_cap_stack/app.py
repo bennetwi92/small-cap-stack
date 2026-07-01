@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from .capture import CaptureService
 from .clock import ET_NAME, now_et, within_window
 from .config import Settings, get_settings
+from .dashboard import StatusInputs, build_stats, build_status, write_json
 from .fundamentals import YFinanceFundamentals
 from .ibkr.subscriptions import SubscriptionRegistry
 from .ibkr.supervisor import ConnectionSupervisor
@@ -25,6 +26,7 @@ from .monitoring import (
     IBKR_CONNECTED,
     SCAN_TICKS,
     Heartbeat,
+    metric_value,
     start_metrics_server,
 )
 from .report import EodReport, analysis_records, build_eod_report
@@ -136,15 +138,37 @@ class Application:
         """Intraday discovery: scan for candidates during the scan window (bars come at EOD)."""
         SCAN_TICKS.inc()
         await self.heartbeat.ping()  # dead-man's switch: process is alive
-        if not self.transport.is_connected():
-            return
         now = now_et()
-        if within_window(now, self.settings.scan_start, self.settings.scan_end):
+        if self.transport.is_connected() and within_window(
+            now, self.settings.scan_start, self.settings.scan_end
+        ):
             candidates = await self.scanner.scan(self.transport.ib)
             log.info(
                 "scan.candidates", count=len(candidates), symbols=[c.symbol for c in candidates]
             )
             await self.capture.on_scan_tick(candidates, now)
+        if self.settings.dashboard_enabled:
+            self._export_status(now)
+
+    def _export_status(self, now: datetime) -> None:
+        """Write the dashboard status snapshot (#68). Best-effort — never breaks a tick."""
+        try:
+            inputs = StatusInputs(
+                now=now.astimezone(UTC),
+                trading_date=now.date(),
+                connected=self.transport.is_connected(),
+                trading_mode=self.settings.ibkr_trading_mode,
+                in_scan_window=within_window(now, self.settings.scan_start, self.settings.scan_end),
+                deployed_commit=self.settings.deployed_commit or None,
+                scan_ticks_total=int(metric_value("scs_scan_ticks_total")),
+                jobs=[(j.id, j.next_run_time) for j in self.scheduler.get_jobs()],
+            )
+            write_json(
+                self.settings.data_dir / "dashboard" / "status.json",
+                build_status(self.store, inputs),
+            )
+        except Exception:  # noqa: BLE001 — a dashboard write must never break the tick
+            log.warning("dashboard.status_write_failed")
 
     async def _on_scan_start(self) -> None:
         log.info("scan.window_open")
@@ -169,6 +193,14 @@ class Application:
                 "analysis", analysis_records(report), partition_date=report.trading_date
             )
             self._write_report_markdown(report)
+        if self.settings.dashboard_enabled:
+            try:
+                write_json(
+                    self.settings.data_dir / "dashboard" / "stats.json",
+                    build_stats(report, now_et().astimezone(UTC)),
+                )
+            except Exception:  # noqa: BLE001 — a dashboard write must never break EOD
+                log.warning("dashboard.stats_write_failed")
         log.info("report.eod_done", **report.aggregates)
         self.capture.reset()
 

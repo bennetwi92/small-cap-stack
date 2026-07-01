@@ -11,7 +11,7 @@ import asyncio
 import urllib.request
 from collections.abc import Callable
 
-from prometheus_client import Counter, Gauge, start_http_server
+from prometheus_client import REGISTRY, Counter, Gauge, start_http_server
 
 from .logging import get_logger
 
@@ -23,6 +23,11 @@ OPPORTUNITIES = Counter("scs_opportunities_total", "Opportunities opened")
 BARS_APPENDED = Counter("scs_bars_appended_total", "5-min bars appended")
 COLD_DISCONNECTS = Counter("scs_cold_disconnects_total", "Cold (unexpected) IBKR disconnects")
 IBKR_CONNECTED = Gauge("scs_ibkr_connected", "1 if connected to IBKR else 0")
+
+
+def metric_value(name: str) -> float:
+    """Read a metric's current value from the default registry (0.0 if absent)."""
+    return REGISTRY.get_sample_value(name) or 0.0
 
 
 def start_metrics_server(port: int) -> None:
