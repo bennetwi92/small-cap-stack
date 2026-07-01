@@ -10,7 +10,7 @@
 | 2 | Scanner / broker | **IBKR only.** User trades via the **TWS Mosaic scanner** today and considers it sufficient. ⚠️ Headless system must use the **API scanner (`reqScannerSubscription`)**, a different/more limited surface than Mosaic — see Spike below. |
 | 3 | Exit strategy (Phase 1) | **Not required for execution** in Phase 1 (tracking only). BUT "Max R" reporting needs a **notional entry trigger + notional stop** to compute R — see Phase-1 note below. |
 | 4 | News source | **Try IBKR news feed first** (what user used before). Subscribe to a paid service only if insufficient. |
-| 5 | VPS | **Oracle Cloud Always Free — Ampere A1 (ARM)** primary; GCP e2-micro fallback. Approved. |
+| 5 | VPS | ⚠️ **REVISED 2026-07-01: Hetzner Cloud CX22** (x86, 2 vCPU/4 GB, Ashburn US-East, ~€4/mo). Switched from ~~Oracle Ampere Always-Free~~ after repeated "Out of host capacity" on the free A1 tier. Docker images are multi-arch so the host is swappable; Oracle A1 remains a $0 alternative if capacity is obtainable (PAYG upgrade helps). Cheap VPS is marginal next to the paid IBKR data sub (#6). |
 | 6 | Market data | User **will subscribe to IBKR market data** (incl. pre-market). Pre-market feed is a solved problem via IBKR. |
 | 7 | Weekly 2FA | **Accepted for now** (one manual phone tap/week). User aware of a second-username / relaxed-2FA workaround to apply later himself. |
 | 8 | Branching | **Trunk-based: protected `main` + short-lived branches, all work via PRs**, required CI checks before merge. Chosen because much work happens in PRs / Claude Code on mobile. |
