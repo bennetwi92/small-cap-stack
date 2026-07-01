@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     scan_end: time = time(11, 59)
     eod_bars_fetch: time = time(16, 20)  # batch-fetch the day's 5-min bars (before the report)
     eod_report: time = time(16, 30)
+    eod_backfill: time = time(3, 45)  # morning catch-up: back-fill bars a missed EOD batch dropped
+    # EOD batch resilience (#100): retry a disconnect / transient failure instead of skipping.
+    eod_retry_attempts: int = 3
+    eod_retry_delay_sec: float = 60.0
+    backfill_days: int = 3  # how many recent calendar days the morning catch-up scans
     # Daily cron jobs tolerate a brief event-loop delay before being counted as misfired/skipped
     # (APScheduler's default is 1s — too tight for once-a-day critical jobs). Kept well inside the
     # 16:20 -> 16:30 eod_bars -> eod_report gap.

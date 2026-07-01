@@ -37,18 +37,22 @@ class IBKRMarketData:
     def _contract(self, c: Candidate) -> Stock:
         return Stock(c.symbol, "SMART", c.currency or "USD")
 
-    async def fetch_day_bars(self, candidate: Candidate, *, trading_date: date) -> list[Bar]:
+    async def fetch_day_bars(
+        self, candidate: Candidate, *, trading_date: date, end: datetime | None = None
+    ) -> list[Bar]:
         """One historical request for the full day's 5-min bars, kept to ``trading_date`` (ET).
 
         ``useRTH=False`` includes the pre-market session; the request is not ``keepUpToDate`` so
         every returned bar is finalised. The duration may spill into the prior day's extended
         session, so bars are filtered to the requested trading day by their ET calendar date.
+        ``end`` bounds the request window (default now); a back-fill for a *past* day passes that
+        day's extended-session close so the 1-day window lands on the right session (#100).
         """
         contract = self._contract(candidate)
         async with asyncio.timeout(self.settings.ibkr_request_timeout_sec):
             rows = await self.ib.reqHistoricalDataAsync(
                 contract,
-                endDateTime="",  # up to now; run after close so the whole session is settled
+                endDateTime=end if end is not None else "",  # default now (session settled)
                 durationStr=self.settings.eod_bars_duration,
                 barSizeSetting="5 mins",
                 whatToShow="TRADES",

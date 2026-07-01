@@ -19,7 +19,7 @@ def _settings(**overrides: object) -> Settings:
 def test_scheduler_registers_jobs() -> None:
     app = Application(_settings())
     ids = {job.id for job in app.scheduler.get_jobs()}
-    assert ids == {"tick", "scan_start", "scan_end", "eod_bars", "eod_report"}
+    assert ids == {"tick", "scan_start", "scan_end", "eod_bars", "eod_report", "eod_backfill"}
 
 
 def test_builds_services() -> None:
