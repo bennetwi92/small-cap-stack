@@ -314,6 +314,57 @@ def test_reentry_segments_into_two_runs(tmp_path: Path) -> None:
     assert r1.scanner_hits == 2 and r2.scanner_hits == 2
 
 
+def test_open_run_chart_bars_extend_past_the_next_run(tmp_path: Path) -> None:
+    # A symbol pops (run 1, bars 0..3: enters ~6.15, runs to 7.5 without hitting stop 5.6), fades,
+    # then pops again 90 min later (run 2, bars 18..21). Run 1's trade is still *open* at its window
+    # boundary, so the chart must follow it past run 2's start instead of cutting off (chart fix for
+    # #36) — while the analysis keeps each run's disjoint window (the locked #36 measurement rule).
+    from small_cap_stack.report import symbol_runs
+
+    store = Store(tmp_path)
+    oid = "2026-06-29:RUN"
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "RUN",
+                "con_id": 3,
+                "trading_date": _DAY,
+                "first_seen_utc": _T0,
+                "first_rank": 0,
+            }
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "scanner_hits",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "RUN",
+                "ts_utc": _T0 + timedelta(minutes=m),
+                "rank": 0,
+            }  # noqa: E501
+            for m in (0, 5, 90, 95)
+        ],
+        partition_date=_DAY,
+    )
+    store.append("bars", _flag(oid, "RUN", 0) + _flag(oid, "RUN", 18), partition_date=_DAY)
+
+    row = {"opportunity_id": oid, "symbol": "RUN", "trading_date": _DAY, "first_seen_utc": _T0}
+    runs = symbol_runs(row, store.read("bars"), store.read("scanner_hits"), _settings())
+    r1, r2 = runs
+
+    # Analysis window stays disjoint: run 1 measures only its own 4 bars (#36 contract).
+    assert len(r1.bars) == 4
+    # The chart, though, follows the open trade across the gap into run 2's bars (0..3 + 18..21).
+    assert len(r1.chart_bars) == 8
+    assert r1.chart_bars[:4] == r1.bars
+    # Run 2 is the last run — already open-ended to capture_end, so nothing to extend.
+    assert r2.chart_bars == r2.bars
+
+
 def test_bull_flag_true_when_setup_forms_then_breaks_out_midwindow(tmp_path: Path) -> None:
     # Regression for #112: bull_flag now comes from the R-metrics pass (rm.setup_found), which scans
     # every prefix — so a flag that forms then breaks out *before* the window ends still sets
