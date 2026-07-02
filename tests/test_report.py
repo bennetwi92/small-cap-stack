@@ -131,6 +131,7 @@ def test_eod_report(tmp_path: Path) -> None:
     assert azi.triggered and azi.max_r is not None and azi.max_r >= 2.0
     assert azi.float_shares == 8_000_000 and azi.float_ok is True
     assert azi.scanner_hits == 2
+    assert azi.first_hit == _T0  # first scanner appearance surfaced for the UI
     assert azi.flag_len == 1 and azi.retracement is not None  # traded setup's shape (#98)
     dud = by_sym["DUD"]
     assert not dud.triggered and not dud.bull_flag and dud.float_shares is None
@@ -312,6 +313,8 @@ def test_reentry_segments_into_two_runs(tmp_path: Path) -> None:
     assert r1.bars == 4 and r2.bars == 4  # each run sees only its own bars
     assert r1.triggered and r2.triggered  # each pop is a distinct entry
     assert r1.scanner_hits == 2 and r2.scanner_hits == 2
+    # each run surfaces its own first scanner appearance (14:00 and 15:30)
+    assert r1.first_hit == _T0 and r2.first_hit == _T0 + timedelta(minutes=90)
 
 
 def test_bull_flag_true_when_setup_forms_then_breaks_out_midwindow(tmp_path: Path) -> None:

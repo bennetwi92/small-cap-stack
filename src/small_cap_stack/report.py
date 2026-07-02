@@ -49,6 +49,7 @@ class OpportunityAnalysis:
     flag_len: int | None = None  # consolidation count of the traded setup (#98)
     retracement: float | None = None  # flag retracement into the pole, fraction (#98)
     news_recent: bool = False  # a news story dated today or yesterday (ET) for the symbol (#101)
+    first_hit: datetime | None = None  # first scanner appearance (gates entry); shown in the UI
     run: int = 1  # 1-based run index within the symbol's day (#36 re-entry segmentation)
     run_count: int = 1  # total runs the symbol formed that day
 
@@ -244,6 +245,7 @@ def _analyze_run(
         flag_len=rm.flag_len,
         retracement=rm.retracement,
         news_recent=news_recent,
+        first_hit=first_hit,
         run=run,
         run_count=run_count,
     )

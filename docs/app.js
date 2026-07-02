@@ -124,7 +124,8 @@ function renderStats(st) {
     .sort((a, b) => (b.max_r ?? -999) - (a.max_r ?? -999))
     .map(
       (o) =>
-        `<tr><td><strong>${esc(o.symbol)}</strong></td><td>${o.bars}</td><td>${o.news_count}</td>` +
+        `<tr><td><strong>${esc(o.symbol)}</strong></td><td>${etTime(o.first_hit)}</td>` +
+        `<td>${o.bars}</td><td>${o.news_count}</td>` +
         `<td>${shares(o.float_shares)}</td><td>${o.bull_flag ? "✓" : "—"}</td>` +
         `<td>${o.triggered ? "✓" : "—"}</td><td>${o.max_r ?? "—"}</td><td>${o.mae_r ?? "—"}</td>` +
         `<td>${o.stopped_out ? "✓" : "—"}</td></tr>`,
@@ -134,7 +135,7 @@ function renderStats(st) {
     `<p class="muted">as of ${esc(st.trading_date)} · opps ${agg.opportunities ?? 0} · ` +
     `triggered ${agg.triggered ?? 0} · ≥1R ${agg.reached_1r ?? 0} · ≥2R ${agg.reached_2r ?? 0} · ≥3R ${agg.reached_3r ?? 0}</p>` +
     `<div class="scroll"><table><thead><tr>` +
-    `<th>symbol</th><th>bars</th><th>news</th><th>float</th><th>flag</th>` +
+    `<th>symbol</th><th>seen</th><th>bars</th><th>news</th><th>float</th><th>flag</th>` +
     `<th>trig</th><th>MaxR</th><th>MAE</th><th>stop</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
