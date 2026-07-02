@@ -1,8 +1,9 @@
 name: publish-dashboard
 
-# Publish the box's dashboard JSON (status.json / stats.json — written by the app under
-# /data/dashboard, issue #68) to a single-commit orphan branch `dashboard-data` that the
-# GitHub Pages frontend (#70) polls via raw.githubusercontent.com.
+# Publish the box's dashboard JSON (status.json / stats.json / charts.json — written by the app
+# under /data/dashboard, issues #68/#113) to a single-commit orphan branch `dashboard-data` that
+# the GitHub Pages frontend (#70) polls via raw.githubusercontent.com. The `docker cp .../.` below
+# copies the whole dir, so any dashboard artifact the app writes is published without editing here.
 #
 # Runs on the SELF-HOSTED runner (on the box), so it reads the docker volume directly with
 # `docker cp`. Outbound-only, uses GITHUB_TOKEN — no new secrets, no inbound ports (#69).

@@ -77,6 +77,7 @@ def test_same_bar_trigger_and_stop_share_the_index() -> None:
     cd = build_opportunity_chart(bars, _settings())
     assert cd.triggered and cd.stopped_out
     assert cd.markers["entry"] == 2 and cd.markers["stop"] == 2
+    assert cd.markers["max_r"] == 2  # bars_to_max_r == 0 -> the 0R marker sits on the entry bar
     assert cd.max_r == 0.0
 
 

@@ -21,13 +21,9 @@ const el = (id) => document.getElementById(id);
 const esc = (s) =>
   String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-const _etHM = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
-});
-
 const etTime = (iso) => (iso ? _etTime.format(new Date(iso)) + " ET" : "—");
 const etDateTime = (iso) => (iso ? _etDateTime.format(new Date(iso)) + " ET" : "—");
-const etFromEpoch = (sec) => _etHM.format(new Date(sec * 1000)); // candlestick axis (UNIX seconds)
+const etFromEpoch = (sec) => _etTime.format(new Date(sec * 1000)); // candlestick axis (UNIX seconds)
 
 function ago(iso) {
   if (!iso) return "";
