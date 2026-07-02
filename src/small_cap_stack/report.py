@@ -74,9 +74,10 @@ class SymbolRun:
     symbol: str
     start: datetime | None  # window start (lookback-extended); None = unbounded
     end: datetime | None  # window end (next run's start); None = open-ended
-    bars: list[Bar]  # the run's bars, bounded at capture_end
+    bars: list[Bar]  # the run's bars for analysis, disjoint at the next run's start (#36)
     first_hit: datetime | None  # the run's first scanner appearance (gates the entry, #99)
     run_count: int  # total runs the symbol formed that day
+    chart_bars: list[Bar]  # bars to *draw*: extended past a later run while the trade's still open
 
 
 def _all_bars(bars: pl.DataFrame, oid: str) -> list[Bar]:
@@ -175,6 +176,32 @@ def _in_win(t: datetime, start: datetime | None, end: datetime | None) -> bool:
     return (start is None or t >= start) and (end is None or t < end)
 
 
+def _chart_bars(
+    rbars: list[Bar],
+    all_bars: list[Bar],
+    start: datetime | None,
+    end: datetime | None,
+    first_hit: datetime | None,
+    s: Settings,
+) -> list[Bar]:
+    """Bars to *draw* for a run — usually its own window, but extended to the capture day's end
+    when the notional trade is still open at the window boundary (triggered, not yet stopped out).
+
+    Re-entry segmentation (#36) truncates a run's bar window at the next run's start so each run's
+    bull-flag/R-metrics stay independent — the locked analysis contract. For the human-review chart,
+    though, that cut hides the tail of a trade that was still running when the *later* opportunity
+    fired: a position doesn't close just because the symbol popped again. So the chart (and only the
+    chart) follows an open trade past the boundary to where it actually closes — its stop or the end
+    of the capture day. The measured stats keep their disjoint windows; only the drawn series grows.
+    """
+    if end is None:  # last run already runs to capture_end — nothing to extend
+        return rbars
+    rm = compute_r_metrics(rbars, s, first_hit=first_hit)
+    if rm.triggered and not rm.stopped_out:  # open at the boundary → draw it to its real close
+        return [b for b in all_bars if _in_win(b.start, start, None)]
+    return rbars
+
+
 def symbol_runs(
     row: dict[str, Any], bars: pl.DataFrame, scans: pl.DataFrame, s: Settings
 ) -> list[SymbolRun]:
@@ -196,7 +223,10 @@ def symbol_runs(
         rbars = [b for b in all_bars if _in_win(b.start, start, end)]
         seg_id = oid if run_count == 1 else f"{oid}#{idx}"
         first_hit = run_starts[idx - 1] if run_starts else None
-        runs.append(SymbolRun(idx, seg_id, row["symbol"], start, end, rbars, first_hit, run_count))
+        cbars = _chart_bars(rbars, all_bars, start, end, first_hit, s)
+        runs.append(
+            SymbolRun(idx, seg_id, row["symbol"], start, end, rbars, first_hit, run_count, cbars)
+        )
     return runs
 
 

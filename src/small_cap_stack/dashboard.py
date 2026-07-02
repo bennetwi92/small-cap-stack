@@ -143,9 +143,11 @@ def build_charts(
         scans = store.read("scanner_hits")
         for row in opps.iter_rows(named=True):
             for run in symbol_runs(row, bars, scans, settings):
-                if not run.bars:
+                if not run.chart_bars:
                     continue
-                cd = build_opportunity_chart(run.bars, settings, first_hit=run.first_hit)
+                # Draw over chart_bars, not the disjoint analysis window: an open trade is followed
+                # past a later run's start to its real close, so the chart doesn't cut off (#36).
+                cd = build_opportunity_chart(run.chart_bars, settings, first_hit=run.first_hit)
                 charts.append(
                     {
                         "opportunity_id": run.seg_id,
