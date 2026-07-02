@@ -40,6 +40,7 @@ def test_triggers_and_measures_max_r() -> None:
     assert m.entry_index == 2
     assert m.max_r == round((7.64 - 6.15) / 0.55, 3)  # 1.49 / 0.55 == 2.709
     assert not m.stopped_out
+    assert m.stop_index is None  # never stopped -> no stop bar (#113)
     assert m.flag_len == 1 and m.retracement is not None  # traded setup's shape (#98)
 
 
@@ -60,6 +61,7 @@ def test_triggers_then_stops_out() -> None:
     m = compute_r_metrics(bars, _settings())
     assert m.triggered and m.stopped_out
     assert m.mae_r is not None and m.mae_r > 0
+    assert m.entry_index == 2 and m.stop_index == 3  # stop breached on the bar after entry (#113)
 
 
 def test_no_setup() -> None:
@@ -97,6 +99,7 @@ def test_same_bar_trigger_and_stop_counts_as_stopped() -> None:
     assert m.triggered and m.stopped_out
     assert m.max_r == 0.0  # no favourable excursion credited
     assert m.mae_r is not None and m.mae_r >= 1.0  # adverse excursion reaches >= 1R
+    assert m.entry_index == 2 and m.stop_index == 2  # same-bar trigger+stop share the bar (#113)
 
 
 def test_pre_appearance_trigger_is_not_counted() -> None:

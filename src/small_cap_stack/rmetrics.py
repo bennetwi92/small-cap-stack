@@ -41,6 +41,7 @@ class RMetrics:
     max_r: float | None = None  # peak favourable excursion, in R
     mae_r: float | None = None  # worst adverse excursion after entry, in R
     stopped_out: bool = False
+    stop_index: int | None = None  # bar index where the stop was breached (stop-first convention)
     bars_to_max_r: int | None = None
     flag_len: int | None = None  # consolidation count of the traded setup (#98)
     retracement: float | None = None  # flag's retracement into the pole, fraction (#98)
@@ -69,10 +70,12 @@ def _measure(bars: list[Bar], bf: BullFlag, risk: float, entry_j: int) -> RMetri
     min_low = bar.low
     bars_to_max_r = 0
     stopped_out = False
+    stop_index: int | None = None
     if bar.low <= bf.stop:
         # Same-bar trigger+stop: stop-first convention credits no favourable excursion.
         max_high = entry
         stopped_out = True
+        stop_index = entry_j
     else:
         max_high = bar.high
         for k in range(entry_j + 1, len(bars)):
@@ -80,6 +83,7 @@ def _measure(bars: list[Bar], bf: BullFlag, risk: float, entry_j: int) -> RMetri
             if b.low <= bf.stop:  # check the stop first (conservative intrabar ordering)
                 min_low = min(min_low, b.low)
                 stopped_out = True
+                stop_index = k
                 break
             if b.high > max_high:
                 max_high = b.high
@@ -96,6 +100,7 @@ def _measure(bars: list[Bar], bf: BullFlag, risk: float, entry_j: int) -> RMetri
         max_r=round((max_high - entry) / risk, 3),
         mae_r=round((entry - min_low) / risk, 3),
         stopped_out=stopped_out,
+        stop_index=stop_index,
         bars_to_max_r=bars_to_max_r,
         flag_len=bf.flag_len,
         retracement=bf.retracement,

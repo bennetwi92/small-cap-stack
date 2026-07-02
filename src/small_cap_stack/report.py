@@ -61,6 +61,23 @@ class EodReport:
     markdown: str
 
 
+@dataclass(frozen=True)
+class SymbolRun:
+    """One re-entry run of a symbol: its own bar window + the appearance that gates its entry.
+
+    The reusable seam between analysis (`report.py`) and rendering (`charts.py`) so segmentation
+    logic lives in exactly one place (store-raw / compute-on-read)."""
+
+    idx: int  # 1-based run index within the symbol's day
+    seg_id: str  # opportunity_id, or "<oid>#<idx>" when the symbol ran more than once
+    symbol: str
+    start: datetime | None  # window start (lookback-extended); None = unbounded
+    end: datetime | None  # window end (next run's start); None = open-ended
+    bars: list[Bar]  # the run's bars, bounded at capture_end
+    first_hit: datetime | None  # the run's first scanner appearance (gates the entry, #99)
+    run_count: int  # total runs the symbol formed that day
+
+
 def _all_bars(bars: pl.DataFrame, oid: str) -> list[Bar]:
     """All of a symbol's day bars, deduped + sorted (raw store may hold duplicate rows)."""
     if bars.is_empty():
@@ -153,6 +170,35 @@ def _run_windows(
     return [(bounds[i], bounds[i + 1] if i + 1 < len(bounds) else None) for i in range(len(bounds))]
 
 
+def _in_win(t: datetime, start: datetime | None, end: datetime | None) -> bool:
+    return (start is None or t >= start) and (end is None or t < end)
+
+
+def symbol_runs(
+    row: dict[str, Any], bars: pl.DataFrame, scans: pl.DataFrame, s: Settings
+) -> list[SymbolRun]:
+    """Segment a symbol's day into runs, each with its own capture_end-bounded bar window (#36).
+
+    The single source of truth for run segmentation, shared by the EOD analysis and the chart
+    renderer so they never drift. A gap of >= ``reentry_gap_min`` with no scanner hits starts a new
+    run; each window extends back ``reentry_lookback_min`` so the run's pole is captured. Bars at/
+    after ``capture_end`` (regular close, #93) are excluded from every run's window.
+    """
+    oid = row["opportunity_id"]
+    all_bars = _all_bars(bars, oid)
+    all_bars = [b for b in all_bars if b.start.astimezone(ET).time() < s.capture_end]
+    run_starts = _segment_runs(_hit_times(scans, oid), s.reentry_gap_min)
+    windows = _run_windows(run_starts, s.reentry_lookback_min)
+    run_count = len(windows)
+    runs: list[SymbolRun] = []
+    for idx, (start, end) in enumerate(windows, start=1):
+        rbars = [b for b in all_bars if _in_win(b.start, start, end)]
+        seg_id = oid if run_count == 1 else f"{oid}#{idx}"
+        first_hit = run_starts[idx - 1] if run_starts else None
+        runs.append(SymbolRun(idx, seg_id, row["symbol"], start, end, rbars, first_hit, run_count))
+    return runs
+
+
 def _analyze_run(
     seg_id: str,
     symbol: str,
@@ -212,63 +258,54 @@ def _analyses_for_symbol(
     s: Settings,
 ) -> list[OpportunityAnalysis]:
     oid = row["opportunity_id"]
-    all_bars = _all_bars(bars, oid)
-    # Bound the analysis at the regular close (capture_end, 16:00 ET): after-hours prints must not
-    # set Max R / MAE / trigger. Store-raw is preserved — all bars stay in storage; the analysis
-    # window is bounded on read (decision: issue #93).
-    all_bars = [b for b in all_bars if b.start.astimezone(ET).time() < s.capture_end]
     times = _hit_times(scans, oid)
-    # run_starts are the actual first scanner-hit per run; windows extend back by the lookback so
-    # the pole is captured. Keep run_starts to gate R at the real appearance time (#99).
-    run_starts = _segment_runs(times, s.reentry_gap_min)
-    windows = _run_windows(run_starts, s.reentry_lookback_min)
     # News is attributed per-run by publish time (#97): a later run gets only the stories that
     # broke in its window. Undated news (unparseable / legacy) falls back to run 1 so it's not lost.
     news_times, news_undated = _news_for(news, oid)
     news_recent = _news_recent(news_times, row["trading_date"])  # day-level recency (#101)
     float_shares, short_percent = _funds_for(funds, oid)
-    run_count = len(windows)
-
-    def in_win(t: datetime, start: datetime | None, end: datetime | None) -> bool:
-        return (start is None or t >= start) and (end is None or t < end)
 
     out: list[OpportunityAnalysis] = []
-    for idx, (start, end) in enumerate(windows, start=1):
-        rbars = [b for b in all_bars if in_win(b.start, start, end)]
-        hits = sum(1 for t in times if in_win(t, start, end))
-        news_count = sum(1 for t in news_times if in_win(t, start, end))
-        if idx == 1:
+    for run in symbol_runs(row, bars, scans, s):
+        hits = sum(1 for t in times if _in_win(t, run.start, run.end))
+        news_count = sum(1 for t in news_times if _in_win(t, run.start, run.end))
+        if run.idx == 1:
             news_count += news_undated  # undated news attributed to the first run
-        seg_id = oid if run_count == 1 else f"{oid}#{idx}"
-        first_hit = run_starts[idx - 1] if run_starts else None
         out.append(
             _analyze_run(
-                seg_id,
+                run.seg_id,
                 row["symbol"],
-                rbars,
-                first_seen=start or row["first_seen_utc"],
-                first_hit=first_hit,
+                run.bars,
+                first_seen=run.start or row["first_seen_utc"],
+                first_hit=run.first_hit,
                 news_count=news_count,
                 news_recent=news_recent,
                 float_shares=float_shares,
                 short_percent=short_percent,
                 scanner_hits=hits,
-                run=idx,
-                run_count=run_count,
+                run=run.idx,
+                run_count=run.run_count,
                 s=s,
             )
         )
     return out
 
 
-def build_eod_report(store: Store, settings: Settings, trading_date: date) -> EodReport:
+def day_opportunities(store: Store, trading_date: date) -> pl.DataFrame:
+    """The day's base opportunities, deduped by id on read (store-raw / compute-on-read).
+
+    The raw dataset may hold duplicate rows (a mid-day restart re-opening a name); one base
+    opportunity per symbol/day. Shared by the EOD report and the chart projection."""
     opps = store.read("opportunities")
-    if not opps.is_empty():
-        # One base opportunity per symbol/day: the raw dataset may hold duplicate rows (a mid-day
-        # restart re-opening a name), so dedup by id on read (store-raw / compute-on-read).
-        opps = opps.filter(pl.col("trading_date") == trading_date).unique(
-            subset="opportunity_id", keep="first"
-        )
+    if opps.is_empty():
+        return opps
+    return opps.filter(pl.col("trading_date") == trading_date).unique(
+        subset="opportunity_id", keep="first"
+    )
+
+
+def build_eod_report(store: Store, settings: Settings, trading_date: date) -> EodReport:
+    opps = day_opportunities(store, trading_date)
     if opps.is_empty():
         empty = {
             "opportunities": 0,

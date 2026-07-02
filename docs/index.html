@@ -55,6 +55,15 @@
         <div id="stats"></div>
       </article>
 
+      <article id="charts-card" hidden>
+        <header>
+          Trade charts
+          <select id="chart-select" class="chart-select"></select>
+        </header>
+        <p id="chart-legend" class="muted chart-legend"></p>
+        <div id="chart"></div>
+      </article>
+
       <footer class="muted">
         <small>
           Auto-refreshes from the box (~15 min). Times in ET. Phase-1 = tracking only, no orders.
@@ -62,6 +71,7 @@
         </small>
       </footer>
     </main>
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
