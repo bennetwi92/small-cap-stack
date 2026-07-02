@@ -1,0 +1,45 @@
+name: backfill-dashboard
+
+# Phone-triggerable one-off: (re)generate the dashboard JSON (stats.json / charts.json) for a past
+# trading date, straight from the store in the app's docker volume. Use it when a day's EOD ran on
+# code that predated a dashboard feature (e.g. annotated charts, #113) so the artifact is missing —
+# rather than waiting for the next 16:30 ET EOD.
+#
+# Runs on the SELF-HOSTED runner (on the box) so it can `docker exec` the app container, which owns
+# the store. Pure store-read + projection — no IBKR, no live state — so it's safe any time.
+# The existing `publish-dashboard` cron (*/15) then pushes the refreshed files to the
+# `dashboard-data` branch; dispatch that workflow too if you want it live immediately.
+#
+# PREREQUISITE: the box must already be running code that contains
+# `small_cap_stack.dashboard_backfill` — deploy the charts feature (deploy.yml) first.
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Trading date to rebuild (YYYY-MM-DD). Blank = yesterday (ET)."
+        required: false
+        default: ""
+
+concurrency:
+  group: backfill-dashboard
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    name: regenerate dashboard JSON for a past day
+    runs-on: [self-hosted, vps]
+    steps:
+      - name: Regenerate stats.json + charts.json in the app container
+        run: |
+          set -euo pipefail
+          cid="$(docker ps --filter 'name=small-cap-stack-app' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then
+            echo "app container not running — cannot reach the store" >&2
+            exit 1
+          fi
+          args=""
+          if [ -n "${{ inputs.date }}" ]; then
+            args="--date ${{ inputs.date }}"
+          fi
+          docker exec "$cid" python -m small_cap_stack.dashboard_backfill $args
