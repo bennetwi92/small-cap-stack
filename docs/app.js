@@ -142,11 +142,13 @@ function renderStats(st) {
 const MK = {
   up: "#1a7f37", down: "#c0362c",
   entry: "#2f81f7", stop: "#c0362c", firstHit: "#8957e5", maxR: "#d4a72c",
+  volUp: "rgba(26,127,55,0.5)", volDown: "rgba(192,54,44,0.5)", // muted volume bars
 };
 
 let chartsData = null; // last-fetched charts.json payload
 let chartApi = null; // LightweightCharts instance (recreated when the drawn opportunity changes)
 let candleSeries = null;
+let volumeSeries = null;
 let renderedKey = null; // opportunity_id currently drawn
 let renderedGen = null; // charts.json generated_utc currently drawn
 
@@ -221,6 +223,31 @@ function buildChart(c) {
     c.bars.map((b) => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c })),
   );
 
+  // Volume histogram, overlaid on its own scale in the bottom ~20% so it never
+  // crowds price. `v` is captured per 5-min bar (charts.py); bars may predate it,
+  // so guard on presence. Coloured by the candle direction.
+  const hasVolume = c.bars.some((b) => b.v != null);
+  if (hasVolume) {
+    volumeSeries = chartApi.addHistogramSeries({
+      priceFormat: { type: "volume" },
+      priceScaleId: "vol",
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
+    chartApi.priceScale("vol").applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+    volumeSeries.setData(
+      c.bars.map((b) => ({
+        time: b.t,
+        value: b.v ?? 0,
+        color: b.c >= b.o ? MK.volUp : MK.volDown,
+      })),
+    );
+  } else {
+    volumeSeries = null;
+  }
+
   // Entry-trigger + stop levels (shown even when the setup never triggered — where a fill'd be).
   if (c.levels.entry != null)
     candleSeries.createPriceLine({
@@ -254,6 +281,7 @@ function buildChart(c) {
     `<span class="mk" style="color:${MK.entry}">▲ entry</span>` +
     `<span class="mk" style="color:${MK.maxR}">● Max R</span>` +
     `<span class="mk" style="color:${MK.stop}">▼ stop</span>` +
+    (hasVolume ? `<span class="mk" style="color:${MK.up}">▮ volume</span>` : "") +
     `<span class="muted">entry ${c.levels.entry ?? "—"} · stop ${c.levels.stop ?? "—"}</span>`;
 }
 
@@ -281,7 +309,19 @@ async function refresh() {
   }
 }
 
+// Step the chart selection by ±1 with wrap-around, so prev/next cycle the
+// opportunities without ever getting stuck at an end (mirrors the dropdown).
+function stepChart(delta) {
+  const sel = el("chart-select");
+  const n = sel.options.length;
+  if (!n) return;
+  sel.selectedIndex = (sel.selectedIndex + delta + n) % n;
+  drawSelected();
+}
+
 el("refresh").addEventListener("click", refresh);
 el("chart-select").addEventListener("change", drawSelected);
+el("chart-prev").addEventListener("click", () => stepChart(-1));
+el("chart-next").addEventListener("click", () => stepChart(1));
 refresh();
 setInterval(refresh, POLL_MS);

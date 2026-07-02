@@ -70,7 +70,11 @@
       <article id="charts-card" hidden>
         <header>
           Trade charts
-          <select id="chart-select" class="chart-select"></select>
+          <span class="chart-nav">
+            <button id="chart-prev" class="secondary outline chart-nav-btn" title="Previous symbol">‹</button>
+            <select id="chart-select" class="chart-select"></select>
+            <button id="chart-next" class="secondary outline chart-nav-btn" title="Next symbol">›</button>
+          </span>
         </header>
         <p id="chart-legend" class="muted chart-legend"></p>
         <div id="chart"></div>
