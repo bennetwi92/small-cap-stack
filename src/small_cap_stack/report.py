@@ -20,7 +20,6 @@ from typing import Any
 
 import polars as pl
 
-from .bullflag import detect_with_settings
 from .capture import Bar
 from .clock import ET
 from .config import Settings
@@ -41,7 +40,6 @@ class OpportunityAnalysis:
     float_ok: bool | None
     has_news: bool
     bull_flag: bool
-    setup_count: int
     triggered: bool
     entry: float | None
     stop: float | None
@@ -155,19 +153,6 @@ def _run_windows(
     return [(bounds[i], bounds[i + 1] if i + 1 < len(bounds) else None) for i in range(len(bounds))]
 
 
-def _count_setups(bars: list[Bar], settings: Settings) -> int:
-    """Distinct (non-overlapping) bull-flag setups within the run's bars."""
-    count = 0
-    last_end = -1
-    for i in range(1, len(bars)):
-        if i <= last_end:
-            continue
-        if detect_with_settings(bars[: i + 1], settings) is not None:
-            count += 1
-            last_end = i
-    return count
-
-
 def _analyze_run(
     seg_id: str,
     symbol: str,
@@ -187,7 +172,6 @@ def _analyze_run(
     # R is gated to the run's appearance: a setup may form in the pre-appearance lookback, but the
     # entry may only trigger at/after the first scanner hit (#99) — never crediting an unseen move.
     rm = compute_r_metrics(obars, s, first_hit=first_hit)
-    setup_count = _count_setups(obars, s)
     # Single source of truth for the threshold predicates: reuse the gate engine rather than
     # re-deriving them here (a None datum stays None to distinguish "no data" from "fails gate").
     gi = GateInputs(ts_utc=first_seen, float_shares=float_shares, has_recent_news=news_count > 0)
@@ -201,8 +185,11 @@ def _analyze_run(
         short_percent=short_percent,
         float_ok=float_gate(gi, s).passed if float_shares is not None else None,
         has_news=news_gate(gi, s).passed,
-        bull_flag=setup_count > 0,
-        setup_count=setup_count,
+        # A run "has a bull flag" iff any prefix formed a valid setup. Every valid flag has
+        # positive risk (entry = breakout + offset > breakout >= flag low = stop), so the R-metrics
+        # pass — which iterates the same setups — reports it via setup_found (#112). This replaces
+        # the retired setup_count integer, which counted un-gated flags across the whole window.
+        bull_flag=rm.setup_found,
         triggered=rm.triggered,
         entry=rm.entry_price,
         stop=rm.stop,
@@ -339,9 +326,8 @@ def _to_markdown(d: date, analyses: list[OpportunityAnalysis], agg: dict[str, An
         f"- would-trigger: **{agg['triggered']}** | reached ≥1R: {agg['reached_1r']} | "
         f"≥2R: {agg['reached_2r']} | ≥3R: {agg['reached_3r']}",
         "",
-        "| name | bars | news | recent | float | flag | setups | cons | retr | "
-        "trig | MaxR | MAE_R | stop |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| name | bars | news | recent | float | flag | cons | retr | trig | MaxR | MAE_R | stop |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     # Sort by Max R desc; untriggered (max_r None) sink to the bottom. Use an explicit None check
     # so a triggered max_r of exactly 0.0 (same-bar stop-out) isn't mistaken for missing (`0.0 or`).
@@ -350,7 +336,7 @@ def _to_markdown(d: date, analyses: list[OpportunityAnalysis], agg: dict[str, An
         lines.append(
             f"| {name} | {a.bars} | {a.news_count} | {'Y' if a.news_recent else '-'} | "
             f"{a.float_shares or '-'} | "
-            f"{'Y' if a.bull_flag else '-'} | {a.setup_count} | "
+            f"{'Y' if a.bull_flag else '-'} | "
             f"{a.flag_len if a.flag_len is not None else '-'} | "
             f"{a.retracement if a.retracement is not None else '-'} | "
             f"{'Y' if a.triggered else '-'} | "
