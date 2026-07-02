@@ -104,7 +104,16 @@ function renderStatus(s) {
 }
 
 function renderStats(st) {
-  if (!st || !st.opportunities || !st.opportunities.length) {
+  // "Last completed session" header + opportunity summary. stats.json/charts.json are written
+  // only at EOD, so this is the last finished US session — it stays put all day (through the UK
+  // day) until the next close overwrites it. Mirrors the live "Opportunities today" card above.
+  const opps = (st && st.opportunities) || [];
+  const symbols = [...new Set(opps.map((o) => o.symbol))].sort();
+  el("session-date").textContent = st && st.trading_date ? st.trading_date : "no completed session yet";
+  el("session-opps-count").textContent = symbols.length;
+  el("session-opps-symbols").textContent = symbols.join(" · ") || "none";
+
+  if (!opps.length) {
     el("stats").innerHTML =
       '<p class="muted">No EOD statistics yet — generated after 16:30 ET.</p>';
     return;

@@ -18,6 +18,21 @@ article > header {
 .muted {
   color: var(--pico-muted-color);
 }
+
+/* section divider (e.g. "Last completed session") */
+.section-head {
+  margin: 1.6rem 0 0.6rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--pico-muted-border-color);
+}
+.section-head h2 {
+  margin-bottom: 0.1rem;
+  font-size: 1.15rem;
+}
+.section-head p {
+  margin-bottom: 0;
+  font-size: 0.85rem;
+}
 .warn {
   color: #e0a100;
   font-weight: 600;
