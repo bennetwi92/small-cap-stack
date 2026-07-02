@@ -136,6 +136,45 @@ def test_eod_report(tmp_path: Path) -> None:
     assert "EOD report" in report.markdown and "AZI" in report.markdown
 
 
+def test_bull_flag_true_when_flag_forms_then_breaks_out(tmp_path: Path) -> None:
+    # #112: bull_flag means "any prefix formed a valid setup", not "the window ends in a flag".
+    # Here the flag forms at bar 1 then breaks out (bars 2-3 green), so the last bars are NOT a
+    # flag — a single end-of-window detect() would say False. bull_flag (rm.setup_found) is True.
+    store = Store(tmp_path)
+    oid = "2026-06-29:BRK"
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "BRK",
+                "con_id": 3,
+                "trading_date": _DAY,
+                "first_seen_utc": _T0,
+                "first_rank": 0,
+            }
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "scanner_hits",
+        [{"opportunity_id": oid, "symbol": "BRK", "ts_utc": _T0, "rank": 0}],
+        partition_date=_DAY,
+    )
+    store.append(
+        "bars",
+        [
+            _bar_row(oid, "BRK", 0, 5.0, 6.2, 4.9, 6.0),  # pole (green)
+            _bar_row(oid, "BRK", 1, 6.0, 6.1, 5.6, 5.7),  # flag (red) — setup forms here
+            _bar_row(oid, "BRK", 2, 5.7, 7.0, 5.7, 6.9),  # breakout (green) — no longer a flag
+            _bar_row(oid, "BRK", 3, 6.9, 7.5, 6.8, 7.4),  # continuation (green)
+        ],
+        partition_date=_DAY,
+    )
+    brk = build_eod_report(store, _settings(), _DAY).analyses[0]
+    assert brk.bull_flag is True and brk.triggered is True
+
+
 def test_duplicate_raw_rows_are_deduped_on_read(tmp_path: Path) -> None:
     # Seed twice (simulating a mid-day restart re-opening names + re-fetching bars/news, so every
     # raw row is duplicated). The report must dedup opportunities/bars/news on read and stay exact.
@@ -209,7 +248,6 @@ def _analysis(sym: str, max_r: float | None) -> OpportunityAnalysis:
         float_ok=None,
         has_news=False,
         bull_flag=True,
-        setup_count=1,
         triggered=max_r is not None,
         entry=6.15,
         stop=5.6,
