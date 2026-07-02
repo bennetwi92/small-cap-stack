@@ -108,15 +108,30 @@ table {
 }
 
 /* trade charts (#113) */
+.chart-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.6rem;
+  vertical-align: middle;
+}
 .chart-select {
   display: inline-block;
   width: auto;
   min-width: 10rem;
-  margin: 0 0 0 0.6rem;
+  margin: 0;
   padding: 0.1rem 1.8rem 0.1rem 0.5rem;
   font-size: 0.85rem;
   font-weight: 400;
   --pico-form-element-spacing-vertical: 0.2rem;
+}
+.chart-nav-btn {
+  display: inline-flex;
+  width: auto;
+  margin: 0;
+  padding: 0.05rem 0.55rem;
+  font-size: 1rem;
+  line-height: 1.4;
 }
 .chart-legend {
   display: flex;
