@@ -21,8 +21,13 @@ const el = (id) => document.getElementById(id);
 const esc = (s) =>
   String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+const _etHM = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
+});
+
 const etTime = (iso) => (iso ? _etTime.format(new Date(iso)) + " ET" : "—");
 const etDateTime = (iso) => (iso ? _etDateTime.format(new Date(iso)) + " ET" : "—");
+const etFromEpoch = (sec) => _etHM.format(new Date(sec * 1000)); // candlestick axis (UNIX seconds)
 
 function ago(iso) {
   if (!iso) return "";
@@ -128,12 +133,136 @@ function renderStats(st) {
     `<th>trig</th><th>MaxR</th><th>MAE</th><th>stop</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
+// --- Trade charts (#113): annotated 5-min candlesticks per opportunity ---------------------
+const MK = {
+  up: "#1a7f37", down: "#c0362c",
+  entry: "#2f81f7", stop: "#c0362c", firstHit: "#8957e5", maxR: "#d4a72c",
+};
+
+let chartsData = null; // last-fetched charts.json payload
+let chartApi = null; // LightweightCharts instance (recreated when the drawn opportunity changes)
+let candleSeries = null;
+let renderedKey = null; // opportunity_id currently drawn
+let renderedGen = null; // charts.json generated_utc currently drawn
+
+function renderCharts(data) {
+  chartsData = data;
+  const card = el("charts-card");
+  const list = (data && data.charts) || [];
+  // Hidden until the first EOD produces charts (charts.json 404s) or if the CDN lib didn't load.
+  if (!window.LightweightCharts || !list.length) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  const sel = el("chart-select");
+  const ids = list.map((c) => c.opportunity_id);
+  // Repopulate options only when the set of opportunities changes, to preserve the user's pick.
+  if (Array.from(sel.options).map((o) => o.value).join("|") !== ids.join("|")) {
+    const prev = sel.value;
+    sel.innerHTML = list
+      .map((c) => {
+        const label = c.run_count > 1 ? `${c.symbol} #${c.run}` : c.symbol;
+        const tag = c.triggered
+          ? c.stopped_out
+            ? " · stopped"
+            : ` · ${c.max_r ?? "?"}R`
+          : " · no trigger";
+        return `<option value="${esc(c.opportunity_id)}">${esc(label + tag)}</option>`;
+      })
+      .join("");
+    if (ids.includes(prev)) sel.value = prev;
+  }
+  drawSelected();
+}
+
+function drawSelected() {
+  const list = (chartsData && chartsData.charts) || [];
+  const c = list.find((x) => x.opportunity_id === el("chart-select").value) || list[0];
+  if (!c) return;
+  // charts.json only changes at EOD — skip redundant redraws so 60s polls don't reset zoom/pan.
+  if (renderedKey === c.opportunity_id && renderedGen === chartsData.generated_utc) return;
+  renderedKey = c.opportunity_id;
+  renderedGen = chartsData.generated_utc;
+  buildChart(c);
+}
+
+function buildChart(c) {
+  const LC = window.LightweightCharts;
+  const container = el("chart");
+  if (chartApi) chartApi.remove();
+  chartApi = LC.createChart(container, {
+    autoSize: true,
+    layout: { background: { color: "transparent" }, textColor: "#9aa4b2", fontSize: 11 },
+    grid: {
+      vertLines: { color: "rgba(255,255,255,0.05)" },
+      horzLines: { color: "rgba(255,255,255,0.05)" },
+    },
+    rightPriceScale: { borderColor: "rgba(255,255,255,0.15)" },
+    timeScale: {
+      borderColor: "rgba(255,255,255,0.15)",
+      timeVisible: true,
+      secondsVisible: false,
+      tickMarkFormatter: (t) => etFromEpoch(t),
+    },
+    localization: { timeFormatter: (t) => etFromEpoch(t) + " ET" },
+  });
+  candleSeries = chartApi.addCandlestickSeries({
+    upColor: MK.up, downColor: MK.down,
+    borderUpColor: MK.up, borderDownColor: MK.down,
+    wickUpColor: MK.up, wickDownColor: MK.down,
+  });
+  candleSeries.setData(
+    c.bars.map((b) => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c })),
+  );
+
+  // Entry-trigger + stop levels (shown even when the setup never triggered — where a fill'd be).
+  if (c.levels.entry != null)
+    candleSeries.createPriceLine({
+      price: c.levels.entry, color: MK.entry, lineStyle: 2, lineWidth: 1,
+      axisLabelVisible: true, title: "entry",
+    });
+  if (c.levels.stop != null)
+    candleSeries.createPriceLine({
+      price: c.levels.stop, color: MK.stop, lineStyle: 2, lineWidth: 1,
+      axisLabelVisible: true, title: "stop",
+    });
+
+  const at = (i) => c.bars[i] && c.bars[i].t;
+  const m = c.markers;
+  const markers = [];
+  if (m.first_hit != null)
+    markers.push({ time: at(m.first_hit), position: "belowBar", color: MK.firstHit, shape: "circle", text: "scan" });
+  if (m.entry != null)
+    markers.push({ time: at(m.entry), position: "belowBar", color: MK.entry, shape: "arrowUp", text: "entry" });
+  // Max-R marker only when there was a real favourable excursion (skip the 0R same-bar stop).
+  if (m.max_r != null && c.max_r != null && c.max_r > 0)
+    markers.push({ time: at(m.max_r), position: "aboveBar", color: MK.maxR, shape: "circle", text: `${c.max_r}R` });
+  if (m.stop != null)
+    markers.push({ time: at(m.stop), position: "aboveBar", color: MK.stop, shape: "arrowDown", text: "stop" });
+  markers.sort((a, b) => a.time - b.time); // lightweight-charts needs ascending marker times
+  candleSeries.setMarkers(markers);
+  chartApi.timeScale().fitContent();
+
+  el("chart-legend").innerHTML =
+    `<span class="mk" style="color:${MK.firstHit}">● scan</span>` +
+    `<span class="mk" style="color:${MK.entry}">▲ entry</span>` +
+    `<span class="mk" style="color:${MK.maxR}">● Max R</span>` +
+    `<span class="mk" style="color:${MK.stop}">▼ stop</span>` +
+    `<span class="muted">entry ${c.levels.entry ?? "—"} · stop ${c.levels.stop ?? "—"}</span>`;
+}
+
 async function refresh() {
   el("updated").textContent = "updating…";
   try {
-    const [status, stats] = await Promise.all([fetchJson("status.json"), fetchJson("stats.json")]);
+    const [status, stats, charts] = await Promise.all([
+      fetchJson("status.json"),
+      fetchJson("stats.json"),
+      fetchJson("charts.json"),
+    ]);
     renderStatus(status);
     renderStats(stats);
+    renderCharts(charts);
     el("error").hidden = true;
     el("updated").textContent =
       "updated " +
@@ -148,5 +277,6 @@ async function refresh() {
 }
 
 el("refresh").addEventListener("click", refresh);
+el("chart-select").addEventListener("change", drawSelected);
 refresh();
 setInterval(refresh, POLL_MS);

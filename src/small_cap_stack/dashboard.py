@@ -10,14 +10,16 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 import polars as pl
 
-from .report import EodReport, analysis_records
+from .charts import build_opportunity_chart
+from .config import Settings
+from .report import EodReport, analysis_records, day_opportunities, symbol_runs
 from .storage import Store
 
 # (dataset, distinct-subset used for a meaningful count | None = raw rows are all distinct events)
@@ -122,6 +124,41 @@ def build_stats(report: EodReport, now: datetime) -> dict[str, Any]:
         "trading_date": report.trading_date.isoformat(),
         "aggregates": report.aggregates,
         "opportunities": analysis_records(report),
+    }
+
+
+def build_charts(
+    store: Store, settings: Settings, trading_date: date, now: datetime
+) -> dict[str, Any]:
+    """Per-opportunity annotated candlestick payloads for the dashboard (#113).
+
+    Reuses the report's run segmentation (``symbol_runs``) so charts are drawn over exactly the same
+    per-run bar windows the analysis measures — one source of truth. Runs with no bars (e.g. bars
+    not yet captured) are skipped so the front-end only ever gets drawable series.
+    """
+    opps = day_opportunities(store, trading_date)
+    charts: list[dict[str, Any]] = []
+    if not opps.is_empty():
+        bars = store.read("bars")
+        scans = store.read("scanner_hits")
+        for row in opps.iter_rows(named=True):
+            for run in symbol_runs(row, bars, scans, settings):
+                if not run.bars:
+                    continue
+                cd = build_opportunity_chart(run.bars, settings, first_hit=run.first_hit)
+                charts.append(
+                    {
+                        "opportunity_id": run.seg_id,
+                        "symbol": run.symbol,
+                        "run": run.idx,
+                        "run_count": run.run_count,
+                        **asdict(cd),
+                    }
+                )
+    return {
+        "generated_utc": now.isoformat(),
+        "trading_date": trading_date.isoformat(),
+        "charts": charts,
     }
 
 

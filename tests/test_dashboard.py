@@ -6,7 +6,14 @@ import json
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from small_cap_stack.dashboard import StatusInputs, build_stats, build_status, write_json
+from small_cap_stack.config import Settings
+from small_cap_stack.dashboard import (
+    StatusInputs,
+    build_charts,
+    build_stats,
+    build_status,
+    write_json,
+)
 from small_cap_stack.report import EodReport, OpportunityAnalysis
 from small_cap_stack.storage import Store
 
@@ -216,6 +223,32 @@ def test_build_stats_from_report() -> None:
     assert stats["opportunities"][0]["symbol"] == "AZI"
     assert stats["opportunities"][0]["max_r"] == 2.7
     assert stats["opportunities"][0]["trading_date"] == _DAY  # analysis_records stamps it
+
+
+def _settings() -> Settings:
+    return Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_build_charts_shape(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    _seed(store)
+    payload = build_charts(store, _settings(), _DAY, _NOW)
+
+    assert payload["generated_utc"] == _NOW.isoformat()
+    assert payload["trading_date"] == "2026-06-29"
+    # Only AZI has bars; DUD (no bars) is skipped so the front-end only gets drawable series.
+    assert [c["symbol"] for c in payload["charts"]] == ["AZI"]
+    azi = payload["charts"][0]
+    assert azi["opportunity_id"] == "2026-06-29:AZI"
+    assert azi["run"] == 1 and azi["run_count"] == 1
+    assert len(azi["bars"]) == 2  # dup bar row collapsed on read
+    assert azi["bars"][0]["t"] == int(_TS1.timestamp())
+    assert set(azi["markers"]) == {"first_hit", "entry", "max_r", "stop"}
+
+
+def test_build_charts_empty_store(tmp_path: Path) -> None:
+    payload = build_charts(Store(tmp_path), _settings(), _DAY, _NOW)
+    assert payload["charts"] == []
 
 
 def test_write_json_atomic_and_valid(tmp_path: Path) -> None:

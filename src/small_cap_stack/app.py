@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from .capture import CaptureService
 from .clock import ET_NAME, now_et, within_window
 from .config import Settings, get_settings
-from .dashboard import StatusInputs, build_stats, build_status, write_json
+from .dashboard import StatusInputs, build_charts, build_stats, build_status, write_json
 from .fundamentals import YFinanceFundamentals
 from .ibkr.subscriptions import SubscriptionRegistry
 from .ibkr.supervisor import ConnectionSupervisor
@@ -230,13 +230,21 @@ class Application:
             )
             self._write_report_markdown(report)
         if self.settings.dashboard_enabled:
+            now_utc = now_et().astimezone(UTC)
             try:
                 write_json(
                     self.settings.data_dir / "dashboard" / "stats.json",
-                    build_stats(report, now_et().astimezone(UTC)),
+                    build_stats(report, now_utc),
                 )
             except Exception:  # noqa: BLE001 — a dashboard write must never break EOD
                 log.warning("dashboard.stats_write_failed")
+            try:
+                write_json(
+                    self.settings.data_dir / "dashboard" / "charts.json",
+                    build_charts(self.store, self.settings, report.trading_date, now_utc),
+                )
+            except Exception:  # noqa: BLE001 — a dashboard write must never break EOD
+                log.warning("dashboard.charts_write_failed")
         log.info("report.eod_done", **report.aggregates)
         self.capture.reset()
 
