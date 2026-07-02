@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from small_cap_stack.bullflag import detect_with_settings
+from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from small_cap_stack.report import (
     OpportunityAnalysis,
@@ -209,7 +211,6 @@ def _analysis(sym: str, max_r: float | None) -> OpportunityAnalysis:
         float_ok=None,
         has_news=False,
         bull_flag=True,
-        setup_count=1,
         triggered=max_r is not None,
         entry=6.15,
         stop=5.6,
@@ -311,6 +312,53 @@ def test_reentry_segments_into_two_runs(tmp_path: Path) -> None:
     assert r1.bars == 4 and r2.bars == 4  # each run sees only its own bars
     assert r1.triggered and r2.triggered  # each pop is a distinct entry
     assert r1.scanner_hits == 2 and r2.scanner_hits == 2
+
+
+def test_bull_flag_true_when_setup_forms_then_breaks_out_midwindow(tmp_path: Path) -> None:
+    # Regression for #112: bull_flag now comes from the R-metrics pass (rm.setup_found), which scans
+    # every prefix — so a flag that forms then breaks out *before* the window ends still sets
+    # bull_flag. A single end-of-window detect() would miss it: the last candle here is a green
+    # breakout/run-up, not a trailing red flag, so detect() over the whole window returns None.
+    store = Store(tmp_path)
+    oid = "2026-06-29:MID"
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "MID",
+                "con_id": 1,
+                "trading_date": _DAY,
+                "first_seen_utc": _T0,
+                "first_rank": 0,
+            }
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "scanner_hits",
+        [{"opportunity_id": oid, "symbol": "MID", "ts_utc": _T0, "rank": 0}],
+        partition_date=_DAY,
+    )
+    rows = _flag(oid, "MID", 0)  # pole / flag / trigger / run-up — ends on a green breakout candle
+    store.append("bars", rows, partition_date=_DAY)
+
+    # A naive end-of-window detect misses the setup (the window ends mid-run, not on a flag)...
+    obars = [
+        Bar(
+            start=r["bar_start_utc"],
+            open=r["open"],
+            high=r["high"],
+            low=r["low"],
+            close=r["close"],
+            volume=r["volume"],
+        )
+        for r in rows
+    ]
+    assert detect_with_settings(obars, _settings()) is None
+    # ...but bull_flag is still True because the setup formed and triggered earlier in the window.
+    mid = build_eod_report(store, _settings(), _DAY).analyses[0]
+    assert mid.bull_flag is True and mid.triggered is True
 
 
 def _news_row(oid: str, ts: datetime | None, aid: str) -> dict:  # type: ignore[type-arg]

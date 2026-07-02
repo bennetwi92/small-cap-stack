@@ -206,7 +206,6 @@ def test_build_stats_from_report() -> None:
         float_ok=True,
         has_news=True,
         bull_flag=True,
-        setup_count=1,
         triggered=True,
         entry=6.15,
         stop=5.6,
