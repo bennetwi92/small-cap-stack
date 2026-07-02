@@ -13,6 +13,7 @@ from small_cap_stack.dashboard import (
     build_stats,
     build_status,
     write_json,
+    write_json_if_changed,
 )
 from small_cap_stack.report import EodReport, OpportunityAnalysis
 from small_cap_stack.storage import Store
@@ -260,3 +261,44 @@ def test_write_json_atomic_and_valid(tmp_path: Path) -> None:
     assert not (tmp_path / "dashboard" / "status.json.tmp").exists()  # tmp cleaned up
     loaded = json.loads(out.read_text())
     assert loaded["service"]["deployed_commit"] == "abc1234"
+
+
+def test_write_json_if_changed_creates_missing(tmp_path: Path) -> None:
+    out = tmp_path / "dashboard" / "stats.json"
+    assert write_json_if_changed(out, {"generated_utc": "t0", "trading_date": "2026-06-29"}) is True
+    assert json.loads(out.read_text())["trading_date"] == "2026-06-29"
+
+
+def test_write_json_if_changed_skips_when_only_timestamp_differs(tmp_path: Path) -> None:
+    out = tmp_path / "dashboard" / "stats.json"
+    write_json(out, {"generated_utc": "t0", "trading_date": "2026-06-29", "n": 1})
+    # Same content, newer stamp -> no write, so the on-disk stamp is preserved (front-end won't
+    # see a new generated_utc and redraw / reset the chart).
+    assert (
+        write_json_if_changed(out, {"generated_utc": "t1", "trading_date": "2026-06-29", "n": 1})
+        is False
+    )
+    assert json.loads(out.read_text())["generated_utc"] == "t0"
+
+
+def test_write_json_if_changed_writes_when_content_differs(tmp_path: Path) -> None:
+    out = tmp_path / "dashboard" / "stats.json"
+    write_json(out, {"generated_utc": "t0", "trading_date": "2026-06-29", "n": 1})
+    assert (
+        write_json_if_changed(out, {"generated_utc": "t1", "trading_date": "2026-06-30", "n": 2})
+        is True
+    )
+    loaded = json.loads(out.read_text())
+    assert loaded["trading_date"] == "2026-06-30" and loaded["generated_utc"] == "t1"
+
+
+def test_write_json_if_changed_ignores_generated_utc_across_real_payloads(tmp_path: Path) -> None:
+    # A real stats payload (dates/datetimes serialised via the default hook) must diff correctly:
+    # rebuilding it with only a fresh generated_utc is a no-op write.
+    store = Store(tmp_path)
+    _seed(store)
+    payload = build_charts(store, _settings(), _DAY, _NOW)
+    out = tmp_path / "dashboard" / "charts.json"
+    assert write_json_if_changed(out, payload) is True
+    later = build_charts(store, _settings(), _DAY, datetime(2026, 6, 29, 21, 0, tzinfo=UTC))
+    assert write_json_if_changed(out, later) is False

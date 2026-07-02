@@ -14,7 +14,14 @@ from datetime import UTC, datetime, timedelta
 from .capture import CaptureService
 from .clock import ET_NAME, now_et, within_window
 from .config import Settings, get_settings
-from .dashboard import StatusInputs, build_charts, build_stats, build_status, write_json
+from .dashboard import (
+    StatusInputs,
+    build_charts,
+    build_stats,
+    build_status,
+    write_json,
+    write_json_if_changed,
+)
 from .fundamentals import YFinanceFundamentals
 from .ibkr.subscriptions import SubscriptionRegistry
 from .ibkr.supervisor import ConnectionSupervisor
@@ -150,6 +157,47 @@ class Application:
             await self.capture.on_scan_tick(candidates, now)
         if self.settings.dashboard_enabled:
             self._export_status(now)
+            self._refresh_stats_charts(now)
+
+    def _refresh_stats_charts(self, now: datetime) -> None:
+        """Catch-up refresh of the EOD stats/charts on the tick (best-effort).
+
+        The 16:30 ET ``eod_report`` cron is no longer the *only* writer of stats.json/charts.json.
+        Once the day's bars are in (>= ``eod_bars_fetch``) each tick rebuilds today's stats/charts,
+        so the dashboard advances to the completed session even when that single job was missed —
+        e.g. a deploy/restart after 16:30 would otherwise leave it stuck on yesterday until the next
+        close. Before that time we leave the files untouched so the previous session stays
+        reviewable all day (#117). A day with no opportunities is skipped inside
+        ``_export_stats_charts`` (a weekend/holiday never overwrites the last real session).
+        """
+        if now.time() < self.settings.eod_bars_fetch:
+            return
+        try:
+            report = build_eod_report(self.store, self.settings, now.date())
+            self._export_stats_charts(report, now.astimezone(UTC))
+        except Exception:  # noqa: BLE001 — a dashboard refresh must never break the tick
+            log.warning("dashboard.refresh_failed")
+
+    def _export_stats_charts(self, report: EodReport, now_utc: datetime) -> None:
+        """Write stats.json + charts.json for ``report`` (best-effort, content-diffed).
+
+        Shared by the EOD job and the tick refresh. Skips a report with no opportunities so a
+        non-trading day never overwrites the last completed session the dashboard shows all day.
+        """
+        if not self.settings.dashboard_enabled or not report.analyses:
+            return
+        out = self.settings.data_dir / "dashboard"
+        try:
+            write_json_if_changed(out / "stats.json", build_stats(report, now_utc))
+        except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
+            log.warning("dashboard.stats_write_failed")
+        try:
+            write_json_if_changed(
+                out / "charts.json",
+                build_charts(self.store, self.settings, report.trading_date, now_utc),
+            )
+        except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
+            log.warning("dashboard.charts_write_failed")
 
     def _export_status(self, now: datetime) -> None:
         """Write the dashboard status snapshot (#68). Best-effort — never breaks a tick."""
@@ -229,22 +277,7 @@ class Application:
                 "analysis", analysis_records(report), partition_date=report.trading_date
             )
             self._write_report_markdown(report)
-        if self.settings.dashboard_enabled:
-            now_utc = now_et().astimezone(UTC)
-            try:
-                write_json(
-                    self.settings.data_dir / "dashboard" / "stats.json",
-                    build_stats(report, now_utc),
-                )
-            except Exception:  # noqa: BLE001 — a dashboard write must never break EOD
-                log.warning("dashboard.stats_write_failed")
-            try:
-                write_json(
-                    self.settings.data_dir / "dashboard" / "charts.json",
-                    build_charts(self.store, self.settings, report.trading_date, now_utc),
-                )
-            except Exception:  # noqa: BLE001 — a dashboard write must never break EOD
-                log.warning("dashboard.charts_write_failed")
+        self._export_stats_charts(report, now_et().astimezone(UTC))
         log.info("report.eod_done", **report.aggregates)
         self.capture.reset()
 
