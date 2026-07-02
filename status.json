@@ -1,0 +1,136 @@
+{
+  "generated_utc": "2026-07-02T18:56:39.506485+00:00",
+  "trading_date": "2026-07-02",
+  "service": {
+    "connected": true,
+    "trading_mode": "paper",
+    "in_scan_window": false,
+    "deployed_commit": "777959d",
+    "jobs": [
+      {
+        "id": "tick",
+        "next_run_utc": "2026-07-02T14:57:39.448080-04:00"
+      },
+      {
+        "id": "eod_bars",
+        "next_run_utc": "2026-07-02T16:20:00-04:00"
+      },
+      {
+        "id": "eod_report",
+        "next_run_utc": "2026-07-02T16:30:00-04:00"
+      },
+      {
+        "id": "eod_backfill",
+        "next_run_utc": "2026-07-03T03:45:00-04:00"
+      },
+      {
+        "id": "scan_start",
+        "next_run_utc": "2026-07-03T04:00:00-04:00"
+      },
+      {
+        "id": "scan_end",
+        "next_run_utc": "2026-07-03T11:59:00-04:00"
+      }
+    ]
+  },
+  "scanner": {
+    "last_scan_utc": "2026-07-02T15:58:39.499327+00:00",
+    "scan_ticks_total": 269,
+    "latest_candidates": [
+      {
+        "symbol": "USDE",
+        "rank": 0
+      },
+      {
+        "symbol": "CLRO",
+        "rank": 1
+      },
+      {
+        "symbol": "SNDQ",
+        "rank": 2
+      },
+      {
+        "symbol": "SOXS",
+        "rank": 3
+      },
+      {
+        "symbol": "TSDD",
+        "rank": 4
+      },
+      {
+        "symbol": "MSTU",
+        "rank": 5
+      },
+      {
+        "symbol": "MSTX",
+        "rank": 6
+      }
+    ]
+  },
+  "opportunities": {
+    "open_today": 39,
+    "symbols": [
+      "AHMA",
+      "ARCT",
+      "AVXX",
+      "CETX",
+      "CLRO",
+      "CLVT",
+      "CMMB",
+      "CONL",
+      "CRCG",
+      "CRMT",
+      "CSTE",
+      "CYH",
+      "DFDV",
+      "DJT",
+      "DSY",
+      "EDIT",
+      "EHGO",
+      "ETHT",
+      "FWDI",
+      "ILLR",
+      "IPW",
+      "IREZ",
+      "ITRG",
+      "JEM",
+      "LGCL",
+      "MSTU",
+      "MSTX",
+      "NBIZ",
+      "NKTX",
+      "OKLL",
+      "PPCB",
+      "PRME",
+      "SIDU",
+      "SNDQ",
+      "SOXS",
+      "TSDD",
+      "USDE",
+      "VRXA",
+      "WHLR"
+    ]
+  },
+  "data": {
+    "opportunities": {
+      "today": 39,
+      "total": 76
+    },
+    "scanner_hits": {
+      "today": 2245,
+      "total": 4713
+    },
+    "bars": {
+      "today": 0,
+      "total": 5150
+    },
+    "news": {
+      "today": 234,
+      "total": 449
+    },
+    "fundamentals": {
+      "today": 39,
+      "total": 76
+    }
+  }
+}
