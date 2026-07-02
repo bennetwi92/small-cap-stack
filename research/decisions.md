@@ -51,6 +51,25 @@
 - **Storage (#7):** **DuckDB + partitioned Parquet** (+ SQLite for mutable state).
 - **DataFrames:** polars (pandas for glue). **Indicators:** TA-Lib (ARM wheels now) + custom pattern logic. **Validation:** Pydantic v2 + pandera. **Observability:** structlog + prometheus-client → Grafana Cloud + Healthchecks.io. **Calendar:** pandas-market-calendars + zoneinfo (UTC).
 
+## `setup_count` retired (DECISION 2026-07-02, #112)
+- **Retire `setup_count`** (Option 1 of #112); derive `bull_flag` directly from the R-metrics pass
+  (`RMetrics.setup_found`). Rationale:
+  - **The integer was noise.** `_count_setups` counted flags across the *whole* segment window —
+    including pre-appearance flags we could never have taken (unlike R-metrics, which are gated to
+    the first trigger at/after the scanner hit, #99) — and wasn't deduped by move or tied to
+    outcome. Its only consumer was `bull_flag = setup_count > 0`.
+  - **`bull_flag` is derivable for free.** Every valid bull flag has strictly positive risk
+    (`entry = breakout + entry_offset` and `stop = flag_low`, with `breakout = last_flag_high >
+    flag_low`), so `RMetrics.setup_found` (already computed by `compute_r_metrics`, which iterates
+    the same prefixes) is **exactly equivalent** to `setup_count > 0`. Deleting `_count_setups`
+    removes a redundant prefix scan and leaves one source of truth.
+  - **Option 3 (fold into #102) is blocked** — #102's move-start rule isn't chosen yet, so there's
+    no `pump_index`/`pump_count` to fold into. Deciding #112 now keeps the report schema stable
+    before the 3-month collection; #102 adds the *meaningful* per-move pump metrics later.
+  - **Schema impact (intended):** the persisted `analysis` dataset drops the `setup_count` column,
+    and the EOD markdown + Pages dashboard drop the `setups` column. `GateInputs.bull_flag` (the
+    gate-engine input) is unrelated and unchanged.
+
 ## Fundamentals source (2026-06-29, issue #17)
 - IBKR (Reuters) fundamentals are **unentitled** on the account (error 10358: "Fundamentals data is not allowed"). Phase-1 sources **float / shares outstanding / short% via yfinance** (free, no key; tradepilot precedent). Captured raw at flag time with a `source` column, so a hardened source (FMP float / FINRA short interest, **issue #41**) can be swapped in later and recomputed.
 
