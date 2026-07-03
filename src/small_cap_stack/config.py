@@ -69,13 +69,13 @@ class Settings(BaseSettings):
     float_max_shares: int = 20_000_000  # float < 20M shares
 
     # Bull-flag detection (issue #16; redefined #127 from notes.md 2026-07-03). The pole is a run of
-    # HIGHER HIGHS (not just "green candles") — the trader counts poles of many higher-high bars
-    # (SNDQ = 7), tolerating a non-green bar as long as the high still rises. The flag is a genuine
-    # pullback: it must make a lower low and hold within max_retracement of the pole (a deeper
-    # pullback retraces "back through the pole" and invalidates the setup). Counts/retrace are
-    # recorded, not only gated (#98).
-    bull_flag_min_pole: int = 2  # a valid pole needs >= this many higher-high bars
-    bull_flag_max_pole: int = 8  # cap on the higher-highs run counted as the pole
+    # HIGHER HIGHS (not just "green candles"): even a SINGLE higher-high bar is a pole, up to a run
+    # of many (SNDQ = 7); pole_len counts the higher highs. The flag is a pullback that makes LOWER
+    # HIGHS (the trader tracks highs, not lows) and holds within max_retracement of the pole (a
+    # deeper pullback retraces "back through the pole"). Volume: the pole's peak bar volume must
+    # exceed the consolidation's (hard); the consolidation volume ideally reduces (soft, recorded).
+    bull_flag_min_pole: int = 1  # a pole can be a single higher-high bar
+    bull_flag_max_pole: int = 8  # cap on the higher highs counted as the pole
     bull_flag_max_flag: int = 6  # max consolidation (flag) candles
     bull_flag_max_retracement: float = 0.50  # reject flags retracing > this fraction of the pole
     tick_size: float = 0.01  # min US price increment for $2-10 names

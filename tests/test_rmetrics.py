@@ -15,17 +15,17 @@ def _settings() -> Settings:
     return Settings(_env_file=None)  # type: ignore[call-arg]
 
 
-def _bar(i: int, o: float, h: float, low: float, c: float) -> Bar:
-    return Bar(start=_T0 + timedelta(minutes=5 * i), open=o, high=h, low=low, close=c, volume=1e3)
+def _bar(i: int, o: float, h: float, low: float, c: float, vol: float = 1e3) -> Bar:
+    return Bar(start=_T0 + timedelta(minutes=5 * i), open=o, high=h, low=low, close=c, volume=vol)
 
 
-# A bull flag: a 2-bar higher-highs pole (5.8 -> 6.5) then a red flag. breakout = flag high 6.1,
-# entry = 6.15 (+5 ticks), stop = 5.6, risk = 0.55. pole base 4.6 -> retrace 0.474 (< 0.50). The
-# setup is detected at index 2 (the flag); the breakout is always a LATER bar.
-_POLE1 = _bar(0, 5.0, 5.8, 4.6, 5.7)
-_POLE2 = _bar(1, 5.7, 6.5, 5.6, 6.4)
+# A bull flag: a launch bar (5.8) + one higher-high pole bar (6.5, heavier volume) then a red flag.
+# breakout = flag high 6.1, entry = 6.15 (+5 ticks), stop = 5.6, risk = 0.55. pole base 4.6 ->
+# retrace 0.474 (< 0.50). The setup is detected at index 2 (the flag); the breakout is a LATER bar.
+_LAUNCH = _bar(0, 5.0, 5.8, 4.6, 5.7)
+_POLE = _bar(1, 5.7, 6.5, 5.6, 6.4, vol=2000)
 _FLAG = _bar(2, 6.4, 6.1, 5.6, 5.7)
-_SETUP = [_POLE1, _POLE2, _FLAG]
+_SETUP = [_LAUNCH, _POLE, _FLAG]
 
 
 def test_triggers_and_measures_max_r() -> None:
@@ -44,7 +44,7 @@ def test_triggers_and_measures_max_r() -> None:
     assert not m.stopped_out
     assert m.stop_index is None  # never stopped -> no stop bar (#113)
     assert m.flag_len == 1 and m.retracement is not None  # traded setup's shape (#98)
-    assert m.pole_len == 2 and m.vol_increasing is not None  # pole shape recorded (#127)
+    assert m.pole_len == 1 and m.cons_vol_reducing is not None  # pole/vol shape recorded (#127)
 
 
 def test_setup_but_never_triggers() -> None:
@@ -140,8 +140,8 @@ def test_thin_risk_setup_stays_finite() -> None:
     # The 5-tick entry offset puts a floor on risk (entry is >=5 ticks above breakout, and the
     # stop is at/below breakout, so risk >= $0.05). A tight flag still yields a thin-but-finite R.
     bars = [
-        _bar(0, 5.0, 5.90, 4.9, 5.8),  # pole 1 (green)
-        _bar(1, 5.8, 6.20, 5.7, 6.1),  # pole 2 (green), higher high 6.20
+        _bar(0, 5.0, 5.90, 4.9, 5.8),  # launch (green)
+        _bar(1, 5.8, 6.20, 5.7, 6.1, vol=2000),  # higher-high pole bar 6.20 (heavier volume)
         _bar(2, 6.10, 6.10, 6.09, 6.095),  # flag (red): high 6.10, low 6.09 -> stop 6.09
         _bar(3, 6.12, 7.00, 6.12, 6.9),  # entry 6.15 <= high 7.00 -> triggers, runs up
     ]

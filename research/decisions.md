@@ -74,16 +74,22 @@
 Reviewing the annotated charts against the engine, the trader's model of a setup differs materially
 from the earlier "≤2 green candles" pole. Redefined `bullflag.detect` (backcastable — recomputes
 over already-collected raw bars):
-- **Pole = a run of higher highs**, length `bull_flag_min_pole`(2)..`bull_flag_max_pole`(8), **not**
-  colour-gated — a non-green bar is allowed as long as the high still makes a higher high (the
-  trader counted a 7-bar pole on SNDQ; SOXS/OKLL/DJT poles "characterised by higher highs"). The
-  peak must be a higher high than its predecessor, so a *descending* flag isn't mistaken for the
-  peak. Pole `vol_increasing` + `pole_len` are recorded (not gated).
+- **Pole = a run of higher highs**, from a **single higher-high bar** up to `bull_flag_max_pole`(8);
+  `bull_flag_min_pole`=1. **Not** colour-gated — a non-green bar is allowed as long as the high still
+  makes a higher high (SNDQ counted a 7-bar pole; SOXS/OKLL/DJT "characterised by higher highs").
+  `pole_len` counts the higher highs; the ascending run's launch bar sets the pole base for the
+  retracement. The peak must be a higher high than its predecessor, so a *descending* flag isn't
+  mistaken for the peak. *Preferable* (soft, not yet quantified — deferred like the wick filter):
+  the pole contains ≥1 big green candle.
 - **Flag = a genuine pullback** of `1..bull_flag_max_flag`(6) bars that stays below the pole peak and
-  **makes a lower low** (multi-bar: dips below its first bar's low; single-bar: a red pullback
-  candle). Rejects "no lower lows" cases (ETHT/NBIZ).
+  **makes lower highs** — the trader tracks *highs*, not lows (correction 2026-07-03). Multi-bar:
+  non-increasing highs with a net lower high; single-bar: any candle below the peak. Rejects
+  consolidations that tick back up (ETHT/NBIZ).
 - **Retracement gate:** reject a flag retracing > `bull_flag_max_retracement`(0.50) of the pole
-  height (was: rejected only at 100%). Encodes "went straight back through the pole" (AHMA/CLRO/CYH/DJT).
+  height, measured on the flag low (the risk). Encodes "back through the pole" (AHMA/CLRO/CYH/DJT).
+- **Volume:** the pole's peak bar volume **must exceed** the consolidation's peak bar volume (hard).
+  Whether the consolidation volume is reducing is recorded (`cons_vol_reducing`) but **not** gated —
+  it may be flat.
 - Entry/stop spec **unchanged** (5 ticks above the last consolidation high; stop = flag low).
 
 **Follow-ups (separate issues, not in #127):** ATR%/movement gate for "barely moving/ranging" names

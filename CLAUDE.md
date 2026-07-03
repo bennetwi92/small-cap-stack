@@ -6,7 +6,7 @@ research record. This file documents **how we work** — follow it on every task
 
 ## Project shape
 - **Phases:** P1 = tracker only (no orders, 3 months data collection) · P2 = paper trading · P3 = live.
-- **Strategy:** price $2–10 · float < 20M **shares** · breaking news · trailing 5-min volume > 100k · change > 10% · bull-flag: **pole = a run of higher highs** (2–8 bars, colour-agnostic — a non-green bar counts if the high still rises) · **flag = a pullback** (≤6 candles) that makes a **lower low** and retraces **≤50%** of the pole (redefined #127, 2026-07-03) · window 04:00–11:59 ET. Entry = 5 ticks above the high of the last complete consolidation candle; stop = low of the consolidation.
+- **Strategy:** price $2–10 · float < 20M **shares** · breaking news · trailing 5-min volume > 100k · change > 10% · bull-flag: **pole = a run of higher highs** (1–8 bars — even a single higher-high bar; colour-agnostic) · **flag = a pullback** (≤6 candles) that makes **lower highs** and retraces **≤50%** of the pole · pole peak-bar volume **>** consolidation volume (redefined #127, 2026-07-03) · window 04:00–11:59 ET. Entry = 5 ticks above the high of the last complete consolidation candle; stop = low of the consolidation.
 - **Core principle:** *store raw, compute derived on read* — capture raw data at flag time; gate/stat logic is replayable pure functions so methodology can change retroactively.
 
 ## Branching & PRs (trunk-based)

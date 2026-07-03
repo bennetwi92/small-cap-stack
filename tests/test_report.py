@@ -24,7 +24,9 @@ def _settings() -> Settings:
     return Settings(_env_file=None)  # type: ignore[call-arg]
 
 
-def _bar_row(oid: str, sym: str, i: int, o: float, h: float, low: float, c: float) -> dict:  # type: ignore[type-arg]
+def _bar_row(
+    oid: str, sym: str, i: int, o: float, h: float, low: float, c: float, vol: float = 1000.0
+) -> dict:  # type: ignore[type-arg]
     return {
         "opportunity_id": oid,
         "symbol": sym,
@@ -33,7 +35,7 @@ def _bar_row(oid: str, sym: str, i: int, o: float, h: float, low: float, c: floa
         "high": h,
         "low": low,
         "close": c,
-        "volume": 1000.0,
+        "volume": vol,
     }
 
 
@@ -93,8 +95,8 @@ def _seed(store: Store) -> None:
     store.append(
         "bars",
         [
-            _bar_row("2026-06-29:AZI", "AZI", 0, 5.0, 5.8, 4.6, 5.7),  # pole 1 (green)
-            _bar_row("2026-06-29:AZI", "AZI", 1, 5.7, 6.5, 5.6, 6.4),  # pole 2 (higher high)
+            _bar_row("2026-06-29:AZI", "AZI", 0, 5.0, 5.8, 4.6, 5.7),  # launch (green)
+            _bar_row("2026-06-29:AZI", "AZI", 1, 5.7, 6.5, 5.6, 6.4, vol=2000),  # higher-high pole
             _bar_row("2026-06-29:AZI", "AZI", 2, 6.4, 6.1, 5.6, 5.7),  # flag (red)
             _bar_row("2026-06-29:AZI", "AZI", 3, 5.7, 7.64, 5.7, 7.5),  # trigger + Max R ~2.7
             # DUD: no setup (all red), no news, no fundamentals
@@ -181,8 +183,8 @@ def test_analysis_excludes_after_hours_bars(tmp_path: Path) -> None:
     store.append(
         "bars",
         [
-            _bar_row(oid, "AH", 0, 5.0, 5.8, 4.6, 5.7),  # pole 1
-            _bar_row(oid, "AH", 1, 5.7, 6.5, 5.6, 6.4),  # pole 2 (higher high)
+            _bar_row(oid, "AH", 0, 5.0, 5.8, 4.6, 5.7),  # launch
+            _bar_row(oid, "AH", 1, 5.7, 6.5, 5.6, 6.4, vol=2000),  # higher-high pole
             _bar_row(oid, "AH", 2, 6.4, 6.1, 5.6, 5.7),  # flag
             _bar_row(oid, "AH", 3, 5.7, 6.3, 5.7, 6.2),  # trigger (modest high 6.3)
             _bar_row(oid, "AH", 78, 6.2, 9.9, 6.2, 9.8),  # 16:30 ET after-hours spike — excluded
@@ -262,10 +264,10 @@ def test_segment_runs_gap_rule() -> None:
 
 
 def _flag(oid: str, sym: str, base_i: int) -> list:  # type: ignore[type-arg]
-    # 2-bar higher-highs pole / red flag / trigger — a setup that triggers to ~1.5R (#127).
+    # launch / higher-high pole (heavier volume) / red flag / trigger — triggers to ~1.5R (#127).
     return [
-        _bar_row(oid, sym, base_i + 0, 5.0, 5.8, 4.6, 5.7),  # pole 1 (green)
-        _bar_row(oid, sym, base_i + 1, 5.7, 6.5, 5.6, 6.4),  # pole 2 (higher high)
+        _bar_row(oid, sym, base_i + 0, 5.0, 5.8, 4.6, 5.7),  # launch (green)
+        _bar_row(oid, sym, base_i + 1, 5.7, 6.5, 5.6, 6.4, vol=2000),  # higher-high pole
         _bar_row(oid, sym, base_i + 2, 6.4, 6.1, 5.6, 5.7),  # flag (red)
         _bar_row(oid, sym, base_i + 3, 5.7, 7.0, 5.7, 6.9),  # trigger + run
     ]

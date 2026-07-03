@@ -18,29 +18,29 @@ def _settings() -> Settings:
     return Settings(_env_file=None)  # type: ignore[call-arg]
 
 
-def _bar(i: int, o: float, h: float, low: float, c: float):  # noqa: ANN202 - test helper
+def _bar(i: int, o: float, h: float, low: float, c: float, vol: float = 1e3):  # noqa: ANN202
     from small_cap_stack.capture import Bar
 
-    return Bar(start=_T0 + timedelta(minutes=5 * i), open=o, high=h, low=low, close=c, volume=1e3)
+    return Bar(start=_T0 + timedelta(minutes=5 * i), open=o, high=h, low=low, close=c, volume=vol)
 
 
-# Same bull flag as test_rmetrics: 2-bar higher-highs pole then a red flag at index 2. breakout 6.1,
-# entry 6.15 (+5t), stop 5.6. The breakout is always a later bar (index 3+).
-_POLE1 = _bar(0, 5.0, 5.8, 4.6, 5.7)
-_POLE2 = _bar(1, 5.7, 6.5, 5.6, 6.4)
+# Same bull flag as test_rmetrics: launch bar + one higher-high pole bar (heavier volume) + a red
+# flag at index 2. breakout 6.1, entry 6.15 (+5t), stop 5.6. The breakout is always a later bar.
+_LAUNCH = _bar(0, 5.0, 5.8, 4.6, 5.7)
+_POLE = _bar(1, 5.7, 6.5, 5.6, 6.4, vol=2000)
 _FLAG = _bar(2, 6.4, 6.1, 5.6, 5.7)
-_SETUP = [_POLE1, _POLE2, _FLAG]
+_SETUP = [_LAUNCH, _POLE, _FLAG]
 
 
 def test_bars_serialised_in_order() -> None:
-    bars = [_POLE1, _POLE2]
+    bars = [_LAUNCH, _POLE]
     cd = build_opportunity_chart(bars, _settings())
     assert [b["t"] for b in cd.bars] == [
-        int(_POLE1.start.timestamp()),
-        int(_POLE2.start.timestamp()),
+        int(_LAUNCH.start.timestamp()),
+        int(_POLE.start.timestamp()),
     ]
     assert cd.bars[0] == {
-        "t": int(_POLE1.start.timestamp()),
+        "t": int(_LAUNCH.start.timestamp()),
         "o": 5.0,
         "h": 5.8,
         "l": 4.6,
@@ -114,7 +114,7 @@ def test_first_hit_maps_to_first_bar_at_or_after_appearance() -> None:
 
 
 def test_first_hit_after_all_bars_is_null() -> None:
-    bars = [_POLE1, _POLE2]
+    bars = [_LAUNCH, _POLE]
     cd = build_opportunity_chart(bars, _settings(), first_hit=_T0 + timedelta(minutes=60))
     assert cd.markers["first_hit"] is None
 

@@ -48,8 +48,8 @@ class OpportunityAnalysis:
     stopped_out: bool
     flag_len: int | None = None  # consolidation count of the traded setup (#98)
     retracement: float | None = None  # flag retracement into the pole, fraction (#98)
-    pole_len: int | None = None  # higher-high bars in the traded setup's pole (#127)
-    vol_increasing: bool | None = None  # pole volume rose to its peak (#127)
+    pole_len: int | None = None  # number of higher highs in the traded setup's pole (#127)
+    cons_vol_reducing: bool | None = None  # consolidation volume non-increasing (#127)
     news_recent: bool = False  # a news story dated today or yesterday (ET) for the symbol (#101)
     first_hit: datetime | None = None  # first scanner appearance (gates entry); shown in the UI
     run: int = 1  # 1-based run index within the symbol's day (#36 re-entry segmentation)
@@ -247,7 +247,7 @@ def _analyze_run(
         flag_len=rm.flag_len,
         retracement=rm.retracement,
         pole_len=rm.pole_len,
-        vol_increasing=rm.vol_increasing,
+        cons_vol_reducing=rm.cons_vol_reducing,
         news_recent=news_recent,
         first_hit=first_hit,
         run=run,
