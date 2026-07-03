@@ -68,10 +68,16 @@ class Settings(BaseSettings):
     # Gate thresholds (issue #15) — most reuse the scan_* values above.
     float_max_shares: int = 20_000_000  # float < 20M shares
 
-    # Bull-flag detection (issue #16). max_red raised to 6 to collect data on which consolidation
-    # count is most profitable (#98) — the count + retracement are recorded, not just gated on.
-    bull_flag_max_green: int = 2  # max green extension (pole) candles
-    bull_flag_max_red: int = 6  # max red consolidation (flag) candles
+    # Bull-flag detection (issue #16; redefined #127 from notes.md 2026-07-03). The pole is a run of
+    # HIGHER HIGHS (not just "green candles"): even a SINGLE higher-high bar is a pole, up to a run
+    # of many (SNDQ = 7); pole_len counts the higher highs. The flag is a pullback that makes LOWER
+    # HIGHS (the trader tracks highs, not lows) and holds within max_retracement of the pole (a
+    # deeper pullback retraces "back through the pole"). Volume: the pole's peak bar volume must
+    # exceed the consolidation's (hard); the consolidation volume ideally reduces (soft, recorded).
+    bull_flag_min_pole: int = 1  # a pole can be a single higher-high bar
+    bull_flag_max_pole: int = 8  # cap on the higher highs counted as the pole
+    bull_flag_max_flag: int = 6  # max consolidation (flag) candles
+    bull_flag_max_retracement: float = 0.50  # reject flags retracing > this fraction of the pole
     tick_size: float = 0.01  # min US price increment for $2-10 names
     entry_offset_ticks: int = 5  # entry = last complete consolidation high + 5 ticks ($0.05)
 
