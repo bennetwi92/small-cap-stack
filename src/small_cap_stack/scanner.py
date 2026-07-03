@@ -1,7 +1,7 @@
 """Scanner ingestion (issue #13): discover candidate tickers via the IBKR API scanner.
 
 Uses the definition validated in spike #8 — rank by % gain, filter to the strategy universe
-(price $2–10, today's change > 10%, trailing 5-min volume > 100k via the native
+(price $1–50, today's change > 10%, trailing 5-min volume > 100k via the native
 ``stVolume5minAbove`` filter). The float / short-interest / news / bull-flag checks are
 post-filters applied downstream (the gate engine, #15), not scanner parameters.
 """

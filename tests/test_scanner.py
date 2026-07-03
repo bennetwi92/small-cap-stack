@@ -50,9 +50,11 @@ def test_build_subscription_matches_strategy() -> None:
     sub, filters = build_subscription(_settings())
     assert sub.scanCode == "TOP_PERC_GAIN"
     assert sub.locationCode == "STK.US.MAJOR"
-    assert sub.abovePrice == 2.0
-    assert sub.belowPrice == 10.0
+    assert sub.abovePrice == 1.0
+    assert sub.belowPrice == 50.0
     tags = {f.tag: f.value for f in filters}
+    assert tags["priceAbove"] == "1.0"
+    assert tags["priceBelow"] == "50.0"
     assert tags["changePercAbove"] == "10.0"
     assert tags["stVolume5minAbove"] == "100000"  # 5-min window, not day volume
 
