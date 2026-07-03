@@ -50,7 +50,7 @@ def test_all_gates_pass() -> None:
 def test_price_band_boundaries() -> None:
     s = _settings()
     base = _passing_inputs()
-    for price, ok in [(2.0, True), (10.0, True), (1.99, False), (10.01, False)]:
+    for price, ok in [(1.0, True), (50.0, True), (0.99, False), (50.01, False)]:
         results = {r.name: r for r in evaluate(GateInputs(**{**vars(base), "price": price}), s)}
         assert results["price"].passed is ok
 

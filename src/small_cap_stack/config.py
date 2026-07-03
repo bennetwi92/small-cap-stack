@@ -59,8 +59,8 @@ class Settings(BaseSettings):
     # Scanner (issue #13) — validated definition from spike #8.
     scan_code: str = "TOP_PERC_GAIN"
     scan_location: str = "STK.US.MAJOR"
-    scan_min_price: float = 2.0
-    scan_max_price: float = 10.0
+    scan_min_price: float = 1.0  # widened from $2 → $1–$50 universe (#126)
+    scan_max_price: float = 50.0  # widened from $10 → $1–$50 universe (#126)
     scan_change_pct: float = 10.0
     scan_min_5m_volume: int = 100_000  # trailing 5-min volume -> stVolume5minAbove
     scan_max_rows: int = 10  # we only ever act on the top few
@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     bull_flag_max_pole: int = 8  # cap on the higher highs counted as the pole
     bull_flag_max_flag: int = 6  # max consolidation (flag) candles
     bull_flag_max_retracement: float = 0.50  # reject flags retracing > this fraction of the pole
-    tick_size: float = 0.01  # min US price increment for $2-10 names
+    tick_size: float = 0.01  # min US price increment for names ≥ $1 (penny tick)
     entry_offset_ticks: int = 5  # entry = last complete consolidation high + 5 ticks ($0.05)
 
     # Capture (issue #14). The intraday tick only does discovery (scanner_hits + opportunities +

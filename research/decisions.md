@@ -70,6 +70,13 @@
     and the EOD markdown + Pages dashboard drop the `setups` column. `GateInputs.bull_flag` (the
     gate-engine input) is unrelated and unchanged.
 
+## Scanner price range widened (DECISION 2026-07-02, #126)
+- **$2–10 → $1–$50** (`scan_min_price`/`scan_max_price`). The original $2–10 band was the locked
+  strategy range; widening captures lower-priced runners (≥$1) and higher-priced momentum names
+  (≤$50) the tighter band excluded. Flows to the scanner subscription (`priceAbove`/`priceBelow`)
+  and the `price_gate` — both read the settings. `tick_size` stays $0.01 (all names ≥$1 use a penny
+  tick). Store-raw is unaffected; this only changes what the scanner surfaces going forward.
+
 ## Entry appearance-gate is bar-close granular (DECISION 2026-07-03, #122 — revises #99)
 The #99 appearance gate ("a setup may only *trigger* at/after the scanner hit") was implemented at
 **bar-start** granularity: reject a trigger bar whose `start < first_hit`. But the scanner ticks
