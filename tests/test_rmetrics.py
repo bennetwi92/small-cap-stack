@@ -145,6 +145,37 @@ def test_trigger_exactly_at_appearance_counts() -> None:
     assert m.triggered and m.entry_index == 3
 
 
+def test_entry_within_staleness_window_counts() -> None:
+    # A break 25min after the scan is inside the 30min window -> a takeable entry.
+    bars = [
+        *_SETUP,  # flag at +10, entry 6.15
+        _bar(3, 5.7, 5.9, 5.6, 5.8),  # +15: below entry
+        _bar(4, 5.8, 5.9, 5.6, 5.7),  # +20: below entry
+        _bar(5, 5.8, 7.0, 5.8, 6.9),  # +25: breaks 6.15
+    ]
+    m = compute_r_metrics(bars, _settings(), first_hit=_T0)  # appeared at +0
+    assert m.triggered and m.entry_index == 5
+
+
+def test_entry_beyond_staleness_window_is_faded() -> None:
+    # The setup forms at the scan, but the only break comes ~40min later (> the 30min window):
+    # the opportunity has faded, so it reads as setup-found, not triggered (#130, AHMA).
+    bars = [
+        *_SETUP,  # flag at +10, entry 6.15
+        _bar(3, 5.7, 5.9, 5.6, 5.8),  # +15
+        _bar(4, 5.8, 5.9, 5.6, 5.7),  # +20
+        _bar(5, 5.7, 5.9, 5.6, 5.8),  # +25
+        _bar(6, 5.8, 5.9, 5.6, 5.7),  # +30
+        _bar(7, 5.7, 5.9, 5.6, 5.8),  # +35
+        _bar(8, 5.8, 7.0, 5.8, 6.9),  # +40: breaks 6.15, but too stale
+    ]
+    m = compute_r_metrics(bars, _settings(), first_hit=_T0)  # appeared at +0
+    assert m.setup_found and not m.triggered
+    assert m.max_r is None
+    # Sanity: with the gate disabled (no appearance) the same break DOES trigger.
+    assert compute_r_metrics(bars, _settings(), first_hit=None).triggered
+
+
 def test_thin_risk_setup_stays_finite() -> None:
     # The 5-tick entry offset puts a floor on risk (entry is >=5 ticks above breakout, and the
     # stop is at/below breakout, so risk >= $0.05). A tight flag still yields a thin-but-finite R.
