@@ -136,9 +136,15 @@ def compute_r_metrics(
     bar. A trigger bar counts if we'd appeared by the time it **closed** — we reject only a bar that
     *fully completed* before ``first_hit`` (a break we provably couldn't have taken). This credits
     "appeared during the breakout bar" as takeable, matching how it's actually traded, while still
-    never crediting a move that was already over. ``first_hit=None`` disables the gate.
+    never crediting a move that was already over.
+
+    An upper bound also applies (**staleness**, #130): a break more than ``entry_staleness_min``
+    after ``first_hit`` reads as *faded* — the opportunity is no longer takeable (AHMA triggered
+    ~1hr+ after the scan), so it's skipped and the run reports setup-found-but-not-triggered. Both
+    bounds only apply when ``first_hit`` is known; ``first_hit=None`` disables the gate entirely.
     """
     interval = bar_interval(bars)
+    staleness = timedelta(minutes=settings.entry_staleness_min)
     first_valid: tuple[BullFlag, float] | None = None
     for setup_idx, bf in _iter_setups(bars, settings):
         risk = round(bf.entry_trigger - bf.stop, 6)
@@ -151,6 +157,8 @@ def compute_r_metrics(
             continue  # this setup never triggers — try a later one
         if first_hit is not None and bars[trig_j].start + interval <= first_hit:
             continue  # the trigger bar closed before we appeared: not actionable — try a later one
+        if first_hit is not None and bars[trig_j].start >= first_hit + staleness:
+            continue  # break too long after appearance: opportunity faded (#130) — not takeable
         return _measure(bars, bf, risk, trig_j)
 
     if first_valid is None:

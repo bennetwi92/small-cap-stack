@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     bull_flag_max_retracement: float = 0.50  # reject flags retracing > this fraction of the pole
     tick_size: float = 0.01  # min US price increment for names ≥ $1 (penny tick)
     entry_offset_ticks: int = 5  # entry = last complete consolidation high + 5 ticks ($0.05)
+    # Entry staleness (#130): a break more than this many minutes after the scanner appearance reads
+    # as "faded" — the opportunity is no longer takeable (AHMA triggered ~1hr+ after the scan). Only
+    # applies when the appearance (first_hit) is known; a large value disables the bound.
+    entry_staleness_min: int = 30
 
     # Capture (issue #14). The intraday tick only does discovery (scanner_hits + opportunities +
     # news/fundamentals). The day's 5-min bars are fetched once in an end-of-day batch (#62) —

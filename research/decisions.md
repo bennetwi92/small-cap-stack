@@ -90,6 +90,16 @@ series' modal bar spacing, so a pre-market gap doesn't over-credit across a miss
 appearance marker (`charts._bar_containing`) matches — it sits on the bar that *contains* `first_hit`,
 not the next one (fixes the JEM 08:45-vs-08:40 dot). Backcastable over collected bars.
 
+## Entry staleness bound (DECISION 2026-07-03, #130 — from notes.md)
+A break more than **`entry_staleness_min` (default 30 min)** after the scanner appearance reads as
+*faded* and is not counted as a takeable entry — the run reports setup-found-but-not-triggered
+(AHMA's notional entry fired ~1hr+ after the scan, which the trader would never take). Applied in
+`compute_r_metrics` alongside the #122 bar-close lower bound, so the valid trigger window is roughly
+`[first_hit, first_hit + entry_staleness_min)`. Only applies when `first_hit` is known; backcastable
+and tunable. **Deferred (folded into #102):** surfacing *later* distinct intraday setups (CLRO
+11:00/11:50, TSDD 12:20) as their own opportunities — that needs the move/pump segmentation #102 is
+chartered to decide, rather than a half-baked distinct-setup heuristic now.
+
 ## Bull-flag redefined (DECISION 2026-07-03, #127 — from notes.md)
 Reviewing the annotated charts against the engine, the trader's model of a setup differs materially
 from the earlier "≤2 green candles" pole. Redefined `bullflag.detect` (backcastable — recomputes
