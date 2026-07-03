@@ -168,3 +168,29 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(payload, default=_json_default, indent=2))
     os.replace(tmp, path)
+
+
+def _content_key(payload: dict[str, Any]) -> str:
+    """Canonical JSON of ``payload`` minus the volatile ``generated_utc`` stamp, for diffing."""
+    body = {k: v for k, v in payload.items() if k != "generated_utc"}
+    return json.dumps(body, default=_json_default, sort_keys=True)
+
+
+def write_json_if_changed(path: Path, payload: dict[str, Any]) -> bool:
+    """Write ``payload`` only if its content (ignoring ``generated_utc``) differs from disk.
+
+    The stats/charts refresh runs on every tick (app.Application._refresh_stats_charts), not just at
+    EOD. Rewriting an unchanged charts.json each tick would bump its ``generated_utc`` and the
+    front-end — which redraws whenever that stamp changes — would reset the user's chart zoom/pan on
+    every 60s poll. Skipping no-op writes keeps the published file (and its stamp) stable until the
+    underlying data actually changes. Returns True iff it wrote.
+    """
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text())
+        except (OSError, ValueError):
+            existing = None
+        if isinstance(existing, dict) and _content_key(existing) == _content_key(payload):
+            return False
+    write_json(path, payload)
+    return True
