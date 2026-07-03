@@ -24,65 +24,69 @@ def _bar(i: int, o: float, h: float, low: float, c: float):  # noqa: ANN202 - te
     return Bar(start=_T0 + timedelta(minutes=5 * i), open=o, high=h, low=low, close=c, volume=1e3)
 
 
-# Same bull flag as test_rmetrics: pole then flag, breakout 6.1, entry 6.15 (+5t), stop 5.6.
-_POLE = _bar(0, 5.0, 6.2, 4.9, 6.0)
-_FLAG = _bar(1, 6.0, 6.1, 5.6, 5.7)
+# Same bull flag as test_rmetrics: 2-bar higher-highs pole then a red flag at index 2. breakout 6.1,
+# entry 6.15 (+5t), stop 5.6. The breakout is always a later bar (index 3+).
+_POLE1 = _bar(0, 5.0, 5.8, 4.6, 5.7)
+_POLE2 = _bar(1, 5.7, 6.5, 5.6, 6.4)
+_FLAG = _bar(2, 6.4, 6.1, 5.6, 5.7)
+_SETUP = [_POLE1, _POLE2, _FLAG]
 
 
 def test_bars_serialised_in_order() -> None:
-    bars = [_POLE, _FLAG]
+    bars = [_POLE1, _POLE2]
     cd = build_opportunity_chart(bars, _settings())
-    assert [b["t"] for b in cd.bars] == [int(_POLE.start.timestamp()), int(_FLAG.start.timestamp())]
+    assert [b["t"] for b in cd.bars] == [
+        int(_POLE1.start.timestamp()),
+        int(_POLE2.start.timestamp()),
+    ]
     assert cd.bars[0] == {
-        "t": int(_POLE.start.timestamp()),
+        "t": int(_POLE1.start.timestamp()),
         "o": 5.0,
-        "h": 6.2,
-        "l": 4.9,
-        "c": 6.0,
+        "h": 5.8,
+        "l": 4.6,
+        "c": 5.7,
         "v": 1e3,
     }
 
 
 def test_triggered_markers_map_to_bars() -> None:
     bars = [
-        _POLE,
-        _FLAG,
-        _bar(2, 5.7, 7.0, 5.7, 6.9),  # entry bar (high 7.0 >= 6.15)
-        _bar(3, 6.9, 7.64, 6.8, 7.5),  # higher high -> Max R here
+        *_SETUP,
+        _bar(3, 5.7, 7.0, 5.7, 6.9),  # entry bar (high 7.0 >= 6.15)
+        _bar(4, 6.9, 7.64, 6.8, 7.5),  # higher high -> Max R here
     ]
     cd = build_opportunity_chart(bars, _settings())
     assert cd.triggered and not cd.stopped_out
     assert cd.levels == {"entry": 6.15, "stop": 5.6}
-    assert cd.markers["entry"] == 2
-    assert cd.markers["max_r"] == 3  # entry_index (2) + bars_to_max_r (1)
+    assert cd.markers["entry"] == 3
+    assert cd.markers["max_r"] == 4  # entry_index (3) + bars_to_max_r (1)
     assert cd.markers["stop"] is None
     assert cd.markers["first_hit"] is None  # no appearance supplied
 
 
 def test_stopped_out_marks_the_stop_bar() -> None:
     bars = [
-        _POLE,
-        _FLAG,
-        _bar(2, 5.7, 6.2, 5.7, 6.0),  # entry
-        _bar(3, 6.0, 6.1, 5.5, 5.5),  # low 5.5 <= stop 5.6 -> stopped here
+        *_SETUP,
+        _bar(3, 5.7, 6.2, 5.7, 6.0),  # entry
+        _bar(4, 6.0, 6.1, 5.5, 5.5),  # low 5.5 <= stop 5.6 -> stopped here
     ]
     cd = build_opportunity_chart(bars, _settings())
     assert cd.triggered and cd.stopped_out
-    assert cd.markers["entry"] == 2
-    assert cd.markers["stop"] == 3
+    assert cd.markers["entry"] == 3
+    assert cd.markers["stop"] == 4
 
 
 def test_same_bar_trigger_and_stop_share_the_index() -> None:
-    bars = [_POLE, _FLAG, _bar(2, 5.7, 6.3, 5.4, 5.5)]  # trigger AND stop on bar 2
+    bars = [*_SETUP, _bar(3, 5.7, 6.3, 5.4, 5.5)]  # trigger AND stop on bar 3
     cd = build_opportunity_chart(bars, _settings())
     assert cd.triggered and cd.stopped_out
-    assert cd.markers["entry"] == 2 and cd.markers["stop"] == 2
-    assert cd.markers["max_r"] == 2  # bars_to_max_r == 0 -> the 0R marker sits on the entry bar
+    assert cd.markers["entry"] == 3 and cd.markers["stop"] == 3
+    assert cd.markers["max_r"] == 3  # bars_to_max_r == 0 -> the 0R marker sits on the entry bar
     assert cd.max_r == 0.0
 
 
 def test_setup_but_not_triggered_keeps_levels_without_trade_markers() -> None:
-    bars = [_POLE, _FLAG, _bar(2, 5.7, 6.0, 5.65, 5.8)]  # high 6.0 < entry 6.15
+    bars = [*_SETUP, _bar(3, 5.7, 6.0, 5.65, 5.8)]  # high 6.0 < entry 6.15
     cd = build_opportunity_chart(bars, _settings())
     assert not cd.triggered
     assert cd.levels == {"entry": 6.15, "stop": 5.6}  # where a fill would have been
@@ -100,7 +104,7 @@ def test_no_setup_has_null_levels_and_markers() -> None:
 
 
 def test_first_hit_maps_to_first_bar_at_or_after_appearance() -> None:
-    bars = [_POLE, _FLAG, _bar(2, 5.7, 7.0, 5.7, 6.9)]
+    bars = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9)]
     # Appearance at +7min lands between bar 1 (+5) and bar 2 (+10) -> marker on bar 2.
     cd = build_opportunity_chart(bars, _settings(), first_hit=_T0 + timedelta(minutes=7))
     assert cd.markers["first_hit"] == 2
@@ -110,19 +114,18 @@ def test_first_hit_maps_to_first_bar_at_or_after_appearance() -> None:
 
 
 def test_first_hit_after_all_bars_is_null() -> None:
-    bars = [_POLE, _FLAG]
+    bars = [_POLE1, _POLE2]
     cd = build_opportunity_chart(bars, _settings(), first_hit=_T0 + timedelta(minutes=60))
     assert cd.markers["first_hit"] is None
 
 
 def test_first_hit_gates_the_entry_marker() -> None:
-    # Setup forms at +5 but only triggers at +15; appearance at +12 gates the pre-appearance
-    # breakout, so the entry marker sits on the post-appearance trigger bar (#99).
+    # Setup forms at +10 but only triggers at +20; appearance at +17 sits after the flag and before
+    # the trigger, so the entry marker lands on the post-appearance trigger bar (#99).
     bars = [
-        _POLE,
-        _FLAG,
-        _bar(2, 5.7, 6.0, 5.65, 5.8),  # +10: no trigger
-        _bar(3, 5.8, 7.0, 5.75, 6.9),  # +15: triggers here
+        *_SETUP,
+        _bar(3, 5.7, 6.0, 5.65, 5.8),  # +15: no trigger
+        _bar(4, 5.8, 7.0, 5.75, 6.9),  # +20: triggers here
     ]
-    cd = build_opportunity_chart(bars, _settings(), first_hit=_T0 + timedelta(minutes=12))
-    assert cd.triggered and cd.markers["entry"] == 3
+    cd = build_opportunity_chart(bars, _settings(), first_hit=_T0 + timedelta(minutes=17))
+    assert cd.triggered and cd.markers["entry"] == 4

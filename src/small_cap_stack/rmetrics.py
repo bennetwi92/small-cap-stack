@@ -45,6 +45,8 @@ class RMetrics:
     bars_to_max_r: int | None = None
     flag_len: int | None = None  # consolidation count of the traded setup (#98)
     retracement: float | None = None  # flag's retracement into the pole, fraction (#98)
+    pole_len: int | None = None  # higher-high bars in the traded setup's pole (#127)
+    vol_increasing: bool | None = None  # pole volume rose to its peak (#127, quality signal)
 
 
 def _iter_setups(bars: list[Bar], settings: Settings) -> Iterator[tuple[int, BullFlag]]:
@@ -104,6 +106,8 @@ def _measure(bars: list[Bar], bf: BullFlag, risk: float, entry_j: int) -> RMetri
         bars_to_max_r=bars_to_max_r,
         flag_len=bf.flag_len,
         retracement=bf.retracement,
+        pole_len=bf.pole_len,
+        vol_increasing=bf.vol_increasing,
     )
 
 
@@ -143,4 +147,6 @@ def compute_r_metrics(
         initial_risk=risk,
         flag_len=bf.flag_len,
         retracement=bf.retracement,
+        pole_len=bf.pole_len,
+        vol_increasing=bf.vol_increasing,
     )

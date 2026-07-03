@@ -70,6 +70,26 @@
     and the EOD markdown + Pages dashboard drop the `setups` column. `GateInputs.bull_flag` (the
     gate-engine input) is unrelated and unchanged.
 
+## Bull-flag redefined (DECISION 2026-07-03, #127 — from notes.md)
+Reviewing the annotated charts against the engine, the trader's model of a setup differs materially
+from the earlier "≤2 green candles" pole. Redefined `bullflag.detect` (backcastable — recomputes
+over already-collected raw bars):
+- **Pole = a run of higher highs**, length `bull_flag_min_pole`(2)..`bull_flag_max_pole`(8), **not**
+  colour-gated — a non-green bar is allowed as long as the high still makes a higher high (the
+  trader counted a 7-bar pole on SNDQ; SOXS/OKLL/DJT poles "characterised by higher highs"). The
+  peak must be a higher high than its predecessor, so a *descending* flag isn't mistaken for the
+  peak. Pole `vol_increasing` + `pole_len` are recorded (not gated).
+- **Flag = a genuine pullback** of `1..bull_flag_max_flag`(6) bars that stays below the pole peak and
+  **makes a lower low** (multi-bar: dips below its first bar's low; single-bar: a red pullback
+  candle). Rejects "no lower lows" cases (ETHT/NBIZ).
+- **Retracement gate:** reject a flag retracing > `bull_flag_max_retracement`(0.50) of the pole
+  height (was: rejected only at 100%). Encodes "went straight back through the pole" (AHMA/CLRO/CYH/DJT).
+- Entry/stop spec **unchanged** (5 ticks above the last consolidation high; stop = flag low).
+
+**Follow-ups (separate issues, not in #127):** ATR%/movement gate for "barely moving/ranging" names
+(CLVT/CYH/CMMB); entry appearance-bar gate #122 (SOXS/JEM mid-bar appearance); later-intraday setups
+& entry-staleness (CLRO/TSDD/AHMA "entry an hour after the scan"); half-pole-stop research (IREZ).
+
 ## Fundamentals source (2026-06-29, issue #17)
 - IBKR (Reuters) fundamentals are **unentitled** on the account (error 10358: "Fundamentals data is not allowed"). Phase-1 sources **float / shares outstanding / short% via yfinance** (free, no key; tradepilot precedent). Captured raw at flag time with a `source` column, so a hardened source (FMP float / FINRA short interest, **issue #41**) can be swapped in later and recomputed.
 
