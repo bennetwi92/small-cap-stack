@@ -103,12 +103,15 @@ def test_no_setup_has_null_levels_and_markers() -> None:
     assert len(cd.bars) == 2  # bars still drawn
 
 
-def test_first_hit_maps_to_first_bar_at_or_after_appearance() -> None:
-    bars = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9)]
-    # Appearance at +7min lands between bar 1 (+5) and bar 2 (+10) -> marker on bar 2.
+def test_first_hit_marks_the_bar_that_contains_the_appearance() -> None:
+    bars = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9)]  # bars at +0/+5/+10/+15 (5-min)
+    # Appearance at +7 lands INSIDE bar 1 [+5, +10) -> marker on bar 1, not the next bar (#122).
     cd = build_opportunity_chart(bars, _settings(), first_hit=_T0 + timedelta(minutes=7))
-    assert cd.markers["first_hit"] == 2
-    # Exactly on a bar start is inclusive.
+    assert cd.markers["first_hit"] == 1
+    # A later mid-bar appearance marks its own bar.
+    cd2 = build_opportunity_chart(bars, _settings(), first_hit=_T0 + timedelta(minutes=12))
+    assert cd2.markers["first_hit"] == 2
+    # Exactly on a bar start marks that bar (inclusive).
     cd_exact = build_opportunity_chart(bars, _settings(), first_hit=_T0 + timedelta(minutes=5))
     assert cd_exact.markers["first_hit"] == 1
 

@@ -20,13 +20,26 @@ recomputed retroactively.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .bullflag import BullFlag, detect_with_settings
 from .capture import Bar
 from .config import Settings
+
+
+def bar_interval(bars: list[Bar]) -> timedelta:
+    """The modal spacing between consecutive bar starts — i.e. the bar duration (usually 5 min).
+
+    Taken from the *most common* gap so a pre-market hole (a missing bar) doesn't inflate it: a bar
+    "closes" at ``start + bar_interval``, which is what the appearance gate (#122) reasons about.
+    Defaults to 5 minutes when there aren't two bars to measure."""
+    if len(bars) < 2:
+        return timedelta(minutes=5)
+    gaps = [bars[i].start - bars[i - 1].start for i in range(1, len(bars))]
+    return Counter(gaps).most_common(1)[0][0]
 
 
 @dataclass(frozen=True)
@@ -118,10 +131,14 @@ def compute_r_metrics(
 
     ``first_hit`` (the moment the symbol appeared on the scanner for this run) gates the entry:
     a setup may *form* before appearance — its pole/flag can sit in the pre-appearance lookback —
-    but it may only *trigger* at/after ``first_hit`` (issue #99). A breakout that already fired
-    before we were aware is skipped in favour of a later setup, so R is never credited from a move
-    we couldn't have taken. ``first_hit=None`` disables the gate (any trigger counts).
+    but it may only *trigger* once we could have seen it (issue #99). Granularity is **bar-close**
+    (#122): the scanner ticks every 60s while bars are 5-min, so appearance usually lands *inside* a
+    bar. A trigger bar counts if we'd appeared by the time it **closed** — we reject only a bar that
+    *fully completed* before ``first_hit`` (a break we provably couldn't have taken). This credits
+    "appeared during the breakout bar" as takeable, matching how it's actually traded, while still
+    never crediting a move that was already over. ``first_hit=None`` disables the gate.
     """
+    interval = bar_interval(bars)
     first_valid: tuple[BullFlag, float] | None = None
     for setup_idx, bf in _iter_setups(bars, settings):
         risk = round(bf.entry_trigger - bf.stop, 6)
@@ -132,8 +149,8 @@ def compute_r_metrics(
         trig_j = _first_trigger(bars, setup_idx, bf.entry_trigger)
         if trig_j is None:
             continue  # this setup never triggers — try a later one
-        if first_hit is not None and bars[trig_j].start < first_hit:
-            continue  # triggered before appearance: not actionable — try a later setup
+        if first_hit is not None and bars[trig_j].start + interval <= first_hit:
+            continue  # the trigger bar closed before we appeared: not actionable — try a later one
         return _measure(bars, bf, risk, trig_j)
 
     if first_valid is None:
