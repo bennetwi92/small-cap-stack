@@ -60,6 +60,7 @@ class RMetrics:
     retracement: float | None = None  # flag's retracement into the pole, fraction (#98)
     pole_len: int | None = None  # number of higher highs in the traded setup's pole (#127)
     cons_vol_reducing: bool | None = None  # consolidation volume non-increasing (#127, soft signal)
+    pole_has_big_green: bool | None = None  # pole holds a strong-bodied green candle (#132, soft)
 
 
 def _iter_setups(bars: list[Bar], settings: Settings) -> Iterator[tuple[int, BullFlag]]:
@@ -121,6 +122,7 @@ def _measure(bars: list[Bar], bf: BullFlag, risk: float, entry_j: int) -> RMetri
         retracement=bf.retracement,
         pole_len=bf.pole_len,
         cons_vol_reducing=bf.cons_vol_reducing,
+        pole_has_big_green=bf.pole_has_big_green,
     )
 
 
@@ -174,4 +176,5 @@ def compute_r_metrics(
         retracement=bf.retracement,
         pole_len=bf.pole_len,
         cons_vol_reducing=bf.cons_vol_reducing,
+        pole_has_big_green=bf.pole_has_big_green,
     )

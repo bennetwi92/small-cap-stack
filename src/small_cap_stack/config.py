@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     bull_flag_max_pole: int = 8  # cap on the higher highs counted as the pole
     bull_flag_max_flag: int = 6  # max consolidation (flag) candles
     bull_flag_max_retracement: float = 0.50  # reject flags retracing > this fraction of the pole
+    # Pole wick quality (#132): reject a pole whose peak (highest-high) bar closed weakly — upper
+    # wick > this fraction of the bar's range. A clean thrust closes near its high; a wicky one
+    # (AHMA/VRXA) is a no-trade. Whether the pole holds a big green candle is recorded, not gated.
+    bull_flag_max_peak_wick: float = 0.50
     tick_size: float = 0.01  # min US price increment for names ≥ $1 (penny tick)
     entry_offset_ticks: int = 5  # entry = last complete consolidation high + 5 ticks ($0.05)
     # Entry staleness (#130): a break more than this many minutes after the scanner appearance reads

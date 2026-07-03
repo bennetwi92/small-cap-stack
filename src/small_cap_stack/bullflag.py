@@ -17,6 +17,9 @@ trader's annotated chart notes (`notes.md`):
 - **Volume**: the pole's peak bar volume **must exceed** the consolidation's peak bar volume (a hard
   constraint). Whether the consolidation volume is reducing (preferable) is recorded
   (``cons_vol_reducing``) but not gated — it may be flat.
+- **Wick**: the thrust's peak bar must **close strong** — its upper wick ≤ ``max_peak_wick`` of the
+  bar's range — else the pole is too wicky and rejected (AHMA/VRXA, #132). Whether the pole holds a
+  strong-bodied green candle is recorded (``pole_has_big_green``), not gated.
 
 Entry = **5 ticks above the high of the last complete consolidation candle** (decisions.md); the
 stop is the consolidation (flag) low. Pure and replayable over the cached raw bars, so the
@@ -53,6 +56,7 @@ class BullFlag:
     # (0, max_retracement] for a valid setup (flag_low is below the peak but held above the base).
     retracement: float
     cons_vol_reducing: bool  # consolidation volume is non-increasing (preferable, soft signal #127)
+    pole_has_big_green: bool  # pole contains a strong-bodied green candle (preferable, soft #132)
 
 
 def _find_pole_peak(bars: list[Bar], max_flag: int) -> int | None:
@@ -91,6 +95,21 @@ def _non_increasing(values: Sequence[float]) -> bool:
     return all(values[i] <= values[i - 1] for i in range(1, len(values)))
 
 
+def _upper_wick_frac(bar: Bar) -> float:
+    """Upper wick as a fraction of the bar's range (0 = closed at its high, → 1 = all upper wick).
+    A zero-range bar has no wick."""
+    rng = bar.high - bar.low
+    if rng <= 0:
+        return 0.0
+    return (bar.high - max(bar.open, bar.close)) / rng
+
+
+def _is_big_green(bar: Bar) -> bool:
+    """A strong-bodied green candle: green with a body >= half its range (#127 'big green')."""
+    rng = bar.high - bar.low
+    return classify(bar) == "green" and rng > 0 and (bar.close - bar.open) / rng >= 0.5
+
+
 def detect(
     bars: list[Bar],
     *,
@@ -98,6 +117,7 @@ def detect(
     max_pole: int = 8,
     max_flag: int = 6,
     max_retracement: float = 0.50,
+    max_peak_wick: float = 0.50,
     entry_offset: float = 0.05,
 ) -> BullFlag | None:
     """Detect a bull flag at the END of the series (the just-formed setup), else None."""
@@ -137,6 +157,9 @@ def detect(
     if max(b.volume for b in pole) <= max(b.volume for b in flag):
         return None  # consolidation volume matched/exceeded the pole -> not a clean flag
 
+    if _upper_wick_frac(bars[peak]) > max_peak_wick:
+        return None  # the thrust top is too wicky — closed well off its high (AHMA/VRXA) (#132)
+
     breakout = flag[-1].high
     return BullFlag(
         pole_len=pole_len,
@@ -146,6 +169,7 @@ def detect(
         stop=round(flag_low, 4),
         retracement=round(retracement, 4),
         cons_vol_reducing=_non_increasing([b.volume for b in flag]),
+        pole_has_big_green=any(_is_big_green(b) for b in pole),
     )
 
 
@@ -156,5 +180,6 @@ def detect_with_settings(bars: list[Bar], settings: Settings) -> BullFlag | None
         max_pole=settings.bull_flag_max_pole,
         max_flag=settings.bull_flag_max_flag,
         max_retracement=settings.bull_flag_max_retracement,
+        max_peak_wick=settings.bull_flag_max_peak_wick,
         entry_offset=settings.entry_offset_ticks * settings.tick_size,
     )
