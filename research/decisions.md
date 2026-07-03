@@ -100,6 +100,16 @@ and tunable. **Deferred (folded into #102):** surfacing *later* distinct intrada
 11:00/11:50, TSDD 12:20) as their own opportunities — that needs the move/pump segmentation #102 is
 chartered to decide, rather than a half-baked distinct-setup heuristic now.
 
+## Pole wick filter + big-green signal (DECISION 2026-07-03, #132 — from notes.md)
+"Too wicky → no trade" (AHMA/VRXA) is a hard reject on **pole quality**: the pole's **peak
+(highest-high) bar must close strong** — its upper wick (`high − max(open, close)`) must be
+≤ `bull_flag_max_peak_wick` (default **0.50**) of the bar's range. A pole is an up-thrust, so only
+the *upper* wick matters (a lower wick is a bought dip); the peak bar is the top of the thrust and
+shouldn't be a rejection candle. Colour-agnostic (uses `max(open, close)`), backcastable, tunable.
+The "≥1 big green candle in the pole" preference (from the #127 refinement) is elevated to a
+**recorded soft signal** `pole_has_big_green` (a green bar with body ≥ 50% of its range) — written
+to the analysis dataset, **not** gated.
+
 ## Bull-flag redefined (DECISION 2026-07-03, #127 — from notes.md)
 Reviewing the annotated charts against the engine, the trader's model of a setup differs materially
 from the earlier "≤2 green candles" pole. Redefined `bullflag.detect` (backcastable — recomputes

@@ -157,6 +157,29 @@ def test_cons_vol_reducing_recorded_not_gated() -> None:
     assert rising is not None and rising.cons_vol_reducing is False  # not gated, just recorded
 
 
+def test_wicky_peak_bar_rejected() -> None:
+    # The peak bar closes at 5.9, well below its 6.5 high: upper wick 0.6 / range 0.9 = 0.67 > 0.50.
+    wicky_peak = _bar(1, 5.7, 6.5, 5.6, 5.9, vol=2000)
+    assert detect([_LAUNCH, wicky_peak, _FLAG]) is None
+
+
+def test_peak_wick_at_boundary_accepted() -> None:
+    # Upper wick exactly 50% of range passes (rejected only when > max_peak_wick).
+    launch = _bar(0, 5.0, 5.8, 4.5, 5.7)
+    peak = _bar(1, 5.7, 6.5, 5.5, 6.0, vol=2000)  # upper wick 0.5 / range 1.0 = 0.50
+    assert detect([launch, peak, _FLAG]) is not None
+
+
+def test_pole_has_big_green_recorded_not_gated() -> None:
+    bf = detect(_SETUP)  # the pole's launch bar is a strong-bodied green
+    assert bf is not None and bf.pole_has_big_green is True
+    # A tiny-body launch + a red (but clean-closing) peak has no big green -> False, still valid.
+    launch = _bar(0, 5.6, 5.8, 4.6, 5.65)  # green body 0.05 / range 1.2 -> not "big"
+    red_peak = _bar(1, 6.4, 6.5, 5.6, 5.9, vol=2000)  # red higher high, small upper wick (0.1/0.9)
+    bf2 = detect([launch, red_peak, _FLAG])
+    assert bf2 is not None and bf2.pole_has_big_green is False
+
+
 def test_flag_longer_than_max_flag_rejected() -> None:
     launch = _bar(0, 5.0, 5.8, 3.0, 5.7)  # tall pole base so a 7-bar flag can stay < 50%
     flag = [
