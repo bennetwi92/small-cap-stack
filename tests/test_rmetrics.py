@@ -102,11 +102,20 @@ def test_same_bar_trigger_and_stop_counts_as_stopped() -> None:
     assert m.entry_index == 3 and m.stop_index == 3  # same-bar trigger+stop share the bar (#113)
 
 
-def test_pre_appearance_trigger_is_not_counted() -> None:
-    # The only breakout fires at +15min, but the symbol didn't appear until +17min. We can't take a
-    # move we weren't aware of (#99): it must read as setup-found, not triggered.
-    bars = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9)]  # triggers at bar 3 (+15min)
+def test_trigger_on_the_appearance_bar_counts() -> None:
+    # The breakout bar is [+15, +20); the symbol appeared at +17 — i.e. DURING that bar. Bar-close
+    # gate (#122): we'd appeared before it closed, so the break is takeable (matches how it trades).
+    bars = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9)]  # breakout bar 3
     appear = _T0 + timedelta(minutes=17)
+    m = compute_r_metrics(bars, _settings(), first_hit=appear)
+    assert m.triggered and m.entry_index == 3
+
+
+def test_trigger_bar_that_closed_before_appearance_is_not_counted() -> None:
+    # The only breakout bar closed at +20, but the symbol didn't appear until +25 — the move was
+    # already over, so it reads as setup-found, not triggered (#99/#122).
+    bars = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9)]  # breakout bar 3 closes at +20
+    appear = _T0 + timedelta(minutes=25)
     m = compute_r_metrics(bars, _settings(), first_hit=appear)
     assert m.setup_found and not m.triggered
     assert m.max_r is None

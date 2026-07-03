@@ -23,7 +23,7 @@ from datetime import datetime
 
 from .capture import Bar
 from .config import Settings
-from .rmetrics import compute_r_metrics
+from .rmetrics import bar_interval, compute_r_metrics
 
 
 @dataclass(frozen=True)
@@ -38,10 +38,17 @@ class ChartData:
     max_r: float | None
 
 
-def _bar_at_or_after(bars: list[Bar], t: datetime) -> int | None:
-    """Index of the first bar starting at/after ``t`` (where the appearance marker sits)."""
+def _bar_containing(bars: list[Bar], t: datetime) -> int | None:
+    """Index of the bar whose interval [start, start+bar) contains ``t`` — where the appearance
+    marker sits. A symbol that appeared mid-bar marks *that* bar, not the next one, matching the
+    bar-close entry gate (#122): the earlier "first bar at/after ``t``" drew the dot a bar late
+    (JEM: 08:45 vs the 08:40 consolidation bar). Falls back to the next bar for a ``t`` that lands
+    in a pre-market gap; None if ``t`` is after the last bar closes."""
+    interval = bar_interval(bars)
     for i, b in enumerate(bars):
-        if b.start >= t:
+        if b.start <= t < b.start + interval:
+            return i
+        if b.start > t:  # t fell in a gap before this bar (no bar covers it) -> mark this bar
             return i
     return None
 
@@ -76,7 +83,7 @@ def build_opportunity_chart(
         ],
         levels={"entry": rm.entry_trigger, "stop": rm.stop},
         markers={
-            "first_hit": _bar_at_or_after(bars, first_hit) if first_hit is not None else None,
+            "first_hit": _bar_containing(bars, first_hit) if first_hit is not None else None,
             "entry": rm.entry_index,
             "max_r": max_r_idx,
             "stop": rm.stop_index,

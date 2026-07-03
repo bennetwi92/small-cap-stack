@@ -70,6 +70,19 @@
     and the EOD markdown + Pages dashboard drop the `setups` column. `GateInputs.bull_flag` (the
     gate-engine input) is unrelated and unchanged.
 
+## Entry appearance-gate is bar-close granular (DECISION 2026-07-03, #122 — revises #99)
+The #99 appearance gate ("a setup may only *trigger* at/after the scanner hit") was implemented at
+**bar-start** granularity: reject a trigger bar whose `start < first_hit`. But the scanner ticks
+every 60s while bars are 5-min, so appearance almost always lands *inside* a bar — and when a symbol
+first appears **during the very breakout bar**, that bar's `start < first_hit`, so the entry was
+deferred to a later, worse setup (observed on SOXS/JEM). Revised to **bar-close**: reject a trigger
+bar only if it **closed at/before** `first_hit` (`bar.start + bar_interval <= first_hit`) — i.e. only
+a break provably over before we saw it. This credits "appeared during the breakout bar" as takeable
+(how it's actually traded) without ever crediting a move already finished. `bar_interval` is the
+series' modal bar spacing, so a pre-market gap doesn't over-credit across a missing bar. The chart
+appearance marker (`charts._bar_containing`) matches — it sits on the bar that *contains* `first_hit`,
+not the next one (fixes the JEM 08:45-vs-08:40 dot). Backcastable over collected bars.
+
 ## Bull-flag redefined (DECISION 2026-07-03, #127 — from notes.md)
 Reviewing the annotated charts against the engine, the trader's model of a setup differs materially
 from the earlier "≤2 green candles" pole. Redefined `bullflag.detect` (backcastable — recomputes
