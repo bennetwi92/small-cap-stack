@@ -273,10 +273,22 @@ function drawSelected() {
   loadReview(c); // pull this opportunity's saved note + annotations (if any)
 }
 
+// Fetch one trading day's chart payload. Prefers the never-overwritten per-date archive
+// (`charts/<date>.json`, #141), falling back to the dashboard's legacy single-day `charts.json`
+// when that day isn't archived yet — see the legacy-fallback note on init(). Both files are the
+// same `build_charts` payload, so the caller treats them identically.
+async function fetchDayCharts(date) {
+  const perDate = await fetchJson(`charts/${date}.json`);
+  if (perDate) return perDate;
+  const legacy = await fetchJson("charts.json");
+  if (legacy && legacy.trading_date === date) return legacy;
+  return perDate; // null -> "No opportunities for this date."
+}
+
 // Load a trading date's chart file, repopulate the symbol dropdown, and draw the first opportunity.
 async function loadDate(date) {
   clearChart("loading…");
-  chartsData = await fetchJson(`charts/${date}.json`);
+  chartsData = await fetchDayCharts(date);
   const list = (chartsData && chartsData.charts) || [];
   el("rv-symbol").innerHTML = list
     .map((c) => `<option value="${esc(c.opportunity_id)}">${esc(optionLabel(c))}</option>`)
@@ -631,7 +643,18 @@ function closeSheet() {
 
 async function init() {
   const index = await fetchJson("index.json");
-  const dates = (index && index.dates) || [];
+  let dates = (index && index.dates) || [];
+  // Legacy fallback: the review workbench navigates the per-date archive (index.json +
+  // charts/<date>.json) that the box publishes at EOD once it runs the #141 code. Before that
+  // archive exists — a box still on an older deploy, or simply before the first post-deploy close —
+  // only the dashboard's single-day charts.json is published. Rather than show a blank page, seed
+  // the date picker from that file so the most recent completed session is still reviewable (notes
+  // and annotations keep working; only multi-day navigation waits on the archive filling in).
+  if (!dates.length) {
+    const legacy = await fetchJson("charts.json");
+    if (legacy && legacy.trading_date && (legacy.charts || []).length)
+      dates = [{ date: legacy.trading_date }];
+  }
   const dateSel = el("rv-date");
   if (!dates.length) {
     dateSel.innerHTML = '<option>—</option>';
