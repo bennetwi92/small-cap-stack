@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>small-cap-stack · review workbench</title>
+    <meta name="robots" content="noindex" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="review">
+    <div class="rv-wrap">
+      <!-- Top control bar: date + symbol dropdowns with prev/next arrows (#142) -->
+      <header class="rv-top">
+        <select id="rv-date" class="rv-select rv-date" title="Trading date"></select>
+        <select id="rv-symbol" class="rv-select rv-symbol" title="Opportunity"></select>
+        <button id="rv-prev" class="secondary outline rv-arrow" title="Previous opportunity">‹</button>
+        <button id="rv-next" class="secondary outline rv-arrow" title="Next opportunity">›</button>
+      </header>
+
+      <!-- Chart fills the remaining height; keeps TradingView's native pan/zoom -->
+      <div id="rv-chart" class="rv-chart"></div>
+
+      <!-- Bottom strip: entry / stop / Max-R readout (notes + save land in #143) -->
+      <footer class="rv-bottom">
+        <span id="rv-readout" class="rv-readout muted">loading…</span>
+      </footer>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="review.js"></script>
+  </body>
+</html>
