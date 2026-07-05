@@ -24,6 +24,16 @@
       <!-- Chart fills the remaining height; keeps TradingView's native pan/zoom -->
       <div id="rv-chart" class="rv-chart"></div>
 
+      <!-- Annotation toolbar (#144): arm which element the next chart tap sets. -->
+      <div class="rv-tools" role="toolbar" aria-label="Annotation tools">
+        <button class="rv-tool" data-mode="pole" title="Mark the pole (two taps)">Pole</button>
+        <button class="rv-tool" data-mode="cons" title="Mark the consolidation (two taps)">Cons</button>
+        <button class="rv-tool" data-mode="entry" title="Set entry (one tap)">Entry</button>
+        <button class="rv-tool" data-mode="stop" title="Set stop (one tap)">Stop</button>
+        <button id="rv-clear" class="rv-tool rv-clear" title="Clear annotations">Clear</button>
+        <span id="rv-ann" class="rv-ann muted">tap a tool to draw</span>
+      </div>
+
       <!-- Bottom strip: entry / stop / Max-R readout + notes toggle (#143) -->
       <footer class="rv-bottom">
         <span id="rv-readout" class="rv-readout muted">loading…</span>

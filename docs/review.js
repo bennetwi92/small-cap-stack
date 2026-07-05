@@ -2,7 +2,8 @@
 // opportunities. Reads the same published JSON as the dashboard (#141): `index.json` for the
 // date/symbol navigation and per-date `charts/<date>.json` for the full-day (04:00–16:00 ET) bars.
 // No build step, no framework — plain fetch + DOM, reusing app.js's `buildChart` idiom. Write-back
-// (notes / annotations) is a follow-up (#143); this page is read + navigate only.
+// commits review JSON to the `review-data` branch: per-opportunity notes (#143) and tap-to-place
+// chart annotations (pole/consolidation/entry/stop) with an auto-computed Max R (#144).
 
 const REPO = "bennetwi92/small-cap-stack";
 const BRANCH = "dashboard-data";
@@ -34,6 +35,9 @@ const MK = {
   up: "#1a7f37", down: "#c0362c",
   entry: "#2f81f7", stop: "#c0362c", firstHit: "#8957e5", maxR: "#d4a72c",
   volUp: "rgba(26,127,55,0.5)", volDown: "rgba(192,54,44,0.5)",
+  // trader's annotations (#144) — solid lines so they read distinctly from the engine's dashed ones.
+  annEntry: "#3fb950", annStop: "#db6d28",
+  poleBand: "rgba(137,87,229,0.18)", consBand: "rgba(212,167,44,0.20)",
 };
 
 let chartsData = null; // last-fetched charts/<date>.json payload for the selected date
@@ -42,6 +46,98 @@ let candleSeries = null;
 let volumeSeries = null;
 let currentOpp = null; // the opportunity chart object currently drawn (for the notes sheet)
 const noteCache = new Map(); // opportunity_id -> loaded/saved review, so re-opening is instant
+
+// --- Annotations (#144) --------------------------------------------------------------------
+// The trader's read of the setup, drawn by tapping the chart: pole/consolidation time bands,
+// entry/stop price lines, and an auto-computed Max R. Held per drawn opportunity, persisted into
+// the review JSON's `annotations` block and round-tripped through the review-data branch.
+const emptyAnn = () => ({
+  pole: null, // { t0, t1, low, high }
+  consolidation: null, // { t0, t1, high, low }
+  entry: null, // price
+  stop: null, // price
+  entry_t: null, // epoch secs of the entry tap — needed to recompute Max R after a reload
+});
+let ann = emptyAnn();
+let armed = null; // which element the next chart tap sets: 'pole' | 'cons' | 'entry' | 'stop' | null
+let bandPending = null; // { mode, t0 } after the first of a band's two taps
+let annEntryLine = null; // createPriceLine handles, so we can remove/replace on change
+let annStopLine = null;
+let bandPrimitive = null; // BandPrimitive attached to the candle series (translucent bands)
+
+const round2 = (x) => Math.round(x * 100) / 100;
+
+// --- Translucent time-range bands via a Lightweight-Charts v4 series primitive --------------
+// Full-height rectangles spanning [t0, t1] on the time scale (pole = purple, consolidation =
+// amber). Coordinates are recomputed on every pan/zoom via updateAllViews() → paneView.update().
+class BandRenderer {
+  constructor(items) {
+    this._items = items;
+  }
+  draw(target) {
+    target.useBitmapCoordinateSpace((scope) => {
+      const ctx = scope.context;
+      const hr = scope.horizontalPixelRatio;
+      const h = scope.bitmapSize.height;
+      for (const it of this._items) {
+        const x1 = Math.min(it.x1, it.x2) * hr;
+        const x2 = Math.max(it.x1, it.x2) * hr;
+        ctx.fillStyle = it.color;
+        ctx.fillRect(x1, 0, Math.max(1, x2 - x1), h);
+      }
+    });
+  }
+}
+class BandPaneView {
+  constructor(source) {
+    this._source = source;
+    this._items = [];
+  }
+  update() {
+    const src = this._source;
+    const ts = src._chart && src._chart.timeScale();
+    if (!ts) {
+      this._items = [];
+      return;
+    }
+    this._items = src._bands
+      .map((b) => ({ x1: ts.timeToCoordinate(b.t0), x2: ts.timeToCoordinate(b.t1), color: b.color }))
+      .filter((it) => it.x1 !== null && it.x2 !== null);
+  }
+  renderer() {
+    return new BandRenderer(this._items);
+  }
+  zOrder() {
+    return "bottom"; // behind the candles
+  }
+}
+class BandPrimitive {
+  constructor() {
+    this._chart = null;
+    this._bands = [];
+    this._paneView = new BandPaneView(this);
+    this._requestUpdate = null;
+  }
+  attached(params) {
+    this._chart = params.chart;
+    this._requestUpdate = params.requestUpdate;
+  }
+  detached() {
+    this._chart = null;
+    this._requestUpdate = null;
+  }
+  updateAllViews() {
+    this._paneView.update();
+  }
+  paneViews() {
+    return [this._paneView];
+  }
+  setBands(bands) {
+    this._bands = bands;
+    this._paneView.update();
+    if (this._requestUpdate) this._requestUpdate();
+  }
+}
 
 // Compact "SYMBOL #run · 2.3R" option label, mirroring the dashboard's chart picker.
 function optionLabel(c) {
@@ -85,6 +181,13 @@ function buildChart(c) {
   candleSeries.setData(
     c.bars.map((b) => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c })),
   );
+
+  // Annotation layer (#144): fresh per opportunity — new series means the old handles are gone.
+  annEntryLine = null;
+  annStopLine = null;
+  bandPrimitive = new BandPrimitive();
+  candleSeries.attachPrimitive(bandPrimitive);
+  chartApi.subscribeClick(onChartClick);
 
   // Volume histogram overlaid on its own scale in the bottom ~20%, coloured by candle direction.
   const hasVolume = c.bars.some((b) => b.v != null);
@@ -154,15 +257,20 @@ function drawSelected() {
     clearChart("Chart library failed to load.");
     return;
   }
+  // Reset the annotation surface for the new opportunity before (re)building the chart.
+  ann = emptyAnn();
+  bandPending = null;
+  setArmed(null);
   if (!c) {
     currentOpp = null;
     clearChart("No opportunities for this date.");
-    loadNote(null);
+    loadReview(null);
+    updateAnnReadout();
     return;
   }
   buildChart(c);
   currentOpp = c;
-  loadNote(c); // pull this opportunity's saved note (if any) into the sheet
+  loadReview(c); // pull this opportunity's saved note + annotations (if any)
 }
 
 // Load a trading date's chart file, repopulate the symbol dropdown, and draw the first opportunity.
@@ -210,24 +318,49 @@ function setStatus(msg, kind) {
   s.className = "rv-save-status" + (kind ? " " + kind : " muted");
 }
 
-// Load an opportunity's saved note into the sheet. Public branch -> raw fetch, no auth needed;
-// 404 (or missing branch) simply means "no review yet" -> empty field. In-session cache first.
-async function loadNote(c) {
-  const note = el("rv-note");
+// Rebuild the annotation state from a review's persisted `annotations` block (tolerant of the
+// Phase-1 empty `{}` and of partially-drawn setups).
+function annFromJson(a) {
+  const out = emptyAnn();
+  if (!a) return out;
+  if (a.pole && a.pole.t0 != null && a.pole.t1 != null)
+    out.pole = { t0: a.pole.t0, t1: a.pole.t1, low: a.pole.low, high: a.pole.high };
+  if (a.consolidation && a.consolidation.t0 != null && a.consolidation.t1 != null)
+    out.consolidation = {
+      t0: a.consolidation.t0, t1: a.consolidation.t1,
+      high: a.consolidation.high, low: a.consolidation.low,
+    };
+  if (a.entry != null) out.entry = a.entry;
+  if (a.stop != null) out.stop = a.stop;
+  if (a.entry_t != null) out.entry_t = a.entry_t;
+  return out;
+}
+
+// Apply a loaded/cached review to the sheet + chart, but only if the user is still on this
+// opportunity (loads are async and they may have navigated away).
+function applyLoadedReview(c, review) {
+  if (!currentOpp || currentOpp.opportunity_id !== c.opportunity_id) return;
+  el("rv-note").value = (review && review.note) || "";
+  ann = annFromJson(review && review.annotations);
+  applyAnnotations();
+}
+
+// Load an opportunity's saved review (note + annotations). Public branch -> raw fetch, no auth
+// needed; 404 (or missing branch) simply means "no review yet" -> empty. In-session cache first.
+async function loadReview(c) {
   if (!c) {
-    note.value = "";
+    el("rv-note").value = "";
     el("rv-sheet-title").textContent = "Notes";
     setStatus("", null);
     return;
   }
   el("rv-sheet-title").textContent = optionLabel(c);
+  setStatus("", null);
   if (noteCache.has(c.opportunity_id)) {
-    note.value = noteCache.get(c.opportunity_id).note || "";
-    setStatus("", null);
+    applyLoadedReview(c, noteCache.get(c.opportunity_id));
     return;
   }
-  note.value = "";
-  setStatus("", null);
+  el("rv-note").value = "";
   const url =
     `https://raw.githubusercontent.com/${REPO}/${REVIEW_BRANCH}/` +
     `${reviewPath(c.opportunity_id)}?t=${Date.now()}`;
@@ -240,11 +373,157 @@ async function loadNote(c) {
     if (!res.ok) throw new Error(`load failed (${res.status})`);
     const review = await res.json();
     noteCache.set(c.opportunity_id, review);
-    if (currentOpp && currentOpp.opportunity_id === c.opportunity_id)
-      note.value = review.note || ""; // ignore if the user has since navigated away
+    applyLoadedReview(c, review);
   } catch (err) {
     setStatus(`Couldn't load saved note: ${err.message}`, "bad");
   }
+}
+
+// --- Tap-to-place annotations (#144) -------------------------------------------------------
+// A mode toolbar arms which element the next chart tap sets; entry/stop are horizontal price
+// lines (via coordinateToPrice), pole/consolidation are two-tap time ranges drawn as bands.
+
+function setArmed(mode) {
+  armed = mode;
+  for (const btn of document.querySelectorAll(".rv-tool")) {
+    btn.classList.toggle("armed", btn.dataset.mode === mode);
+  }
+  updateAnnReadout();
+}
+
+// Highest/lowest traded price across the bars inside a [t0, t1] band — the derived price extent we
+// persist alongside the time range (store-raw / compute-on-read), used later by the compare loop.
+function bandExtremes(t0, t1) {
+  const lo = Math.min(t0, t1);
+  const hi = Math.max(t0, t1);
+  let high = -Infinity;
+  let low = Infinity;
+  for (const b of currentOpp.bars) {
+    if (b.t < lo || b.t > hi) continue;
+    if (b.h > high) high = b.h;
+    if (b.l < low) low = b.l;
+  }
+  if (high === -Infinity) return null;
+  return { high, low, t0: lo, t1: hi };
+}
+
+// Live Max R from the drawn levels: (max high at/after the entry tap − entry) / (entry − stop).
+// Needs entry above stop (a long) and a known entry time; otherwise undefined.
+function computeMaxR() {
+  const { entry, stop, entry_t } = ann;
+  if (entry == null || stop == null || entry_t == null) return null;
+  const risk = entry - stop;
+  if (risk <= 0) return null;
+  let maxHigh = -Infinity;
+  for (const b of currentOpp.bars) {
+    if (b.t >= entry_t && b.h > maxHigh) maxHigh = b.h;
+  }
+  if (maxHigh === -Infinity) return null;
+  return (maxHigh - entry) / risk;
+}
+
+function onChartClick(param) {
+  if (!armed || !currentOpp || !candleSeries || !param.point) return;
+  const price = candleSeries.coordinateToPrice(param.point.y);
+  const time = chartApi.timeScale().coordinateToTime(param.point.x);
+  if (price == null || time == null) return;
+
+  if (armed === "entry") {
+    ann.entry = round2(price);
+    ann.entry_t = time;
+    setArmed(null);
+  } else if (armed === "stop") {
+    ann.stop = round2(price);
+    setArmed(null);
+  } else if (armed === "pole" || armed === "cons") {
+    if (!bandPending || bandPending.mode !== armed) {
+      bandPending = { mode: armed, t0: time }; // first tap: remember the start
+      updateAnnReadout();
+      return;
+    }
+    const ext = bandExtremes(bandPending.t0, time); // second tap: close the range
+    bandPending = null;
+    if (ext) {
+      if (armed === "pole") ann.pole = { t0: ext.t0, t1: ext.t1, low: ext.low, high: ext.high };
+      else ann.consolidation = { t0: ext.t0, t1: ext.t1, high: ext.high, low: ext.low };
+    }
+    setArmed(null);
+  }
+  applyAnnotations();
+}
+
+// Render the current annotations onto the chart: entry/stop price lines + pole/cons bands.
+function applyAnnotations() {
+  if (candleSeries) {
+    if (annEntryLine) {
+      candleSeries.removePriceLine(annEntryLine);
+      annEntryLine = null;
+    }
+    if (annStopLine) {
+      candleSeries.removePriceLine(annStopLine);
+      annStopLine = null;
+    }
+    if (ann.entry != null)
+      annEntryLine = candleSeries.createPriceLine({
+        price: ann.entry, color: MK.annEntry, lineStyle: 0, lineWidth: 2,
+        axisLabelVisible: true, title: "my entry",
+      });
+    if (ann.stop != null)
+      annStopLine = candleSeries.createPriceLine({
+        price: ann.stop, color: MK.annStop, lineStyle: 0, lineWidth: 2,
+        axisLabelVisible: true, title: "my stop",
+      });
+  }
+  if (bandPrimitive) {
+    const bands = [];
+    if (ann.pole) bands.push({ t0: ann.pole.t0, t1: ann.pole.t1, color: MK.poleBand });
+    if (ann.consolidation)
+      bands.push({ t0: ann.consolidation.t0, t1: ann.consolidation.t1, color: MK.consBand });
+    bandPrimitive.setBands(bands);
+  }
+  updateAnnReadout();
+}
+
+// Compact live status for the tools row: the pending-band hint, else my entry/stop/Max R.
+function updateAnnReadout() {
+  const out = el("rv-ann");
+  if (!out) return;
+  if (bandPending) {
+    out.innerHTML = `<span class="muted">tap ${bandPending.mode === "pole" ? "pole" : "cons"} end</span>`;
+    return;
+  }
+  if (armed) {
+    out.innerHTML = `<span class="muted">tap to set ${armed === "cons" ? "consolidation" : armed}</span>`;
+    return;
+  }
+  const r = computeMaxR();
+  const parts = [];
+  if (ann.entry != null) parts.push(`<span class="mk" style="color:${MK.annEntry}">e ${ann.entry}</span>`);
+  if (ann.stop != null) parts.push(`<span class="mk" style="color:${MK.annStop}">s ${ann.stop}</span>`);
+  if (r != null) parts.push(`<span class="mk" style="color:${MK.maxR}">${round2(r)}R</span>`);
+  out.innerHTML = parts.length ? parts.join("") : '<span class="muted">tap a tool to draw</span>';
+}
+
+// Wipe the current opportunity's annotations (leaves the note untouched).
+function clearAnnotations() {
+  ann = emptyAnn();
+  bandPending = null;
+  setArmed(null);
+  applyAnnotations();
+}
+
+// Build the review JSON's `annotations` block from the drawn levels, stamping the live Max R.
+// Only-set fields are emitted, so a partially-drawn setup round-trips faithfully.
+function serializeAnnotations() {
+  const a = {};
+  if (ann.pole) a.pole = { ...ann.pole };
+  if (ann.consolidation) a.consolidation = { ...ann.consolidation };
+  if (ann.entry != null) a.entry = ann.entry;
+  if (ann.stop != null) a.stop = ann.stop;
+  if (ann.entry_t != null) a.entry_t = ann.entry_t;
+  const r = computeMaxR();
+  if (r != null) a.max_r = round2(r);
+  return a;
 }
 
 // Ensure the review-data branch exists, creating it off DEFAULT_BRANCH's HEAD on first ever save.
@@ -304,7 +583,7 @@ async function saveNote() {
       symbol: c.symbol,
       trading_date: el("rv-date").value || String(c.opportunity_id).split(":")[0],
       note: el("rv-note").value,
-      annotations: {}, // filled in Phase 2 (#144)
+      annotations: serializeAnnotations(),
       updated_utc: new Date().toISOString(),
     };
     const body = {
@@ -370,6 +649,12 @@ el("rv-date").addEventListener("change", (e) => loadDate(e.target.value));
 el("rv-symbol").addEventListener("change", drawSelected);
 el("rv-prev").addEventListener("click", () => stepSymbol(-1));
 el("rv-next").addEventListener("click", () => stepSymbol(1));
+
+// Annotation toolbar (#144): each tool arms its element; tapping an armed tool again disarms.
+for (const btn of document.querySelectorAll(".rv-tool")) {
+  btn.addEventListener("click", () => setArmed(armed === btn.dataset.mode ? null : btn.dataset.mode));
+}
+el("rv-clear").addEventListener("click", clearAnnotations);
 
 // Notes sheet + write-back (#143).
 el("rv-pat").value = getPat(); // restore the phone-local token across reloads
