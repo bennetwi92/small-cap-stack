@@ -261,18 +261,19 @@ function buildChart(c) {
       axisLabelVisible: true, title: "stop",
     });
 
-  const at = (i) => c.bars[i] && c.bars[i].t;
+  // Markers carry epoch timestamps (#141) so they place correctly on the full-day series, whose
+  // indices differ from the run window's — use the time value directly.
   const m = c.markers;
   const markers = [];
   if (m.first_hit != null)
-    markers.push({ time: at(m.first_hit), position: "belowBar", color: MK.firstHit, shape: "circle", text: "scan" });
+    markers.push({ time: m.first_hit, position: "belowBar", color: MK.firstHit, shape: "circle", text: "scan" });
   if (m.entry != null)
-    markers.push({ time: at(m.entry), position: "belowBar", color: MK.entry, shape: "arrowUp", text: "entry" });
+    markers.push({ time: m.entry, position: "belowBar", color: MK.entry, shape: "arrowUp", text: "entry" });
   // Max-R marker only when there was a real favourable excursion (skip the 0R same-bar stop).
   if (m.max_r != null && c.max_r != null && c.max_r > 0)
-    markers.push({ time: at(m.max_r), position: "aboveBar", color: MK.maxR, shape: "circle", text: `${c.max_r}R` });
+    markers.push({ time: m.max_r, position: "aboveBar", color: MK.maxR, shape: "circle", text: `${c.max_r}R` });
   if (m.stop != null)
-    markers.push({ time: at(m.stop), position: "aboveBar", color: MK.stop, shape: "arrowDown", text: "stop" });
+    markers.push({ time: m.stop, position: "aboveBar", color: MK.stop, shape: "arrowDown", text: "stop" });
   markers.sort((a, b) => a.time - b.time); // lightweight-charts needs ascending marker times
   candleSeries.setMarkers(markers);
   chartApi.timeScale().fitContent();

@@ -104,6 +104,19 @@ def _all_bars(bars: pl.DataFrame, oid: str) -> list[Bar]:
     ]
 
 
+def day_chart_bars(bars: pl.DataFrame, oid: str, s: Settings) -> list[Bar]:
+    """A symbol's full trading-day 5-min bars, bounded to the chart window (#141).
+
+    ``[chart_start, capture_end)`` ET (04:00–16:00) — the un-clipped series the review workbench
+    renders, in contrast to :func:`symbol_runs` which windows bars per run for the analysis. Reuses
+    ``_all_bars`` (dedupe + sort) so it stays store-raw / compute-on-read."""
+    return [
+        b
+        for b in _all_bars(bars, oid)
+        if s.chart_start <= b.start.astimezone(ET).time() < s.capture_end
+    ]
+
+
 def _hit_times(scans: pl.DataFrame, oid: str) -> list[datetime]:
     if scans.is_empty():
         return []

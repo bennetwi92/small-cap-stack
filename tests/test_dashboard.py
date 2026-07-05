@@ -10,8 +10,12 @@ from small_cap_stack.config import Settings
 from small_cap_stack.dashboard import (
     StatusInputs,
     build_charts,
+    build_index,
     build_stats,
     build_status,
+    charts_path,
+    read_json,
+    upsert_index_date,
     write_json,
     write_json_if_changed,
 )
@@ -249,6 +253,162 @@ def test_build_charts_shape(tmp_path: Path) -> None:
 def test_build_charts_empty_store(tmp_path: Path) -> None:
     payload = build_charts(Store(tmp_path), _settings(), _DAY, _NOW)
     assert payload["charts"] == []
+
+
+# Full-day slicing (#141): the chart renders the whole trading day (04:00–16:00 ET), not the run
+# window the analysis measures. Times are UTC; ET is UTC-4 in summer, so 12:00Z = 08:00 ET.
+_FD_DAY = date(2026, 6, 29)
+_FD_HIT = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)  # scanner hit 10:00 ET
+
+
+def _seed_full_day(store: Store) -> None:
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": "2026-06-29:FDY",
+                "symbol": "FDY",
+                "con_id": 9,
+                "trading_date": _FD_DAY,
+                "first_seen_utc": _FD_HIT,
+                "first_rank": 0,
+            }
+        ],
+        partition_date=_FD_DAY,
+    )
+    store.append(
+        "scanner_hits",
+        [{"opportunity_id": "2026-06-29:FDY", "symbol": "FDY", "ts_utc": _FD_HIT, "rank": 0}],
+        partition_date=_FD_DAY,
+    )
+    # Two early bars (08:00 / 09:00 ET) sit *before* the run's lookback window (13:30Z), plus a
+    # 04:00 pre-market bar (08:00Z), one pre-open bar at 03:59 ET that must be excluded, and the
+    # run bars at 10:00/10:05 ET.
+    times = [
+        datetime(2026, 6, 29, 7, 59, tzinfo=UTC),  # 03:59 ET — before chart_start, excluded
+        datetime(2026, 6, 29, 8, 0, tzinfo=UTC),  # 04:00 ET — first bar of the day
+        datetime(2026, 6, 29, 12, 0, tzinfo=UTC),  # 08:00 ET
+        datetime(2026, 6, 29, 13, 0, tzinfo=UTC),  # 09:00 ET
+        _FD_HIT,  # 10:00 ET (run bar)
+        datetime(2026, 6, 29, 14, 5, tzinfo=UTC),  # 10:05 ET (run bar)
+    ]
+    store.append(
+        "bars",
+        [
+            {
+                "opportunity_id": "2026-06-29:FDY",
+                "symbol": "FDY",
+                "bar_start_utc": t,
+                "open": 5.0,
+                "high": 6.0,
+                "low": 4.9,
+                "close": 5.5,
+                "volume": 1e3,
+            }
+            for t in times
+        ],
+        partition_date=_FD_DAY,
+    )
+
+
+def test_build_charts_renders_full_day_not_run_window(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    _seed_full_day(store)
+    payload = build_charts(store, _settings(), _FD_DAY, _NOW)
+
+    chart = payload["charts"][0]
+    ts = [b["t"] for b in chart["bars"]]
+    # The 03:59 ET bar is dropped (before chart_start); the 04:00 ET bar and both early bars — which
+    # fall outside the run's [hit-30m, ...) window — are all present alongside the run bars.
+    assert int(datetime(2026, 6, 29, 7, 59, tzinfo=UTC).timestamp()) not in ts
+    assert int(datetime(2026, 6, 29, 8, 0, tzinfo=UTC).timestamp()) == ts[0]
+    assert int(datetime(2026, 6, 29, 12, 0, tzinfo=UTC).timestamp()) in ts
+    assert len(ts) == 5  # all but the excluded pre-04:00 bar
+    assert ts == sorted(ts)
+
+
+def _charts_payload() -> dict:
+    return {
+        "generated_utc": "t",
+        "trading_date": "2026-07-01",
+        "charts": [
+            {
+                "opportunity_id": "2026-07-01:AHMA",
+                "symbol": "AHMA",
+                "run": 1,
+                "run_count": 2,
+                "bars": [],
+                "levels": {},
+                "markers": {},
+                "triggered": True,
+                "stopped_out": False,
+                "max_r": 2.3,
+            },
+            {
+                "opportunity_id": "2026-07-01:AHMA#2",
+                "symbol": "AHMA",
+                "run": 2,
+                "run_count": 2,
+                "bars": [],
+                "levels": {},
+                "markers": {},
+                "triggered": False,
+                "stopped_out": False,
+                "max_r": None,
+            },
+        ],
+    }
+
+
+def test_build_index_projects_and_sorts_dates_newest_first() -> None:
+    older = {"generated_utc": "t", "trading_date": "2026-06-30", "charts": []}
+    idx = build_index([(date(2026, 6, 30), older), (date(2026, 7, 1), _charts_payload())], _NOW)
+
+    assert idx["generated_utc"] == _NOW.isoformat()
+    assert [d["date"] for d in idx["dates"]] == ["2026-07-01", "2026-06-30"]  # newest first
+    opps = idx["dates"][0]["opportunities"]
+    assert opps[0] == {
+        "opportunity_id": "2026-07-01:AHMA",
+        "symbol": "AHMA",
+        "run": 1,
+        "run_count": 2,
+        "triggered": True,
+        "max_r": 2.3,
+    }
+    assert opps[1]["run"] == 2 and opps[1]["max_r"] is None
+    assert idx["dates"][1]["opportunities"] == []
+
+
+def test_upsert_index_date_replaces_and_reorders() -> None:
+    base = build_index([(date(2026, 6, 30), {"charts": []})], _NOW)
+    updated = upsert_index_date(base, date(2026, 7, 1), _charts_payload(), _NOW)
+    assert [d["date"] for d in updated["dates"]] == ["2026-07-01", "2026-06-30"]
+
+    # Re-upserting the same date replaces (not duplicates) its entry.
+    again = upsert_index_date(updated, date(2026, 7, 1), {"charts": []}, _NOW)
+    dates = [d["date"] for d in again["dates"]]
+    assert dates == ["2026-07-01", "2026-06-30"] and dates.count("2026-07-01") == 1
+    assert again["dates"][0]["opportunities"] == []
+
+
+def test_upsert_index_date_from_missing_index() -> None:
+    idx = upsert_index_date(None, date(2026, 7, 1), _charts_payload(), _NOW)
+    assert [d["date"] for d in idx["dates"]] == ["2026-07-01"]
+    assert len(idx["dates"][0]["opportunities"]) == 2
+
+
+def test_charts_path_and_read_json_roundtrip(tmp_path: Path) -> None:
+    out = tmp_path / "dashboard"
+    p = charts_path(out, date(2026, 7, 1))
+    assert p == out / "charts" / "2026-07-01.json"
+
+    assert read_json(p) is None  # missing file
+    write_json(p, _charts_payload())
+    assert read_json(p)["trading_date"] == "2026-07-01"
+
+    bad = out / "bad.json"
+    bad.write_text("{not json")
+    assert read_json(bad) is None
 
 
 def test_write_json_atomic_and_valid(tmp_path: Path) -> None:

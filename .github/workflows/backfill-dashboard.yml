@@ -1,9 +1,11 @@
 name: backfill-dashboard
 
-# Phone-triggerable one-off: (re)generate the dashboard JSON (stats.json / charts.json) for a past
-# trading date, straight from the store in the app's docker volume. Use it when a day's EOD ran on
-# code that predated a dashboard feature (e.g. annotated charts, #113) so the artifact is missing —
-# rather than waiting for the next 16:30 ET EOD.
+# Phone-triggerable one-off: (re)generate the dashboard JSON (stats.json / charts.json / dated
+# charts/<date>.json + index.json) straight from the store in the app's docker volume. Use it for a
+# single past trading date whose EOD ran on code that predated a dashboard feature (e.g. annotated
+# charts #113) so its artifact is missing, or with `all: true` to backfill the whole archive at once
+# so the review workbench's date picker is populated from day one (#141) — rather than waiting for
+# the next 16:30 ET EOD.
 #
 # Runs on the SELF-HOSTED runner (on the box) so it can `docker exec` the app container, which owns
 # the store. Pure store-read + projection — no IBKR, no live state — so it's safe any time.
@@ -20,6 +22,11 @@ on:
         description: "Trading date to rebuild (YYYY-MM-DD). Blank = yesterday (ET)."
         required: false
         default: ""
+      all:
+        description: "Full-archive: dated charts + index for EVERY collected date (#141). Overrides date."
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: backfill-dashboard
@@ -27,10 +34,10 @@ concurrency:
 
 jobs:
   backfill:
-    name: regenerate dashboard JSON for a past day
+    name: regenerate dashboard JSON
     runs-on: [self-hosted, vps]
     steps:
-      - name: Regenerate stats.json + charts.json in the app container
+      - name: Regenerate dashboard JSON in the app container
         run: |
           set -euo pipefail
           cid="$(docker ps --filter 'name=small-cap-stack-app' --format '{{.ID}}' | head -1)"
@@ -39,7 +46,9 @@ jobs:
             exit 1
           fi
           args=""
-          if [ -n "${{ inputs.date }}" ]; then
+          if [ "${{ inputs.all }}" = "true" ]; then
+            args="--all"
+          elif [ -n "${{ inputs.date }}" ]; then
             args="--date ${{ inputs.date }}"
           fi
           docker exec "$cid" python -m small_cap_stack.dashboard_backfill $args

@@ -19,7 +19,13 @@ import polars as pl
 
 from .charts import build_opportunity_chart
 from .config import Settings
-from .report import EodReport, analysis_records, day_opportunities, symbol_runs
+from .report import (
+    EodReport,
+    analysis_records,
+    day_chart_bars,
+    day_opportunities,
+    symbol_runs,
+)
 from .storage import Store
 
 # (dataset, distinct-subset used for a meaningful count | None = raw rows are all distinct events)
@@ -130,11 +136,14 @@ def build_stats(report: EodReport, now: datetime) -> dict[str, Any]:
 def build_charts(
     store: Store, settings: Settings, trading_date: date, now: datetime
 ) -> dict[str, Any]:
-    """Per-opportunity annotated candlestick payloads for the dashboard (#113).
+    """Per-opportunity annotated candlestick payloads for the dashboard (#113, full-day #141).
 
-    Reuses the report's run segmentation (``symbol_runs``) so charts are drawn over exactly the same
-    per-run bar windows the analysis measures — one source of truth. Runs with no bars (e.g. bars
-    not yet captured) are skipped so the front-end only ever gets drawable series.
+    Reuses the report's run segmentation (``symbol_runs``) to compute each run's R-metrics over the
+    exact bar window the analysis measures — one source of truth — but draws the symbol's **full
+    trading day** (``day_chart_bars``, 04:00–16:00 ET) so the review workbench can pan the whole
+    session. Markers are timestamps into the run bars, which are a subset of the full day, so they
+    still land on the right candles. Runs with no run-window bars (e.g. bars not yet captured) are
+    skipped so the front-end only ever gets drawable series.
     """
     opps = day_opportunities(store, trading_date)
     charts: list[dict[str, Any]] = []
@@ -142,10 +151,13 @@ def build_charts(
         bars = store.read("bars")
         scans = store.read("scanner_hits")
         for row in opps.iter_rows(named=True):
+            full_day = day_chart_bars(bars, row["opportunity_id"], settings)
             for run in symbol_runs(row, bars, scans, settings):
                 if not run.bars:
                     continue
-                cd = build_opportunity_chart(run.bars, settings, first_hit=run.first_hit)
+                cd = build_opportunity_chart(
+                    run.bars, settings, first_hit=run.first_hit, chart_bars=full_day
+                )
                 charts.append(
                     {
                         "opportunity_id": run.seg_id,
@@ -160,6 +172,72 @@ def build_charts(
         "trading_date": trading_date.isoformat(),
         "charts": charts,
     }
+
+
+def _index_opportunities(charts_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Project a date's chart payload to its navigation entries (one per opportunity/run)."""
+    return [
+        {
+            "opportunity_id": c["opportunity_id"],
+            "symbol": c["symbol"],
+            "run": c["run"],
+            "run_count": c["run_count"],
+            "triggered": c["triggered"],
+            "max_r": c["max_r"],
+        }
+        for c in charts_payload["charts"]
+    ]
+
+
+def build_index(date_charts: list[tuple[date, dict[str, Any]]], now: datetime) -> dict[str, Any]:
+    """The review-workbench navigation index over every collected date (#141).
+
+    ``date_charts`` pairs each trading date with its :func:`build_charts` payload. Dates are sorted
+    newest-first so the date picker opens on the latest session; each date lists its opportunities
+    (mirroring the chart selection list). Used by the full-archive backfill."""
+    dates: list[dict[str, Any]] = [
+        {"date": d.isoformat(), "opportunities": _index_opportunities(cp)} for d, cp in date_charts
+    ]
+    dates.sort(key=lambda e: str(e["date"]), reverse=True)
+    return {"generated_utc": now.isoformat(), "dates": dates}
+
+
+def upsert_index_date(
+    existing: dict[str, Any] | None,
+    trading_date: date,
+    charts_payload: dict[str, Any],
+    now: datetime,
+) -> dict[str, Any]:
+    """Insert/replace one date in an existing index, keeping newest-first order (#141).
+
+    The live loop and per-date backfill refresh a single day without recomputing the archive: drop
+    any prior entry for ``trading_date``, append the fresh one, re-sort. A malformed/absent existing
+    index degrades to a one-date index."""
+    prior = existing.get("dates", []) if isinstance(existing, dict) else []
+    kept: list[dict[str, Any]] = [
+        e for e in prior if isinstance(e, dict) and e.get("date") != trading_date.isoformat()
+    ]
+    kept.append(
+        {"date": trading_date.isoformat(), "opportunities": _index_opportunities(charts_payload)}
+    )
+    kept.sort(key=lambda e: str(e["date"]), reverse=True)
+    return {"generated_utc": now.isoformat(), "dates": kept}
+
+
+def charts_path(dashboard_dir: Path, trading_date: date) -> Path:
+    """Path of the never-overwritten per-date chart file: ``<dir>/charts/<date>.json`` (#141)."""
+    return dashboard_dir / "charts" / f"{trading_date.isoformat()}.json"
+
+
+def read_json(path: Path) -> dict[str, Any] | None:
+    """Load a JSON object from ``path``; None if missing or unparsable (a fresh/absent index)."""
+    if not path.exists():
+        return None
+    try:
+        loaded = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
