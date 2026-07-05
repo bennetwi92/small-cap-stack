@@ -210,9 +210,12 @@ body.review {
   position: relative;
 }
 
-/* bottom strip: entry / stop / Max-R readout */
+/* bottom strip: entry / stop / Max-R readout + notes toggle */
 .rv-bottom {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 .rv-readout {
   display: flex;
@@ -220,7 +223,104 @@ body.review {
   gap: 0.35rem 0.9rem;
   align-items: center;
   font-size: 0.85rem;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .rv-readout .mk {
+  font-weight: 600;
+}
+.rv-notes-btn {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+  padding: 0.2rem 0.8rem;
+  font-size: 0.85rem;
+  line-height: 1.3;
+}
+
+/* --- notes sheet (#143): slides up over the chart; chart keeps its height when closed ------ */
+.rv-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 20;
+}
+.rv-scrim[hidden] {
+  display: none;
+}
+.rv-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 85dvh;
+  padding: 0.6rem 0.8rem;
+  padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  background: var(--pico-background-color);
+  border-top: 1px solid var(--pico-muted-border-color);
+  border-radius: 0.9rem 0.9rem 0 0;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+  transform: translateY(100%);
+  transition: transform 0.22s ease;
+}
+.rv-sheet.open {
+  transform: translateY(0);
+}
+.rv-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rv-sheet-title {
+  font-size: 0.95rem;
+}
+.rv-sheet-close {
+  width: auto;
+  margin: 0;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+.rv-pat {
+  margin: 0;
+  font-size: 0.85rem;
+}
+.rv-pat summary {
+  cursor: pointer;
+}
+.rv-pat-input {
+  margin: 0.4rem 0 0.2rem;
+}
+.rv-note {
+  margin: 0;
+  resize: none;
+  font-size: 0.95rem;
+}
+.rv-sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+.rv-save {
+  width: auto;
+  margin: 0;
+  flex: 0 0 auto;
+}
+.rv-save-status {
+  font-size: 0.85rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.rv-save-status.ok {
+  color: #1a7f37;
+  font-weight: 600;
+}
+.rv-save-status.bad {
+  color: #c0362c;
   font-weight: 600;
 }
