@@ -19,10 +19,21 @@ from __future__ import annotations
 
 import argparse
 from datetime import UTC, date, timedelta
+from typing import Any
+
+import polars as pl
 
 from .clock import now_et
 from .config import Settings, get_settings
-from .dashboard import build_charts, build_stats, write_json
+from .dashboard import (
+    build_charts,
+    build_index,
+    build_stats,
+    charts_path,
+    read_json,
+    upsert_index_date,
+    write_json,
+)
 from .logging import configure_logging, get_logger
 from .report import build_eod_report
 from .storage import Store
@@ -36,12 +47,25 @@ def _parse_date(raw: str | None) -> date:
     return date.fromisoformat(raw)
 
 
+def _collected_dates(store: Store) -> list[date]:
+    """Every trading date with a captured opportunity, ascending (store-raw / compute-on-read)."""
+    opps = store.read("opportunities")
+    if opps.is_empty() or "trading_date" not in opps.columns:
+        return []
+    vals = opps.select(pl.col("trading_date")).unique().to_series().to_list()
+    return sorted(d for d in vals if d is not None)
+
+
 def regenerate(
     trading_date: date,
     settings: Settings | None = None,
     store: Store | None = None,
 ) -> tuple[int, int]:
-    """Rebuild stats.json + charts.json for ``trading_date``; return (opportunities, charts)."""
+    """Rebuild one date's dashboard artifacts; return (opportunities, charts).
+
+    Writes ``stats.json`` + the legacy single-day ``charts.json`` (existing dashboard), the
+    never-overwritten ``charts/<date>.json``, and refreshes ``index.json`` for this date (#141).
+    """
     settings = settings or get_settings()
     store = store or Store(settings.data_dir)
     now_utc = now_et().astimezone(UTC)
@@ -52,6 +76,11 @@ def regenerate(
 
     charts = build_charts(store, settings, trading_date, now_utc)
     write_json(out / "charts.json", charts)
+    write_json(charts_path(out, trading_date), charts)
+    write_json(
+        out / "index.json",
+        upsert_index_date(read_json(out / "index.json"), trading_date, charts, now_utc),
+    )
 
     n_opps = len(report.analyses)
     n_charts = len(charts["charts"])
@@ -65,21 +94,75 @@ def regenerate(
     return n_opps, n_charts
 
 
+def regenerate_archive(
+    settings: Settings | None = None,
+    store: Store | None = None,
+) -> tuple[int, int]:
+    """Full-archive backfill: dated chart file per collected date + a complete index (#141).
+
+    Populates the review workbench's date picker from day one — enumerates every past date with
+    captured bars, writes each ``charts/<date>.json``, and rebuilds ``index.json`` across all of
+    them. Also refreshes the newest date's ``stats.json`` + legacy ``charts.json`` so the existing
+    single-day dashboard lands on the latest session. Returns (dates, total charts)."""
+    settings = settings or get_settings()
+    store = store or Store(settings.data_dir)
+    now_utc = now_et().astimezone(UTC)
+    out = settings.data_dir / "dashboard"
+
+    dates = _collected_dates(store)
+    date_charts: list[tuple[date, dict[str, Any]]] = []
+    total_charts = 0
+    for d in dates:
+        charts = build_charts(store, settings, d, now_utc)
+        write_json(charts_path(out, d), charts)
+        date_charts.append((d, charts))
+        total_charts += len(charts["charts"])
+
+    write_json(out / "index.json", build_index(date_charts, now_utc))
+
+    if dates:  # keep the legacy single-day dashboard on the newest session
+        latest = dates[-1]
+        report = build_eod_report(store, settings, latest)
+        write_json(out / "stats.json", build_stats(report, now_utc))
+        write_json(out / "charts.json", build_charts(store, settings, latest, now_utc))
+
+    log.info(
+        "dashboard.archive_backfill_done",
+        dates=len(dates),
+        charts=total_charts,
+        out=str(out),
+    )
+    return len(dates), total_charts
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m small_cap_stack.dashboard_backfill",
-        description="Regenerate dashboard stats.json + charts.json for a past trading date.",
+        description="Regenerate dashboard artifacts for a trading date (or the whole archive).",
     )
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
         "--date",
         metavar="YYYY-MM-DD",
         default=None,
         help="Trading date to rebuild (default: yesterday, ET).",
     )
+    group.add_argument(
+        "--all",
+        action="store_true",
+        help="Full-archive backfill: dated charts + index for every collected date.",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
     configure_logging(level=settings.log_level, json_logs=settings.json_logs)
+
+    if args.all:
+        n_dates, n_charts = regenerate_archive(settings)
+        print(  # noqa: T201 — a one-off CLI should report its result on stdout
+            f"backfilled dashboard archive: {n_dates} dates, {n_charts} charts"
+        )
+        return
 
     trading_date = _parse_date(args.date)
     n_opps, n_charts = regenerate(trading_date)

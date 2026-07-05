@@ -19,6 +19,9 @@ from .dashboard import (
     build_charts,
     build_stats,
     build_status,
+    charts_path,
+    read_json,
+    upsert_index_date,
     write_json,
     write_json_if_changed,
 )
@@ -179,10 +182,13 @@ class Application:
             log.warning("dashboard.refresh_failed")
 
     def _export_stats_charts(self, report: EodReport, now_utc: datetime) -> None:
-        """Write stats.json + charts.json for ``report`` (best-effort, content-diffed).
+        """Write stats.json + charts.json + the dated review payload for ``report``.
 
-        Shared by the EOD job and the tick refresh. Skips a report with no opportunities so a
-        non-trading day never overwrites the last completed session the dashboard shows all day.
+        Best-effort, content-diffed. Shared by the EOD job and the tick refresh. Skips a report with
+        no opportunities so a non-trading day never overwrites the last completed session the
+        dashboard shows all day. Besides the legacy single-day ``charts.json`` (existing dashboard),
+        it publishes the never-overwritten ``charts/<date>.json`` and refreshes ``index.json`` so
+        the review workbench (#141) can navigate back through every collected day.
         """
         if not self.settings.dashboard_enabled or not report.analyses:
             return
@@ -192,9 +198,14 @@ class Application:
         except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
             log.warning("dashboard.stats_write_failed")
         try:
+            charts = build_charts(self.store, self.settings, report.trading_date, now_utc)
+            write_json_if_changed(out / "charts.json", charts)  # legacy single-day file
+            write_json_if_changed(charts_path(out, report.trading_date), charts)
             write_json_if_changed(
-                out / "charts.json",
-                build_charts(self.store, self.settings, report.trading_date, now_utc),
+                out / "index.json",
+                upsert_index_date(
+                    read_json(out / "index.json"), report.trading_date, charts, now_utc
+                ),
             )
         except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
             log.warning("dashboard.charts_write_failed")

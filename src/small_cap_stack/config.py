@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     # news/fundamentals). The day's 5-min bars are fetched once in an end-of-day batch (#62) —
     # capture_end marks the last bar time we care about (regular close).
     capture_end: time = time(16, 0)
+    # Chart-start bound for the review workbench's full-day series (#140/#141): charts render the
+    # whole trading day `chart_start <= t < capture_end` ET (04:00–16:00), not just the run window.
+    chart_start: time = time(4, 0)
     tick_interval_sec: int = 60  # how often the scan/discovery loop runs
     eod_bars_duration: str = "1 D"  # reqHistoricalData duration for the EOD 5-min bar batch
     news_providers: str = "BRFG+DJ-N+DJNL"

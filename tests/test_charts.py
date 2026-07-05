@@ -1,7 +1,8 @@
-"""Tests for the annotated candlestick chart projection (#113).
+"""Tests for the annotated candlestick chart projection (#113, timestamp markers #141).
 
-The valuable, exhaustively-tested bit is the annotation math: every marker index must map to the
-correct bar over synthetic series (store-raw / compute-on-read means the rendering must be exact).
+The valuable, exhaustively-tested bit is the annotation math: every marker must carry the epoch
+timestamp of the correct bar over synthetic series (store-raw / compute-on-read means the rendering
+must be exact), and ``chart_bars`` must render a wider series without moving the markers.
 """
 
 from __future__ import annotations
@@ -22,6 +23,11 @@ def _bar(i: int, o: float, h: float, low: float, c: float, vol: float = 1e3):  #
     from small_cap_stack.capture import Bar
 
     return Bar(start=_T0 + timedelta(minutes=5 * i), open=o, high=h, low=low, close=c, volume=vol)
+
+
+def _ts(i: int) -> int:
+    """Epoch seconds of the 5-min bar at index ``i`` (what a marker on that bar should carry)."""
+    return int((_T0 + timedelta(minutes=5 * i)).timestamp())
 
 
 # Same bull flag as test_rmetrics: launch bar + one higher-high pole bar (heavier volume) + a red
@@ -58,8 +64,8 @@ def test_triggered_markers_map_to_bars() -> None:
     cd = build_opportunity_chart(bars, _settings())
     assert cd.triggered and not cd.stopped_out
     assert cd.levels == {"entry": 6.15, "stop": 5.6}
-    assert cd.markers["entry"] == 3
-    assert cd.markers["max_r"] == 4  # entry_index (3) + bars_to_max_r (1)
+    assert cd.markers["entry"] == _ts(3)
+    assert cd.markers["max_r"] == _ts(4)  # entry_index (3) + bars_to_max_r (1)
     assert cd.markers["stop"] is None
     assert cd.markers["first_hit"] is None  # no appearance supplied
 
@@ -72,16 +78,17 @@ def test_stopped_out_marks_the_stop_bar() -> None:
     ]
     cd = build_opportunity_chart(bars, _settings())
     assert cd.triggered and cd.stopped_out
-    assert cd.markers["entry"] == 3
-    assert cd.markers["stop"] == 4
+    assert cd.markers["entry"] == _ts(3)
+    assert cd.markers["stop"] == _ts(4)
 
 
 def test_same_bar_trigger_and_stop_share_the_index() -> None:
     bars = [*_SETUP, _bar(3, 5.7, 6.3, 5.4, 5.5)]  # trigger AND stop on bar 3
     cd = build_opportunity_chart(bars, _settings())
     assert cd.triggered and cd.stopped_out
-    assert cd.markers["entry"] == 3 and cd.markers["stop"] == 3
-    assert cd.markers["max_r"] == 3  # bars_to_max_r == 0 -> the 0R marker sits on the entry bar
+    assert cd.markers["entry"] == _ts(3) and cd.markers["stop"] == _ts(3)
+    # bars_to_max_r == 0 -> the 0R marker sits on the entry bar
+    assert cd.markers["max_r"] == _ts(3)
     assert cd.max_r == 0.0
 
 
@@ -107,13 +114,13 @@ def test_first_hit_marks_the_bar_that_contains_the_appearance() -> None:
     bars = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9)]  # bars at +0/+5/+10/+15 (5-min)
     # Appearance at +7 lands INSIDE bar 1 [+5, +10) -> marker on bar 1, not the next bar (#122).
     cd = build_opportunity_chart(bars, _settings(), first_hit=_T0 + timedelta(minutes=7))
-    assert cd.markers["first_hit"] == 1
+    assert cd.markers["first_hit"] == _ts(1)
     # A later mid-bar appearance marks its own bar.
     cd2 = build_opportunity_chart(bars, _settings(), first_hit=_T0 + timedelta(minutes=12))
-    assert cd2.markers["first_hit"] == 2
+    assert cd2.markers["first_hit"] == _ts(2)
     # Exactly on a bar start marks that bar (inclusive).
     cd_exact = build_opportunity_chart(bars, _settings(), first_hit=_T0 + timedelta(minutes=5))
-    assert cd_exact.markers["first_hit"] == 1
+    assert cd_exact.markers["first_hit"] == _ts(1)
 
 
 def test_first_hit_after_all_bars_is_null() -> None:
@@ -131,4 +138,29 @@ def test_first_hit_gates_the_entry_marker() -> None:
         _bar(4, 5.8, 7.0, 5.75, 6.9),  # +20: triggers here
     ]
     cd = build_opportunity_chart(bars, _settings(), first_hit=_T0 + timedelta(minutes=17))
-    assert cd.triggered and cd.markers["entry"] == 4
+    assert cd.triggered and cd.markers["entry"] == _ts(4)
+
+
+def test_chart_bars_renders_full_series_without_moving_markers() -> None:
+    # R-metrics are computed over the run window, but chart_bars renders a wider full-day series.
+    run = [
+        *_SETUP,
+        _bar(3, 5.7, 7.0, 5.7, 6.9),  # entry bar
+        _bar(4, 6.9, 7.64, 6.8, 7.5),  # Max R bar
+    ]
+    # A pre-open bar (-2) and a late bar (6) that exist in the full day but not the run window.
+    full_day = [_bar(-2, 4.0, 4.2, 3.9, 4.1), *run, _bar(6, 7.5, 7.6, 7.2, 7.3)]
+    cd = build_opportunity_chart(run, _settings(), chart_bars=full_day)
+
+    # The whole day is drawn…
+    assert [b["t"] for b in cd.bars] == [int(b.start.timestamp()) for b in full_day]
+    # …but the markers still carry the run bars' timestamps, landing on the right full-day candle.
+    assert cd.markers["entry"] == _ts(3)
+    assert cd.markers["max_r"] == _ts(4)
+    assert cd.levels == {"entry": 6.15, "stop": 5.6}
+
+
+def test_chart_bars_defaults_to_the_run_window() -> None:
+    bars = [_LAUNCH, _POLE]
+    cd = build_opportunity_chart(bars, _settings())
+    assert [b["t"] for b in cd.bars] == [int(b.start.timestamp()) for b in bars]

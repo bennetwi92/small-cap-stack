@@ -10,10 +10,13 @@ front-end needs to draw where the notional trade would have played out:
 - ``max_r`` — the bar that set peak favourable excursion (Max R);
 - ``stop`` — the bar whose low breached the stop (stop-first convention).
 
-The marker *indices* and the entry/stop price *levels* come straight from :func:`compute_r_metrics`,
-so the chart never re-derives the entry/stop/stop-first logic — one source of truth. Rendering
-itself is done client-side in the GitHub Pages dashboard (issue #70); this module only shapes the
-JSON. It stays offline-friendly (no broker, no plotting deps), so it runs in cloud dev.
+The marker indices and the entry/stop price *levels* come straight from :func:`compute_r_metrics`,
+so the chart never re-derives the entry/stop/stop-first logic — one source of truth. Markers are
+emitted as **epoch timestamps** (not array indices) so the front-end can place them on a bar series
+whose indices differ from the run window's — e.g. the review workbench's full-day series (#141),
+supplied via ``chart_bars``. Rendering itself is done client-side in the GitHub Pages dashboard
+(issue #70); this module only shapes the JSON. It stays offline-friendly (no broker, no plotting
+deps), so it runs in cloud dev.
 """
 
 from __future__ import annotations
@@ -32,7 +35,7 @@ class ChartData:
 
     bars: list[dict[str, float | int]]  # {"t": epoch_s, "o", "h", "l", "c", "v"} per 5-min bar
     levels: dict[str, float | None]  # {"entry": trigger, "stop": stop} — None when no setup formed
-    markers: dict[str, int | None]  # bar index per event: first_hit / entry / max_r / stop
+    markers: dict[str, int | None]  # epoch-s per event: first_hit / entry / max_r / stop (#141)
     triggered: bool
     stopped_out: bool
     max_r: float | None
@@ -53,15 +56,37 @@ def _bar_containing(bars: list[Bar], t: datetime) -> int | None:
     return None
 
 
+def _marker_ts(bars: list[Bar], idx: int | None) -> int | None:
+    """Resolve a marker index (into the run ``bars``) to its bar's epoch seconds, or None.
+
+    Emitting the timestamp — not the index — lets the front-end place the marker on *any* bar
+    series that shares these bars' start times (the run window, or the full trading day the review
+    workbench renders). The index still comes from :func:`compute_r_metrics`, so the R-metrics
+    engine stays the single source of truth; we only translate its coordinate."""
+    if idx is None or not 0 <= idx < len(bars):
+        return None
+    return int(bars[idx].start.timestamp())
+
+
 def build_opportunity_chart(
-    bars: list[Bar], settings: Settings, *, first_hit: datetime | None = None
+    bars: list[Bar],
+    settings: Settings,
+    *,
+    first_hit: datetime | None = None,
+    chart_bars: list[Bar] | None = None,
 ) -> ChartData:
-    """Shape one run's bars + trade annotations for the dashboard candlestick chart.
+    """Shape one run's trade annotations for the dashboard candlestick chart.
 
     ``first_hit`` gates the entry exactly as the EOD analysis does (#99): a setup may form in the
     pre-appearance lookback but may only *trigger* at/after the scanner appearance. The entry/stop
     levels are surfaced even when the setup never triggered (from the earliest actionable setup), so
     the chart still shows where a fill *would* have been.
+
+    R-metrics (levels + marker indices) are always computed over ``bars`` — the run window, so the
+    entry gate matches the analysis. ``chart_bars`` chooses the OHLC series actually drawn: pass the
+    symbol's **full trading day** to render the un-clipped review-workbench series (#141), leaving
+    the annotations correct because markers are emitted as timestamps into the shared bar times.
+    Defaults to ``bars`` (the legacy run-window chart).
     """
     rm = compute_r_metrics(bars, settings, first_hit=first_hit)
     max_r_idx = (
@@ -69,6 +94,8 @@ def build_opportunity_chart(
         if rm.entry_index is not None and rm.bars_to_max_r is not None
         else None
     )
+    first_hit_idx = _bar_containing(bars, first_hit) if first_hit is not None else None
+    render_bars = chart_bars if chart_bars is not None else bars
     return ChartData(
         bars=[
             {
@@ -79,14 +106,14 @@ def build_opportunity_chart(
                 "c": b.close,
                 "v": b.volume,
             }
-            for b in bars
+            for b in render_bars
         ],
         levels={"entry": rm.entry_trigger, "stop": rm.stop},
         markers={
-            "first_hit": _bar_containing(bars, first_hit) if first_hit is not None else None,
-            "entry": rm.entry_index,
-            "max_r": max_r_idx,
-            "stop": rm.stop_index,
+            "first_hit": _marker_ts(bars, first_hit_idx),
+            "entry": _marker_ts(bars, rm.entry_index),
+            "max_r": _marker_ts(bars, max_r_idx),
+            "stop": _marker_ts(bars, rm.stop_index),
         },
         triggered=rm.triggered,
         stopped_out=rm.stopped_out,
