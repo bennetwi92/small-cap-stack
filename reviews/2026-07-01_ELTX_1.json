@@ -3,7 +3,7 @@
   "opportunity_id": "2026-07-01:ELTX#1",
   "symbol": "ELTX",
   "trading_date": "2026-07-01",
-  "note": "This was okay entry. It pumped later in the day but this is just pure chance.",
+  "note": "This was okay entry. It pumped later in the day but this is just pure chance. It finished the day at >5.36 so this would have been the max R. Probably around 2-2.5",
   "no_trigger": false,
   "annotations": {
     "pole": {
@@ -23,5 +23,5 @@
     "entry_t": 1782914400,
     "max_r": 4.87
   },
-  "updated_utc": "2026-07-06T15:18:49.464Z"
+  "updated_utc": "2026-07-06T15:20:05.361Z"
 }
