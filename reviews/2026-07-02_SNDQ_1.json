@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-02:SNDQ#1",
+  "symbol": "SNDQ",
+  "trading_date": "2026-07-02",
+  "note": "Agree this was a no trigger",
+  "no_trigger": true,
+  "annotations": {},
+  "updated_utc": "2026-07-06T11:35:38.644Z"
+}
