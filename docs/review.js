@@ -66,6 +66,12 @@ let armed = null; // which element the next chart tap sets: 'pole' | 'cons' | 'e
 let bandPending = null; // { mode, t0 } after the first of a band's two taps
 let annEntryLine = null; // createPriceLine handles, so we can remove/replace on change
 let annStopLine = null;
+// Reviewer verdict (#155): "no trigger" means this wasn't a tradeable setup — distinct from the
+// engine's `triggered:false` (a valid setup that never reached entry). When set, the engine's
+// entry/stop context lines are dropped, the drawing toolbar is disabled, and no annotations apply.
+let noTrigger = false;
+let engineEntryLine = null; // handles for the engine's dashed entry/stop levels, so no-trigger can
+let engineStopLine = null; //   strip them and toggling the verdict off can restore them.
 let bandPrimitive = null; // BandPrimitive attached to the candle series (translucent bands)
 let drag = null; // in-flight drag of a placed level (UX #152): { kind, field, edge } or null
 const DRAG_HIT_PX = 16; // touch-friendly grab radius (CSS px) around a line/edge
@@ -251,16 +257,11 @@ function buildChart(c) {
   }
 
   // Entry-trigger + stop levels (shown even when the setup never triggered — where a fill'd be).
-  if (c.levels.entry != null)
-    candleSeries.createPriceLine({
-      price: c.levels.entry, color: MK.entry, lineStyle: 2, lineWidth: 1,
-      axisLabelVisible: true, title: "entry",
-    });
-  if (c.levels.stop != null)
-    candleSeries.createPriceLine({
-      price: c.levels.stop, color: MK.stop, lineStyle: 2, lineWidth: 1,
-      axisLabelVisible: true, title: "stop",
-    });
+  // A "no trigger" verdict strips these later via applyVerdict(); we always draw them here so the
+  // handles exist to restore when the verdict is toggled back off.
+  engineEntryLine = null;
+  engineStopLine = null;
+  restoreEngineLevels(c);
 
   const m = c.markers;
   const markers = [];
@@ -276,7 +277,37 @@ function buildChart(c) {
   candleSeries.setMarkers(markers);
   chartApi.timeScale().fitContent();
 
-  el("rv-readout").innerHTML =
+  renderReadout(c);
+}
+
+// (Re)draw the engine's dashed entry/stop context lines for chart `c`, keeping the handles so a
+// no-trigger verdict can remove them and toggling the verdict off can put them back.
+function restoreEngineLevels(c) {
+  if (!candleSeries || !c) return;
+  if (engineEntryLine == null && c.levels.entry != null)
+    engineEntryLine = candleSeries.createPriceLine({
+      price: c.levels.entry, color: MK.entry, lineStyle: 2, lineWidth: 1,
+      axisLabelVisible: true, title: "entry",
+    });
+  if (engineStopLine == null && c.levels.stop != null)
+    engineStopLine = candleSeries.createPriceLine({
+      price: c.levels.stop, color: MK.stop, lineStyle: 2, lineWidth: 1,
+      axisLabelVisible: true, title: "stop",
+    });
+}
+
+// Bottom-strip readout: engine entry/stop/Max-R, or a collapsed "no trigger" when the reviewer has
+// marked the opportunity as not a tradeable setup (entry/stop then aren't applicable).
+function renderReadout(c) {
+  const out = el("rv-readout");
+  if (!c) return;
+  if (noTrigger) {
+    out.innerHTML =
+      `<span class="mk" style="color:${MK.stop}">no trigger</span>` +
+      '<span class="muted">entry / stop N/A</span>';
+    return;
+  }
+  out.innerHTML =
     `<span class="mk" style="color:${MK.entry}">entry ${c.levels.entry ?? "—"}</span>` +
     `<span class="mk" style="color:${MK.stop}">stop ${c.levels.stop ?? "—"}</span>` +
     `<span class="mk" style="color:${MK.maxR}">Max R ${c.max_r != null ? c.max_r + "R" : "—"}</span>` +
@@ -303,6 +334,7 @@ function drawSelected() {
   }
   // Reset the annotation surface for the new opportunity before (re)building the chart.
   ann = emptyAnn();
+  noTrigger = false;
   bandPending = null;
   drag = null;
   setArmed(null);
@@ -315,7 +347,8 @@ function drawSelected() {
   }
   buildChart(c);
   currentOpp = c;
-  loadReview(c); // pull this opportunity's saved note + annotations (if any)
+  applyVerdict(); // reset the toolbar/verdict surface (a prior opp may have left it disabled)
+  loadReview(c); // pull this opportunity's saved note + annotations + verdict (if any)
 }
 
 // Load a trading date's chart file, repopulate the symbol dropdown, and draw the first opportunity.
@@ -386,8 +419,11 @@ function annFromJson(a) {
 function applyLoadedReview(c, review) {
   if (!currentOpp || currentOpp.opportunity_id !== c.opportunity_id) return;
   el("rv-note").value = (review && review.note) || "";
-  ann = annFromJson(review && review.annotations);
+  noTrigger = !!(review && review.no_trigger);
+  // A no-trigger opportunity carries no annotations (they were cleared when the verdict was set).
+  ann = noTrigger ? emptyAnn() : annFromJson(review && review.annotations);
   applyAnnotations();
+  applyVerdict();
 }
 
 // Load an opportunity's saved review (note + annotations). Public branch -> raw fetch, no auth
@@ -552,6 +588,10 @@ function applyAnnotations() {
 function updateAnnReadout() {
   const out = el("rv-ann");
   if (!out) return;
+  if (noTrigger) {
+    out.innerHTML = '<span class="muted">no trigger — entry / stop not applicable</span>';
+    return;
+  }
   if (bandPending) {
     out.innerHTML = `<span class="muted">tap ${bandPending.mode === "pole" ? "pole" : "cons"} end</span>`;
     return;
@@ -578,6 +618,49 @@ function clearAnnotations() {
   drag = null;
   setArmed(null);
   applyAnnotations();
+}
+
+// --- No-trigger verdict (#155) -------------------------------------------------------------
+// Reflect the current verdict on the chart + toolbar: strip the engine's entry/stop context lines
+// and disable the drawing tools while "no trigger" is set, restore them when it's cleared.
+function applyVerdict() {
+  const btn = el("rv-notrigger");
+  if (btn) {
+    btn.classList.toggle("armed", noTrigger);
+    btn.setAttribute("aria-pressed", noTrigger ? "true" : "false");
+  }
+  // Drawing tools (pole/cons/entry/stop/clear) are meaningless for a non-setup — grey them out.
+  for (const t of document.querySelectorAll(".rv-tool")) t.disabled = noTrigger;
+  if (candleSeries) {
+    if (noTrigger) {
+      if (engineEntryLine) {
+        candleSeries.removePriceLine(engineEntryLine);
+        engineEntryLine = null;
+      }
+      if (engineStopLine) {
+        candleSeries.removePriceLine(engineStopLine);
+        engineStopLine = null;
+      }
+    } else {
+      restoreEngineLevels(currentOpp);
+    }
+  }
+  renderReadout(currentOpp);
+  updateAnnReadout();
+}
+
+// Toggle the verdict. Turning it on clears every annotation — a "no trigger" opportunity has no
+// pole/consolidation/entry/stop to keep — and disarms any in-progress drawing.
+function toggleNoTrigger() {
+  noTrigger = !noTrigger;
+  if (noTrigger) {
+    ann = emptyAnn();
+    bandPending = null;
+    drag = null;
+    setArmed(null);
+    applyAnnotations();
+  }
+  applyVerdict();
 }
 
 // --- Drag-to-refine placed levels (UX #152) ------------------------------------------------
@@ -748,7 +831,8 @@ async function saveNote() {
       symbol: c.symbol,
       trading_date: el("rv-date").value || String(c.opportunity_id).split(":")[0],
       note: el("rv-note").value,
-      annotations: serializeAnnotations(),
+      no_trigger: noTrigger,
+      annotations: noTrigger ? {} : serializeAnnotations(),
       updated_utc: new Date().toISOString(),
     };
     const body = {
@@ -820,6 +904,7 @@ for (const btn of document.querySelectorAll(".rv-tool")) {
   btn.addEventListener("click", () => setArmed(armed === btn.dataset.mode ? null : btn.dataset.mode));
 }
 el("rv-clear").addEventListener("click", clearAnnotations);
+el("rv-notrigger").addEventListener("click", toggleNoTrigger);
 
 // Drag-to-refine (UX #152): our own pointer loop on the chart container. Listeners are attached
 // once here (the container is stable across opportunities); handlers read the live chart globals.
