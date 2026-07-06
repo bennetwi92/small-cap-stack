@@ -9,7 +9,7 @@ class ConnAction(Enum):
     """What the supervisor should do in response to a connectivity error code."""
 
     CONNECTIVITY_LOST = auto()  # 1100: TWS/Gateway <-> IBKR link down
-    RESUBSCRIBE = auto()  # 1101: link restored, market-data subscriptions LOST -> replay
+    RESUBSCRIBE = auto()  # 1101: link restored, subscriptions were lost (Phase-1: none to replay)
     DATA_OK = auto()  # 1102: link restored, subscriptions maintained
     IGNORE = auto()  # anything else
 
