@@ -234,6 +234,17 @@ body.review {
   border-color: #2f81f7;
   color: #fff;
 }
+.rv-tool:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* no-trigger verdict toggle (#152): amber "on" state, distinct from the blue armed draw tools */
+.rv-notrig.on {
+  background: #d4a72c;
+  border-color: #d4a72c;
+  color: #1a1a1a;
+  font-weight: 600;
+}
 .rv-clear {
   margin-left: 0.1rem;
 }

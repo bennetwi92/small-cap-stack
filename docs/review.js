@@ -57,12 +57,15 @@ const emptyAnn = () => ({
   entry: null, // price
   stop: null, // price
   entry_t: null, // epoch secs of the entry tap — needed to recompute Max R after a reload
+  no_trigger: false, // trader's verdict: the setup never triggered — entry/stop don't apply (#152)
 });
 let ann = emptyAnn();
 let armed = null; // which element the next chart tap sets: 'pole' | 'cons' | 'entry' | 'stop' | null
 let bandPending = null; // { mode, t0 } after the first of a band's two taps
 let annEntryLine = null; // createPriceLine handles, so we can remove/replace on change
 let annStopLine = null;
+let engEntryLine = null; // engine's proposed entry/stop lines — hidden when marked no-trigger (#152)
+let engStopLine = null;
 let bandPrimitive = null; // BandPrimitive attached to the candle series (translucent bands)
 
 const round2 = (x) => Math.round(x * 100) / 100;
@@ -154,6 +157,7 @@ function optionLabel(c) {
 // timestamp-placed markers + fitContent(). Markers carry epoch timestamps (#141) so they land on
 // the right bars of the full-day series even though its indices differ from the run window's.
 function buildChart(c) {
+  currentOpp = c; // applyAnnotations() below reads currentOpp.levels for the engine's price lines
   const LC = window.LightweightCharts;
   const container = el("rv-chart");
   if (chartApi) chartApi.remove();
@@ -185,6 +189,8 @@ function buildChart(c) {
   // Annotation layer (#144): fresh per opportunity — new series means the old handles are gone.
   annEntryLine = null;
   annStopLine = null;
+  engEntryLine = null;
+  engStopLine = null;
   bandPrimitive = new BandPrimitive();
   candleSeries.attachPrimitive(bandPrimitive);
   chartApi.subscribeClick(onChartClick);
@@ -206,17 +212,8 @@ function buildChart(c) {
     volumeSeries = null;
   }
 
-  // Entry-trigger + stop levels (shown even when the setup never triggered — where a fill'd be).
-  if (c.levels.entry != null)
-    candleSeries.createPriceLine({
-      price: c.levels.entry, color: MK.entry, lineStyle: 2, lineWidth: 1,
-      axisLabelVisible: true, title: "entry",
-    });
-  if (c.levels.stop != null)
-    candleSeries.createPriceLine({
-      price: c.levels.stop, color: MK.stop, lineStyle: 2, lineWidth: 1,
-      axisLabelVisible: true, title: "stop",
-    });
+  // Engine entry/stop levels are drawn by applyAnnotations() (below) so they can be suppressed
+  // in one place when the trader marks the opportunity no-trigger (#152).
 
   const m = c.markers;
   const markers = [];
@@ -231,6 +228,8 @@ function buildChart(c) {
   markers.sort((a, b) => a.time - b.time); // lightweight-charts needs ascending marker times
   candleSeries.setMarkers(markers);
   chartApi.timeScale().fitContent();
+
+  applyAnnotations(); // draw engine levels (and any current annotations) through the single render path
 
   el("rv-readout").innerHTML =
     `<span class="mk" style="color:${MK.entry}">entry ${c.levels.entry ?? "—"}</span>` +
@@ -333,6 +332,7 @@ function annFromJson(a) {
   if (a.entry != null) out.entry = a.entry;
   if (a.stop != null) out.stop = a.stop;
   if (a.entry_t != null) out.entry_t = a.entry_t;
+  if (a.no_trigger) out.no_trigger = true;
   return out;
 }
 
@@ -384,6 +384,7 @@ async function loadReview(c) {
 // lines (via coordinateToPrice), pole/consolidation are two-tap time ranges drawn as bands.
 
 function setArmed(mode) {
+  if (ann.no_trigger && (mode === "entry" || mode === "stop")) return; // levels don't apply here
   armed = mode;
   for (const btn of document.querySelectorAll(".rv-tool")) {
     btn.classList.toggle("armed", btn.dataset.mode === mode);
@@ -455,6 +456,29 @@ function onChartClick(param) {
 // Render the current annotations onto the chart: entry/stop price lines + pole/cons bands.
 function applyAnnotations() {
   if (candleSeries) {
+    // Engine's proposed entry/stop (dashed) — where a fill would have been. Hidden entirely once
+    // the trader marks the opportunity no-trigger, since no levels apply (#152).
+    if (engEntryLine) {
+      candleSeries.removePriceLine(engEntryLine);
+      engEntryLine = null;
+    }
+    if (engStopLine) {
+      candleSeries.removePriceLine(engStopLine);
+      engStopLine = null;
+    }
+    if (!ann.no_trigger && currentOpp) {
+      if (currentOpp.levels.entry != null)
+        engEntryLine = candleSeries.createPriceLine({
+          price: currentOpp.levels.entry, color: MK.entry, lineStyle: 2, lineWidth: 1,
+          axisLabelVisible: true, title: "entry",
+        });
+      if (currentOpp.levels.stop != null)
+        engStopLine = candleSeries.createPriceLine({
+          price: currentOpp.levels.stop, color: MK.stop, lineStyle: 2, lineWidth: 1,
+          axisLabelVisible: true, title: "stop",
+        });
+    }
+    // Trader's own entry/stop (solid) — likewise not applicable on a no-trigger call.
     if (annEntryLine) {
       candleSeries.removePriceLine(annEntryLine);
       annEntryLine = null;
@@ -463,12 +487,12 @@ function applyAnnotations() {
       candleSeries.removePriceLine(annStopLine);
       annStopLine = null;
     }
-    if (ann.entry != null)
+    if (!ann.no_trigger && ann.entry != null)
       annEntryLine = candleSeries.createPriceLine({
         price: ann.entry, color: MK.annEntry, lineStyle: 0, lineWidth: 2,
         axisLabelVisible: true, title: "my entry",
       });
-    if (ann.stop != null)
+    if (!ann.no_trigger && ann.stop != null)
       annStopLine = candleSeries.createPriceLine({
         price: ann.stop, color: MK.annStop, lineStyle: 0, lineWidth: 2,
         axisLabelVisible: true, title: "my stop",
@@ -481,7 +505,31 @@ function applyAnnotations() {
       bands.push({ t0: ann.consolidation.t0, t1: ann.consolidation.t1, color: MK.consBand });
     bandPrimitive.setBands(bands);
   }
+  updateNotrigUi();
   updateAnnReadout();
+}
+
+// Reflect the no-trigger verdict in the toolbar: highlight the toggle and disable the entry/stop
+// draw tools (no levels can be placed on a setup that never triggered).
+function updateNotrigUi() {
+  const btn = el("rv-notrig");
+  if (btn) btn.classList.toggle("on", ann.no_trigger);
+  for (const b of document.querySelectorAll('.rv-tool[data-mode="entry"], .rv-tool[data-mode="stop"]'))
+    b.disabled = ann.no_trigger;
+}
+
+// Toggle the trader's no-trigger verdict. Turning it on drops any placed entry/stop (they no
+// longer apply) and disarms those tools; pole/consolidation are left intact so the reviewer can
+// still mark why the breakout never came.
+function toggleNotrig() {
+  ann.no_trigger = !ann.no_trigger;
+  if (ann.no_trigger) {
+    ann.entry = null;
+    ann.stop = null;
+    ann.entry_t = null;
+    if (armed === "entry" || armed === "stop") setArmed(null);
+  }
+  applyAnnotations();
 }
 
 // Compact live status for the tools row: the pending-band hint, else my entry/stop/Max R.
@@ -494,6 +542,10 @@ function updateAnnReadout() {
   }
   if (armed) {
     out.innerHTML = `<span class="muted">tap to set ${armed === "cons" ? "consolidation" : armed}</span>`;
+    return;
+  }
+  if (ann.no_trigger) {
+    out.innerHTML = `<span class="mk" style="color:${MK.annStop}">no trigger</span>`;
     return;
   }
   const r = computeMaxR();
@@ -518,6 +570,10 @@ function serializeAnnotations() {
   const a = {};
   if (ann.pole) a.pole = { ...ann.pole };
   if (ann.consolidation) a.consolidation = { ...ann.consolidation };
+  if (ann.no_trigger) {
+    a.no_trigger = true;
+    return a; // entry/stop/Max R are not applicable on a no-trigger call
+  }
   if (ann.entry != null) a.entry = ann.entry;
   if (ann.stop != null) a.stop = ann.stop;
   if (ann.entry_t != null) a.entry_t = ann.entry_t;
@@ -650,10 +706,11 @@ el("rv-symbol").addEventListener("change", drawSelected);
 el("rv-prev").addEventListener("click", () => stepSymbol(-1));
 el("rv-next").addEventListener("click", () => stepSymbol(1));
 
-// Annotation toolbar (#144): each tool arms its element; tapping an armed tool again disarms.
-for (const btn of document.querySelectorAll(".rv-tool")) {
+// Annotation toolbar (#144): each draw tool arms its element; tapping an armed tool again disarms.
+for (const btn of document.querySelectorAll(".rv-tool[data-mode]")) {
   btn.addEventListener("click", () => setArmed(armed === btn.dataset.mode ? null : btn.dataset.mode));
 }
+el("rv-notrig").addEventListener("click", toggleNotrig); // no-trigger verdict toggle (#152)
 el("rv-clear").addEventListener("click", clearAnnotations);
 
 // Notes sheet + write-back (#143).
