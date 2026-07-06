@@ -180,13 +180,24 @@ def _news_for(news: pl.DataFrame, oid: str) -> tuple[list[datetime], int]:
     return dated, sub.height - len(dated)
 
 
+def _previous_trading_day(d: date) -> date:
+    """The prior weekday (skip Sat/Sun) — the last session before ``d`` (holidays aside, #163)."""
+    prev = d - timedelta(days=1)
+    while prev.weekday() >= 5:  # Saturday (5) / Sunday (6): markets closed
+        prev -= timedelta(days=1)
+    return prev
+
+
 def _news_recent(news_times: list[datetime], trading_date: date) -> bool:
-    """True if any news is dated today or yesterday (ET) relative to the trading date (#101).
+    """True if any news is dated within the gap since the last close, in ET (#101).
 
     A tighter recency signal than the 7-day `has_news`: 'was there a fresh catalyst?' rather than
-    'any story this week'. Compared in ET so a late-UTC print lands on the right market day."""
-    recent = {trading_date, trading_date - timedelta(days=1)}
-    return any(t.astimezone(ET).date() in recent for t in news_times)
+    'any story this week'. The window spans the previous *trading* day through the trade date
+    inclusive, so it catches a Friday catalyst AND weekend news ahead of a Monday gap — the most
+    common pre-Monday driver — which a plain today/yesterday window silently dropped (#163-C4).
+    Compared in ET so a late-UTC print lands on the right market day."""
+    earliest = _previous_trading_day(trading_date)
+    return any(earliest <= t.astimezone(ET).date() <= trading_date for t in news_times)
 
 
 def float_sources_for(funds: pl.DataFrame, oid: str) -> list[dict[str, Any]]:
