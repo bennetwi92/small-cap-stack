@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-02:OKLL",
+  "symbol": "OKLL",
+  "trading_date": "2026-07-02",
+  "note": "not brilliant trade. There was a longer drawn out section on the top of the pole.",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1782999600,
+      "t1": 1783000500,
+      "low": 5.1,
+      "high": 5.62
+    },
+    "consolidation": {
+      "t0": 1783000800,
+      "t1": 1783001100,
+      "high": 5.57,
+      "low": 5.41
+    },
+    "entry": 5.53,
+    "stop": 5.41,
+    "entry_t": 1783001400,
+    "max_r": 0
+  },
+  "updated_utc": "2026-07-06T16:03:00.198Z"
+}
