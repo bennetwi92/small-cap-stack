@@ -25,7 +25,12 @@ from .dashboard import (
     write_json,
     write_json_if_changed,
 )
-from .fundamentals import YFinanceFundamentals
+from .fundamentals import (
+    FMPFundamentals,
+    FundamentalsSource,
+    MultiFundamentals,
+    YFinanceFundamentals,
+)
 from .ibkr.subscriptions import SubscriptionRegistry
 from .ibkr.supervisor import ConnectionSupervisor
 from .ibkr.transport import IBKRTransport
@@ -60,12 +65,20 @@ class Application:
         self.scanner = Scanner(settings)
         self.store = Store(settings.data_dir)
         self.market_data = IBKRMarketData(self.transport.ib, settings)
+        # Float sources, listed high-priority first (the read side merges per-field by priority).
+        # FMP (#109) primary when a key is set; yfinance is the always-on fallback/short-interest.
+        fund_sources: list[FundamentalsSource] = []
+        if settings.fmp_api_key:
+            fund_sources.append(
+                FMPFundamentals(settings.fmp_api_key, timeout_sec=settings.fundamentals_timeout_sec)
+            )
+        fund_sources.append(YFinanceFundamentals(timeout_sec=settings.fundamentals_timeout_sec))
         self.capture = CaptureService(
             store=self.store,
             bars=self.market_data,
             news=self.market_data,
             settings=settings,
-            fundamentals=YFinanceFundamentals(timeout_sec=settings.fundamentals_timeout_sec),
+            fundamentals=MultiFundamentals(fund_sources),
         )
         self.heartbeat = Heartbeat(
             settings.healthchecks_ping_url, timeout_sec=settings.heartbeat_timeout_sec

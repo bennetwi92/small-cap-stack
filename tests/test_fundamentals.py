@@ -8,7 +8,16 @@ from pathlib import Path
 
 from small_cap_stack.capture import CaptureService
 from small_cap_stack.config import Settings
-from small_cap_stack.fundamentals import Fundamentals, _to_float, _to_int, from_info
+from small_cap_stack.fundamentals import (
+    FMPFundamentals,
+    Fundamentals,
+    MultiFundamentals,
+    _first_row,
+    _to_float,
+    _to_int,
+    from_fmp,
+    from_info,
+)
 from small_cap_stack.scanner import Candidate
 from small_cap_stack.storage import Store
 
@@ -72,13 +81,14 @@ class _NoNews:
         return []
 
 
-def _svc(tmp: Path, fund: Fundamentals | None) -> CaptureService:
+def _svc(tmp: Path, *funds: Fundamentals | None) -> CaptureService:
+    sources = [_FakeFundamentals(f) for f in funds]
     return CaptureService(
         store=Store(tmp),
         bars=_NoBars(),
         news=_NoNews(),
         settings=_settings(),
-        fundamentals=_FakeFundamentals(fund),
+        fundamentals=MultiFundamentals(sources),
     )
 
 
@@ -103,3 +113,95 @@ def test_capture_skips_fundamentals_when_none(tmp_path: Path) -> None:
         svc.on_scan_tick([Candidate(rank=0, symbol="AZI", con_id=1, exchange="NASDAQ")], now)
     )
     assert svc.store.read("fundamentals").is_empty()
+
+
+def test_capture_writes_one_row_per_source(tmp_path: Path) -> None:
+    # "Store raw" across sources: FMP + yfinance both answer -> two rows, one None dropped.
+    fmp = Fundamentals("AZI", 7_900_000, 12_000_000, None, "fmp")
+    yf = Fundamentals("AZI", 8_100_000, 12_000_000, 0.21, "yfinance")
+    svc = _svc(tmp_path, fmp, None, yf)
+    now = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
+    asyncio.run(
+        svc.on_scan_tick([Candidate(rank=0, symbol="AZI", con_id=1, exchange="NASDAQ")], now)
+    )
+
+    df = svc.store.read("fundamentals")
+    assert df.height == 2
+    assert set(df["source"].to_list()) == {"fmp", "yfinance"}
+
+
+# --- FMP mapping ---------------------------------------------------------------------------
+
+
+def test_from_fmp_full() -> None:
+    # short_percent stays None: FMP's freeFloat is % of outstanding, not short interest (#110).
+    row = {
+        "symbol": "AZI",
+        "floatShares": 7_900_000,
+        "outstandingShares": 12_000_000,
+        "freeFloat": 65.8,
+    }
+    assert from_fmp(row, "AZI") == Fundamentals("AZI", 7_900_000, 12_000_000, None, "fmp")
+
+
+def test_from_fmp_missing_and_bad_values() -> None:
+    f = from_fmp({"floatShares": None, "outstandingShares": "n/a"}, "NNBR")
+    assert f.float_shares is None
+    assert f.shares_outstanding is None
+    assert f.short_percent is None
+    assert f.source == "fmp"
+
+
+def test_first_row_variants() -> None:
+    assert _first_row([{"floatShares": 1}]) == {"floatShares": 1}  # list -> first
+    assert _first_row({"floatShares": 1}) == {"floatShares": 1}  # bare dict
+    assert _first_row([]) is None  # empty list
+    assert _first_row({"Error Message": "Invalid API KEY."}) is None  # error payload
+    assert _first_row("nope") is None  # unexpected type
+
+
+class _FMPStub(FMPFundamentals):
+    """FMPFundamentals with the network call replaced by a canned payload (or a raise)."""
+
+    def __init__(self, payload: object) -> None:
+        super().__init__(api_key="k")
+        self._payload = payload
+
+    def _get(self, symbol: str) -> object:
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+
+def _cand() -> Candidate:
+    return Candidate(rank=0, symbol="AZI", con_id=1, exchange="NASDAQ")
+
+
+def test_fmp_fetch_maps_list_payload() -> None:
+    src = _FMPStub([{"symbol": "AZI", "floatShares": 7_900_000, "outstandingShares": 12_000_000}])
+    f = asyncio.run(src.fetch(_cand()))
+    assert f == Fundamentals("AZI", 7_900_000, 12_000_000, None, "fmp")
+
+
+def test_fmp_fetch_error_payload_returns_none() -> None:
+    src = _FMPStub({"Error Message": "Invalid API KEY."})
+    assert asyncio.run(src.fetch(_cand())) is None
+
+
+def test_fmp_fetch_http_error_returns_none() -> None:
+    src = _FMPStub(RuntimeError("boom"))  # network hiccup / quota -> row simply absent
+    assert asyncio.run(src.fetch(_cand())) is None
+
+
+def test_fmp_fetch_no_key_returns_none() -> None:
+    assert asyncio.run(FMPFundamentals(api_key="").fetch(_cand())) is None
+
+
+def test_multi_fundamentals_collects_answering_sources() -> None:
+    fmp = Fundamentals("AZI", 7_900_000, 12_000_000, None, "fmp")
+    yf = Fundamentals("AZI", 8_100_000, 12_000_000, 0.21, "yfinance")
+    multi = MultiFundamentals(
+        [_FakeFundamentals(fmp), _FakeFundamentals(None), _FakeFundamentals(yf)]
+    )
+    out = asyncio.run(multi.fetch_all(_cand()))
+    assert {f.source for f in out} == {"fmp", "yfinance"}

@@ -41,6 +41,7 @@ services:
       IBKR_TRADING_MODE: ${IBKR_TRADING_MODE:-paper}
       IBKR_CLIENT_ID: ${IBKR_CLIENT_ID:-1}
       HEALTHCHECKS_PING_URL: ${HEALTHCHECKS_PING_URL:-}
+      FMP_API_KEY: ${FMP_API_KEY:-}  # float source (#109); unset -> yfinance-only
       JSON_LOGS: "true"
       METRICS_PORT: "9090"
       TZ: ${TZ:-America/New_York}

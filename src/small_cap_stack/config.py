@@ -114,6 +114,10 @@ class Settings(BaseSettings):
     fundamentals_timeout_sec: float = 10.0
     heartbeat_timeout_sec: float = 10.0
 
+    # Float source hardening (#109): FMP /shares-float, primary over yfinance on read. Unset →
+    # yfinance-only, nothing breaks. Free tier is 250 req/day, US stocks — ample at ~10 flags/day.
+    fmp_api_key: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
