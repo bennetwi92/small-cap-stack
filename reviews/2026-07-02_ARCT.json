@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-02:ARCT",
+  "symbol": "ARCT",
+  "trading_date": "2026-07-02",
+  "note": "Very wicky, the consolidation candle was quite unconvincing",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1782999000,
+      "t1": 1782999000,
+      "low": 7.32,
+      "high": 7.95
+    },
+    "consolidation": {
+      "t0": 1782999300,
+      "t1": 1782999300,
+      "high": 7.93,
+      "low": 7.61
+    },
+    "entry": 7.95,
+    "stop": 7.61,
+    "entry_t": 1782999600,
+    "max_r": 0.97
+  },
+  "updated_utc": "2026-07-06T15:38:02.591Z"
+}
