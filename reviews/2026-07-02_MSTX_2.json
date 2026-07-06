@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-02:MSTX#2",
+  "symbol": "MSTX",
+  "trading_date": "2026-07-02",
+  "note": "",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1782999000,
+      "t1": 1782999600,
+      "low": 9.27,
+      "high": 10.37
+    },
+    "consolidation": {
+      "t0": 1782999900,
+      "t1": 1783000500,
+      "high": 10.35,
+      "low": 10.03
+    },
+    "entry": 10.19,
+    "stop": 10.03,
+    "entry_t": 1783000800,
+    "max_r": 0.38
+  },
+  "updated_utc": "2026-07-06T16:12:18.426Z"
+}
