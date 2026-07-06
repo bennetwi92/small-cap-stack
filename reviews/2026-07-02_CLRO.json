@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-02:CLRO",
+  "symbol": "CLRO",
+  "trading_date": "2026-07-02",
+  "note": "it retraced too far back through the pole",
+  "no_trigger": true,
+  "annotations": {},
+  "updated_utc": "2026-07-06T15:34:07.096Z"
+}
