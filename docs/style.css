@@ -167,7 +167,9 @@ body.review {
   height: 100dvh;
   padding: 0.4rem 0.5rem;
   padding-top: max(0.4rem, env(safe-area-inset-top));
-  padding-bottom: max(0.4rem, env(safe-area-inset-bottom));
+  /* Android's 3-button nav bar reports no safe-area inset, so keep a real
+     bottom floor (~2rem) to lift the footer clear of the system bar. */
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
   gap: 0.4rem;
   box-sizing: border-box;
 }
@@ -299,7 +301,8 @@ body.review {
   gap: 0.5rem;
   max-height: 85dvh;
   padding: 0.6rem 0.8rem;
-  padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
+  /* Same Android nav-bar clearance as .rv-wrap so the Save button isn't buried. */
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
   box-sizing: border-box;
   background: var(--pico-background-color);
   border-top: 1px solid var(--pico-muted-border-color);
