@@ -592,33 +592,34 @@ function bandExtremes(t0, t1) {
   return { high, low, t0: lo, t1: hi };
 }
 
-// Live Max R from the drawn levels: (max high at/after the entry tap − entry) / (entry − stop).
-// Needs entry above stop (a long) and a known entry time; otherwise undefined. Uses the engine's
-// stop-first convention (rmetrics): once a bar's low breaches the stop the trade is closed on that
-// bar, so no later high is credited — otherwise a stop-then-rally reports an unrealisable Max R.
+// Live Max R from the drawn levels: (peak high after the fill − entry) / (entry − stop).
+// Needs entry above stop (a long); otherwise undefined. Entry is a horizontal price LEVEL, so Max R
+// must not depend on where along the x-axis the entry was tapped: the fill is the first bar *strictly
+// after the drawn consolidation* (its `t1`) whose high reaches the entry — i.e. the breakout bar, per
+// the strategy (entry = tick above the last consolidation candle's high, filled on the next break).
+// `entry_t` (the entry tap's x, not separately controllable) is only a fallback when no consolidation
+// is drawn. From the fill bar we use the engine's stop-first convention (rmetrics): once a bar's low
+// breaches the stop the trade is closed on that bar, so no later high is credited.
 function computeMaxR() {
   const { entry, stop, entry_t } = ann;
-  if (entry == null || stop == null || entry_t == null) return null;
+  if (entry == null || stop == null) return null;
   const risk = entry - stop;
   if (risk <= 0) return null;
-  let maxHigh = -Infinity;
-  let started = false;
-  for (const b of currentOpp.bars) {
-    if (b.t < entry_t) continue;
-    if (!started) {
-      // Entry bar: a same-bar stop (low already through the stop) credits no favourable excursion.
-      started = true;
-      if (b.l <= stop) {
-        maxHigh = entry;
-        break;
-      }
-      maxHigh = b.h;
-      continue;
+  const anchor = ann.consolidation?.t1 ?? entry_t;
+  if (anchor == null) return null;
+  const bars = currentOpp.bars;
+  // Fill = first bar after the consolidation whose high reaches the entry trigger. A break that
+  // never comes back to fill (or one only before the anchor) leaves Max R undefined.
+  const fill = bars.findIndex((b) => b.t > anchor && b.h >= entry);
+  if (fill === -1) return null;
+  // Fill bar: a same-bar stop (low already through the stop) credits no favourable excursion.
+  let maxHigh = bars[fill].l <= stop ? entry : bars[fill].h;
+  if (bars[fill].l > stop) {
+    for (const b of bars.slice(fill + 1)) {
+      if (b.l <= stop) break; // stop hit on a later bar — close before crediting this bar's high
+      if (b.h > maxHigh) maxHigh = b.h;
     }
-    if (b.l <= stop) break; // stop hit on a later bar — close before crediting this bar's high
-    if (b.h > maxHigh) maxHigh = b.h;
   }
-  if (maxHigh === -Infinity) return null;
   return (maxHigh - entry) / risk;
 }
 
