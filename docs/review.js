@@ -48,7 +48,39 @@ let chartApi = null; // LightweightCharts instance (recreated per drawn opportun
 let candleSeries = null;
 let volumeSeries = null;
 let currentOpp = null; // the opportunity chart object currently drawn (for the notes sheet)
+let currentDate = null; // the trading date currently loaded (to restore the picker on a cancelled nav)
 const noteCache = new Map(); // opportunity_id -> loaded/saved review, so re-opening is instant
+
+// Unsaved-changes tracking (#156): the review only persists on an explicit Save, and Save writes the
+// whole review (verdict + annotations + note), not just the note. Mark dirty on any user edit so the
+// Save controls can signal it and navigation can warn before discarding.
+let dirty = false;
+function markDirty() {
+  if (dirty) return;
+  dirty = true;
+  updateSaveState();
+}
+function markClean() {
+  dirty = false;
+  updateSaveState();
+}
+// Reflect dirty state on both Save controls: an amber tint + a "•" so unsaved work is obvious.
+function updateSaveState() {
+  const top = el("rv-save-top");
+  const sheet = el("rv-save");
+  if (top) {
+    top.textContent = dirty ? "Save •" : "Save";
+    top.classList.toggle("dirty", dirty);
+  }
+  if (sheet) {
+    sheet.textContent = dirty ? "Save review •" : "Save review";
+    sheet.classList.toggle("dirty", dirty);
+  }
+}
+// Guard a navigation that would discard unsaved edits; true = proceed.
+function confirmDiscard() {
+  return !dirty || window.confirm("Discard unsaved review changes?");
+}
 
 // --- Annotations (#144) --------------------------------------------------------------------
 // The trader's read of the setup, drawn by tapping the chart: pole/consolidation time bands,
@@ -332,12 +364,14 @@ function drawSelected() {
     clearChart("Chart library failed to load.");
     return;
   }
-  // Reset the annotation surface for the new opportunity before (re)building the chart.
+  // Reset the annotation surface for the new opportunity before (re)building the chart. A freshly
+  // loaded/reset opportunity starts clean; loadReview marks it clean again once its save resolves.
   ann = emptyAnn();
   noTrigger = false;
   bandPending = null;
   drag = null;
   setArmed(null);
+  markClean();
   if (!c) {
     currentOpp = null;
     clearChart("No opportunities for this date.");
@@ -353,6 +387,7 @@ function drawSelected() {
 
 // Load a trading date's chart file, repopulate the symbol dropdown, and draw the first opportunity.
 async function loadDate(date) {
+  currentDate = date;
   clearChart("loading…");
   chartsData = await fetchJson(`charts/${date}.json`);
   const list = (chartsData && chartsData.charts) || [];
@@ -367,6 +402,7 @@ function stepSymbol(delta) {
   const sel = el("rv-symbol");
   const n = sel.options.length;
   if (!n) return;
+  if (!confirmDiscard()) return; // keep the current opportunity if the user cancels
   sel.selectedIndex = (sel.selectedIndex + delta + n) % n;
   drawSelected();
 }
@@ -424,6 +460,7 @@ function applyLoadedReview(c, review) {
   ann = noTrigger ? emptyAnn() : annFromJson(review && review.annotations);
   applyAnnotations();
   applyVerdict();
+  markClean(); // just loaded persisted state — nothing unsaved
 }
 
 // Load an opportunity's saved review (note + annotations). Public branch -> raw fetch, no auth
@@ -545,6 +582,7 @@ function onChartClick(param) {
     }
     setArmed(null);
   }
+  markDirty();
   applyAnnotations();
 }
 
@@ -617,6 +655,7 @@ function clearAnnotations() {
   bandPending = null;
   drag = null;
   setArmed(null);
+  markDirty();
   applyAnnotations();
 }
 
@@ -660,6 +699,7 @@ function toggleNoTrigger() {
     setArmed(null);
     applyAnnotations();
   }
+  markDirty();
   applyVerdict();
 }
 
@@ -735,6 +775,7 @@ function onPointerMove(e) {
       }
     }
   }
+  markDirty();
   applyAnnotations();
   e.preventDefault();
 }
@@ -809,9 +850,11 @@ async function saveNote() {
     el("rv-pat").focus();
     return;
   }
-  const btn = el("rv-save");
-  btn.setAttribute("aria-busy", "true");
-  btn.disabled = true;
+  const btns = [el("rv-save"), el("rv-save-top")].filter(Boolean);
+  for (const b of btns) {
+    b.setAttribute("aria-busy", "true");
+    b.disabled = true;
+  }
   setStatus("Saving…", null);
   try {
     await ensureReviewBranch();
@@ -857,12 +900,15 @@ async function saveNote() {
       throw new Error(detail);
     }
     noteCache.set(c.opportunity_id, review);
+    markClean(); // persisted — clear the unsaved-changes signal
     setStatus("Saved ✓", "ok");
   } catch (err) {
     setStatus(`Save failed: ${err.message}`, "bad");
   } finally {
-    btn.removeAttribute("aria-busy");
-    btn.disabled = false;
+    for (const b of btns) {
+      b.removeAttribute("aria-busy");
+      b.disabled = false;
+    }
   }
 }
 
@@ -894,8 +940,22 @@ async function init() {
   await loadDate(dateSel.value);
 }
 
-el("rv-date").addEventListener("change", (e) => loadDate(e.target.value));
-el("rv-symbol").addEventListener("change", drawSelected);
+// Navigation guards (#156): a date/symbol change discards any unsaved review, so confirm first and
+// restore the picker to the current selection if the user cancels (setting .value fires no change).
+el("rv-date").addEventListener("change", (e) => {
+  if (!confirmDiscard()) {
+    e.target.value = currentDate;
+    return;
+  }
+  loadDate(e.target.value);
+});
+el("rv-symbol").addEventListener("change", (e) => {
+  if (!confirmDiscard()) {
+    if (currentOpp) e.target.value = currentOpp.opportunity_id;
+    return;
+  }
+  drawSelected();
+});
 el("rv-prev").addEventListener("click", () => stepSymbol(-1));
 el("rv-next").addEventListener("click", () => stepSymbol(1));
 
@@ -922,5 +982,16 @@ el("rv-notes-toggle").addEventListener("click", openSheet);
 el("rv-sheet-close").addEventListener("click", closeSheet);
 el("rv-scrim").addEventListener("click", closeSheet);
 el("rv-save").addEventListener("click", saveNote);
+// Save is also in the always-visible strip (#156) so a verdict/levels persist without opening Notes.
+el("rv-save-top").addEventListener("click", saveNote);
+// Typing a note is an unsaved edit too (programmatic value sets on load don't fire 'input').
+el("rv-note").addEventListener("input", markDirty);
+// Last-ditch guard: warn before a reload/close/back that would drop unsaved review edits.
+window.addEventListener("beforeunload", (e) => {
+  if (!dirty) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
+updateSaveState(); // paint the Save controls' initial (clean) label
 
 init();
