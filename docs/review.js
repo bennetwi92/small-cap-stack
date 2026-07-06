@@ -38,6 +38,9 @@ const MK = {
   // trader's annotations (#144) — solid lines so they read distinctly from the engine's dashed ones.
   annEntry: "#3fb950", annStop: "#db6d28",
   poleBand: "rgba(137,87,229,0.18)", consBand: "rgba(212,167,44,0.20)",
+  // opaque band-edge colours: bright vertical grab-handles at each band boundary so a placed band
+  // reads clearly and its edges are visibly draggable (UX #152). Also used for the pending-edge line.
+  poleEdge: "rgba(137,87,229,0.95)", consEdge: "rgba(212,167,44,0.98)",
 };
 
 let chartsData = null; // last-fetched charts/<date>.json payload for the selected date
@@ -64,6 +67,8 @@ let bandPending = null; // { mode, t0 } after the first of a band's two taps
 let annEntryLine = null; // createPriceLine handles, so we can remove/replace on change
 let annStopLine = null;
 let bandPrimitive = null; // BandPrimitive attached to the candle series (translucent bands)
+let drag = null; // in-flight drag of a placed level (UX #152): { kind, field, edge } or null
+const DRAG_HIT_PX = 16; // touch-friendly grab radius (CSS px) around a line/edge
 
 const round2 = (x) => Math.round(x * 100) / 100;
 
@@ -71,19 +76,39 @@ const round2 = (x) => Math.round(x * 100) / 100;
 // Full-height rectangles spanning [t0, t1] on the time scale (pole = purple, consolidation =
 // amber). Coordinates are recomputed on every pan/zoom via updateAllViews() → paneView.update().
 class BandRenderer {
-  constructor(items) {
+  constructor(items, pending) {
     this._items = items;
+    this._pending = pending; // { x, color } while the first edge of a two-tap band is placed
   }
   draw(target) {
     target.useBitmapCoordinateSpace((scope) => {
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
       const h = scope.bitmapSize.height;
+      const edgeW = Math.max(2, 2 * hr); // visible grab-handle width
       for (const it of this._items) {
         const x1 = Math.min(it.x1, it.x2) * hr;
         const x2 = Math.max(it.x1, it.x2) * hr;
         ctx.fillStyle = it.color;
         ctx.fillRect(x1, 0, Math.max(1, x2 - x1), h);
+        // Bright opaque edges: make the band's boundaries obvious and signal they're draggable.
+        ctx.fillStyle = it.edge;
+        ctx.fillRect(x1 - edgeW / 2, 0, edgeW, h);
+        ctx.fillRect(x2 - edgeW / 2, 0, edgeW, h);
+      }
+      // Pending first-tap edge: a dashed full-height line so you can see where edge 1 landed
+      // before committing edge 2 (UX #152 — was invisible until both taps were placed).
+      if (this._pending) {
+        const x = this._pending.x * hr;
+        ctx.save();
+        ctx.strokeStyle = this._pending.color;
+        ctx.lineWidth = Math.max(1, hr);
+        ctx.setLineDash([5 * hr, 4 * hr]);
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+        ctx.restore();
       }
     });
   }
@@ -92,20 +117,31 @@ class BandPaneView {
   constructor(source) {
     this._source = source;
     this._items = [];
+    this._pending = null;
   }
   update() {
     const src = this._source;
     const ts = src._chart && src._chart.timeScale();
     if (!ts) {
       this._items = [];
+      this._pending = null;
       return;
     }
     this._items = src._bands
-      .map((b) => ({ x1: ts.timeToCoordinate(b.t0), x2: ts.timeToCoordinate(b.t1), color: b.color }))
+      .map((b) => ({
+        x1: ts.timeToCoordinate(b.t0), x2: ts.timeToCoordinate(b.t1),
+        color: b.color, edge: b.edge,
+      }))
       .filter((it) => it.x1 !== null && it.x2 !== null);
+    if (src._pendingTime != null) {
+      const x = ts.timeToCoordinate(src._pendingTime);
+      this._pending = x == null ? null : { x, color: src._pendingColor };
+    } else {
+      this._pending = null;
+    }
   }
   renderer() {
-    return new BandRenderer(this._items);
+    return new BandRenderer(this._items, this._pending);
   }
   zOrder() {
     return "bottom"; // behind the candles
@@ -115,6 +151,8 @@ class BandPrimitive {
   constructor() {
     this._chart = null;
     this._bands = [];
+    this._pendingTime = null; // epoch secs of an in-progress first band-edge tap, or null
+    this._pendingColor = null;
     this._paneView = new BandPaneView(this);
     this._requestUpdate = null;
   }
@@ -134,6 +172,12 @@ class BandPrimitive {
   }
   setBands(bands) {
     this._bands = bands;
+    this._paneView.update();
+    if (this._requestUpdate) this._requestUpdate();
+  }
+  setPending(time, color) {
+    this._pendingTime = time;
+    this._pendingColor = color;
     this._paneView.update();
     if (this._requestUpdate) this._requestUpdate();
   }
@@ -260,6 +304,7 @@ function drawSelected() {
   // Reset the annotation surface for the new opportunity before (re)building the chart.
   ann = emptyAnn();
   bandPending = null;
+  drag = null;
   setArmed(null);
   if (!c) {
     currentOpp = null;
@@ -385,10 +430,23 @@ async function loadReview(c) {
 
 function setArmed(mode) {
   armed = mode;
+  // Disarming (or switching to a different tool) abandons a half-drawn band — drop its pending edge.
+  if (bandPending && bandPending.mode !== mode) bandPending = null;
   for (const btn of document.querySelectorAll(".rv-tool")) {
     btn.classList.toggle("armed", btn.dataset.mode === mode);
   }
+  renderPending();
   updateAnnReadout();
+}
+
+// Show/hide the dashed line marking the first tap of an in-progress two-tap band.
+function renderPending() {
+  if (!bandPrimitive) return;
+  if (bandPending) {
+    bandPrimitive.setPending(bandPending.t0, bandPending.mode === "pole" ? MK.poleEdge : MK.consEdge);
+  } else {
+    bandPrimitive.setPending(null, null);
+  }
 }
 
 // Highest/lowest traded price across the bars inside a [t0, t1] band — the derived price extent we
@@ -438,11 +496,13 @@ function onChartClick(param) {
   } else if (armed === "pole" || armed === "cons") {
     if (!bandPending || bandPending.mode !== armed) {
       bandPending = { mode: armed, t0: time }; // first tap: remember the start
+      renderPending(); // show a dashed edge line so the first tap is visible immediately
       updateAnnReadout();
       return;
     }
     const ext = bandExtremes(bandPending.t0, time); // second tap: close the range
     bandPending = null;
+    renderPending();
     if (ext) {
       if (armed === "pole") ann.pole = { t0: ext.t0, t1: ext.t1, low: ext.low, high: ext.high };
       else ann.consolidation = { t0: ext.t0, t1: ext.t1, high: ext.high, low: ext.low };
@@ -476,9 +536,13 @@ function applyAnnotations() {
   }
   if (bandPrimitive) {
     const bands = [];
-    if (ann.pole) bands.push({ t0: ann.pole.t0, t1: ann.pole.t1, color: MK.poleBand });
+    if (ann.pole)
+      bands.push({ t0: ann.pole.t0, t1: ann.pole.t1, color: MK.poleBand, edge: MK.poleEdge });
     if (ann.consolidation)
-      bands.push({ t0: ann.consolidation.t0, t1: ann.consolidation.t1, color: MK.consBand });
+      bands.push({
+        t0: ann.consolidation.t0, t1: ann.consolidation.t1,
+        color: MK.consBand, edge: MK.consEdge,
+      });
     bandPrimitive.setBands(bands);
   }
   updateAnnReadout();
@@ -501,6 +565,9 @@ function updateAnnReadout() {
   if (ann.entry != null) parts.push(`<span class="mk" style="color:${MK.annEntry}">e ${ann.entry}</span>`);
   if (ann.stop != null) parts.push(`<span class="mk" style="color:${MK.annStop}">s ${ann.stop}</span>`);
   if (r != null) parts.push(`<span class="mk" style="color:${MK.maxR}">${round2(r)}R</span>`);
+  // Once something is placed, remind that lines/edges can be dragged to refine (UX #152).
+  const draggable = ann.entry != null || ann.stop != null || ann.pole || ann.consolidation;
+  if (draggable) parts.push('<span class="muted rv-hint">drag to adjust</span>');
   out.innerHTML = parts.length ? parts.join("") : '<span class="muted">tap a tool to draw</span>';
 }
 
@@ -508,7 +575,105 @@ function updateAnnReadout() {
 function clearAnnotations() {
   ann = emptyAnn();
   bandPending = null;
+  drag = null;
   setArmed(null);
+  applyAnnotations();
+}
+
+// --- Drag-to-refine placed levels (UX #152) ------------------------------------------------
+// Lightweight-Charts price lines / primitives aren't natively interactive, so we run our own
+// pointer loop over the chart container: grab the nearest entry/stop line (vertical drag) or
+// pole/consolidation band edge (horizontal drag) within DRAG_HIT_PX and move it live. Chart
+// pan/zoom is suspended for the duration so the drag doesn't scroll the view underneath.
+
+// Pointer position in chart-container CSS px.
+function chartXY(e) {
+  const rect = el("rv-chart").getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+// Nearest draggable level under (x, y), within the grab radius — or null. Entry/stop are matched
+// by vertical distance to their price line; band edges by horizontal distance to t0/t1.
+function pickDragTarget(x, y) {
+  if (!candleSeries || !chartApi) return null;
+  const ts = chartApi.timeScale();
+  const cands = [];
+  for (const field of ["entry", "stop"]) {
+    if (ann[field] == null) continue;
+    const yc = candleSeries.priceToCoordinate(ann[field]);
+    if (yc != null) cands.push({ kind: "price", field, dist: Math.abs(yc - y) });
+  }
+  for (const [field, band] of [["pole", ann.pole], ["cons", ann.consolidation]]) {
+    if (!band) continue;
+    for (const edge of ["t0", "t1"]) {
+      const xc = ts.timeToCoordinate(band[edge]);
+      if (xc != null) cands.push({ kind: "edge", field, edge, dist: Math.abs(xc - x) });
+    }
+  }
+  let best = null;
+  for (const c of cands) {
+    if (c.dist > DRAG_HIT_PX) continue;
+    if (!best || c.dist < best.dist) best = c;
+  }
+  return best;
+}
+
+const bandOf = (field) => (field === "pole" ? ann.pole : ann.consolidation);
+
+function onPointerDown(e) {
+  // Arming mode owns taps (tap-to-place); only refine by drag when nothing is armed.
+  if (armed || (e.button != null && e.button !== 0)) return;
+  const { x, y } = chartXY(e);
+  const target = pickDragTarget(x, y);
+  if (!target) return;
+  drag = target;
+  chartApi.applyOptions({ handleScroll: false, handleScale: false }); // freeze pan/zoom while dragging
+  const chartEl = el("rv-chart");
+  if (chartEl.setPointerCapture) chartEl.setPointerCapture(e.pointerId);
+  chartEl.classList.add("rv-dragging");
+  e.preventDefault();
+}
+
+function onPointerMove(e) {
+  if (!drag) return;
+  const { x, y } = chartXY(e);
+  if (drag.kind === "price") {
+    const p = candleSeries.coordinateToPrice(y);
+    if (p != null) ann[drag.field] = round2(p);
+  } else {
+    const t = chartApi.timeScale().coordinateToTime(x);
+    const band = bandOf(drag.field);
+    if (t != null && band) {
+      band[drag.edge] = t; // move just this edge; keep raw order, normalise on release
+      const ext = bandExtremes(band.t0, band.t1); // refresh the derived high/low for the new span
+      if (ext) {
+        band.high = ext.high;
+        band.low = ext.low;
+      }
+    }
+  }
+  applyAnnotations();
+  e.preventDefault();
+}
+
+function endDrag(e) {
+  if (!drag) return;
+  if (drag.kind === "edge") {
+    const band = bandOf(drag.field);
+    const ext = bandExtremes(band.t0, band.t1); // normalise t0<=t1 and finalise extremes
+    if (ext) Object.assign(band, ext);
+  }
+  drag = null;
+  chartApi.applyOptions({ handleScroll: true, handleScale: true });
+  const chartEl = el("rv-chart");
+  if (e && e.pointerId != null && chartEl.releasePointerCapture) {
+    try {
+      chartEl.releasePointerCapture(e.pointerId);
+    } catch (_) {
+      /* pointer already released */
+    }
+  }
+  chartEl.classList.remove("rv-dragging");
   applyAnnotations();
 }
 
@@ -655,6 +820,15 @@ for (const btn of document.querySelectorAll(".rv-tool")) {
   btn.addEventListener("click", () => setArmed(armed === btn.dataset.mode ? null : btn.dataset.mode));
 }
 el("rv-clear").addEventListener("click", clearAnnotations);
+
+// Drag-to-refine (UX #152): our own pointer loop on the chart container. Listeners are attached
+// once here (the container is stable across opportunities); handlers read the live chart globals.
+const rvChart = el("rv-chart");
+rvChart.addEventListener("pointerdown", onPointerDown);
+rvChart.addEventListener("pointermove", onPointerMove);
+rvChart.addEventListener("pointerup", endDrag);
+rvChart.addEventListener("pointercancel", endDrag);
+rvChart.addEventListener("pointerleave", endDrag);
 
 // Notes sheet + write-back (#143).
 el("rv-pat").value = getPat(); // restore the phone-local token across reloads

@@ -211,6 +211,10 @@ body.review {
   min-height: 0;
   position: relative;
 }
+/* while dragging a placed level (UX #152): grabbing cursor on desktop */
+.rv-chart.rv-dragging {
+  cursor: grabbing;
+}
 
 /* annotation toolbar (#144): compact mode buttons + a live readout, one row */
 .rv-tools {
@@ -250,6 +254,11 @@ body.review {
 }
 .rv-ann .mk {
   font-weight: 600;
+}
+/* "drag to adjust" affordance hint — quieter than the level readouts */
+.rv-ann .rv-hint {
+  font-size: 0.72rem;
+  opacity: 0.75;
 }
 
 /* bottom strip: entry / stop / Max-R readout + notes toggle */
