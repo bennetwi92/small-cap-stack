@@ -163,9 +163,11 @@ class Application:
         SCAN_TICKS.inc()
         await self.heartbeat.ping()  # dead-man's switch: process is alive
         now = now_et()
-        if self.transport.is_connected() and within_window(
-            now, self.settings.scan_start, self.settings.scan_end
-        ):
+        # Refresh the gauge every tick so it tracks warm disconnects too (the daily Gateway restart
+        # and data-farm outages), not just the cold-disconnect path that alerts (#163-C2).
+        connected = self.transport.is_connected()
+        IBKR_CONNECTED.set(1 if connected else 0)
+        if connected and within_window(now, self.settings.scan_start, self.settings.scan_end):
             candidates = await self.scanner.scan(self.transport.ib)
             log.info(
                 "scan.candidates", count=len(candidates), symbols=[c.symbol for c in candidates]

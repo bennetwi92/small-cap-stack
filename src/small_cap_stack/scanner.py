@@ -8,6 +8,7 @@ post-filters applied downstream (the gate engine, #15), not scanner parameters.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Protocol
 
 from ib_async import ScannerSubscription, TagValue
@@ -80,7 +81,10 @@ class Scanner:
 
     async def scan(self, client: ScannerClient) -> list[Candidate]:
         sub, filters = build_subscription(self.settings)
-        rows = await client.reqScannerDataAsync(sub, [], filters)
+        # Bound the request like every other IBKR call: a hung scanner would otherwise wedge the
+        # tick forever and (max_instances=1) silently skip all later ticks (#163-C2).
+        async with asyncio.timeout(self.settings.ibkr_request_timeout_sec):
+            rows = await client.reqScannerDataAsync(sub, [], filters)
         candidates = [_to_candidate(r) for r in rows[: self.settings.scan_max_rows]]
         log.info("scan.results", count=len(candidates))
         return candidates

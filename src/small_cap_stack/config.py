@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     ibkr_host: str = "127.0.0.1"
     ibkr_port: int = 4002  # Gateway paper 4002 / live 4001; TWS 7497 / 7496
     ibkr_client_id: int = 1
+    # After an *unclean* disconnect the Gateway can hold the old client id for tens of seconds, so a
+    # reconnect on the same id fails with error 326. Rotate across a small pool of ids on successive
+    # connect attempts so a reconnect sidesteps a still-held id (Phase-1 places no orders, so the id
+    # need not be stable). Steady state uses ibkr_client_id; only a stuck id bumps up (#163-C2).
+    ibkr_client_id_pool: int = 4
+    ibkr_connect_timeout_sec: float = 15.0  # bound the connectAsync handshake
     ibkr_trading_mode: str = "paper"  # paper | live
 
     # Storage (DuckDB + Parquet — issue #7). DuckDB is opened in-memory over the Parquet globs.
@@ -113,6 +119,9 @@ class Settings(BaseSettings):
     ibkr_request_timeout_sec: float = 30.0
     fundamentals_timeout_sec: float = 10.0
     heartbeat_timeout_sec: float = 10.0
+    # Spacing between successive historical requests in the EOD/back-fill batch, to stay clear of
+    # the IBKR pacing limit (< 60 historical requests / 10 min) on heavy days (#163-C2).
+    ibkr_hist_pacing_sec: float = 0.2
 
     # Float source hardening (#109): FMP /shares-float, primary over yfinance on read. Unset →
     # yfinance-only, nothing breaks. Free tier is 250 req/day, US stocks — ample at ~10 flags/day.

@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from ib_async import ScannerSubscription, TagValue
 
 from small_cap_stack.config import Settings
@@ -77,3 +78,21 @@ def test_scan_maps_and_truncates() -> None:
     assert result[0] == Candidate(
         rank=0, symbol="SYM0", con_id=1000, exchange="NASDAQ", currency="USD", sec_type="STK"
     )
+
+
+def test_scan_times_out_on_a_hung_request() -> None:
+    # A hung scanner request must not wedge the tick forever (with APScheduler max_instances=1 that
+    # would silently skip every later tick) — it is bounded like every other IBKR call (#163-C2).
+    class HungClient:
+        async def reqScannerDataAsync(
+            self,
+            subscription: ScannerSubscription,
+            scannerSubscriptionOptions: Sequence[TagValue] = (),
+            scannerSubscriptionFilterOptions: Sequence[TagValue] = (),
+        ) -> list[Any]:
+            await asyncio.sleep(1)
+            return []
+
+    scanner = Scanner(_settings(ibkr_request_timeout_sec=0.05))
+    with pytest.raises(TimeoutError):
+        asyncio.run(scanner.scan(HungClient()))

@@ -14,7 +14,16 @@ from small_cap_stack.ibkr import (
     SubscriptionRegistry,
     classify_connection_error,
 )
-from small_cap_stack.ibkr.transport import build_supervisor
+from small_cap_stack.ibkr.transport import (
+    IBKRTransport,
+    build_supervisor,
+    client_id_for_attempt,
+)
+
+
+def _settings(**overrides: object) -> Settings:
+    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
+
 
 # --- RetryPolicy ------------------------------------------------------------------------
 
@@ -88,6 +97,57 @@ def test_build_supervisor_wires_real_transport() -> None:
     # Constructs the ib_async-backed transport + supervisor offline (no connect).
     sup = build_supervisor(Settings(_env_file=None))  # type: ignore[call-arg]
     assert isinstance(sup, ConnectionSupervisor)
+
+
+# --- IBKRTransport (offline: monkeypatched ib) ------------------------------------------
+
+
+def test_client_id_for_attempt_cycles_pool() -> None:
+    assert [client_id_for_attempt(1, a, 4) for a in range(6)] == [1, 2, 3, 4, 1, 2]
+    assert client_id_for_attempt(5, 7, 1) == 5  # a pool of 1 never rotates
+
+
+def test_data_farm_error_1100_makes_transport_not_connected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Error 1100 (data farm down) leaves the API socket open, so is_connected() must still report
+    # "not connected" — else the tick scans a dead feed (#163-C2). 1102/1101 restore it.
+    t = IBKRTransport(_settings())
+    monkeypatch.setattr(t.ib, "isConnected", lambda: True)  # pretend the socket is up
+    assert t.is_connected() is True
+    t._on_ib_error(-1, 1100, "connectivity between IB and TWS lost")
+    assert t.is_connected() is False  # socket up but the feed is dead
+    t._on_ib_error(-1, 1102, "connectivity restored, data maintained")
+    assert t.is_connected() is True
+
+
+def test_connect_rotates_client_id_across_retries_and_resets_on_resync() -> None:
+    async def scenario() -> None:
+        t = IBKRTransport(_settings(ibkr_client_id=1, ibkr_client_id_pool=4))
+        used: list[int] = []
+
+        async def fake_connect(host: str, port: int, *, clientId: int, timeout: float) -> None:
+            used.append(clientId)  # simulate the supervisor retrying a still-held id
+
+        async def fake_orders() -> list[object]:
+            return []
+
+        async def fake_positions() -> list[object]:
+            return []
+
+        t.ib.connectAsync = fake_connect  # type: ignore[method-assign]
+        t.ib.reqAllOpenOrdersAsync = fake_orders  # type: ignore[method-assign]
+        t.ib.reqPositionsAsync = fake_positions  # type: ignore[method-assign]
+
+        await t.connect()
+        await t.connect()
+        await t.connect()
+        assert used == [1, 2, 3]  # rotated to sidestep the held id
+        await t.resync()  # a successful resync resets the rotation
+        await t.connect()
+        assert used[-1] == 1  # back to the base id for the next reconnect
+
+    asyncio.run(scenario())
 
 
 def test_connects_runs_on_connect_then_stops() -> None:
