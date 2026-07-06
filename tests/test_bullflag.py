@@ -147,6 +147,37 @@ def test_consolidation_volume_must_be_below_the_pole() -> None:
     assert detect([_LAUNCH, _POLE, equal_flag]) is None
 
 
+def test_volume_gate_is_on_the_pole_peak_bar_not_max_pole_volume() -> None:
+    # The pole's LAUNCH bar traded heavy (5000) but its PEAK (thrust) bar was light (400); the flag
+    # (1000) out-trades the peak bar. The gate is on the peak bar's volume, so this is rejected even
+    # though the max volume across the pole exceeds the flag (#163).
+    heavy_launch = _bar(0, 5.0, 5.8, 4.6, 5.7, vol=5000)
+    light_peak = _bar(1, 5.7, 6.5, 5.6, 6.4, vol=400)
+    flag = _bar(2, 6.4, 6.1, 5.6, 5.7, vol=1000)
+    assert detect([heavy_launch, light_peak, flag]) is None
+    # If the peak bar itself out-trades the flag it passes (the heavier launch is irrelevant).
+    heavy_peak = _bar(1, 5.7, 6.5, 5.6, 6.4, vol=2000)
+    assert detect([heavy_launch, heavy_peak, flag]) is not None
+
+
+def test_dominant_peak_not_shadowed_by_internal_uptick() -> None:
+    # A clean thrust to 7.0 (the dominant peak) then a messy pullback that ticks back UP (6.3 -> 6.0
+    # -> 6.2 -> 5.85). The old nearest-peak search mistook the 6.2 up-tick for the pole peak,
+    # forging a tiny 6.0->6.2 pole and passing; the correct behaviour takes the dominant 7.0 high,
+    # so the pullback fails the lower-highs gate and the setup is rejected (#163).
+    bars = [
+        _bar(0, 4.8, 5.0, 4.6, 4.9),
+        _bar(1, 4.9, 5.5, 4.8, 5.4, vol=2000),
+        _bar(2, 5.4, 6.0, 5.3, 5.9, vol=2000),
+        _bar(3, 5.9, 7.0, 5.8, 6.9, vol=2000),  # dominant peak
+        _bar(4, 6.9, 6.3, 5.0, 6.1),  # flag
+        _bar(5, 6.1, 6.0, 5.0, 5.9),  # flag
+        _bar(6, 6.0, 6.2, 5.8, 6.1, vol=1500),  # up-tick (6.0 -> 6.2): the old buggy peak pick
+        _bar(7, 6.1, 5.85, 5.7, 5.8, vol=1000),  # flag
+    ]
+    assert detect(bars) is None
+
+
 def test_cons_vol_reducing_recorded_not_gated() -> None:
     f1 = _bar(2, 6.4, 6.3, 5.7, 5.9, vol=1500)  # high 6.3
     f2_down = _bar(3, 5.9, 6.0, 5.6, 5.7, vol=1000)  # lower high, lower volume

@@ -176,6 +176,20 @@ def test_entry_beyond_staleness_window_is_faded() -> None:
     assert compute_r_metrics(bars, _settings(), first_hit=None).triggered
 
 
+def test_gap_up_entry_fills_at_open_not_trigger() -> None:
+    # The trigger bar OPENS at 7.00 — above the 6.15 entry trigger (a gap-through breakout). The
+    # realistic fill is the open, not the trigger; crediting the 6.15 -> 7.00 gap would overstate
+    # Max R and understate risk. Entry and risk widen to the actual fill (#163).
+    bars = [*_SETUP, _bar(3, 7.00, 7.64, 6.95, 7.5)]  # opens 7.00 > trigger 6.15
+    m = compute_r_metrics(bars, _settings())
+    assert m.triggered
+    assert m.entry_price == 7.00  # filled at the open, not 6.15
+    assert m.initial_risk == round(7.00 - 5.6, 6)  # realised risk 1.40, not the planned 0.55
+    assert m.max_r == round((7.64 - 7.00) / (7.00 - 5.6), 3)
+    # The old (buggy) fill at 6.15 would have credited (7.64-6.15)/0.55 = 2.71R.
+    assert m.max_r < 1.0
+
+
 def test_thin_risk_setup_stays_finite() -> None:
     # The 5-tick entry offset puts a floor on risk (entry is >=5 ticks above breakout, and the
     # stop is at/below breakout, so risk >= $0.05). A tight flag still yields a thin-but-finite R.

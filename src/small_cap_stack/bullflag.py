@@ -62,22 +62,22 @@ class BullFlag:
 def _find_pole_peak(bars: list[Bar], max_flag: int) -> int | None:
     """Index of the pole peak: the bar the trailing flag pulls back from.
 
-    Grow the trailing flag from the end (up to ``max_flag`` bars); the peak is the first bar such
-    that it (a) stands above every flag bar's high — nothing after it broke out again — and (b) is a
-    **higher high than its own predecessor** (it is the top of an ascending thrust). Condition (b)
-    is what lets a *descending* flag work: a classic flag makes lower highs, so its earlier bars sit
-    above its later ones yet still below the peak — they fail (b) and stay in the flag rather than
-    being mistaken for the peak. Returns None if the last bar is still extending (a new high) or the
-    pullback is longer than ``max_flag``.
+    The peak is the **dominant high** of the trailing window — the highest high among the last
+    ``max_flag`` bars plus the peak itself — i.e. the top the pullback descends from. Taking the
+    dominant high (not merely the nearest local one) is what stops a small up-tick *inside* a deeper
+    pullback from being mistaken for the peak: the old nearest-peak search would collapse the real
+    pole onto that up-tick and mis-compute entry/stop/retracement (#163). Returns None if that high
+    lands on the last bar (still extending — no completed flag). If the dominant high sits earlier
+    than ``max_flag`` bars back, the in-window candidate won't form an ascending pole and the
+    pole-length / lower-high gates in :func:`detect` reject it.
     """
     n = len(bars)
-    flag_max_high = float("-inf")
-    for flag_len in range(1, min(max_flag, n - 2) + 1):
-        p = n - 1 - flag_len  # bar just before the flag (>= 1, so it has a predecessor)
-        flag_max_high = max(flag_max_high, bars[p + 1].high)
-        if bars[p].high > flag_max_high and bars[p].high > bars[p - 1].high:
-            return p
-    return None
+    # peak needs a predecessor (>= 1); the flag after it spans <= max_flag bars
+    lo = max(1, n - 1 - max_flag)
+    peak = max(range(lo, n), key=lambda i: bars[i].high)  # dominant high; ties -> earliest
+    if peak == n - 1:
+        return None  # a new high on the last bar -> still extending, no completed flag
+    return peak
 
 
 def _flag_makes_lower_highs(flag: list[Bar]) -> bool:
@@ -154,8 +154,8 @@ def detect(
     if retracement > max_retracement:
         return None  # pullback too deep -> flag invalidated ("back through the pole")
 
-    if max(b.volume for b in pole) <= max(b.volume for b in flag):
-        return None  # consolidation volume matched/exceeded the pole -> not a clean flag
+    if bars[peak].volume <= max(b.volume for b in flag):
+        return None  # the pole's PEAK (thrust) bar didn't out-trade the consolidation -> not clean
 
     if _upper_wick_frac(bars[peak]) > max_peak_wick:
         return None  # the thrust top is too wicky — closed well off its high (AHMA/VRXA) (#132)

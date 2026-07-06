@@ -80,9 +80,15 @@ def _first_trigger(bars: list[Bar], setup_idx: int, entry_trigger: float) -> int
 
 
 def _measure(bars: list[Bar], bf: BullFlag, risk: float, entry_j: int) -> RMetrics:
-    """Track a filled trade from its entry bar: Max R, MAE, stop-out (stop-first convention)."""
-    entry = bf.entry_trigger
+    """Track a filled trade from its entry bar: Max R, MAE, stop-out (stop-first convention).
+
+    Gap-through fill (#163): if the trigger bar *opened* above the entry trigger, the first
+    available fill is that open, not the trigger — crediting the un-gettable gap would overstate
+    Max R and understate risk. Entry (and the realised risk R the excursions are measured against)
+    widen to the actual fill; a normal breakout (open at/below the trigger) is unchanged."""
     bar = bars[entry_j]
+    entry = max(bf.entry_trigger, bar.open)
+    risk = round(entry - bf.stop, 6)  # realised risk from the actual fill (>= the planned risk)
     min_low = bar.low
     bars_to_max_r = 0
     stopped_out = False
