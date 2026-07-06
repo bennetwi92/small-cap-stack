@@ -11,7 +11,6 @@ from small_cap_stack.ibkr import (
     ConnAction,
     ConnectionSupervisor,
     RetryPolicy,
-    SubscriptionRegistry,
     classify_connection_error,
 )
 from small_cap_stack.ibkr.transport import (
@@ -47,20 +46,6 @@ def test_classify_connection_error() -> None:
     assert classify_connection_error(1101) is ConnAction.RESUBSCRIBE
     assert classify_connection_error(1102) is ConnAction.DATA_OK
     assert classify_connection_error(201) is ConnAction.IGNORE
-
-
-# --- SubscriptionRegistry ---------------------------------------------------------------
-
-
-def test_subscription_registry() -> None:
-    r = SubscriptionRegistry()
-    r.register("AAPL", {"conId": 1})
-    r.register("MSFT", {"conId": 2})
-    assert len(r) == 2
-    assert "AAPL" in r
-    r.unregister("AAPL")
-    assert "AAPL" not in r
-    assert r.all() == [("MSFT", {"conId": 2})]
 
 
 # --- ConnectionSupervisor (fake transport) ----------------------------------------------

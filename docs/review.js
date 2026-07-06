@@ -344,8 +344,10 @@ function restoreEngineLevels(c) {
 function fmtShares(n) {
   if (n == null || !isFinite(n)) return "—";
   const a = Math.abs(n);
-  if (a >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
-  if (a >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  // Promote at the rounding boundary so a value that would render as "1000M"/"1000k" rolls up to
+  // the next unit ("1B"/"1M") instead (#163): B at >=999.95M, M at >=999.5k.
+  if (a >= 999.95e6) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
+  if (a >= 999.5e3) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
   if (a >= 1e3) return Math.round(n / 1e3) + "k";
   return String(Math.round(n));
 }

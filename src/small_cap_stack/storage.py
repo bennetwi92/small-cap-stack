@@ -46,8 +46,11 @@ class Store:
 
     def read(self, dataset: str) -> pl.DataFrame:
         """Read a whole dataset (empty frame if it has no data yet)."""
-        glob = self.data_dir / dataset / "**" / "*.parquet"
-        if not any((self.data_dir / dataset).glob("**/*.parquet")):
+        # One filesystem walk: the resolved file list doubles as the emptiness check and is passed
+        # straight to DuckDB, which avoids re-globbing the pattern a second time internally. Hive
+        # partitioning still derives the ``dt`` column from each path, identical to a glob read.
+        files = sorted(str(p) for p in (self.data_dir / dataset).glob("**/*.parquet"))
+        if not files:
             return pl.DataFrame()
         con = duckdb.connect()
         try:
@@ -55,7 +58,7 @@ class Store:
             # union_by_name tolerates schema drift across append files (e.g. a nullable column
             # that's all-null on some days), matching columns by name rather than position.
             result: pl.DataFrame = con.execute(
-                "SELECT * FROM read_parquet(?, hive_partitioning=1, union_by_name=1)", [str(glob)]
+                "SELECT * FROM read_parquet(?, hive_partitioning=1, union_by_name=1)", [files]
             ).pl()
             return result
         finally:

@@ -43,10 +43,14 @@ function relIn(iso) {
 }
 
 function shares(n) {
-  if (n == null) return "—";
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
-  if (n >= 1e3) return (n / 1e3).toFixed(0) + "K";
-  return String(n);
+  // Kept in step with review.js `fmtShares` (a shared module is pending, #163): same tiers, casing
+  // and boundary promotion, so the same float renders identically on the dashboard and workbench.
+  if (n == null || !isFinite(n)) return "—";
+  const a = Math.abs(n);
+  if (a >= 999.95e6) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
+  if (a >= 999.5e3) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (a >= 1e3) return Math.round(n / 1e3) + "k";
+  return String(Math.round(n));
 }
 
 async function fetchJson(file) {

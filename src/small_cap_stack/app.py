@@ -31,7 +31,6 @@ from .fundamentals import (
     MultiFundamentals,
     YFinanceFundamentals,
 )
-from .ibkr.subscriptions import SubscriptionRegistry
 from .ibkr.supervisor import ConnectionSupervisor
 from .ibkr.transport import IBKRTransport
 from .logging import configure_logging, get_logger
@@ -60,8 +59,7 @@ class Application:
         self._shutdown = asyncio.Event()
         self._conn_task: asyncio.Task[None] | None = None
 
-        self.subscriptions = SubscriptionRegistry()
-        self.transport = IBKRTransport(settings, self.subscriptions)
+        self.transport = IBKRTransport(settings)
         self.scanner = Scanner(settings)
         self.store = Store(settings.data_dir)
         self.market_data = IBKRMarketData(self.transport.ib, settings)

@@ -55,7 +55,7 @@ def test_builds_services() -> None:
     app = Application(_settings())
     assert app.supervisor is not None
     assert app.capture is not None
-    assert app.transport.registry is app.subscriptions
+    assert app.transport is not None
 
 
 def test_is_expected_restart_window(monkeypatch: pytest.MonkeyPatch) -> None:
