@@ -13,6 +13,8 @@ from small_cap_stack.config import Settings
 from small_cap_stack.report import (
     OpportunityAnalysis,
     _funds_for,
+    _news_recent,
+    _previous_trading_day,
     _segment_runs,
     _to_markdown,
     build_eod_report,
@@ -470,6 +472,26 @@ def test_news_recent_flags_today_or_yesterday(tmp_path: Path) -> None:
     assert by_id["2026-06-29:YEST"].news_recent is True
     assert by_id["2026-06-29:OLD"].news_recent is False  # 5-day-old story is not 'recent'
     assert report.aggregates["with_recent_news"] == 2  # TODAY + YEST, not OLD
+
+
+def test_previous_trading_day_skips_weekends() -> None:
+    assert _previous_trading_day(date(2026, 6, 29)) == date(2026, 6, 26)  # Monday -> Friday
+    assert _previous_trading_day(date(2026, 6, 30)) == date(2026, 6, 29)  # Tuesday -> Monday
+
+
+def test_news_recent_spans_the_weekend_gap() -> None:
+    # A Friday catalyst (and weekend news) ahead of a Monday trade must read as recent — the old
+    # today/yesterday window silently dropped Friday, the most common pre-Monday driver (#163-C4).
+    monday = date(2026, 6, 29)
+    assert _news_recent([datetime(2026, 6, 26, 14, 0, tzinfo=UTC)], monday) is True  # Fri
+    assert _news_recent([datetime(2026, 6, 27, 18, 0, tzinfo=UTC)], monday) is True  # Sat
+    assert _news_recent([datetime(2026, 6, 24, 14, 0, tzinfo=UTC)], monday) is False  # prior Wed
+    # Mid-week is unchanged: the prior session counts, two sessions back does not.
+    tuesday = date(2026, 6, 30)
+    assert _news_recent([datetime(2026, 6, 29, 14, 0, tzinfo=UTC)], tuesday) is True  # Mon
+    assert (
+        _news_recent([datetime(2026, 6, 26, 14, 0, tzinfo=UTC)], tuesday) is False
+    )  # Fri, too old
 
 
 # --- Per-source merge-on-read for float / short interest (#109) ----------------------------

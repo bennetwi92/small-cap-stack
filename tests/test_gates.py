@@ -94,6 +94,17 @@ def test_outside_trading_window_fails() -> None:
     assert not res["trading_window"].passed
 
 
+def test_trading_window_gate_treats_naive_ts_as_utc() -> None:
+    # `ts_utc` should always be tz-aware UTC, but guard a naive value: it must be read as UTC (10:00
+    # ET), not shifted by the host tz. A naive input matches the tz-aware one exactly (#163-C5).
+    s = _settings()
+    base = vars(_passing_inputs())
+    aware = _gate(base, s, ts_utc=datetime(2026, 6, 29, 14, 0, tzinfo=UTC))
+    naive = _gate(base, s, ts_utc=datetime(2026, 6, 29, 14, 0))  # no tzinfo
+    assert naive["trading_window"].passed == aware["trading_window"].passed is True
+    assert naive["trading_window"].detail["et"] == "10:00"  # read as UTC -> 10:00 ET
+
+
 def test_blocked_symbol_fails_tradable() -> None:
     s = _settings()
     base = vars(_passing_inputs())

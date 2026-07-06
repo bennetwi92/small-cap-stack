@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 from .clock import ET, within_window
 from .config import Settings
@@ -95,7 +95,10 @@ def tradable_gate(i: GateInputs, s: Settings) -> GateResult:
 
 
 def trading_window_gate(i: GateInputs, s: Settings) -> GateResult:
-    ts_et = i.ts_utc.astimezone(ET)
+    # `ts_utc` is stored UTC, but guard a naive value: bare `astimezone` would assume the host's
+    # local tz and silently shift the window off ET (#163-C5).
+    ts = i.ts_utc if i.ts_utc.tzinfo is not None else i.ts_utc.replace(tzinfo=UTC)
+    ts_et = ts.astimezone(ET)
     ok = within_window(ts_et, s.scan_start, s.scan_end)
     return GateResult(
         "trading_window",

@@ -110,7 +110,9 @@ function renderStats(st) {
   const opps = (st && st.opportunities) || [];
   const symbols = [...new Set(opps.map((o) => o.symbol))].sort();
   el("session-date").textContent = st && st.trading_date ? st.trading_date : "no completed session yet";
-  el("session-opps-count").textContent = symbols.length;
+  // Count opportunities (segmented runs), not distinct symbols, so this agrees with the aggregate
+  // line's "opps N" and the one-row-per-run table below — a symbol can run more than once (#163-C4).
+  el("session-opps-count").textContent = opps.length;
   el("session-opps-symbols").textContent = symbols.join(" · ") || "none";
 
   if (!opps.length) {
@@ -124,7 +126,10 @@ function renderStats(st) {
     .sort((a, b) => (b.max_r ?? -999) - (a.max_r ?? -999))
     .map(
       (o) =>
-        `<tr><td><strong>${esc(o.symbol)}</strong></td><td>${etTime(o.first_hit)}</td>` +
+        // Suffix the run (#2, #3, …) for a symbol that ran more than once, matching the EOD report,
+        // so repeat runs don't render as indistinguishable identical rows (#163-C4).
+        `<tr><td><strong>${esc(o.run_count > 1 ? `${o.symbol}#${o.run}` : o.symbol)}</strong></td>` +
+        `<td>${etTime(o.first_hit)}</td>` +
         `<td>${o.bars}</td><td>${o.news_count}</td>` +
         `<td>${shares(o.float_shares)}</td><td>${o.bull_flag ? "✓" : "—"}</td>` +
         `<td>${o.triggered ? "✓" : "—"}</td><td>${o.max_r ?? "—"}</td><td>${o.mae_r ?? "—"}</td>` +

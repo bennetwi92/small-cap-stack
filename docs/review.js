@@ -591,15 +591,30 @@ function bandExtremes(t0, t1) {
 }
 
 // Live Max R from the drawn levels: (max high at/after the entry tap − entry) / (entry − stop).
-// Needs entry above stop (a long) and a known entry time; otherwise undefined.
+// Needs entry above stop (a long) and a known entry time; otherwise undefined. Uses the engine's
+// stop-first convention (rmetrics): once a bar's low breaches the stop the trade is closed on that
+// bar, so no later high is credited — otherwise a stop-then-rally reports an unrealisable Max R.
 function computeMaxR() {
   const { entry, stop, entry_t } = ann;
   if (entry == null || stop == null || entry_t == null) return null;
   const risk = entry - stop;
   if (risk <= 0) return null;
   let maxHigh = -Infinity;
+  let started = false;
   for (const b of currentOpp.bars) {
-    if (b.t >= entry_t && b.h > maxHigh) maxHigh = b.h;
+    if (b.t < entry_t) continue;
+    if (!started) {
+      // Entry bar: a same-bar stop (low already through the stop) credits no favourable excursion.
+      started = true;
+      if (b.l <= stop) {
+        maxHigh = entry;
+        break;
+      }
+      maxHigh = b.h;
+      continue;
+    }
+    if (b.l <= stop) break; // stop hit on a later bar — close before crediting this bar's high
+    if (b.h > maxHigh) maxHigh = b.h;
   }
   if (maxHigh === -Infinity) return null;
   return (maxHigh - entry) / risk;
