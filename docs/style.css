@@ -243,6 +243,28 @@ body.review {
 .rv-clear {
   margin-left: 0.1rem;
 }
+.rv-tool:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* no-trigger verdict (#155): a toggle, styled like a tool but red when active to read as a verdict
+   rather than a drawing mode; stays enabled while the drawing tools grey out. */
+.rv-verdict {
+  width: auto;
+  margin: 0 0 0 0.1rem;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  background: transparent;
+  color: var(--pico-color);
+  border: 1px solid var(--pico-muted-border-color);
+  --pico-form-element-spacing-vertical: 0.15rem;
+}
+.rv-verdict.armed {
+  background: #c0362c;
+  border-color: #c0362c;
+  color: #fff;
+}
 .rv-ann {
   display: flex;
   flex-wrap: wrap;
