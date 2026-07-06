@@ -24,6 +24,16 @@ const _etTime = new Intl.DateTimeFormat("en-US", {
 });
 const etFromEpoch = (sec) => _etTime.format(new Date(sec * 1000)); // candlestick axis (UNIX seconds)
 
+// Date-picker label: "2026-07-01" -> "2026-07-01 · Wed" so the day of week reads at a glance.
+// Parse the ISO parts directly (local Date from y/m/d, no UTC parse) so the weekday never tz-shifts.
+const _DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const dateLabel = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
+  if (!m) return String(iso);
+  const dow = _DOW[new Date(+m[1], +m[2] - 1, +m[3]).getDay()];
+  return `${iso} · ${dow}`;
+};
+
 async function fetchJson(file) {
   const res = await fetch(rawUrl(file), { cache: "no-store" });
   if (!res.ok) return null; // e.g. index.json before the first EOD -> 404
@@ -1010,7 +1020,11 @@ function closeNewsSheet() {
 
 async function init() {
   const index = await fetchJson("index.json");
-  const dates = (index && index.dates) || [];
+  // Hide days that captured no opportunities — the live/per-date refresh can upsert an empty day
+  // into the index, and there is nothing to review there.
+  const dates = ((index && index.dates) || []).filter(
+    (d) => Array.isArray(d.opportunities) && d.opportunities.length > 0,
+  );
   const dateSel = el("rv-date");
   if (!dates.length) {
     dateSel.innerHTML = '<option>—</option>';
@@ -1019,7 +1033,7 @@ async function init() {
   }
   // index.json dates are already sorted newest-first (#141).
   dateSel.innerHTML = dates
-    .map((d) => `<option value="${esc(d.date)}">${esc(d.date)}</option>`)
+    .map((d) => `<option value="${esc(d.date)}">${esc(dateLabel(d.date))}</option>`)
     .join("");
   await loadDate(dateSel.value);
 }
