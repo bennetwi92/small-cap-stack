@@ -9,7 +9,11 @@ can swap in a more reliable source (FMP float / FINRA short interest) later with
 from __future__ import annotations
 
 import asyncio
+import json
 import math
+import urllib.parse
+import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -71,6 +75,21 @@ def from_info(info: dict[str, Any], symbol: str) -> Fundamentals:
     )
 
 
+def from_fmp(row: dict[str, Any], symbol: str) -> Fundamentals:
+    """Map an FMP ``/stable/shares-float`` row to Fundamentals (tolerant of missing keys).
+
+    FMP's ``freeFloat`` is a *percent of outstanding*, not short interest, so ``short_percent``
+    stays ``None`` here — short interest is a separate source (FINRA, #110).
+    """
+    return Fundamentals(
+        symbol=symbol,
+        float_shares=_to_int(row.get("floatShares")),
+        shares_outstanding=_to_int(row.get("outstandingShares")),
+        short_percent=None,
+        source="fmp",
+    )
+
+
 def fundamentals_record(oid: str, f: Fundamentals, ts: datetime) -> dict[str, Any]:
     return {
         "opportunity_id": oid,
@@ -104,3 +123,65 @@ class YFinanceFundamentals:
         import yfinance
 
         return dict(yfinance.Ticker(symbol).info)
+
+
+class FMPFundamentals:
+    """Float/shares source via Financial Modeling Prep ``/stable/shares-float``.
+
+    A per-symbol HTTPS GET, run off-thread and time-bounded to mirror ``YFinanceFundamentals``
+    (no async HTTP dependency needed). Free tier: 250 req/day, US stocks — covers our micro-cap
+    universe (spot-checked on #109). ``short_percent`` is left to FINRA (#110).
+    """
+
+    _BASE = "https://financialmodelingprep.com/stable/shares-float"
+
+    def __init__(self, api_key: str, timeout_sec: float = 10.0) -> None:
+        self.api_key = api_key
+        self.timeout_sec = timeout_sec
+
+    async def fetch(self, candidate: Candidate) -> Fundamentals | None:
+        if not self.api_key:
+            return None
+        try:
+            async with asyncio.timeout(self.timeout_sec):
+                payload = await asyncio.to_thread(self._get, candidate.symbol)
+        except Exception:  # noqa: BLE001 — best-effort; a hang/hiccup must not break capture
+            return None
+        row = _first_row(payload)
+        if row is None:
+            return None
+        return from_fmp(row, candidate.symbol)
+
+    def _get(self, symbol: str) -> object:
+        query = urllib.parse.urlencode({"symbol": symbol, "apikey": self.api_key})
+        req = urllib.request.Request(
+            f"{self._BASE}?{query}", headers={"Accept": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=self.timeout_sec) as resp:  # noqa: S310 — fixed https host
+            return json.loads(resp.read().decode("utf-8"))
+
+
+def _first_row(payload: object) -> dict[str, Any] | None:
+    """FMP returns a list of rows (or a bare object); take the first, reject error payloads."""
+    if isinstance(payload, list):
+        payload = payload[0] if payload else None
+    if not isinstance(payload, dict) or "Error Message" in payload:
+        return None
+    return payload
+
+
+class MultiFundamentals:
+    """Fan out to several sources concurrently, returning one Fundamentals per source that answers.
+
+    Every source's raw number is kept (store raw); the read side picks per-field by source
+    priority. Onboarding another source over time is just appending it to ``sources``.
+    """
+
+    def __init__(self, sources: Sequence[FundamentalsSource]) -> None:
+        self.sources = tuple(sources)
+
+    async def fetch_all(self, candidate: Candidate) -> list[Fundamentals]:
+        results = await asyncio.gather(
+            *(s.fetch(candidate) for s in self.sources), return_exceptions=True
+        )
+        return [r for r in results if isinstance(r, Fundamentals)]

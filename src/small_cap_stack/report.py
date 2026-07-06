@@ -124,14 +124,43 @@ def _hit_times(scans: pl.DataFrame, oid: str) -> list[datetime]:
     return sorted(sub["ts_utc"].to_list()) if not sub.is_empty() else []
 
 
+# Read-time source priority, per field (an opportunity may have one fundamentals row per source,
+# #109). Float: FMP over yfinance. Short interest: only yfinance today (FINRA lands in #110). A
+# source not listed still counts, ranked last — so we never silently drop a number.
+_FLOAT_PRIORITY = ("fmp", "yfinance")
+_SHORT_PRIORITY = ("yfinance",)
+
+
+def _pick_by_source(
+    rows: list[dict[str, object]], column: str, priority: tuple[str, ...]
+) -> object:
+    """Highest-priority non-null value for a column across an opportunity's source rows."""
+    best: object = None
+    best_rank: int | None = None
+    for r in rows:
+        val = r[column]
+        if val is None:
+            continue
+        src = r["source"]
+        rank = priority.index(src) if src in priority else len(priority)
+        if best_rank is None or rank < best_rank:
+            best, best_rank = val, rank
+    return best
+
+
 def _funds_for(funds: pl.DataFrame, oid: str) -> tuple[int | None, float | None]:
     if funds.is_empty():
         return None, None
     fsub = funds.filter(pl.col("opportunity_id") == oid)
     if fsub.is_empty():
         return None, None
-    r0 = fsub.row(0, named=True)
-    return r0["float_shares"], r0["short_percent"]
+    rows = list(fsub.iter_rows(named=True))
+    float_shares = _pick_by_source(rows, "float_shares", _FLOAT_PRIORITY)
+    short_percent = _pick_by_source(rows, "short_percent", _SHORT_PRIORITY)
+    return (
+        int(float_shares) if isinstance(float_shares, int | float) else None,
+        float(short_percent) if isinstance(short_percent, int | float) else None,
+    )
 
 
 def _news_for(news: pl.DataFrame, oid: str) -> tuple[list[datetime], int]:

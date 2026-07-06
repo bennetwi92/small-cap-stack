@@ -19,7 +19,7 @@ import polars as pl
 
 from .clock import ET
 from .config import Settings
-from .fundamentals import FundamentalsSource, NullFundamentals, fundamentals_record
+from .fundamentals import MultiFundamentals, fundamentals_record
 from .logging import get_logger
 from .monitoring import BARS_APPENDED, OPPORTUNITIES
 from .scanner import Candidate
@@ -143,7 +143,7 @@ class CaptureService:
     bars: BarSource
     news: NewsSource
     settings: Settings
-    fundamentals: FundamentalsSource = field(default_factory=NullFundamentals)
+    fundamentals: MultiFundamentals = field(default_factory=lambda: MultiFundamentals(()))
     _open: set[str] = field(default_factory=set)  # opportunity_ids already opened today
     _hydrated_date: date | None = None
 
@@ -189,10 +189,12 @@ class CaptureService:
             self.store.append(
                 "news", [news_record(oid, c.symbol, n) for n in items], partition_date=trading_date
             )
-        fund = await self.fundamentals.fetch(c)
-        if fund is not None:
+        funds = await self.fundamentals.fetch_all(c)
+        if funds:
             self.store.append(
-                "fundamentals", [fundamentals_record(oid, fund, now)], partition_date=trading_date
+                "fundamentals",
+                [fundamentals_record(oid, f, now) for f in funds],
+                partition_date=trading_date,
             )
         self._open.add(oid)
         OPPORTUNITIES.inc()
@@ -200,7 +202,7 @@ class CaptureService:
             "capture.opportunity_opened",
             opportunity_id=oid,
             news=len(items),
-            float_shares=(fund.float_shares if fund else None),
+            fundamentals={f.source: f.float_shares for f in funds},
         )
 
     def _day_opportunities(self, trading_date: date) -> pl.DataFrame:

@@ -5,11 +5,14 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+import polars as pl
+
 from small_cap_stack.bullflag import detect_with_settings
 from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from small_cap_stack.report import (
     OpportunityAnalysis,
+    _funds_for,
     _segment_runs,
     _to_markdown,
     build_eod_report,
@@ -465,3 +468,65 @@ def test_news_recent_flags_today_or_yesterday(tmp_path: Path) -> None:
     assert by_id["2026-06-29:YEST"].news_recent is True
     assert by_id["2026-06-29:OLD"].news_recent is False  # 5-day-old story is not 'recent'
     assert report.aggregates["with_recent_news"] == 2  # TODAY + YEST, not OLD
+
+
+# --- Per-source merge-on-read for float / short interest (#109) ----------------------------
+
+
+def _funds_df(rows: list[dict]) -> pl.DataFrame:  # type: ignore[type-arg]
+    cols = ["opportunity_id", "float_shares", "short_percent", "source"]
+    return pl.DataFrame(
+        rows,
+        schema={
+            c: (
+                pl.Int64 if c == "float_shares" else pl.Float64 if c == "short_percent" else pl.Utf8
+            )
+            for c in cols
+        },
+    )
+
+
+def _fr(oid: str, float_shares: int | None, short: float | None, source: str) -> dict:  # type: ignore[type-arg]
+    return {
+        "opportunity_id": oid,
+        "float_shares": float_shares,
+        "short_percent": short,
+        "source": source,
+    }
+
+
+def test_funds_for_prefers_fmp_float_over_yfinance() -> None:
+    # FMP wins the float; yfinance still supplies short_percent (FMP leaves it null).
+    df = _funds_df(
+        [
+            _fr("O", 8_100_000, 0.21, "yfinance"),
+            _fr("O", 7_900_000, None, "fmp"),
+        ]
+    )
+    assert _funds_for(df, "O") == (7_900_000, 0.21)
+
+
+def test_funds_for_falls_back_to_yfinance_when_fmp_float_null() -> None:
+    df = _funds_df(
+        [
+            _fr("O", None, None, "fmp"),
+            _fr("O", 8_100_000, 0.21, "yfinance"),
+        ]
+    )
+    assert _funds_for(df, "O") == (8_100_000, 0.21)
+
+
+def test_funds_for_single_yfinance_row() -> None:
+    df = _funds_df([_fr("O", 8_000_000, 0.21, "yfinance")])
+    assert _funds_for(df, "O") == (8_000_000, 0.21)
+
+
+def test_funds_for_unknown_source_still_used_last() -> None:
+    # A source not in the priority list must not be silently dropped when it's all we have.
+    df = _funds_df([_fr("O", 5_000_000, None, "sec")])
+    assert _funds_for(df, "O") == (5_000_000, None)
+
+
+def test_funds_for_missing_opportunity() -> None:
+    df = _funds_df([_fr("OTHER", 8_000_000, 0.21, "yfinance")])
+    assert _funds_for(df, "O") == (None, None)
