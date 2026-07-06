@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-02:NKTX",
+  "symbol": "NKTX",
+  "trading_date": "2026-07-02",
+  "note": "Would have been stopped out. ",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783006800,
+      "t1": 1783007400,
+      "low": 3.1086,
+      "high": 3.27
+    },
+    "consolidation": {
+      "t0": 1783007700,
+      "t1": 1783008000,
+      "high": 3.25,
+      "low": 3.13
+    },
+    "entry": 3.19,
+    "stop": 3.13,
+    "entry_t": 1783008300,
+    "max_r": 0
+  },
+  "updated_utc": "2026-07-06T15:27:47.538Z"
+}
