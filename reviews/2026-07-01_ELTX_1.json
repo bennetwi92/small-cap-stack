@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-01:ELTX#1",
+  "symbol": "ELTX",
+  "trading_date": "2026-07-01",
+  "note": "This was okay entry. It pumped later in the day but this is just pure chance.",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1782912600,
+      "t1": 1782913800,
+      "low": 3.92,
+      "high": 4.79
+    },
+    "consolidation": {
+      "t0": 1782914100,
+      "t1": 1782914100,
+      "high": 4.64,
+      "low": 4.5
+    },
+    "entry": 4.65,
+    "stop": 4.5,
+    "entry_t": 1782914400,
+    "max_r": 4.87
+  },
+  "updated_utc": "2026-07-06T15:18:49.464Z"
+}
