@@ -16,6 +16,8 @@ from small_cap_stack.report import (
     _segment_runs,
     _to_markdown,
     build_eod_report,
+    float_sources_for,
+    news_headlines_for,
 )
 from small_cap_stack.storage import Store
 
@@ -530,3 +532,99 @@ def test_funds_for_unknown_source_still_used_last() -> None:
 def test_funds_for_missing_opportunity() -> None:
     df = _funds_df([_fr("OTHER", 8_000_000, 0.21, "yfinance")])
     assert _funds_for(df, "O") == (None, None)
+
+
+# --- float_sources_for (per-source, review workbench #109) ---------------------------------------
+def test_float_sources_empty_frame() -> None:
+    assert float_sources_for(pl.DataFrame(), "O") == []
+
+
+def test_float_sources_missing_opportunity() -> None:
+    df = _funds_df([_fr("OTHER", 8_000_000, None, "fmp")])
+    assert float_sources_for(df, "O") == []
+
+
+def test_float_sources_orders_fmp_first_keeps_every_source() -> None:
+    # yfinance stored first, but fmp must lead (priority) — and neither number is dropped.
+    df = _funds_df([_fr("O", 14_100_000, 0.2, "yfinance"), _fr("O", 12_300_000, None, "fmp")])
+    assert float_sources_for(df, "O") == [
+        {"source": "fmp", "float": 12_300_000},
+        {"source": "yfinance", "float": 14_100_000},
+    ]
+
+
+def test_float_sources_unknown_source_ranks_last() -> None:
+    df = _funds_df([_fr("O", 5_000_000, None, "sec"), _fr("O", 12_300_000, None, "fmp")])
+    assert float_sources_for(df, "O") == [
+        {"source": "fmp", "float": 12_300_000},
+        {"source": "sec", "float": 5_000_000},
+    ]
+
+
+def test_float_sources_drops_null_float() -> None:
+    df = _funds_df([_fr("O", None, 0.2, "yfinance"), _fr("O", 12_300_000, None, "fmp")])
+    assert float_sources_for(df, "O") == [{"source": "fmp", "float": 12_300_000}]
+
+
+def test_float_sources_dedupes_repeated_source() -> None:
+    # A re-fetch can write the same source twice; show it once (first non-null value).
+    df = _funds_df([_fr("O", 12_300_000, None, "fmp"), _fr("O", 12_300_000, None, "fmp")])
+    assert float_sources_for(df, "O") == [{"source": "fmp", "float": 12_300_000}]
+
+
+# --- news_headlines_for (headline text, review workbench #109) ------------------------------------
+def _news_df(rows: list[dict]) -> pl.DataFrame:  # type: ignore[type-arg]
+    return pl.DataFrame(
+        rows,
+        schema={
+            "opportunity_id": pl.Utf8,
+            "article_id": pl.Utf8,
+            "ts_utc": pl.Datetime(time_zone="UTC"),
+            "provider": pl.Utf8,
+            "headline": pl.Utf8,
+        },
+    )
+
+
+def _nr(oid: str, aid: str, ts: datetime | None, provider: str, headline: str) -> dict:  # type: ignore[type-arg]
+    return {
+        "opportunity_id": oid,
+        "article_id": aid,
+        "ts_utc": ts,
+        "provider": provider,
+        "headline": headline,
+    }
+
+
+def test_news_headlines_empty_frame() -> None:
+    assert news_headlines_for(pl.DataFrame(), "O") == []
+
+
+def test_news_headlines_missing_opportunity() -> None:
+    df = _news_df([_nr("OTHER", "a1", _T0, "DJ-N", "h")])
+    assert news_headlines_for(df, "O") == []
+
+
+def test_news_headlines_newest_first_with_fields() -> None:
+    early = _T0
+    late = _T0 + timedelta(hours=1)
+    df = _news_df([_nr("O", "a1", early, "PRN", "old"), _nr("O", "a2", late, "GNW", "new")])
+    assert news_headlines_for(df, "O") == [
+        {"ts": int(late.timestamp()), "provider": "GNW", "headline": "new"},
+        {"ts": int(early.timestamp()), "provider": "PRN", "headline": "old"},
+    ]
+
+
+def test_news_headlines_dedupes_by_article() -> None:
+    df = _news_df([_nr("O", "a1", _T0, "DJ-N", "h"), _nr("O", "a1", _T0, "DJ-N", "h")])
+    assert news_headlines_for(df, "O") == [
+        {"ts": int(_T0.timestamp()), "provider": "DJ-N", "headline": "h"}
+    ]
+
+
+def test_news_headlines_undated_row_sorts_last_with_ts_none() -> None:
+    df = _news_df([_nr("O", "a1", None, "PRN", "undated"), _nr("O", "a2", _T0, "GNW", "dated")])
+    assert news_headlines_for(df, "O") == [
+        {"ts": int(_T0.timestamp()), "provider": "GNW", "headline": "dated"},
+        {"ts": None, "provider": "PRN", "headline": "undated"},
+    ]

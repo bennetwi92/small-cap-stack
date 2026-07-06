@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from small_cap_stack.config import Settings
@@ -248,11 +248,123 @@ def test_build_charts_shape(tmp_path: Path) -> None:
     assert len(azi["bars"]) == 2  # dup bar row collapsed on read
     assert azi["bars"][0]["t"] == int(_TS1.timestamp())
     assert set(azi["markers"]) == {"first_hit", "entry", "max_r", "stop"}
+    # Review context (#109): per-source float + headline text ride along with the chart.
+    assert azi["floats"] == [{"source": "yfinance", "float": 8_000_000}]
+    assert azi["news"] == [{"ts": None, "provider": "DJ-N", "headline": "h"}]
 
 
 def test_build_charts_empty_store(tmp_path: Path) -> None:
     payload = build_charts(Store(tmp_path), _settings(), _DAY, _NOW)
     assert payload["charts"] == []
+
+
+def _run_bar(
+    oid: str, i: int, o: float, h: float, low: float, c: float, vol: float = 1000.0
+) -> dict:  # type: ignore[type-arg]
+    return {
+        "opportunity_id": oid,
+        "symbol": "RUN",
+        "bar_start_utc": _TS1 + timedelta(minutes=5 * i),
+        "open": o,
+        "high": h,
+        "low": low,
+        "close": c,
+        "volume": vol,
+    }
+
+
+def _run_flag(oid: str, base: int) -> list:  # type: ignore[type-arg]
+    return [
+        _run_bar(oid, base + 0, 5.0, 5.8, 4.6, 5.7),
+        _run_bar(oid, base + 1, 5.7, 6.5, 5.6, 6.4, vol=2000),
+        _run_bar(oid, base + 2, 6.4, 6.1, 5.6, 5.7),
+        _run_bar(oid, base + 3, 5.7, 7.0, 5.7, 6.9),
+    ]
+
+
+def test_build_charts_shares_float_and_news_across_runs(tmp_path: Path) -> None:
+    # News & fundamentals are captured per symbol/day, not per run — a re-entry's two runs must both
+    # carry the same float sources and headlines (#109).
+    store = Store(tmp_path)
+    oid = "2026-06-29:RUN"
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "RUN",
+                "con_id": 3,
+                "trading_date": _DAY,
+                "first_seen_utc": _TS1,
+                "first_rank": 0,
+            }
+        ],
+        partition_date=_DAY,
+    )
+    # 85-min hit gap => two runs (mirrors the report's re-entry segmentation).
+    store.append(
+        "scanner_hits",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "RUN",
+                "ts_utc": _TS1 + timedelta(minutes=m),
+                "rank": 0,
+            }
+            for m in (0, 5, 90, 95)
+        ],
+        partition_date=_DAY,
+    )
+    store.append("bars", _run_flag(oid, 0) + _run_flag(oid, 18), partition_date=_DAY)
+    store.append(
+        "news",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "RUN",
+                "time": "t",
+                "provider": "DJ-N",
+                "headline": "h",
+                "article_id": "a1",
+            }
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "fundamentals",
+        [
+            {
+                "opportunity_id": oid,
+                "symbol": "RUN",
+                "ts_utc": _TS1,
+                "float_shares": 9_000_000,
+                "shares_outstanding": 12_000_000,
+                "short_percent": 0.2,
+                "source": "yfinance",
+            },
+            {
+                "opportunity_id": oid,
+                "symbol": "RUN",
+                "ts_utc": _TS1,
+                "float_shares": 8_000_000,
+                "shares_outstanding": None,
+                "short_percent": None,
+                "source": "fmp",
+            },
+        ],
+        partition_date=_DAY,
+    )
+
+    payload = build_charts(store, _settings(), _DAY, _NOW)
+    runs = [c for c in payload["charts"] if c["symbol"] == "RUN"]
+    assert [c["opportunity_id"] for c in runs] == ["2026-06-29:RUN#1", "2026-06-29:RUN#2"]
+    expected_floats = [
+        {"source": "fmp", "float": 8_000_000},  # fmp leads (priority) despite being stored second
+        {"source": "yfinance", "float": 9_000_000},
+    ]
+    for c in runs:
+        assert c["floats"] == expected_floats
+        assert c["news"] == [{"ts": None, "provider": "DJ-N", "headline": "h"}]
 
 
 # Full-day slicing (#141): the chart renders the whole trading day (04:00–16:00 ET), not the run
