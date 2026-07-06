@@ -3,7 +3,7 @@
   "opportunity_id": "2026-07-02:MSTX#2",
   "symbol": "MSTX",
   "trading_date": "2026-07-02",
-  "note": "",
+  "note": "Not a brilliant trade. at the open - the rules seem to be different then. ",
   "no_trigger": false,
   "annotations": {
     "pole": {
@@ -23,5 +23,5 @@
     "entry_t": 1783000800,
     "max_r": 0.38
   },
-  "updated_utc": "2026-07-06T16:12:18.426Z"
+  "updated_utc": "2026-07-06T16:12:43.965Z"
 }
