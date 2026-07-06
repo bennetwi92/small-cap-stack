@@ -116,6 +116,20 @@ def test_eod_batch_dedups_duplicate_opportunities(tmp_path: Path) -> None:
     assert store.read("bars").height == 2  # one symbol's bars, not doubled
 
 
+def test_eod_batch_skips_opportunities_that_already_have_bars(tmp_path: Path) -> None:
+    # A retry of the EOD batch (after a partial failure) must only re-fetch opportunities still
+    # lacking bars — not re-issue historical requests for ones already stored (#163-C2 pacing).
+    store = Store(tmp_path)
+    bars = FakeBars([_bar(30), _bar(35)])
+    svc = _svc(store, bars, FakeNews([]))
+    asyncio.run(svc.on_scan_tick([_candidate("AAA")], datetime(2026, 6, 29, 9, 40, tzinfo=UTC)))
+
+    asyncio.run(svc.capture_day_bars(_TRADING_DATE))
+    assert bars.calls == 1  # first pass fetches the one opportunity
+    asyncio.run(svc.capture_day_bars(_TRADING_DATE))
+    assert bars.calls == 1  # retry skips it — no redundant request
+
+
 def test_second_tick_does_not_reopen_but_logs_hit(tmp_path: Path) -> None:
     store = Store(tmp_path)
     svc = _svc(store, FakeBars([_bar(30)]), FakeNews([]))

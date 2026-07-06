@@ -10,6 +10,7 @@ is append-only via the Store; nothing is mutated.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
@@ -222,7 +223,11 @@ class CaptureService:
         One symbol's data hiccup never stalls the rest. Bars dedup by bar_start_utc on read, so
         re-running (retry / back-fill) is idempotent."""
         filled = 0
-        for row in opps.iter_rows(named=True):
+        for i, row in enumerate(opps.iter_rows(named=True)):
+            if i > 0 and self.settings.ibkr_hist_pacing_sec > 0:
+                await asyncio.sleep(
+                    self.settings.ibkr_hist_pacing_sec
+                )  # stay under the pacing limit
             oid = row["opportunity_id"]
             cand = _candidate_from_row(row)
             try:
@@ -246,11 +251,16 @@ class CaptureService:
         """End-of-day batch: one historical request per flagged opportunity → append its bars.
 
         Reads the day's opportunities from storage (not in-memory state), so it is unaffected by
-        any restart during the session.
+        any restart during the session. Opportunities that already have bars are skipped, so a retry
+        after a partial failure only re-fetches the gaps rather than the whole batch (#163-C2).
         """
         opps = self._day_opportunities(trading_date)
-        if not opps.is_empty():
-            await self._fetch_bars_for(opps, trading_date)
+        if opps.is_empty():
+            return
+        have = self._opportunities_with_bars()
+        todo = opps.filter(~pl.col("opportunity_id").is_in(list(have)))
+        if not todo.is_empty():
+            await self._fetch_bars_for(todo, trading_date)
 
     def _opportunities_with_bars(self) -> set[str]:
         """opportunity_ids that already have at least one stored bar (ids encode the date)."""
