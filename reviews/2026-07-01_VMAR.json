@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-01:VMAR",
+  "symbol": "VMAR",
+  "trading_date": "2026-07-01",
+  "note": "This is strange - i'm not sure why the scan surfaced this so late. The volume was higher much earlier. There is possibly a bug in the scan time?",
+  "no_trigger": true,
+  "annotations": {},
+  "updated_utc": "2026-07-06T15:23:53.064Z"
+}
