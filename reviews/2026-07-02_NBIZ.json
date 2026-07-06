@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-02:NBIZ",
+  "symbol": "NBIZ",
+  "trading_date": "2026-07-02",
+  "note": "not a massively convincing trade. the consolidation had upward travel so probably would not have been entered had it been me at the time.",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783003200,
+      "t1": 1783003200,
+      "low": 9.77,
+      "high": 10.09
+    },
+    "consolidation": {
+      "t0": 1783003500,
+      "t1": 1783004100,
+      "high": 10.28,
+      "low": 9.94
+    },
+    "entry": 10.3,
+    "stop": 9.92,
+    "entry_t": 1783004100,
+    "max_r": 1.16
+  },
+  "updated_utc": "2026-07-06T16:15:44.167Z"
+}
