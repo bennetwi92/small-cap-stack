@@ -24,6 +24,8 @@ from .report import (
     analysis_records,
     day_chart_bars,
     day_opportunities,
+    float_sources_for,
+    news_headlines_for,
     symbol_runs,
 )
 from .storage import Store
@@ -150,8 +152,15 @@ def build_charts(
     if not opps.is_empty():
         bars = store.read("bars")
         scans = store.read("scanner_hits")
+        news = store.read("news")
+        funds = store.read("fundamentals")
         for row in opps.iter_rows(named=True):
-            full_day = day_chart_bars(bars, row["opportunity_id"], settings)
+            oid = row["opportunity_id"]
+            full_day = day_chart_bars(bars, oid, settings)
+            # News & fundamentals are captured per symbol/day (not per run), so compute once and
+            # share across every run of the symbol (#109).
+            float_srcs = float_sources_for(funds, oid)
+            news_items = news_headlines_for(news, oid)
             for run in symbol_runs(row, bars, scans, settings):
                 if not run.bars:
                     continue
@@ -165,6 +174,8 @@ def build_charts(
                         "run": run.idx,
                         "run_count": run.run_count,
                         **asdict(cd),
+                        "floats": float_srcs,
+                        "news": news_items,
                     }
                 )
     return {

@@ -189,6 +189,57 @@ def _news_recent(news_times: list[datetime], trading_date: date) -> bool:
     return any(t.astimezone(ET).date() in recent for t in news_times)
 
 
+def float_sources_for(funds: pl.DataFrame, oid: str) -> list[dict[str, Any]]:
+    """Per-source recorded float for an opportunity, highest-priority source first (#109).
+
+    Unlike `_funds_for` (which merges to one number via `_pick_by_source`), this keeps *every*
+    source so the review workbench can show 'fmp 12.3M vs yfinance 14.1M'. Ordered by
+    `_FLOAT_PRIORITY` (fmp first); an unknown source ranks last. Deduped per source (fundamentals
+    may be captured more than once a day), keeping the first row; a null float is dropped."""
+    if funds.is_empty():
+        return []
+    fsub = funds.filter(pl.col("opportunity_id") == oid)
+    if fsub.is_empty():
+        return []
+    seen: dict[str, int] = {}
+    for r in fsub.iter_rows(named=True):
+        src = str(r["source"])
+        val = r["float_shares"]
+        if src not in seen and isinstance(val, int | float):
+            seen[src] = int(val)
+
+    def _rank(src: str) -> int:
+        return _FLOAT_PRIORITY.index(src) if src in _FLOAT_PRIORITY else len(_FLOAT_PRIORITY)
+
+    ordered = sorted(seen.items(), key=lambda kv: _rank(kv[0]))
+    return [{"source": src, "float": shares} for src, shares in ordered]
+
+
+def news_headlines_for(news: pl.DataFrame, oid: str) -> list[dict[str, Any]]:
+    """An opportunity's news headlines, newest-first, deduped by article (#109/#97).
+
+    Surfaces the actual headline text — the EOD report keeps only counts — so the review workbench
+    can show the catalyst that was breaking at trigger. Deduped on `article_id` (news is re-fetched
+    at EOD); a row whose publish time couldn't be parsed keeps `ts=None` and sorts last."""
+    if news.is_empty():
+        return []
+    sub = news.filter(pl.col("opportunity_id") == oid)
+    if sub.is_empty():
+        return []
+    if "article_id" in sub.columns:
+        sub = sub.unique(subset=["opportunity_id", "article_id"], keep="first")
+    items = [
+        {
+            "ts": int(r["ts_utc"].timestamp()) if r.get("ts_utc") is not None else None,
+            "provider": str(r["provider"]) if r.get("provider") is not None else "",
+            "headline": str(r["headline"]) if r.get("headline") is not None else "",
+        }
+        for r in sub.iter_rows(named=True)
+    ]
+    items.sort(key=lambda it: (it["ts"] is not None, it["ts"] or 0), reverse=True)
+    return items
+
+
 def _segment_runs(hit_times: list[datetime], gap_min: int) -> list[datetime]:
     """Run start times: a gap of >= gap_min with no scanner hits begins a new run (#36)."""
     if not hit_times:

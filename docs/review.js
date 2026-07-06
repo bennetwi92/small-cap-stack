@@ -330,20 +330,60 @@ function restoreEngineLevels(c) {
 
 // Bottom-strip readout: engine entry/stop/Max-R, or a collapsed "no trigger" when the reviewer has
 // marked the opportunity as not a tradeable setup (entry/stop then aren't applicable).
+// Compact share/volume formatter: 12,300,000 -> "12.3M", 980,000 -> "980k".
+function fmtShares(n) {
+  if (n == null || !isFinite(n)) return "—";
+  const a = Math.abs(n);
+  if (a >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
+  if (a >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (a >= 1e3) return Math.round(n / 1e3) + "k";
+  return String(Math.round(n));
+}
+const SRC_LABEL = { fmp: "fmp", yfinance: "yf" };
+const srcLabel = (s) => SRC_LABEL[s] || s;
+
+// Float chip (#109): default to the highest-priority source (fmp, first in c.floats); when more than
+// one source recorded a value, the chip toggles a compact "fmp 12.3M · yf 14.1M" all-sources line.
+function floatChip(c) {
+  const fs = ((c && c.floats) || []).filter((f) => f.float != null);
+  if (!fs.length) return "";
+  const all = fs.map((f) => `${srcLabel(f.source)} ${fmtShares(f.float)}`).join(" · ");
+  const multi = fs.length > 1;
+  return (
+    `<span class="mk rv-float${multi ? " rv-float-toggle" : ""}" style="color:${MK.firstHit}"` +
+    (multi ? ' title="tap for all sources"' : "") +
+    `>float ${fmtShares(fs[0].float)}</span>` +
+    (multi ? `<span class="rv-float-all muted hidden">${esc(all)}</span>` : "")
+  );
+}
+
+// 5-min volume of the bar the scanner triggered on (first_hit; entry as a fallback) — a proxy for the
+// scanner volume we don't record. Bars share timestamps with the markers, so match on exact `t`.
+function volChip(c) {
+  const t = (c && c.markers && (c.markers.first_hit ?? c.markers.entry)) ?? null;
+  if (t == null || !(c && c.bars)) return "";
+  const bar = c.bars.find((b) => b.t === t);
+  if (!bar || bar.v == null) return "";
+  return `<span class="mk rv-vol" title="volume of the 5-min bar when the scanner triggered">5m vol ${fmtShares(bar.v)}</span>`;
+}
+
 function renderReadout(c) {
   const out = el("rv-readout");
   if (!c) return;
+  const context = floatChip(c) + volChip(c); // recorded float + trigger-bar volume (shown in both states)
   if (noTrigger) {
     out.innerHTML =
       `<span class="mk" style="color:${MK.stop}">no trigger</span>` +
-      '<span class="muted">entry / stop N/A</span>';
+      '<span class="muted">entry / stop N/A</span>' +
+      context;
     return;
   }
   out.innerHTML =
     `<span class="mk" style="color:${MK.entry}">entry ${c.levels.entry ?? "—"}</span>` +
     `<span class="mk" style="color:${MK.stop}">stop ${c.levels.stop ?? "—"}</span>` +
     `<span class="mk" style="color:${MK.maxR}">Max R ${c.max_r != null ? c.max_r + "R" : "—"}</span>` +
-    (c.triggered ? (c.stopped_out ? '<span class="muted">stopped out</span>' : "") : '<span class="muted">no trigger</span>');
+    (c.triggered ? (c.stopped_out ? '<span class="muted">stopped out</span>' : "") : '<span class="muted">no trigger</span>') +
+    context;
 }
 
 function clearChart(message) {
@@ -377,10 +417,12 @@ function drawSelected() {
     clearChart("No opportunities for this date.");
     loadReview(null);
     updateAnnReadout();
+    updateNewsButton(null);
     return;
   }
   buildChart(c);
   currentOpp = c;
+  updateNewsButton(c);
   applyVerdict(); // reset the toolbar/verdict surface (a prior opp may have left it disabled)
   loadReview(c); // pull this opportunity's saved note + annotations + verdict (if any)
 }
@@ -924,6 +966,48 @@ function closeSheet() {
   el("rv-sheet").setAttribute("aria-hidden", "true");
 }
 
+// News drawer (#109): the headlines captured when the scanner triggered, so the catalyst is on hand
+// while writing notes. Reuses the notes sheet's slide-up markup/CSS and the shared scrim.
+function updateNewsButton(c) {
+  const btn = el("rv-news-toggle");
+  if (!btn) return;
+  const n = (c && c.news && c.news.length) || 0;
+  btn.textContent = `News ${n}`;
+  btn.disabled = n === 0;
+}
+function renderNews(c) {
+  el("rv-news-title").textContent = c ? `News · ${c.symbol}` : "News";
+  const list = el("rv-news-list");
+  const items = (c && c.news) || [];
+  if (!items.length) {
+    list.innerHTML = '<p class="muted rv-news-empty">No news captured for this opportunity.</p>';
+    return;
+  }
+  list.innerHTML = items
+    .map((n) => {
+      const when = n.ts != null ? `${etFromEpoch(n.ts)} ET` : "undated";
+      const meta = [when, n.provider || ""].filter(Boolean).join(" · ");
+      return (
+        '<div class="rv-news-item">' +
+        `<div class="rv-news-meta muted">${esc(meta)}</div>` +
+        `<div class="rv-news-head">${esc(n.headline)}</div>` +
+        "</div>"
+      );
+    })
+    .join("");
+}
+function openNewsSheet() {
+  renderNews(currentOpp);
+  el("rv-scrim").hidden = false;
+  el("rv-news-sheet").classList.add("open");
+  el("rv-news-sheet").setAttribute("aria-hidden", "false");
+}
+function closeNewsSheet() {
+  el("rv-scrim").hidden = true;
+  el("rv-news-sheet").classList.remove("open");
+  el("rv-news-sheet").setAttribute("aria-hidden", "true");
+}
+
 async function init() {
   const index = await fetchJson("index.json");
   const dates = (index && index.dates) || [];
@@ -980,7 +1064,21 @@ el("rv-pat").value = getPat(); // restore the phone-local token across reloads
 el("rv-pat").addEventListener("input", (e) => localStorage.setItem(PAT_KEY, e.target.value.trim()));
 el("rv-notes-toggle").addEventListener("click", openSheet);
 el("rv-sheet-close").addEventListener("click", closeSheet);
-el("rv-scrim").addEventListener("click", closeSheet);
+// Shared scrim closes whichever sheet is open (notes or news); both are idempotent.
+el("rv-scrim").addEventListener("click", () => {
+  closeSheet();
+  closeNewsSheet();
+});
+// News drawer (#109).
+el("rv-news-toggle").addEventListener("click", openNewsSheet);
+el("rv-news-close").addEventListener("click", closeNewsSheet);
+// Tap the float chip to reveal/hide the all-sources breakdown.
+el("rv-readout").addEventListener("click", (e) => {
+  const chip = e.target.closest(".rv-float-toggle");
+  if (!chip) return;
+  const all = chip.parentElement.querySelector(".rv-float-all");
+  if (all) all.classList.toggle("hidden");
+});
 el("rv-save").addEventListener("click", saveNote);
 // Save is also in the always-visible strip (#156) so a verdict/levels persist without opening Notes.
 el("rv-save-top").addEventListener("click", saveNote);

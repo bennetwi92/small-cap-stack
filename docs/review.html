@@ -38,6 +38,7 @@
       <!-- Bottom strip: entry / stop / Max-R readout + save + notes toggle (#143, #156) -->
       <footer class="rv-bottom">
         <span id="rv-readout" class="rv-readout muted">loading…</span>
+        <button id="rv-news-toggle" class="secondary outline rv-news-btn" title="News headlines captured at scanner trigger" disabled>News 0</button>
         <button id="rv-save-top" class="rv-save-btn" title="Save this review (verdict + levels + note)">Save</button>
         <button id="rv-notes-toggle" class="secondary outline rv-notes-btn" title="Notes">Notes</button>
       </footer>
@@ -74,6 +75,15 @@
         <button id="rv-save" class="rv-save">Save review</button>
         <span id="rv-save-status" class="rv-save-status muted"></span>
       </div>
+    </section>
+
+    <!-- Slide-up news drawer (#109): headlines captured when the scanner triggered, read while noting. -->
+    <section id="rv-news-sheet" class="rv-sheet" aria-hidden="true" aria-label="News headlines">
+      <div class="rv-sheet-head">
+        <strong id="rv-news-title" class="rv-sheet-title">News</strong>
+        <button id="rv-news-close" class="secondary outline rv-sheet-close" title="Close">✕</button>
+      </div>
+      <div id="rv-news-list" class="rv-news-list"></div>
     </section>
 
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
