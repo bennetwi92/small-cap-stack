@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-02:SNDQ#2",
+  "symbol": "SNDQ",
+  "trading_date": "2026-07-02",
+  "note": "Because this was later in the day the consolidation changes slightly. It was a higher high on the previous but actually it was lower volume and it was less of a higher high that the poles were. So this would have been a good entry",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783002300,
+      "t1": 1783002600,
+      "low": 2.57,
+      "high": 2.7
+    },
+    "consolidation": {
+      "t0": 1783002900,
+      "t1": 1783002900,
+      "high": 2.71,
+      "low": 2.64
+    },
+    "entry": 2.72,
+    "stop": 2.64,
+    "entry_t": 1783005900,
+    "max_r": 5.25
+  },
+  "updated_utc": "2026-07-06T11:38:10.628Z"
+}
