@@ -3,25 +3,25 @@
   "opportunity_id": "2026-07-02:ETHT#1",
   "symbol": "ETHT",
   "trading_date": "2026-07-02",
-  "note": "not a beautiful trade . The pole had a drawn out top which i don't like.",
+  "note": "not a beautiful trade . The consolidation candle was actually a higher high but given there was so much volume at open it would have continued pushing price up. The candle itself was red which gave me confidence.",
   "no_trigger": false,
   "annotations": {
     "pole": {
       "t0": 1782999000,
-      "t1": 1782999900,
+      "t1": 1782999000,
       "low": 8.42,
-      "high": 8.77
+      "high": 8.71
     },
     "consolidation": {
-      "t0": 1783000200,
-      "t1": 1783000500,
-      "high": 8.76,
-      "low": 8.7
+      "t0": 1782999300,
+      "t1": 1782999300,
+      "high": 8.72,
+      "low": 8.63
     },
-    "entry": 8.77,
-    "stop": 8.7,
-    "entry_t": 1783000800,
-    "max_r": 0.71
+    "entry": 8.73,
+    "stop": 8.63,
+    "entry_t": 1782999600,
+    "max_r": 1.3
   },
-  "updated_utc": "2026-07-06T15:50:14.107Z"
+  "updated_utc": "2026-07-06T15:52:11.991Z"
 }
