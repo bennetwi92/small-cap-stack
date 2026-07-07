@@ -167,6 +167,17 @@ Goal: build, test, fetch data, and deploy entirely from the Claude Code web/mobi
 - **Network policy.** Pulling fixtures (and any future VPS read endpoint) requires the web
   environment's network policy to allow that egress — a deliberate config choice, documented in the
   RUNBOOK.
+- **Cloud reads live `/data` via an on-demand export workflow (DECISION 2026-07-07).** A web/mobile
+  session **cannot** SSH into the box: Claude Code on the web allows only HTTP/HTTPS through a
+  domain-allowlist proxy (no port-22 / raw-TCP egress, even on "Full") and has **no secret store**
+  (env vars are stored in plaintext in the environment config), and the box keeps no inbound ports.
+  So reads use the **write path in reverse**: `data-export.yml` (`workflow_dispatch`, runner label
+  `vps`) `docker exec`s `scripts/analysis/export_query.py` against `/data` and commits the result to
+  the orphan **`data-export`** branch, which the session reads back over GitHub. Chosen over
+  (a) putting an SSH key in the cloud (can't connect *and* would sit in plaintext) and (b) a live
+  HTTPS query endpoint on the box (breaks no-inbound-ports; needs a domain + TLS + token). Costs
+  nothing in the cloud — no secret, **Trusted** network access suffices. Driven by the `box-data`
+  skill; blocked on the runner (#6) like deploy.
 - **Off-box backups = restic → Backblaze B2 (DECISION 2026-07-01, #48).** The 3-month dataset (the
   product) is backed up nightly by a host `systemd` timer running `scripts/backup.sh`: **restic**
   (incremental + encrypted + deduplicated, retention keep-daily 7/weekly 5/monthly 4) to a **B2**

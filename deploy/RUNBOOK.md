@@ -129,6 +129,15 @@ See `research/decisions.md` → "Phone-driven control plane".
   offline (IBKR tests are mocked) — no Gateway required.
 - **Data for dev:** `make fetch-fixtures` pulls a sanitized sample from object storage
   (`FIXTURES_URI`). The VPS-side producer that pushes the sample is part of the backup job (§8, #48).
+- **Reading live `/data` from the phone (needs the runner, #6):** you **cannot** SSH into the box
+  from a web session (HTTP-only allowlist proxy, no secret store). Instead trigger **Actions →
+  `data-export` → Run workflow** (or the GitHub MCP `actions_run_trigger`). Inputs pick a dataset
+  (`bars`/`opportunities`/`scanner_hits`/`news`/`fundamentals`/`analysis` or raw `query`), an
+  optional date range / symbol filter, and a `format`. The self-hosted runner `docker exec`s
+  `scripts/analysis/export_query.py` against `/data` and commits the result to the **`data-export`**
+  branch (`exports/<run_id>/…`), which the session reads back over GitHub. This is the read
+  counterpart to `deploy.yml`'s write path — no inbound ports, no SSH key, no cloud secret. Driven by
+  the `box-data` skill. On the Mac, use the direct `docker exec` recipe (`review-analysis` skill).
 - **Deploy (needs the VM provisioned, #6):**
   1. Register a **self-hosted GitHub Actions runner** on the VM, labelled `self-hosted, vps`,
      as a systemd service (`./config.sh --labels vps && ./svc.sh install && ./svc.sh start`).
