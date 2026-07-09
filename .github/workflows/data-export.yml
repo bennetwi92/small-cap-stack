@@ -1,0 +1,162 @@
+name: data-export
+
+# Phone-triggerable READ path for the Phase-1 dataset (companion to deploy.yml's write path).
+#
+# Control-plane decision (research/decisions.md → "Phone-driven control plane"): a Claude Code
+# web/mobile session cannot SSH into the box (the web sandbox allows only HTTP/HTTPS through a
+# domain-allowlist proxy, and has no secret store), and the box keeps NO inbound ports open. So
+# data flows OUT the same way deploys flow in: a SELF-HOSTED runner on the box (label
+# [self-hosted, vps]) polls GitHub outbound, docker-execs into the app container to query /data,
+# and commits the result to the `data-export` branch. The session then reads that file back over
+# GitHub — no SSH, no inbound port, no credential in the cloud. Drive it from the `box-data` skill.
+#
+# PREREQUISITE (blocked on #6, same as deploy.yml): the VM must exist with the [self-hosted, vps]
+# runner registered. Until then this workflow only ever runs on manual dispatch — it will not queue
+# or fail on its own.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: "Dataset to export (or 'query' to run raw SQL below)"
+        type: choice
+        required: true
+        default: opportunities
+        options:
+          - bars
+          - opportunities
+          - scanner_hits
+          - news
+          - fundamentals
+          - analysis
+          - query
+      start_date:
+        description: "Inclusive start date YYYY-MM-DD (dataset mode; blank = no lower bound)"
+        required: false
+        default: ""
+      end_date:
+        description: "Inclusive end date YYYY-MM-DD (dataset mode; blank = no upper bound)"
+        required: false
+        default: ""
+      symbols:
+        description: "Comma-separated symbols to keep (dataset mode, symbol-keyed datasets)"
+        required: false
+        default: ""
+      query:
+        description: "Raw DuckDB SQL over the dataset views (used only when dataset = query)"
+        required: false
+        default: ""
+      format:
+        description: "Output format (parquet is compressed — prefer it for wide date ranges)"
+        type: choice
+        required: false
+        default: parquet
+        options:
+          - parquet
+          - csv
+          - ndjson
+      ref:
+        description: "Git ref to run the exporter from (branch/tag/SHA)"
+        required: false
+        default: main
+
+concurrency:
+  group: data-export
+  cancel-in-progress: false
+
+permissions:
+  contents: write # push the result to the data-export branch
+
+jobs:
+  export:
+    name: export /data slice
+    runs-on: [self-hosted, vps]
+    steps:
+      - name: Check out the exporter at the requested ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Query /data inside the app container
+        env:
+          IN_DATASET: ${{ inputs.dataset }}
+          IN_QUERY: ${{ inputs.query }}
+          IN_START: ${{ inputs.start_date }}
+          IN_END: ${{ inputs.end_date }}
+          IN_SYMBOLS: ${{ inputs.symbols }}
+          IN_FORMAT: ${{ inputs.format }}
+        run: |
+          set -euo pipefail
+          case "$IN_FORMAT" in
+            parquet) ext=parquet ;;
+            csv)     ext=csv ;;
+            ndjson)  ext=ndjson ;;
+            *) echo "unknown format: $IN_FORMAT" >&2; exit 1 ;;
+          esac
+          name="${IN_DATASET}_${GITHUB_RUN_ID}.${ext}"
+
+          # Inputs are passed as container env values (never interpolated into the shell), so a
+          # stray quote in SQL/symbols can't break out. The exporter script is piped in over stdin.
+          docker_env=(
+            -e "SCS_FORMAT=$IN_FORMAT"
+            -e "SCS_OUT=/data/exports/$name"
+            -e "SCS_START=$IN_START"
+            -e "SCS_END=$IN_END"
+            -e "SCS_SYMBOLS=$IN_SYMBOLS"
+          )
+          if [ "$IN_DATASET" = "query" ]; then
+            docker_env+=( -e "SCS_QUERY=$IN_QUERY" )
+          else
+            docker_env+=( -e "SCS_DATASET=$IN_DATASET" )
+          fi
+
+          docker exec -i "${docker_env[@]}" small-cap-stack-app-1 python - \
+            < scripts/analysis/export_query.py | tee export.log
+          docker cp "small-cap-stack-app-1:/data/exports/$name" "./$name"
+
+          {
+            echo "RESULT_PATH=$PWD/$name"
+            echo "RESULT_NAME=$name"
+          } >> "$GITHUB_ENV"
+
+      - name: Publish the result to the data-export branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          authrepo="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          pub="$(mktemp -d)"
+          if git ls-remote --exit-code --heads "$authrepo" data-export >/dev/null 2>&1; then
+            git clone --depth 1 --single-branch --branch data-export "$authrepo" "$pub"
+          else
+            # First export: start an orphan, data-only branch (never merged to main).
+            git clone --depth 1 --single-branch "$authrepo" "$pub"
+            git -C "$pub" checkout --orphan data-export
+            git -C "$pub" rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          dest="$pub/exports/${GITHUB_RUN_ID}"
+          mkdir -p "$dest"
+          cp "$RESULT_PATH" "$dest/$RESULT_NAME"
+          cp export.log "$dest/export.log"
+
+          git -C "$pub" add exports
+          git -C "$pub" \
+            -c user.name='github-actions[bot]' \
+            -c user.email='github-actions[bot]@users.noreply.github.com' \
+            commit -m "data: export run ${GITHUB_RUN_ID} (${{ inputs.dataset }}, ${{ inputs.format }})"
+          git -C "$pub" push origin HEAD:data-export
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### data-export"
+            echo ""
+            echo "- run: \`${GITHUB_RUN_ID}\`"
+            echo "- branch path: \`exports/${GITHUB_RUN_ID}/${RESULT_NAME:-<failed>}\` on \`data-export\`"
+            echo ""
+            echo '```'
+            cat export.log 2>/dev/null || echo "(no export output — see step logs)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
