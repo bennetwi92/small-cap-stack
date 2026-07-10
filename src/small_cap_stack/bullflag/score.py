@@ -25,12 +25,11 @@ _ATR_ABNORMAL = 2.0  # >= 2x trailing ATR is "abnormal" (full marks); None -> ne
 # Feature weights (sum to 1.0). Documented rationale: retracement depth and pole meaningfulness
 # dominate; volume edge next; shape/wick/tightness are supporting signals.
 DEFAULT_WEIGHTS: Mapping[str, float] = {
-    "retracement_shallow": 0.20,
-    "pole_height": 0.13,
+    "retracement_shallow": 0.24,
+    "pole_height": 0.16,
     "vol_ratio": 0.13,
     "cons_vol_reducing": 0.09,
     "pole_short": 0.08,
-    "pole_strictness": 0.07,
     "cons_strictness": 0.06,
     "pole_big_green": 0.05,
     "pole_vol_conc": 0.05,
@@ -54,7 +53,6 @@ def _normalise(fv: FeatureVector, *, max_pole: int, max_retracement: float) -> d
         "vol_ratio": _clamp01((fv.vol_ratio - 1.0) / (_VOL_RATIO_CAP - 1.0)),  # inf -> 1.0
         "cons_vol_reducing": 1.0 if fv.cons_vol_reducing else 0.0,
         "pole_short": pole_short,
-        "pole_strictness": _clamp01(fv.pole_strictness),
         "cons_strictness": _clamp01(fv.cons_strictness),
         "pole_big_green": 1.0 if fv.pole_has_big_green else 0.0,
         "pole_vol_conc": _clamp01(fv.pole_vol_concentration),

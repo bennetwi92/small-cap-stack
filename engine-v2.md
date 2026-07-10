@@ -3,7 +3,7 @@
 > **Companion to `bull-flag.md`** (the *feature* spec — the "what"). This is the *implementation*
 > spec — the "how": module layout, data model, function signatures, gating/scoring, and the
 > migration that keeps `rmetrics` + the review workbench working. Locked decisions from
-> `bull-flag.md §6` are treated as fixed here (pole/cons ≤ 4/4, permissive `E` token, entry = last
+> `bull-flag.md §6` are treated as fixed here (pole/cons ≤ 4/4, `E` token in the consolidation only, entry = last
 > cons high + 3 ticks).
 
 ---
@@ -71,8 +71,7 @@ class FeatureVector:                    # features.py — the six areas of bull-
     # SHAPE
     pole_len: int
     cons_len: int
-    pole_strictness: float              # frac of pole steps that are strict H (vs E)
-    cons_strictness: float              # frac of cons steps that are strict L
+    cons_strictness: float              # frac of cons steps that are strict L (pole is all-H by rule)
     token_string: str                   # "HHLLL"
     # VOL
     peak_gt_cons: bool                  # max(pole.vol) > max(cons.vol)      [gate input]
@@ -149,10 +148,11 @@ Rules (from `bull-flag.md §2.2`):
 - **Consolidation** = the bars after the peak. Its tokens must contain **no `H`** (a higher-high
   step means it ticked back up — not a clean pullback, matching legacy `_flag_makes_lower_highs`)
   and **≥1 strict `L`** (an all-`E` flat top has no net lower high).
-- **Pole** = the `H`/`E` run ending at the peak, extended backwards while `H`/`E` allow, capped at
-  `max_pole` strict `H` (longest-match keeps the trailing `max_pole` higher highs). `E` is
-  **permissive** — it extends the run but is not a higher high; `pole_len` counts strict `H` and
-  must be ≥1.
+- **Pole** = the run of **strict `H`** ending at the peak, capped at `max_pole`. `E` is **not**
+  allowed in the pole (equal highs are consolidation-only), so the walk stops at the first non-`H`
+  going back; `pole_len` counts the higher highs and must be ≥1. Every pole step strictly rises, so
+  the base is strictly below the peak (`pole_span > 0`) — this fixes the #181 zero-span crash where
+  the old `H`/`E` walk drifted the base across a flat run onto a bar at/above the peak.
 - Length gates: `pole_len ∈ [1, max_pole]`, `cons_len ∈ [1, max_cons]`, both `= 4` in v2 (an
   over-long shape simply doesn't segment).
 
@@ -278,7 +278,8 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
 ## 11. Testing plan (trading logic = the product; exhaustive per CLAUDE.md)
 
 - `tokens`: H/L/E boundaries at exactly `eps`; zero/one-bar inputs; length invariant.
-- `segment`: longest-match beats a shorter nested match; `E` permissiveness; all-`E` run rejected;
+- `segment`: longest-match beats a shorter nested match; `E` splits the pole but is fine in the
+  consolidation; flat-noise never yields a zero pole span (#181); all-`E` run rejected;
   pole/cons length caps at 4; mid-pullback up-tick doesn't truncate the pole (#163 regression, moved
   to the segmenter); "still extending" (last bar is `H`) → no segment.
 - `features`: each of the six areas on hand-built bar fixtures with known geometry; retracement /

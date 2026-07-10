@@ -9,19 +9,20 @@ the trailing window (the top the pullback descends from), not the nearest local 
 the engine's #163 fix. Tokens drop magnitudes, so a mid-pullback up-tick would otherwise be
 mistaken for the peak; reusing the legacy ``_find_pole_peak`` for the dominant-high search prevents
 that (and keeps peak selection identical to the legacy detector). Tokens then drive the structural
-checks (``H``/``L``/``E`` with permissive ``E``).
+checks.
 
-Grammar:
+Grammar (``E`` = equal high is allowed **only in the consolidation**, never in the pole):
 
 - **Peak** = the dominant (highest) high among the trailing ``max_cons + 1`` bars. If it lands on
   the last bar the series is still extending → ``None``.
 - **Consolidation** = the bars after the peak (``1..max_cons`` of them). Its tokens must contain
   **no ``H``** (any higher-high step means it ticked back up — not a clean pullback) and **>= 1
-  strict ``L``** (an all-``E`` flat top is not a genuine pullback).
-- **Pole** = the ``H``/``E`` run ending at the peak, extended backwards while ``H``/``E`` allow,
-  capped at ``max_pole`` strict ``H`` (longest-match keeps the trailing ``max_pole`` higher highs).
-  ``E`` is permissive — it extends the run but is not a higher high. ``pole_len`` counts strict
-  ``H`` and must be ``>= 1``.
+  strict ``L``** (an all-``E`` flat top is not a genuine pullback); ``E`` (a flat pullback candle)
+  is fine here.
+- **Pole** = the run of **strict higher highs (``H``)** ending at the peak, capped at ``max_pole``.
+  An ``E`` is *not* allowed in the pole, so the walk stops at the first non-``H`` going back;
+  ``pole_len`` counts the higher highs and must be ``>= 1``. Because every pole step strictly rises,
+  the base sits strictly below the peak.
 
 Index convention: token ``k`` compares ``bars[k]`` (from-side) to ``bars[k+1]`` (to-side).
 """
@@ -75,20 +76,18 @@ def segment_at_end(
     if "L" not in cons_tokens:
         return None  # all-E flat top -> no net lower high, not a genuine pullback
 
-    # Pole: extend backwards from the peak while H/E allow, capping strict-H at max_pole. This walk
-    # deliberately differs from detect.py's ascending-run walk: this one is E-tolerant (a flat step
-    # extends the pole without counting as a higher high), which is a v2 feature — so the two are
-    # NOT unifiable without either dropping E-tolerance here or changing shipped legacy behaviour.
+    # Pole: the run of STRICT higher highs ending at the peak, capped at max_pole. An equal-high
+    # (E) is NOT allowed in the pole — it only belongs to the consolidation (trader's rule) — so the
+    # walk stops at the first non-H going back. This also keeps the base strictly below the peak
+    # (base.high < peak.high), so pole_span > 0 always; the old E-tolerant walk could drift the base
+    # across a flat run onto a bar at/above the peak, giving a zero/negative span (#181: ITRG/IVF).
     start = peak
     pole_len = 0
-    while start - 1 >= 0 and tokens[start - 1] in ("H", "E"):
-        if tokens[start - 1] == "H" and pole_len + 1 > max_pole:
-            break  # adding this higher high would exceed the cap -> keep trailing max_pole
+    while start - 1 >= 0 and tokens[start - 1] == "H" and pole_len < max_pole:
         start -= 1
-        if tokens[start] == "H":
-            pole_len += 1
+        pole_len += 1
     if pole_len < 1:
-        return None  # an all-E ascent is flat, not a pole
+        return None  # the step into the peak wasn't a strict higher high -> no pole
 
     return Segment(
         base_idx=start,

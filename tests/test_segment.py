@@ -50,10 +50,12 @@ def test_pole_extends_fully() -> None:
     assert (seg.base_idx, seg.peak_idx, seg.pole_len, seg.cons_len) == (0, 3, 3, 1)
 
 
-def test_equal_high_permissive_in_pole() -> None:
-    seg = _seg([4.0, 5.0, 5.0, 6.0, 5.5])  # H E H L -> pole spans the flat, counts 2 strict highs
+def test_equal_high_not_allowed_in_pole() -> None:
+    # H E H L: the E splits the pole, so the pole is only the final strict-H step (base at bar 2),
+    # NOT the whole run back to bar 0. E is a consolidation-only token.
+    seg = _seg([4.0, 5.0, 5.0, 6.0, 5.5])
     assert seg is not None
-    assert (seg.base_idx, seg.peak_idx, seg.pole_len, seg.cons_len) == (0, 3, 2, 1)
+    assert (seg.base_idx, seg.peak_idx, seg.pole_len, seg.cons_len) == (2, 3, 1, 1)
 
 
 def test_equal_high_permissive_in_cons() -> None:
@@ -93,6 +95,24 @@ def test_pullback_beyond_window_has_no_pole() -> None:
     # A long monotone decline: the true peak (bar 0) sits outside the trailing max_cons+1 window, so
     # no ascending pole exists within reach -> None (the too-long pullback is rejected).
     assert _seg([10.0, 4.0, 3.0, 2.0, 1.0, 0.5], max_cons=4) is None
+
+
+def test_flat_noise_never_yields_zero_pole_span() -> None:
+    # Real #181 regression (IVF/ITRG): a long near-flat run on an illiquid name. With E barred from
+    # the pole, the base can't drift onto a bar at/above the peak, so peak.high - base.low is always
+    # > 0 (the old E-tolerant walk gave a zero span and crashed the retracement division).
+    highs = [1.26, 1.259, 1.25, 1.25, 1.25, 1.26, 1.25]
+    lows = [1.26, 1.25, 1.24, 1.2319, 1.24, 1.24, 1.24]
+    bars = [
+        Bar(start=_T0 + timedelta(minutes=5 * i), open=lo, high=h, low=lo, close=h, volume=1000.0)
+        for i, (h, lo) in enumerate(zip(highs, lows, strict=True))
+    ]
+    for i in range(2, len(bars)):
+        seg = segment_at_end(
+            bars[: i + 1], tokenize(bars[: i + 1], eps=0.01), max_pole=4, max_cons=4
+        )
+        if seg is not None:
+            assert bars[seg.peak_idx].high - bars[seg.base_idx].low > 0
 
 
 def test_too_few_bars_or_mismatched_tokens() -> None:
