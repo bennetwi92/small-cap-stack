@@ -3,7 +3,7 @@
 For strict (non-``E``) in-window shapes, ``detect_setup(...).as_bullflag()`` must equal the legacy
 ``detect(...)`` field-for-field when run with legacy-equivalent params, and the two must accept /
 reject the same shapes. This pins the #180 cut-over: any behavioural change then comes purely from
-the settings flip (caps 8/6→4/4, entry 5→3 ticks, ``min_pole_pct`` 2%), not from the rewrite.
+the settings flip (caps 8/6→4/4, ``min_pole_pct`` 2%), not from the rewrite.
 
 Parity is scoped to strict poles: v2's ``E``-tolerant base intentionally diverges for equal-high
 poles (see features.py / engine-v2.md §11), so fixtures use clearly separated highs.

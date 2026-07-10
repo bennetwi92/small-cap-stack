@@ -162,7 +162,8 @@ def pick_setup(
     setup = Setup(
         seg,
         fv,
-        round(last_high + tick, 4),
+        round(last_high + tick, 4),  # entry_trigger: +1 tick (mechanical, validated)
+        round(last_high + 3 * tick, 4),  # entry_fill: +3 ticks (conservative R fill, confirmed)
         round(last_high, 4),
         round(stop, 4),
         gates,

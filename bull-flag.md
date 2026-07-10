@@ -248,11 +248,16 @@ in the store); this is the area most dependent on data plumbing beyond the bar l
     trigger the trader actually means is the bare mechanical break — **1 tick** above the last
     consolidation candle's high (which must be a lower high). `entry_trigger = last_cons_high +
     entry_offset` with `Settings.bull_flag_trigger_offset_ticks = 1` (`$0.01` at a penny tick).
-    **Open question:** the old "+3 ticks" idea may still be relevant as a *separate*,
-    slippage-modeled **fill price** applied downstream for R-measurement purposes (i.e., you're
-    triggered at +1 tick but might realistically fill worse) — this is **not resolved here**; #190
-    flags it rather than silently deciding. Until resolved, R-measurement (once wired in #180) uses
-    the same +1-tick trigger as the fill.
+  - **Decision (resolved 2026-07-10, same-day follow-up, #182/#190) — the old "+3 ticks" survives
+    as a separate, conservative FILL price for R-measurement, not the trigger.** Confirmed by the
+    trader: *"the 3 ticks does become a slippage modelled fill price for R. The trigger is always
+    the tick above the last high in the consolidation. Often I actually fill at that price anyway.
+    3 ticks is being conservative."* So: `entry_trigger` (+1 tick) decides **when** a setup fires;
+    `entry_fill = last_cons_high + fill_offset` (+3 ticks, `Settings.bull_flag_fill_offset_ticks =
+    3`) is the price R is **measured against** — deliberately worse than the trigger, to avoid
+    overstating the edge, even though the real fill is often the trigger price itself. Captured on
+    `Setup.entry_fill` (no legacy `BullFlag` slot); #180 must wire `rmetrics` to read it for R
+    rather than reusing `entry_trigger`.
 - **Stop** = consolidation low (`cons_low`) — the risk the retracement gate is measured against.
 
 ---
@@ -290,16 +295,16 @@ Gates (reject) vs. score (rank), starting point:
    doji-like technically-higher-high bar breaks the pole walk and becomes the base instead (§3.1).
 6. **Entry price** = last consolidation high **+ 1 tick** (supersedes the earlier "+3 ticks" lock —
    see §4). `Settings.bull_flag_trigger_offset_ticks = 1`.
+7. **Fill price for R = last consolidation high + 3 ticks** (`Settings.bull_flag_fill_offset_ticks
+   = 3`), a deliberately conservative slippage estimate applied *downstream* of the 1-tick trigger
+   — resolves item 9 below (was open). `Setup.entry_fill` (no legacy `BullFlag` slot yet).
 
 **Still open:**
 
-7. **Gate-vs-score assignment** — the tuning surface; migrate features between roles from review
+8. **Gate-vs-score assignment** — the tuning surface; migrate features between roles from review
    data.
-8. **`LOC` plumbing** — join `scanner_hits` timestamps to the bar series to compute location
+9. **`LOC` plumbing** — join `scanner_hits` timestamps to the bar series to compute location
    features.
-9. **Fill/slippage price for R** — is the old "+3 ticks" idea still relevant as a separate,
-   downstream fill-price adjustment (distinct from the 1-tick trigger), applied only when
-   R-measurement is wired in (#180)? Not resolved (#190).
 10. **Appearance-anchoring** — a pole whose peak bar had already fully closed before the symbol's
     first scanner appearance isn't observable and can't be "the" pole for execution (validated on
     MSTZ). Needs `first_hit`, which `detect_setup` doesn't take — deferred to #180's rmetrics

@@ -107,7 +107,8 @@ class GateResult:                       # gates.py
 class Setup:                            # detect.py — the full result
     segment: Segment
     features: FeatureVector
-    entry_trigger: float                # last cons high + entry_offset (3 ticks)
+    entry_trigger: float                # last cons high + entry_offset (1 tick, #182/#190)
+    entry_fill: float                   # last cons high + fill_offset (3 ticks, R-measurement only)
     breakout_level: float               # last cons high
     stop: float                         # cons low
     gates: tuple[GateResult, ...]
@@ -244,17 +245,21 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
   **and** re-export `BullFlag` so `rmetrics`'s `from .bullflag import BullFlag, detect_with_settings`
   still type-checks.
 
-  **Sequencing (refined during #179):** the v2 entry point is a *new* `detect_setup` /
-  `detect_setup_with_settings`; #179 does **not** repoint `detect_with_settings` or touch `rmetrics`
-  — the legacy path stays active, so reported metrics move by **zero** in #179. The atomic switch
-  (repoint `detect_with_settings → detect_setup` **and** flip settings 8/6→4/4, 5→3 ticks,
-  `min_pole_pct` 2%) lands in **#180**, with the #181 divergence spike quantifying it. This is safer
-  than switching in #179, because v2 has real behavioural deltas from legacy even at equal params
-  (the `max(thrust.vol)` volume rule is a superset for multi-bar poles; `E`-tolerant base; an
-  optional window gate) — bundling the switch with the flip keeps the change atomic and auditable.
+  **Sequencing (refined during #179, extended #182/#190):** the v2 entry point is a *new*
+  `detect_setup` / `detect_setup_with_settings`; #179 does **not** repoint `detect_with_settings` or
+  touch `rmetrics` — the legacy path stays active, so reported metrics move by **zero** in #179 or
+  #182/#190. The atomic switch (repoint `detect_with_settings → detect_setup`, flip settings 8/6→
+  4/4 + `min_pole_pct` 2%, **and** point `rmetrics`'s R-measurement at `Setup.entry_fill` instead of
+  `entry_trigger`) lands in **#180**, with the #181 divergence spike quantifying it. This is safer
+  than switching earlier, because v2 has real behavioural deltas from legacy even at equal params
+  (peak-bar volume gate now requires color/thrust too; `E`-tolerant consolidation; an optional
+  window gate; a genuinely new trigger-vs-fill split with no legacy equivalent) — bundling the
+  switch with the flip keeps the change atomic and auditable.
   1. **Build + pin (#179):** `detect_setup(...).as_bullflag()` == legacy `detect(...)` field-for-field
      for strict, in-window shapes under legacy-equivalent params (the golden-parity test).
-  2. **Switch (#180):** repoint + flip settings.
+  1b. **Refine (#182/#190):** pole color/thrust rule, 1-tick trigger, 3-tick conservative fill —
+      all validated via per-opportunity visual review; still behind the legacy path.
+  2. **Switch (#180):** repoint + flip settings + wire `rmetrics` to `entry_fill` for R.
   3. **Enrich (#182):** widen `RMetrics` to carry `score` so the review page shows the ranking and
      gate-rejection reasons.
 
@@ -265,6 +270,7 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
 | `bull_flag_max_pole` | 8 | **4** | locked |
 | `bull_flag_max_flag` → `bull_flag_max_cons` | 6 | **4** | locked (rename for grammar parity; keep old name as alias one release) |
 | `bull_flag_trigger_offset_ticks` | — | **1** | **added in #182/#190** (v2-only; supersedes the earlier `entry_offset_ticks=3` lock — that setting is legacy-only and unused by v2) |
+| `bull_flag_fill_offset_ticks` | — | **3** | **added in #182/#190**: conservative slippage-modeled FILL price for R (confirmed by the trader — the "+3 ticks" idea survives, but downstream of the trigger, not as the trigger). `Setup.entry_fill`, no legacy slot; #180 must wire `rmetrics` to read it |
 | `bull_flag_min_pole_pct` | — | **0.02** | new gate (2% pole height) |
 | `bull_flag_atr_window` | — | **14** | trailing bars for `pole_extension_atr` |
 | `bull_flag_eps_ticks` | — | **1** | `E`-token flatness tolerance |

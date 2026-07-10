@@ -9,7 +9,8 @@ consume v2 unchanged.
 **Not yet wired in.** #179 builds this alongside the legacy detector and pins their equivalence with
 a golden-parity test, but does **not** repoint ``detect_with_settings`` / ``rmetrics`` — the legacy
 path stays active, so reported metrics don't move. The atomic switch (repoint + settings flip 8/6→
-4/4, entry 5→3 ticks, ``min_pole_pct`` 2%) lands in #180, quantified by the #181 divergence spike.
+4/4, ``min_pole_pct`` 2%; ``rmetrics`` reading ``Setup.entry_fill`` for R rather than
+``entry_trigger``) lands in #180, quantified by the #181 divergence spike.
 
 A shape that segments but fails a gate is returned with ``passed=False`` (so the review page can
 explain the rejection); ``detect_setup`` returns ``None`` only when no valid *shape* exists.
@@ -36,6 +37,10 @@ class Setup:
     segment: Segment
     features: FeatureVector
     entry_trigger: float  # breakout_level + entry_offset (rounded 4) — validated 1 tick, #182/#190
+    entry_fill: float  # breakout_level + fill_offset (rounded 4) — conservative R fill, 3 ticks,
+    # #182/#190: the trigger decides WHEN a setup fires; R is measured against this worse, more
+    # conservative fill ("often I fill at the trigger price anyway, 3 ticks is being conservative").
+    # No legacy BullFlag slot — not yet consumed anywhere; #180 wires it into rmetrics.
     breakout_level: float  # high of the last consolidation candle (rounded 4)
     stop: float  # consolidation (flag) low (rounded 4)
     gates: tuple[GateResult, ...]
@@ -50,6 +55,11 @@ class Setup:
         shape's would-be entry/stop). **Only emit it as a trade when ``self.passed``** — legacy
         ``detect()`` returns ``None`` on a gate failure, so the #180 wiring must use
         ``s = detect_setup(...); if s and s.passed: ... s.as_bullflag()``, not a bare ``if s:``.
+
+        Projects ``entry_trigger`` (the 1-tick mechanical trigger) into ``BullFlag.entry_trigger`` —
+        ``entry_fill`` (the 3-tick conservative R fill, #182/#190) has no legacy slot and is
+        dropped here; #180's rmetrics wiring must read ``entry_fill`` directly off ``Setup`` for
+        R-measurement rather than relying on this projection.
         """
         return BullFlag(
             pole_len=self.segment.pole_len,
@@ -74,6 +84,7 @@ def detect_setup(
     min_pole_pct: float = 0.02,
     atr_window: int = 14,
     entry_offset: float = 0.01,
+    fill_offset: float = 0.03,
     eps: float = 0.01,
     gate_window: bool = False,
     weights: Mapping[str, float] = DEFAULT_WEIGHTS,
@@ -107,6 +118,7 @@ def detect_setup(
         features=fv,
         breakout_level=round(breakout, 4),
         entry_trigger=round(breakout + entry_offset, 4),
+        entry_fill=round(breakout + fill_offset, 4),
         stop=round(stop, 4),
         gates=gates,
         passed=passed(gates),
@@ -126,8 +138,10 @@ def detect_setup_with_settings(bars: Sequence[Bar], settings: Settings) -> Setup
     poles fail ``min_pole_pct`` anyway), not a bug.
 
     The entry TRIGGER always uses ``bull_flag_trigger_offset_ticks`` (1 tick, validated via visual
-    review, #182/#190) regardless of the legacy/v2 settings flip — this is a v2-only concept with
-    no legacy equivalent, unrelated to ``entry_offset_ticks`` (legacy-only, unused here).
+    review, #182/#190) and the FILL (for R-measurement, #180) uses ``bull_flag_fill_offset_ticks``
+    (3 ticks, conservative slippage estimate, confirmed by the trader) regardless of the legacy/v2
+    settings flip — both are v2-only concepts with no legacy equivalent, unrelated to
+    ``entry_offset_ticks`` (legacy-only, unused here).
     """
     tick = settings.tick_size
     return detect_setup(
@@ -140,6 +154,7 @@ def detect_setup_with_settings(bars: Sequence[Bar], settings: Settings) -> Setup
         min_pole_pct=getattr(settings, "bull_flag_min_pole_pct", 0.0),
         atr_window=getattr(settings, "bull_flag_atr_window", 14),
         entry_offset=settings.bull_flag_trigger_offset_ticks * tick,  # v2-only, no legacy fallback
+        fill_offset=settings.bull_flag_fill_offset_ticks * tick,  # v2-only, no legacy fallback
         eps=getattr(settings, "bull_flag_eps_ticks", 1) * tick,
         window_start=settings.scan_start,
         window_end=settings.scan_end,
