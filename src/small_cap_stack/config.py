@@ -89,7 +89,13 @@ class Settings(BaseSettings):
     # (AHMA/VRXA) is a no-trade. Whether the pole holds a big green candle is recorded, not gated.
     bull_flag_max_peak_wick: float = 0.50
     tick_size: float = 0.01  # min US price increment for names ≥ $1 (penny tick)
-    entry_offset_ticks: int = 5  # entry = last complete consolidation high + 5 ticks ($0.05)
+    entry_offset_ticks: int = 5  # LEGACY entry = last complete consolidation high + 5 ticks
+    # Engine-v2 entry trigger (#182/#190, validated via per-opportunity visual review): the
+    # breakout is confirmed 1 tick above the last consolidation candle's high — a lower high, per
+    # the trader's rule. Distinct from entry_offset_ticks (legacy, unused by v2). Whether a further
+    # slippage-modeled fill price (the old "+3 ticks") should be layered on top for R-measurement
+    # purposes is an OPEN QUESTION, not resolved by this setting.
+    bull_flag_trigger_offset_ticks: int = 1
     # Entry staleness (#130): a break more than this many minutes after the scanner appearance reads
     # as "faded" — the opportunity is no longer takeable (AHMA triggered ~1hr+ after the scan). Only
     # applies when the appearance (first_hit) is known; a large value disables the bound.

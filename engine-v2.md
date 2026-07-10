@@ -153,6 +153,14 @@ Rules (from `bull-flag.md §2.2`):
   going back; `pole_len` counts the higher highs and must be ≥1. Every pole step strictly rises, so
   the base is strictly below the peak (`pole_span > 0`) — this fixes the #181 zero-span crash where
   the old `H`/`E` walk drifted the base across a flat run onto a bar at/above the peak.
+- **Color/thrust rule (#182/#190, via per-opportunity visual review)**: the peak bar must be
+  **green** (`close > open`, any body size); a red peak (a new high that reverses and closes weak
+  within the bar — a shooting-star top) disqualifies this candidate entirely, and the caller keeps
+  scanning later prefixes for a green peak (IRE). To extend the pole *past* the peak's immediate
+  predecessor, each additional bar must be a genuine **thrust** — green with body ≥ half its range
+  (reuses `detect._is_big_green`) — a doji-like or red bar breaks the walk and becomes the base
+  instead of an intermediate pole bar (MUZ/CRCG/CONL). This has no legacy equivalent, so parity is
+  additionally scoped to poles built entirely of green thrust candles (§11).
 - Length gates: `pole_len ∈ [1, max_pole]`, `cons_len ∈ [1, max_cons]`, both `= 4` in v2 (an
   over-long shape simply doesn't segment).
 
@@ -256,7 +264,7 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
 |---------|-----|----|------|
 | `bull_flag_max_pole` | 8 | **4** | locked |
 | `bull_flag_max_flag` → `bull_flag_max_cons` | 6 | **4** | locked (rename for grammar parity; keep old name as alias one release) |
-| `entry_offset_ticks` | 5 | **3** | locked (slippage) |
+| `bull_flag_trigger_offset_ticks` | — | **1** | **added in #182/#190** (v2-only; supersedes the earlier `entry_offset_ticks=3` lock — that setting is legacy-only and unused by v2) |
 | `bull_flag_min_pole_pct` | — | **0.02** | new gate (2% pole height) |
 | `bull_flag_atr_window` | — | **14** | trailing bars for `pole_extension_atr` |
 | `bull_flag_eps_ticks` | — | **1** | `E`-token flatness tolerance |
@@ -281,7 +289,9 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
 - `segment`: longest-match beats a shorter nested match; `E` splits the pole but is fine in the
   consolidation; flat-noise never yields a zero pole span (#181); all-`E` run rejected;
   pole/cons length caps at 4; mid-pullback up-tick doesn't truncate the pole (#163 regression, moved
-  to the segmenter); "still extending" (last bar is `H`) → no segment.
+  to the segmenter); "still extending" (last bar is `H`) → no segment; a red peak disqualifies the
+  candidate entirely (#182/#190: IRE); a doji/weak-bodied bar breaks pole extension and becomes the
+  base (#182/#190: MUZ/CRCG/CONL); a weak-bodied (but still green) peak is still a valid 1-bar pole.
 - `features`: each of the six areas on hand-built bar fixtures with known geometry; retracement /
   peak-wick / big-green parity with the current engine's helpers on shared fixtures.
 - `gates`: each gate's boundary; `min_pole_pct=0` admits everything today's engine admits.
@@ -289,10 +299,12 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
   contributions sum to `score`.
 - **Golden parity:** for a corpus of fixtures both engines accept, `as_bullflag()` ==
   today's `detect()` output field-for-field, and `rmetrics` numbers are unchanged. **Scope: strict
-  (non-`E`) poles only** — v2's `E`-tolerant segmenter re-anchors the base earlier than the legacy
-  strict-ascending walk when the pole contains an equal-high step, so retracement/base intentionally
-  diverge for `E`-poles (an intended v2 change, not a parity violation). Fixtures use clearly
-  separated highs so no pole step falls within `eps`.
+  (non-`E`) poles, built entirely of green thrust candles, whose steps clear `eps`** — three
+  intended v2 divergences from legacy, not parity violations: (1) an equal-high step re-anchors
+  differently than legacy's raw `>` comparison; (2) a red or doji-like pole bar (#182/#190) has no
+  legacy equivalent — legacy's strict-ascending walk doesn't check color/body at all; (3) a step
+  within `eps` (1 tick) is `E` in v2 but still a legacy `H`/`L`. Fixtures use clearly separated
+  highs and green, thrust-bodied pole bars so none of the three trip.
 - Reuse the named real cases already in `test_bullflag.py` (AHMA/VRXA/SNDQ/ETHT/NBIZ/CLRO/CYH/DJT).
 
 ## 12. Rollout (proposed issues, Refs #1)

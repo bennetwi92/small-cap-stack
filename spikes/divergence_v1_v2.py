@@ -2,7 +2,7 @@
 
 Quantifies what the engine-v2 cut-over (#180) will change *before* we flip it: per run, replay the
 notional trade with the **legacy** detector (current production) and with **v2** (`detect_setup`,
-locked params: caps 4/4, `min_pole_pct` 2%, entry +3 ticks, `eps` 1 tick), and diff setups /
+locked params: caps 4/4, `min_pole_pct` 2%, entry trigger +1 tick, `eps` 1 tick), and diff setups /
 entries / stops / Max R. An extra "v2 without the 2% floor" pass isolates how many setups the
 `min_pole_pct` floor alone removes — the number `engine-v2.md §10` says to eyeball before flipping.
 
@@ -41,7 +41,7 @@ from small_cap_stack.storage import Store
 
 
 def _v2_detect_params(settings: Settings, *, min_pole_pct: float) -> dict[str, object]:
-    """Locked v2 detection params (bull-flag.md §6): 4/4 caps, +3 ticks, 1-tick eps."""
+    """Locked v2 detection params (bull-flag.md §6): 4/4 caps, +1 tick trigger, 1-tick eps."""
     tick = settings.tick_size
     return {
         "min_pole": settings.bull_flag_min_pole,
@@ -51,7 +51,7 @@ def _v2_detect_params(settings: Settings, *, min_pole_pct: float) -> dict[str, o
         "max_peak_wick": settings.bull_flag_max_peak_wick,
         "min_pole_pct": min_pole_pct,
         "atr_window": 14,
-        "entry_offset": 3 * tick,
+        "entry_offset": settings.bull_flag_trigger_offset_ticks * tick,
         "eps": 1 * tick,
         "gate_window": False,
     }

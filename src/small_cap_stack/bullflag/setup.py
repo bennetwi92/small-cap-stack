@@ -35,7 +35,7 @@ from .tokens import tokenize
 class Setup:
     segment: Segment
     features: FeatureVector
-    entry_trigger: float  # breakout_level + entry_offset (rounded 4)
+    entry_trigger: float  # breakout_level + entry_offset (rounded 4) — validated 1 tick, #182/#190
     breakout_level: float  # high of the last consolidation candle (rounded 4)
     stop: float  # consolidation (flag) low (rounded 4)
     gates: tuple[GateResult, ...]
@@ -73,7 +73,7 @@ def detect_setup(
     max_peak_wick: float = 0.50,
     min_pole_pct: float = 0.02,
     atr_window: int = 14,
-    entry_offset: float = 0.03,
+    entry_offset: float = 0.01,
     eps: float = 0.01,
     gate_window: bool = False,
     weights: Mapping[str, float] = DEFAULT_WEIGHTS,
@@ -116,13 +116,19 @@ def detect_setup(
 
 
 def detect_setup_with_settings(bars: Sequence[Bar], settings: Settings) -> Setup | None:
-    """Settings-driven detect_setup. Reads the CURRENT (legacy) settings — new fields
-    (``bull_flag_min_pole_pct`` / ``bull_flag_eps_ticks``) fall back to legacy-equivalent values
-    until #180 adds them, so this reproduces the legacy detector **for shapes whose highs are
-    clearly separated (steps > eps)**. The ``eps`` flatness tolerance (1 tick) is an intended v2
-    refinement: a move within 1 tick is ``E`` (flat), so a 1-tick-only pole/flag differs from
-    legacy's strict ``>`` — a deliberate noise filter (such poles fail ``min_pole_pct`` anyway),
-    not a bug."""
+    """Settings-driven detect_setup. Reads the CURRENT (legacy) settings for caps/gates — new
+    fields (``bull_flag_min_pole_pct`` / ``bull_flag_eps_ticks``) fall back to legacy-equivalent
+    values until #180 flips them, so pole/cons SHAPE reproduces the legacy detector **for shapes
+    whose highs are clearly separated (steps > eps) and every pole bar is a green thrust candle**
+    (segment.py's color/thrust rule, #182/#190, has no legacy equivalent). The ``eps`` flatness
+    tolerance (1 tick) is an intended v2 refinement: a move within 1 tick is ``E`` (flat), so a
+    1-tick-only pole/flag differs from legacy's strict ``>`` — a deliberate noise filter (such
+    poles fail ``min_pole_pct`` anyway), not a bug.
+
+    The entry TRIGGER always uses ``bull_flag_trigger_offset_ticks`` (1 tick, validated via visual
+    review, #182/#190) regardless of the legacy/v2 settings flip — this is a v2-only concept with
+    no legacy equivalent, unrelated to ``entry_offset_ticks`` (legacy-only, unused here).
+    """
     tick = settings.tick_size
     return detect_setup(
         bars,
@@ -133,7 +139,7 @@ def detect_setup_with_settings(bars: Sequence[Bar], settings: Settings) -> Setup
         max_peak_wick=settings.bull_flag_max_peak_wick,
         min_pole_pct=getattr(settings, "bull_flag_min_pole_pct", 0.0),
         atr_window=getattr(settings, "bull_flag_atr_window", 14),
-        entry_offset=settings.entry_offset_ticks * tick,
+        entry_offset=settings.bull_flag_trigger_offset_ticks * tick,  # v2-only, no legacy fallback
         eps=getattr(settings, "bull_flag_eps_ticks", 1) * tick,
         window_start=settings.scan_start,
         window_end=settings.scan_end,
