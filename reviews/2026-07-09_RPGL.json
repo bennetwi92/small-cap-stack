@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-09:RPGL",
+  "symbol": "RPGL",
+  "trading_date": "2026-07-09",
+  "note": "there was heavy retracement in the consolidation",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783584000,
+      "t1": 1783584000,
+      "low": 2.4,
+      "high": 3.05
+    },
+    "consolidation": {
+      "t0": 1783584300,
+      "t1": 1783584900,
+      "high": 2.9838,
+      "low": 2.57
+    },
+    "entry": 2.93,
+    "stop": 2.57,
+    "entry_t": 1783585200,
+    "max_r": 0.06
+  },
+  "updated_utc": "2026-07-10T13:24:51.962Z"
+}
