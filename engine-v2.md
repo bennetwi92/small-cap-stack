@@ -234,12 +234,21 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
   review read (`entry_trigger`, `stop`, `breakout_level`, `flag_len=cons_len`, `retracement`,
   `pole_len`, `cons_vol_reducing`, `pole_has_big_green`). Provide `Setup.as_bullflag() -> BullFlag`
   **and** re-export `BullFlag` so `rmetrics`'s `from .bullflag import BullFlag, detect_with_settings`
-  still type-checks. Two-step migration:
-  1. **Drop-in:** `detect_with_settings` returns a `Setup`; `rmetrics` calls `.as_bullflag()` (or we
-     make `Setup` structurally provide those attrs). No `rmetrics` logic changes → R-metrics for any
-     shape both engines accept are **identical**, which the test suite pins.
-  2. **Enrich:** widen `RMetrics` to carry `score` + a few new features so the review page can show
-     the quality ranking and gate-rejection reasons.
+  still type-checks.
+
+  **Sequencing (refined during #179):** the v2 entry point is a *new* `detect_setup` /
+  `detect_setup_with_settings`; #179 does **not** repoint `detect_with_settings` or touch `rmetrics`
+  — the legacy path stays active, so reported metrics move by **zero** in #179. The atomic switch
+  (repoint `detect_with_settings → detect_setup` **and** flip settings 8/6→4/4, 5→3 ticks,
+  `min_pole_pct` 2%) lands in **#180**, with the #181 divergence spike quantifying it. This is safer
+  than switching in #179, because v2 has real behavioural deltas from legacy even at equal params
+  (the `max(thrust.vol)` volume rule is a superset for multi-bar poles; `E`-tolerant base; an
+  optional window gate) — bundling the switch with the flip keeps the change atomic and auditable.
+  1. **Build + pin (#179):** `detect_setup(...).as_bullflag()` == legacy `detect(...)` field-for-field
+     for strict, in-window shapes under legacy-equivalent params (the golden-parity test).
+  2. **Switch (#180):** repoint + flip settings.
+  3. **Enrich (#182):** widen `RMetrics` to carry `score` so the review page shows the ranking and
+     gate-rejection reasons.
 
 ## 9. Settings changes (`config.py`)
 
@@ -289,11 +298,14 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
 
 1. `feat: bullflag package skeleton + tokenizer/segmenter (stages 1–2) with tests`
 2. `feat: feature extraction (stage 3, six areas) with tests`
-3. `feat: gates + score + Setup, compat shim keeping rmetrics/review green`
-4. `chore: settings (4/4, 3-tick, eps, weights) + rename max_flag→max_cons alias`
+3. `feat: gates + score + Setup, compat shim (built alongside; golden-parity pinned; legacy path
+   stays active — zero metric change)`
+4. `chore: settings (4/4, 3-tick, min_pole_pct, eps, weights) + rename max_flag→max_cons alias
+   **AND** repoint detect_with_settings → detect_setup (the atomic cut-over)`
 5. `spike: v2-vs-v1 divergence report over stored history` → `docs: decisions.md entry`
 6. `feat: surface v2 score + gate-rejection reasons on the review page`
 
-Land 1–4 behind the compat shim (no behavioural change to reported metrics until settings flip),
-then 5 to quantify the change, then 6 to expose it.
+Land 1–3 with **zero** behavioural change (legacy detector still drives reported metrics; #179 only
+adds the v2 pipeline + parity test). #4 is the atomic cut-over (repoint + settings flip); #5
+quantifies it; #6 exposes it.
 ```

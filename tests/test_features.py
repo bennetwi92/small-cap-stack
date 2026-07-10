@@ -46,7 +46,7 @@ def test_full_feature_vector() -> None:
     assert fv.peak_gt_cons is True
     assert fv.vol_ratio == pytest.approx(2.5)
     assert fv.cons_vol_reducing is True
-    assert fv.pole_vol_concentration == pytest.approx(2000 / 3000)
+    assert fv.pole_vol_concentration == pytest.approx(1.0)  # single-bar thrust -> all vol on peak
     # WICK
     assert fv.peak_upper_wick == pytest.approx(0.1)  # (6.5-6.4)/(6.5-5.5)
     assert fv.pole_has_big_green is True  # base bar: body 0.6 / range 1.2 = 0.5, green
@@ -170,3 +170,24 @@ def test_retracement_uses_e_tolerant_base() -> None:
     pole_high, pole_base = bars[3].high, bars[0].low
     cons_low = min(b.low for b in bars[4:])
     assert fv.retracement == pytest.approx((pole_high - cons_low) / (pole_high - pole_base))
+
+
+def test_trigger_window_uses_modal_interval_not_last_gap() -> None:
+    # A missing bar before cons_end makes the LAST gap 10 min, but the modal spacing is 5 min.
+    # cons_end @ 11:50 ET -> modal trigger 11:55 (in window); the naive last-gap trigger would be
+    # 12:00 (out). trigger_in_window must use the modal interval -> True.
+    base = datetime(2026, 6, 29, 15, 30, tzinfo=UTC)  # 11:30 ET
+    starts = [0, 5, 10, 20]  # gaps 5,5,10 -> modal 5; last gap 10 (a missing 11:45 bar)
+    highs = [4.0, 6.0, 5.6, 5.4]
+    bars = [
+        Bar(
+            start=base + timedelta(minutes=m),
+            open=h - 0.3,
+            high=h,
+            low=h - 0.5,
+            close=h - 0.1,
+            volume=1000.0,
+        )
+        for m, h in zip(starts, highs, strict=True)
+    ]
+    assert extract(bars, _seg_of(bars)).trigger_in_window is True
