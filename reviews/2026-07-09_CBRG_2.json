@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-09:CBRG#2",
+  "symbol": "CBRG",
+  "trading_date": "2026-07-09",
+  "note": "",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783608000,
+      "t1": 1783608900,
+      "low": 4.22,
+      "high": 4.44
+    },
+    "consolidation": {
+      "t0": 1783609200,
+      "t1": 1783609200,
+      "high": 4.43,
+      "low": 4.37
+    },
+    "entry": 4.43,
+    "stop": 4.36,
+    "entry_t": 1783609200,
+    "max_r": 5.29
+  },
+  "updated_utc": "2026-07-10T13:20:39.188Z"
+}
