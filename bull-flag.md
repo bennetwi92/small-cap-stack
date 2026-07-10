@@ -126,6 +126,25 @@ The structural features that fall straight out of the token string.
 _Intent: max 4 H in pole; max 6 L in consolidation; pole no lower highs; consolidation no higher
 highs; first H in consolidation is entry; longest-first; longer patterns are worse setups._
 
+**Decision (locked 2026-07-10, via per-opportunity visual review, #182/#190) — a bar can only
+belong to the pole if it's a genuine green thrust candle.** Validated against 8 real opportunities:
+- **No red candle in the pole, including the peak.** A red "peak" (a new high that reverses and
+  closes weak within the same bar — a shooting-star top, e.g. IRE) isn't a genuine thrust; that
+  candidate peak is disqualified entirely and the search continues for a later green peak.
+- **A technically-higher-high bar that's doji-like (small body relative to range) doesn't extend
+  the pole**, even though its high still ticks up (e.g. MUZ, CRCG, CONL — a quiet 1–2 bar pause
+  sitting between two real thrusts). The walk stops at the first such bar going backward from the
+  peak; that bar becomes the base (a height reference only), not an intermediate pole bar.
+- Threshold: a thrust candle is green (`close > open`) with body ≥ 50% of its range (reuses the
+  existing `_is_big_green`/"big green" concept, #132). The **peak** itself only needs to be green
+  (any body size, matching the existing single-bar-pole tolerance) — the body-size threshold only
+  gates *extending* the pole past the peak's immediate predecessor.
+- Effect: this often SHRINKS the pole to a single bar (the true immediate thrust) versus what a
+  pure `H`-token walk would have included, which in turn makes the *retracement* measurement much
+  stricter (a shallow-looking pullback against a big multi-bar run can become a rejection-level-deep
+  pullback against the true, smaller pole) — seen repeatedly (MUZ, CRCG, CONL) and treated as the
+  gates working correctly, not a bug.
+
 ### 3.2 `VOL` — volume
 
 | ID | Feature | Measures | Computation | Type | Default |
@@ -222,10 +241,23 @@ in the store); this is the area most dependent on data plumbing beyond the bar l
 ## 4. Entry & stop (unchanged intent, restated on the new grammar)
 
 - **Trigger bar** = first `H` after the consolidation (§2.2). **Entry** = its breakout confirmation.
-  - **Decision (locked 2026-07-10) — entry price = last consolidation high + 3 ticks.** A
-    middle-ground between the bare break (sketch) and +5 ticks (old engine): +3 ticks models
-    slippage on the break. `entry = last_cons_high + entry_offset` with
-    `Settings.entry_offset_ticks = 3` (`$0.03` at a penny tick).
+  - **Decision (superseded 2026-07-10, revised same day via per-opportunity visual review, #182/
+    #190) — entry price = last consolidation high + 1 tick.** The earlier "+3 ticks" lock (a
+    middle-ground guess between the bare-break sketch and the old engine's +5) is **replaced**:
+    validated against 8 real opportunities (VRAX/MSTZ/MUZ/TVRD/CRCG/ARCT/IRE/CONL/FCEL/OKLL), the
+    trigger the trader actually means is the bare mechanical break — **1 tick** above the last
+    consolidation candle's high (which must be a lower high). `entry_trigger = last_cons_high +
+    entry_offset` with `Settings.bull_flag_trigger_offset_ticks = 1` (`$0.01` at a penny tick).
+  - **Decision (resolved 2026-07-10, same-day follow-up, #182/#190) — the old "+3 ticks" survives
+    as a separate, conservative FILL price for R-measurement, not the trigger.** Confirmed by the
+    trader: *"the 3 ticks does become a slippage modelled fill price for R. The trigger is always
+    the tick above the last high in the consolidation. Often I actually fill at that price anyway.
+    3 ticks is being conservative."* So: `entry_trigger` (+1 tick) decides **when** a setup fires;
+    `entry_fill = last_cons_high + fill_offset` (+3 ticks, `Settings.bull_flag_fill_offset_ticks =
+    3`) is the price R is **measured against** — deliberately worse than the trigger, to avoid
+    overstating the edge, even though the real fill is often the trigger price itself. Captured on
+    `Setup.entry_fill` (no legacy `BullFlag` slot); #180 must wire `rmetrics` to read it for R
+    rather than reusing `entry_trigger`.
 - **Stop** = consolidation low (`cons_low`) — the risk the retracement gate is measured against.
 
 ---
@@ -253,14 +285,27 @@ Gates (reject) vs. score (rank), starting point:
 
 1. **Max pole / consolidation length = 4 / 4** (hard gate; refinable, no data deleted).
 2. **`E` (equal-high) token** — allowed only in the consolidation (not the pole); `eps` = 1 tick.
-3. **Entry price** — last consolidation high **+ 3 ticks** (slippage); `entry_offset_ticks = 3`.
-
-4. **`POLE_height_pct` floor = 2%** (`min_pole_pct`); "abnormal" carried by `POLE_extension_atr`
+3. **`POLE_height_pct` floor = 2%** (`min_pole_pct`); "abnormal" carried by `POLE_extension_atr`
    (trailing 14-bar true-range ATR, ≥ 2× = abnormal).
+4. **Volume gate = peak-bar** (not max-bar-in-pole) — reaffirms #127 (§3.2).
+
+**Locked 2026-07-10 (revised same day via per-opportunity visual review, #182/#190):**
+
+5. **Pole = green thrust candles only** — no red candle in the pole (including the peak); a
+   doji-like technically-higher-high bar breaks the pole walk and becomes the base instead (§3.1).
+6. **Entry price** = last consolidation high **+ 1 tick** (supersedes the earlier "+3 ticks" lock —
+   see §4). `Settings.bull_flag_trigger_offset_ticks = 1`.
+7. **Fill price for R = last consolidation high + 3 ticks** (`Settings.bull_flag_fill_offset_ticks
+   = 3`), a deliberately conservative slippage estimate applied *downstream* of the 1-tick trigger
+   — resolves item 9 below (was open). `Setup.entry_fill` (no legacy `BullFlag` slot yet).
 
 **Still open:**
 
-5. **Gate-vs-score assignment** — the tuning surface; migrate features between roles from review
+8. **Gate-vs-score assignment** — the tuning surface; migrate features between roles from review
    data.
-6. **`LOC` plumbing** — join `scanner_hits` timestamps to the bar series to compute location
+9. **`LOC` plumbing** — join `scanner_hits` timestamps to the bar series to compute location
    features.
+10. **Appearance-anchoring** — a pole whose peak bar had already fully closed before the symbol's
+    first scanner appearance isn't observable and can't be "the" pole for execution (validated on
+    MSTZ). Needs `first_hit`, which `detect_setup` doesn't take — deferred to #180's rmetrics
+    wiring (an orchestration-layer concern, mirrors the existing #99/#122 appearance gate).

@@ -3,7 +3,7 @@
 For strict (non-``E``) in-window shapes, ``detect_setup(...).as_bullflag()`` must equal the legacy
 ``detect(...)`` field-for-field when run with legacy-equivalent params, and the two must accept /
 reject the same shapes. This pins the #180 cut-over: any behavioural change then comes purely from
-the settings flip (caps 8/6→4/4, entry 5→3 ticks, ``min_pole_pct`` 2%), not from the rewrite.
+the settings flip (caps 8/6→4/4, ``min_pole_pct`` 2%), not from the rewrite.
 
 Parity is scoped to strict poles: v2's ``E``-tolerant base intentionally diverges for equal-high
 poles (see features.py / engine-v2.md §11), so fixtures use clearly separated highs.
@@ -61,9 +61,10 @@ _DEEP_RETRACE = [  # flag_low 4.8 -> retracement (6.5-4.8)/(6.5-4.6) = 0.89 > 0.
     _bar(1, 5.6, 6.5, 5.5, 6.4, vol=2000),
     _bar(2, 6.0, 6.1, 4.8, 5.0, vol=800),
 ]
-_WICKY_PEAK = [  # peak upper wick 0.9 > 0.50
+_WICKY_PEAK = [  # peak upper wick 0.9 > 0.50; peak must stay green (barely) to exercise wick_peak
+    # specifically rather than being rejected upstream by the #182/#190 color/thrust pole rule.
     _bar(0, 5.0, 5.8, 4.6, 5.6, vol=1000),
-    _bar(1, 5.6, 6.5, 5.5, 5.6, vol=2000),
+    _bar(1, 5.55, 6.5, 5.5, 5.6, vol=2000),
     _bar(2, 5.5, 5.5, 5.2, 5.3, vol=800),
 ]
 _LOW_VOL_POLE = [  # peak vol 700 <= flag vol 900 -> not clean

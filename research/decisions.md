@@ -24,7 +24,12 @@
 **Capture split — discovery intraday, bars at EOD (DECISION 2026-07-01, #62).** The intraday 60s tick does **discovery only**: scanner hits + opening opportunities + news/fundamentals at flag time (all point-in-time — not reconstructable later). The day's **5-min bars are pulled once in an end-of-day batch** (~16:20 ET, before the 16:30 report): a single `reqHistoricalData(durationStr="1 D", "5 mins", useRTH=False)` returns the whole session (04:00 ET→close) per flagged symbol. Replaces the fragile keepUpToDate streaming, which lost data + duplicated bars on a mid-session restart (observed after a deploy) and implicitly assumed a real-time feed we don't have (data is ~15 min delayed). The EOD job reads opportunities from storage and discovery rehydrates its open-set from storage on startup, so **restarts/deploys during market hours no longer create gaps**. Phase-1 places no orders, so real-time bars have no operational value.
 
 ## Entry / stop spec (for Max-R measurement)
-- **Entry trigger (CONFIRMED 2026-07-01):** **5 ticks above the high of the last _complete_ consolidation candle** (i.e. `breakout_high + 5 × tick_size`; for $2–10 names tick = $0.01, so +$0.05). Revised from the earlier "1 tick above" (`notes.md`) after the user confirmed the real entry. Configurable via `Settings.entry_offset_ticks` / `tick_size`.
+- **Entry trigger (CONFIRMED 2026-07-01, ⚠️ SUPERSEDED for engine v2 2026-07-10 by #182/#190 — see
+  below):** ~~5 ticks above the high of the last _complete_ consolidation candle (i.e.
+  `breakout_high + 5 × tick_size`; for $2–10 names tick = $0.01, so +$0.05). Revised from the
+  earlier "1 tick above" (`notes.md`) after the user confirmed the real entry.~~ Configurable via
+  `Settings.entry_offset_ticks` / `tick_size` — **legacy engine only**, still live and unchanged
+  until #180's cut-over.
 - **Stop (CONFIRMED 2026-06-29):** the **low of the consolidation candle(s)** (the flag low). This is the R denominator; `R = entry − stop`.
 - **Analysis window (CONFIRMED 2026-07-01, #93):** R-metrics (trigger / Max R / MAE) are measured only through the **regular close, `capture_end` = 16:00 ET** — after-hours bars are **excluded** so illiquid after-hours prints can't set Max R. Store-raw is preserved (all bars are kept in storage; the analysis window is bounded on read in `report.py`).
 
@@ -115,10 +120,12 @@ Reviewing the annotated charts against the engine, the trader's model of a setup
 from the earlier "≤2 green candles" pole. Redefined `bullflag.detect` (backcastable — recomputes
 over already-collected raw bars):
 - **Pole = a run of higher highs**, from a **single higher-high bar** up to `bull_flag_max_pole`(8);
-  `bull_flag_min_pole`=1. **Not** colour-gated — a non-green bar is allowed as long as the high still
-  makes a higher high (SNDQ counted a 7-bar pole; SOXS/OKLL/DJT "characterised by higher highs").
-  `pole_len` counts the higher highs; the ascending run's launch bar sets the pole base for the
-  retracement. The peak must be a higher high than its predecessor, so a *descending* flag isn't
+  `bull_flag_min_pole`=1. ~~**Not** colour-gated — a non-green bar is allowed as long as the high
+  still makes a higher high (SNDQ counted a 7-bar pole; SOXS/OKLL/DJT "characterised by higher
+  highs").~~ ⚠️ **SUPERSEDED for engine v2 2026-07-10 by #182/#190** (colour-gated: no red/doji bar
+  in the pole) — **legacy `bullflag/detect.py` is unchanged and stays colour-agnostic**, live until
+  #180's cut-over. `pole_len` counts the higher highs; the ascending run's launch bar sets the pole
+  base for the retracement. The peak must be a higher high than its predecessor, so a *descending* flag isn't
   mistaken for the peak. *Preferable* (soft, not yet quantified — deferred like the wick filter):
   the pole contains ≥1 big green candle.
 - **Flag = a genuine pullback** of `1..bull_flag_max_flag`(6) bars that stays below the pole peak and
@@ -143,6 +150,46 @@ wording from the v2 sketch. They diverge only for a multi-bar pole where a *non-
 bar spikes in volume; peak-bar refuses to let an earlier bar's volume rescue a weak breakout bar.
 Chosen to honour the locked #127 rule and keep v2 byte-identical to the legacy detector (parity).
 Surfaced by the #179 code review; user confirmed peak-bar (Rule A).
+
+## Engine v2 pole is colour-gated (DECISION 2026-07-10, #182/#190 — supersedes #127 for v2 only)
+Walking through 8+ real opportunities one at a time in a chart viz (VRAX/MSTZ/MUZ/TVRD/CRCG/ARCT/
+IRE/CONL/FCEL/OKLL), the trader confirmed: **"I don't like any red candles in the pole."** This
+**reverses #127's "not colour-gated"** rule (which allowed SNDQ/SOXS/OKLL/DJT-style poles containing
+a non-green bar) — **for engine v2 only**. Two rules, both validated bar-by-bar:
+- **No red candle can be part of the pole, including the peak.** A red "peak" (a new high that
+  reverses and closes weak within the bar — a shooting-star top, e.g. IRE) is disqualified entirely;
+  the search continues for a later green peak.
+- **A technically-higher-high bar that's doji-like (small body relative to range) doesn't extend the
+  pole** even though its high still ticks up (MUZ/CRCG/CONL — a quiet pause between two real
+  thrusts). It becomes the base (a height reference only), not an intermediate pole bar.
+- Threshold: green (`close > open`) with body ≥ 50% of range (reuses `_is_big_green`, #132); the
+  peak only needs to be green (any body size), matching the existing single-bar-pole tolerance.
+- Effect: often **shrinks** the pole to the true immediate thrust, which then makes the retracement
+  gate stricter (a shallow-looking pullback against a big multi-bar run becomes rejection-deep
+  against the true, smaller pole) — seen repeatedly, and it's the gates working correctly.
+
+**The legacy detector (`bullflag/detect.py`) is UNCHANGED and stays colour-agnostic** — this is a
+v2-only redefinition, live only once #180 flips the settings/repoint. Implemented in `segment.py`.
+
+## Engine v2 entry: 1-tick trigger, 3-tick conservative fill (DECISION 2026-07-10, #182/#190 —
+supersedes the 2026-07-01 "5 ticks" entry-trigger decision above, for v2 only)
+The 2026-07-01 decision revised entry from "1 tick above" to "5 ticks above" after the user
+confirmed the real entry — but that confirmation predates any chart-by-chart review. Walking the
+same 8+ real opportunities today, the trader clarified the two ideas were being conflated:
+**"the 3 ticks does become a slippage modelled fill price for R. The trigger is always the tick
+above the last high in the consolidation. Often I actually fill at that price anyway. 3 ticks is
+being conservative."** So the two concepts are split, not just re-numbered:
+- **`entry_trigger` = last consolidation candle's high + 1 tick** (`Settings.
+  bull_flag_trigger_offset_ticks = 1`) — decides **when** a setup fires. Validated as "entry" on
+  every one of the 8+ reviewed charts.
+- **`entry_fill` = last consolidation candle's high + 3 ticks** (`Settings.
+  bull_flag_fill_offset_ticks = 3`) — the price R is **measured against**, deliberately worse than
+  the trigger to avoid overstating the edge, even though the real fill is often the trigger price
+  itself. Captured on `Setup.entry_fill`; no legacy `BullFlag` slot yet — #180 must wire `rmetrics`
+  to read it for R-measurement instead of reusing `entry_trigger`.
+
+**The legacy detector's `entry_offset_ticks` (5) is UNCHANGED and unused by v2** — this is a v2-only
+concept with no legacy equivalent, live only once #180 flips the settings/repoint.
 
 ## Fundamentals source (2026-06-29, issue #17)
 - IBKR (Reuters) fundamentals are **unentitled** on the account (error 10358: "Fundamentals data is not allowed"). Phase-1 sources **float / shares outstanding / short% via yfinance** (free, no key; tradepilot precedent). Captured raw at flag time with a `source` column, so a hardened source (FMP float / FINRA short interest, **issue #41**) can be swapped in later and recomputed.

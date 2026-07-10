@@ -14,15 +14,21 @@ checks.
 Grammar (``E`` = equal high is allowed **only in the consolidation**, never in the pole):
 
 - **Peak** = the dominant (highest) high among the trailing ``max_cons + 1`` bars. If it lands on
-  the last bar the series is still extending → ``None``.
+  the last bar the series is still extending → ``None``. The peak bar itself must be **green**
+  (``close > open``) — a red "peak" (a new high that reverses and closes weak within the same bar,
+  e.g. a shooting-star top) isn't a genuine thrust, so it's disqualified and the caller keeps
+  searching later prefixes for a green peak instead (validated via visual review, #182/#190: IRE).
 - **Consolidation** = the bars after the peak (``1..max_cons`` of them). Its tokens must contain
   **no ``H``** (any higher-high step means it ticked back up — not a clean pullback) and **>= 1
   strict ``L``** (an all-``E`` flat top is not a genuine pullback); ``E`` (a flat pullback candle)
   is fine here.
-- **Pole** = the run of **strict higher highs (``H``)** ending at the peak, capped at ``max_pole``.
-  An ``E`` is *not* allowed in the pole, so the walk stops at the first non-``H`` going back;
-  ``pole_len`` counts the higher highs and must be ``>= 1``. Because every pole step strictly rises,
-  the base sits strictly below the peak.
+- **Pole** = the run of **strict higher highs (``H``)** ending at the peak, capped at ``max_pole``,
+  where every bar is a genuine **thrust candle** (green, body >= half its range) — a technically
+  higher-high bar that's doji-like or red is a quiet pause or reversal, not real continuation of
+  momentum, so the walk stops there and that bar becomes the base instead of an intermediate pole
+  bar (validated via visual review, #182/#190: MUZ/CRCG/CONL). ``E`` is *not* allowed in the pole
+  either way; ``pole_len`` counts the higher highs and must be ``>= 1``. Because every pole step
+  strictly rises, the base sits strictly below the peak.
 
 Index convention: token ``k`` compares ``bars[k]`` (from-side) to ``bars[k+1]`` (to-side).
 """
@@ -33,7 +39,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ..capture import Bar
-from .detect import _find_pole_peak
+from .detect import _find_pole_peak, _is_big_green, classify
 from .tokens import Token
 
 
@@ -81,19 +87,33 @@ def segment_at_end(
     # walk stops at the first non-H going back. This also keeps the base strictly below the peak
     # (base.high < peak.high), so pole_span > 0 always; the old E-tolerant walk could drift the base
     # across a flat run onto a bar at/above the peak, giving a zero/negative span (#181: ITRG/IVF).
-    start = peak
-    pole_len = 0
-    while start - 1 >= 0 and tokens[start - 1] == "H" and pole_len < max_pole:
-        start -= 1
+    #
+    # The peak itself must be green (any body size — matches the single-bar-pole tolerance below);
+    # a red peak disqualifies this candidate entirely (#182/#190: IRE's shooting-star top). To
+    # extend the pole PAST the peak's immediate predecessor, each additional bar must be a genuine
+    # thrust (green, body >= half its range) — a doji-like or red bar breaks the walk and becomes
+    # the base instead of an intermediate pole bar (#182/#190: MUZ/CRCG/CONL).
+    #
+    # max_pole < 1 disables the pole entirely (matches the old loop, which never incremented
+    # pole_len past 0 in that case): peak - 1 is never negative here (_find_pole_peak's window
+    # floor `lo = max(1, n-1-max_cons)` guarantees peak >= 1), so that guard would be dead code.
+    if max_pole < 1 or tokens[peak - 1] != "H" or classify(bars[peak]) != "green":
+        return None  # pole disabled, no strict higher high into the peak, or the peak isn't green
+    base, pole_len = peak - 1, 1
+    while (
+        pole_len < max_pole
+        and base - 1 >= 0
+        and tokens[base - 1] == "H"
+        and _is_big_green(bars[base])
+    ):
+        base -= 1
         pole_len += 1
-    if pole_len < 1:
-        return None  # the step into the peak wasn't a strict higher high -> no pole
 
     return Segment(
-        base_idx=start,
+        base_idx=base,
         peak_idx=peak,
         cons_end_idx=n - 1,
-        tokens=tuple(tokens[start:]),
+        tokens=tuple(tokens[base:]),
         pole_len=pole_len,
         cons_len=cons_len,
     )

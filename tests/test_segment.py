@@ -10,15 +10,33 @@ from small_cap_stack.capture import Bar
 _T0 = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
 
 
-def _bars(highs: list[float]) -> list[Bar]:
-    return [
-        Bar(start=_T0 + timedelta(minutes=5 * i), open=h, high=h, low=h - 1, close=h, volume=1000.0)
-        for i, h in enumerate(highs)
-    ]
+def _bars(highs: list[float], *, colors: list[str] | None = None) -> list[Bar]:
+    """Bars carrying meaningful highs. GREEN with a full body (open=low) by default, so grammar
+    tests (H/L/E boundaries, longest-match, retracement) aren't blocked by the color/thrust rule.
+    Pass ``colors`` (same length as ``highs``, values "green"/"red"/"doji") to test that rule
+    directly: green = full body (open=low), red = full red body (open=high), doji = zero body."""
+    colors = colors or ["green"] * len(highs)
+    bars = []
+    for i, (h, c) in enumerate(zip(highs, colors, strict=True)):
+        low = h - 1
+        if c == "green":
+            o, close = low, h
+        elif c == "weak_green":  # green, but body < half the range (fails the thrust threshold)
+            o, close = h - 0.1, h
+        elif c == "red":
+            o, close = h, low
+        else:  # doji: zero body (flat, neither green nor red)
+            mid = (h + low) / 2
+            o = close = mid
+        start = _T0 + timedelta(minutes=5 * i)
+        bars.append(Bar(start=start, open=o, high=h, low=low, close=close, volume=1000.0))
+    return bars
 
 
-def _seg(highs: list[float], *, max_pole: int = 4, max_cons: int = 4) -> Segment | None:
-    bars = _bars(highs)
+def _seg(
+    highs: list[float], *, max_pole: int = 4, max_cons: int = 4, colors: list[str] | None = None
+) -> Segment | None:
+    bars = _bars(highs, colors=colors)
     return segment_at_end(bars, tokenize(bars, eps=0.01), max_pole=max_pole, max_cons=max_cons)
 
 
@@ -119,3 +137,42 @@ def test_too_few_bars_or_mismatched_tokens() -> None:
     assert _seg([4.0, 5.0]) is None  # only two bars
     bars = _bars([4.0, 5.0, 4.5])
     assert segment_at_end(bars, ["H"], max_pole=4, max_cons=4) is None  # tokens != len(bars)-1
+
+
+def test_red_peak_disqualifies_the_candidate() -> None:
+    # HL, but the peak bar (index 1) is RED (a new high that reverses and closes weak within the
+    # bar) -> not a genuine thrust -> no valid pole at all, even though the direction step is H
+    # (#182/#190: IRE's shooting-star top).
+    assert _seg([4.0, 5.0, 4.5], colors=["green", "red", "green"]) is None
+
+
+def test_doji_bar_breaks_pole_extension() -> None:
+    # Three higher highs (H H H) then a pullback, but the bar immediately BEFORE the peak (index 2)
+    # is a doji (zero body) -> the walk can't extend past it (it becomes the base, excluded from
+    # the pole), so the pole is just the final strict-H step (base=2, peak=3, pole_len=1) instead
+    # of the full 3-step run (#182/#190: MUZ/CRCG/CONL — the doji plays the role of MUZ's bar4).
+    seg = _seg(
+        [4.0, 5.0, 5.8, 6.5, 6.0],
+        colors=["green", "green", "doji", "green", "green"],
+    )
+    assert seg is not None
+    assert (seg.base_idx, seg.peak_idx, seg.pole_len, seg.cons_len) == (2, 3, 1, 1)
+
+
+def test_weak_bodied_peak_is_still_a_valid_single_bar_pole() -> None:
+    # The PEAK itself only needs to be green (ANY body size, not the full thrust threshold) — a
+    # weak-bodied (but still green) peak forms a valid single-bar pole, matching the existing
+    # "single bar pole" tolerance. Only extending PAST the peak's predecessor requires the full
+    # thrust body threshold (>=0.5).
+    seg = _seg([4.0, 5.0, 4.5], colors=["green", "weak_green", "green"])
+    assert seg is not None
+    assert (seg.base_idx, seg.peak_idx, seg.pole_len) == (0, 1, 1)
+
+
+def test_flat_or_red_peak_disqualifies_even_with_valid_direction() -> None:
+    assert _seg([4.0, 5.0, 4.5], colors=["green", "doji", "green"]) is None  # flat peak, not green
+
+
+def test_max_pole_zero_disables_the_pole() -> None:
+    # max_pole < 1 means "no pole allowed" -> None, even for an otherwise-valid single-bar pole.
+    assert _seg([4.0, 5.0, 4.5], max_pole=0) is None
