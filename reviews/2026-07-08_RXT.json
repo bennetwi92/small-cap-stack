@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-08:RXT",
+  "symbol": "RXT",
+  "trading_date": "2026-07-08",
+  "note": "This was a funny one. the split between pole and colsolidation wasn't clean and obvious",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783517400,
+      "t1": 1783517700,
+      "low": 6.51,
+      "high": 7.72
+    },
+    "consolidation": {
+      "t0": 1783518000,
+      "t1": 1783518000,
+      "high": 7.6,
+      "low": 7.34
+    },
+    "entry": 7.62,
+    "stop": 7.33,
+    "entry_t": 1783518300,
+    "max_r": 0.41
+  },
+  "updated_utc": "2026-07-10T12:25:04.547Z"
+}
