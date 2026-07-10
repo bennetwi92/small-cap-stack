@@ -136,6 +136,14 @@ over already-collected raw bars):
 (CLVT/CYH/CMMB); entry appearance-bar gate #122 (SOXS/JEM mid-bar appearance); later-intraday setups
 & entry-staleness (CLRO/TSDD/AHMA "entry an hour after the scan"); half-pole-stop research (IREZ).
 
+## Engine v2 volume gate = peak-bar (DECISION 2026-07-10, #176 — reaffirms #127)
+The engine-v2 redefinition (`bull-flag.md`, umbrella #176) keeps the volume filter on the pole's
+**peak (thrust) bar** volume > consolidation volume — **not** the "max bar volume in the pole"
+wording from the v2 sketch. They diverge only for a multi-bar pole where a *non-peak* higher-high
+bar spikes in volume; peak-bar refuses to let an earlier bar's volume rescue a weak breakout bar.
+Chosen to honour the locked #127 rule and keep v2 byte-identical to the legacy detector (parity).
+Surfaced by the #179 code review; user confirmed peak-bar (Rule A).
+
 ## Fundamentals source (2026-06-29, issue #17)
 - IBKR (Reuters) fundamentals are **unentitled** on the account (error 10358: "Fundamentals data is not allowed"). Phase-1 sources **float / shares outstanding / short% via yfinance** (free, no key; tradepilot precedent). Captured raw at flag time with a `source` column, so a hardened source (FMP float / FINRA short interest, **issue #41**) can be swapped in later and recomputed.
 

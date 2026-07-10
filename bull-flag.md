@@ -137,12 +137,11 @@ _Intent: "The max bar volume in the pole must be greater than the max bar volume
 consolidation."_ (The engine's `cons_vol_reducing` / peak-volume gate already implement the first
 two rows.)
 
-> **Open decision — peak-bar vs. max-bar-in-pole.** The sketch above says "max bar volume in the
-> pole," but the **locked #127 rule** (CLAUDE.md) is the pole's **peak (thrust) bar** volume. These
-> differ for a multi-bar pole where a *non-peak* higher-high bar spikes in volume. v2 implements the
-> **peak-bar rule** (honours the locked decision, matches legacy exactly, keeps parity). If you want
-> the looser "max bar in the pole" redefinition, say so and we'll change `VOL_peak_gt_cons` +
-> re-run the #181 divergence spike — it is **not** currently adopted.
+> **Decision (locked 2026-07-10) — peak-bar, not max-bar-in-pole.** The original sketch said "max
+> bar volume in the pole," but the volume gate uses the pole's **peak (thrust) bar** volume >
+> consolidation volume — reaffirming the locked #127 rule. They differ only for a multi-bar pole
+> where a *non-peak* higher-high bar spikes in volume; the peak-bar rule refuses to let an earlier
+> bar's volume rescue a weak breakout bar. Matches the legacy detector exactly (keeps parity).
 
 ### 3.3 `WICK` — wickyness
 
