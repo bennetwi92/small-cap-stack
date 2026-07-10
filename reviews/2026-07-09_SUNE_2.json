@@ -3,7 +3,7 @@
   "opportunity_id": "2026-07-09:SUNE#2",
   "symbol": "SUNE",
   "trading_date": "2026-07-09",
-  "note": "",
+  "note": "not great because of all the activity before",
   "no_trigger": false,
   "annotations": {
     "pole": {
@@ -23,5 +23,5 @@
     "entry_t": 1783595400,
     "max_r": 2.62
   },
-  "updated_utc": "2026-07-10T13:23:30.215Z"
+  "updated_utc": "2026-07-10T13:23:41.726Z"
 }
