@@ -31,8 +31,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .capture import Bar
-from .config import Settings
+from ..capture import Bar
+from ..config import Settings
 
 
 def classify(bar: Bar) -> str:

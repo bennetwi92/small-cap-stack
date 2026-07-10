@@ -133,22 +133,28 @@ def tokenize(bars: Sequence[Bar], *, eps: float) -> list[Token]:
 ## 5. Stage 2 — segmenter (`segment.py`)
 
 ```python
-def segment_at_end(tokens: Sequence[Token], *, max_pole: int, max_cons: int) -> Segment | None:
+def segment_at_end(bars: Sequence[Bar], tokens: Sequence[Token], *,
+                   max_pole: int, max_cons: int) -> Segment | None:
     """Longest valid base→POLE→CONSOLIDATION ending at the LAST bar (no trigger H yet).
-    Returns None if no valid shape ends here."""
+    Returns None if no valid shape ends here. tokens must be tokenize(bars)."""
 ```
 
 Rules (from `bull-flag.md §2.2`):
-- Read **backwards** from the end. The trailing run of `L`/`E` (with ≥1 strict `L`) is the
-  consolidation; before it, the run of `H`/`E` (with ≥1 strict `H`) is the pole; the bar before the
-  pole's first `H` is the base.
-- `E` is **permissive**: it extends whichever run it sits in but never satisfies the "≥1 strict"
-  requirement, and an all-`E` run is neither pole nor consolidation.
-- **Longest-match**: extend the pole as far back as `H`/`E` allow, capped at `max_pole` strict `H`.
-  This is the structural form of the engine's dominant-high fix (#163) — a mid-pullback up-tick
-  can't truncate the real pole.
-- Gate lengths here so an over-long shape simply doesn't segment: `pole_len ∈ [1, max_pole]`,
-  `cons_len ∈ [1, max_cons]`, both `= 4` in v2.
+- **Peak = the dominant (highest) high of the trailing `max_cons + 1` bars** (ties → earliest), not
+  the nearest local up-tick. This *is* the engine's #163 fix, and it's why the segmenter takes
+  `bars` and not only `tokens`: tokens drop magnitudes, so a mid-pullback up-tick would otherwise be
+  mistaken for the peak. (Original spec passed tokens only; refined during #177 — a token-only
+  segmenter can't resolve the dominant high.) If the peak lands on the last bar → still extending →
+  `None`.
+- **Consolidation** = the bars after the peak. Its tokens must contain **no `H`** (a higher-high
+  step means it ticked back up — not a clean pullback, matching legacy `_flag_makes_lower_highs`)
+  and **≥1 strict `L`** (an all-`E` flat top has no net lower high).
+- **Pole** = the `H`/`E` run ending at the peak, extended backwards while `H`/`E` allow, capped at
+  `max_pole` strict `H` (longest-match keeps the trailing `max_pole` higher highs). `E` is
+  **permissive** — it extends the run but is not a higher high; `pole_len` counts strict `H` and
+  must be ≥1.
+- Length gates: `pole_len ∈ [1, max_pole]`, `cons_len ∈ [1, max_cons]`, both `= 4` in v2 (an
+  over-long shape simply doesn't segment).
 
 **Why end-anchored?** Detection must fire on a **completed consolidation** (last bar) so we can set
 the entry level *before* the breakout. The grammar's "trigger = first `H` after the consolidation"
