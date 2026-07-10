@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-09:SUNE#2",
+  "symbol": "SUNE",
+  "trading_date": "2026-07-09",
+  "note": "",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783594200,
+      "t1": 1783594800,
+      "low": 2.33,
+      "high": 2.54
+    },
+    "consolidation": {
+      "t0": 1783595100,
+      "t1": 1783595100,
+      "high": 2.42,
+      "low": 2.3547
+    },
+    "entry": 2.43,
+    "stop": 2.35,
+    "entry_t": 1783595400,
+    "max_r": 2.62
+  },
+  "updated_utc": "2026-07-10T13:23:30.215Z"
+}
