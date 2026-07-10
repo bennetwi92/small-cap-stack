@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-07:JLHL",
+  "symbol": "JLHL",
+  "trading_date": "2026-07-07",
+  "note": "",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783433100,
+      "t1": 1783433400,
+      "low": 4.17,
+      "high": 5.38
+    },
+    "consolidation": {
+      "t0": 1783433700,
+      "t1": 1783433700,
+      "high": 5.38,
+      "low": 4.58
+    },
+    "entry": 5.4,
+    "stop": 4.57,
+    "entry_t": 1783434000,
+    "max_r": 0.14
+  },
+  "updated_utc": "2026-07-10T11:42:51.713Z"
+}
