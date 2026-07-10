@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-07:CLRO",
+  "symbol": "CLRO",
+  "trading_date": "2026-07-07",
+  "note": "",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783428300,
+      "t1": 1783428600,
+      "low": 6.9,
+      "high": 9.5
+    },
+    "consolidation": {
+      "t0": 1783428900,
+      "t1": 1783428900,
+      "high": 8.33,
+      "low": 7.69
+    },
+    "entry": 8.41,
+    "stop": 7.65,
+    "entry_t": 1783429200,
+    "max_r": 10.64
+  },
+  "updated_utc": "2026-07-10T09:52:03.779Z"
+}
