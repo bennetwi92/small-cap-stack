@@ -9,16 +9,20 @@ stage 2 :mod:`.segment` (this issue #177); stages 3–4 (features/gates/score) f
 from __future__ import annotations
 
 from .detect import BullFlag, classify, detect, detect_with_settings
+from .features import FeatureVector, extract, trailing_atr
 from .segment import Segment, segment_at_end
 from .tokens import Token, tokenize
 
 __all__ = [
     "BullFlag",
+    "FeatureVector",
     "Segment",
     "Token",
     "classify",
     "detect",
     "detect_with_settings",
+    "extract",
     "segment_at_end",
     "tokenize",
+    "trailing_atr",
 ]

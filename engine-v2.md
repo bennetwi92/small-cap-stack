@@ -169,16 +169,22 @@ loop (can be optimised to a single backward pass later; keep prefix form for a f
 ## 6. Stage 3 — features (`features.py`)
 
 ```python
-def extract(bars: Sequence[Bar], seg: Segment, *, atr: float | None = None) -> FeatureVector: ...
+def extract(bars: Sequence[Bar], seg: Segment, *, atr: float | None = None,
+            window_start: time = time(4, 0), window_end: time = time(11, 59)) -> FeatureVector: ...
+def trailing_atr(bars: Sequence[Bar], base_idx: int, *, window: int = 14) -> float | None: ...
 ```
 
-- Pure over `bars[seg.base_idx : seg.cons_end_idx+1]`. One private helper per non-trivial feature,
-  mirroring today's `_upper_wick_frac` / `_is_big_green` / `_non_increasing` (reuse them).
+- Pure over `bars[seg.base_idx : seg.cons_end_idx+1]` (plus the bars before the base for the ATR
+  baseline). Reuses the legacy `_upper_wick_frac` / `_is_big_green` / `_non_increasing`.
 - `pole_base = bars[base_idx].low`, `pole_high = bars[peak_idx].high`,
   `cons_low = min(low over consolidation)` — same anchors the current engine uses, so retracement is
   numerically identical to today for a shape both detectors accept.
-- `pole_extension_atr` takes an optional trailing `atr`; `None` when unavailable (keeps the fn pure
-  and testable without a baseline source — see open item `bull-flag.md §6.4`).
+- `pole_extension_atr` takes an optional trailing `atr` (compute it with `trailing_atr`, a 14-bar
+  Wilder true-range mean over the bars *before* the base); `None` when there aren't enough bars.
+- `trigger_in_window` uses the detection bar's time (`cons_end_idx`) converted to ET via
+  `clock.within_window`; `window_start`/`window_end` default to the strategy window
+  (`Settings.scan_start`/`scan_end`) and are overridable so `extract` needs no `Settings`.
+- LOC is recorded-only this pass: `bars_before_scan = None` until the `scanner_hits` join lands.
 
 ## 7. Stage 4 — gate + score
 
@@ -272,7 +278,11 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
 - `score`: monotonicity (shallower retrace / shorter pole / higher vol ratio never lowers score);
   contributions sum to `score`.
 - **Golden parity:** for a corpus of fixtures both engines accept, `as_bullflag()` ==
-  today's `detect()` output field-for-field, and `rmetrics` numbers are unchanged.
+  today's `detect()` output field-for-field, and `rmetrics` numbers are unchanged. **Scope: strict
+  (non-`E`) poles only** — v2's `E`-tolerant segmenter re-anchors the base earlier than the legacy
+  strict-ascending walk when the pole contains an equal-high step, so retracement/base intentionally
+  diverge for `E`-poles (an intended v2 change, not a parity violation). Fixtures use clearly
+  separated highs so no pole step falls within `eps`.
 - Reuse the named real cases already in `test_bullflag.py` (AHMA/VRXA/SNDQ/ETHT/NBIZ/CLRO/CYH/DJT).
 
 ## 12. Rollout (proposed issues, Refs #1)
