@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-08:BABX#2",
+  "symbol": "BABX",
+  "trading_date": "2026-07-08",
+  "note": "",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783517700,
+      "t1": 1783519200,
+      "low": 16.72,
+      "high": 17.6
+    },
+    "consolidation": {
+      "t0": 1783519500,
+      "t1": 1783520100,
+      "high": 17.56,
+      "low": 17.32
+    },
+    "entry": 17.53,
+    "stop": 17.31,
+    "entry_t": 1783520400,
+    "max_r": 1.5
+  },
+  "updated_utc": "2026-07-10T11:57:50.112Z"
+}
