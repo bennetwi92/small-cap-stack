@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-08:LHAI",
+  "symbol": "LHAI",
+  "trading_date": "2026-07-08",
+  "note": "Not a good looking entry at all. very wicky pole",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783512000,
+      "t1": 1783512000,
+      "low": 1.2,
+      "high": 1.46
+    },
+    "consolidation": {
+      "t0": 1783512300,
+      "t1": 1783512600,
+      "high": 1.44,
+      "low": 1.26
+    },
+    "entry": 1.39,
+    "stop": 1.26,
+    "entry_t": 1783512900,
+    "max_r": 2.23
+  },
+  "updated_utc": "2026-07-10T13:13:35.082Z"
+}
