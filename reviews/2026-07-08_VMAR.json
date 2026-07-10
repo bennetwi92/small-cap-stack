@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-08:VMAR",
+  "symbol": "VMAR",
+  "trading_date": "2026-07-08",
+  "note": "It retraced too far",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783503000,
+      "t1": 1783503000,
+      "low": 1.38,
+      "high": 1.8984
+    },
+    "consolidation": {
+      "t0": 1783503300,
+      "t1": 1783503600,
+      "high": 1.69,
+      "low": 1.345
+    },
+    "entry": 1.5,
+    "stop": 1.34,
+    "entry_t": 1783503900,
+    "max_r": 1.25
+  },
+  "updated_utc": "2026-07-10T13:16:10.779Z"
+}
