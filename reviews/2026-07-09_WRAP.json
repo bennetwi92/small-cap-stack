@@ -3,7 +3,7 @@
   "opportunity_id": "2026-07-09:WRAP",
   "symbol": "WRAP",
   "trading_date": "2026-07-09",
-  "note": "",
+  "note": "I don't think this wouldd have stopped out but it was a very weak entry because there was so little movement",
   "no_trigger": false,
   "annotations": {
     "pole": {
@@ -23,5 +23,5 @@
     "entry_t": 1783603800,
     "max_r": 0
   },
-  "updated_utc": "2026-07-10T13:22:18.232Z"
+  "updated_utc": "2026-07-10T13:22:43.630Z"
 }
