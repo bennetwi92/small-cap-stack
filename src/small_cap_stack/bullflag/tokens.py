@@ -29,7 +29,10 @@ def tokenize(bars: Sequence[Bar], *, eps: float) -> list[Token]:
     """
     tokens: list[Token] = []
     for i in range(1, len(bars)):
-        delta = bars[i].high - bars[i - 1].high
+        # Round the delta before the eps test: float error otherwise makes an exactly-1-tick move
+        # register as H/L instead of E (e.g. 1.26 - 1.25 == 0.010000000000000009 > 0.01). Prices
+        # carry <= 4 decimals, so rounding to 6 kills the noise without touching real moves.
+        delta = round(bars[i].high - bars[i - 1].high, 6)
         if delta > eps:
             tokens.append("H")
         elif delta < -eps:

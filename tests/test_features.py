@@ -39,7 +39,6 @@ def test_full_feature_vector() -> None:
     fv = extract(_BARS, _seg_of(_BARS))
     # SHAPE
     assert (fv.pole_len, fv.cons_len) == (1, 1)
-    assert fv.pole_strictness == 1.0
     assert fv.cons_strictness == 1.0
     assert fv.token_string == "HL"
     # VOL
@@ -86,13 +85,15 @@ def test_trailing_atr() -> None:
     assert trailing_atr(bars, base_idx=3, window=4) is None  # fewer than window bars before base
 
 
-def test_strictness_with_equal_highs() -> None:
-    # Pole H E H (2 strict of 3 steps); consolidation L E L (2 strict of 3).
+def test_equal_high_splits_pole_but_is_ok_in_cons() -> None:
+    # E is allowed only in the consolidation. Highs 4,5,5,6(peak),5.5,5.5,5.2 -> tokens HEHLEL.
+    # The E before the peak splits the pole, so the pole is just the final strict-H step (pole_len
+    # 1, base at bar 2); the consolidation L E L keeps its E (cons_strictness = 2 of 3).
     bars = [_hbar(i, h) for i, h in enumerate([4.0, 5.0, 5.0, 6.0, 5.5, 5.5, 5.2])]
-    fv = extract(bars, _seg_of(bars))
-    assert fv.token_string == "HEHLEL"
-    assert (fv.pole_len, fv.cons_len) == (2, 3)
-    assert fv.pole_strictness == pytest.approx(2 / 3)
+    seg = _seg_of(bars)
+    assert (seg.base_idx, seg.peak_idx, seg.pole_len, seg.cons_len) == (2, 3, 1, 3)
+    fv = extract(bars, seg)
+    assert fv.token_string == "HLEL"  # tokens from base_idx (2) onward
     assert fv.cons_strictness == pytest.approx(2 / 3)
 
 
@@ -159,15 +160,14 @@ def test_trigger_window_true_when_breakout_inside() -> None:
     assert extract(bars, _seg_of(bars)).trigger_in_window is True
 
 
-def test_retracement_uses_e_tolerant_base() -> None:
-    # A pole with a leading equal-high (E) step: v2 anchors the base at bar 0 (E-tolerant), which
-    # intentionally differs from the legacy strict walk (which stops at the flat). Documents the
-    # #179 parity scoping — parity is claimed for strict poles only.
+def test_retracement_anchors_on_strict_pole_base() -> None:
+    # The pole base is where the strict-H run starts (bar 2 here — the E before it splits the pole),
+    # so retracement anchors on bars[2].low, not the earlier bar 0.
     bars = [_hbar(i, h) for i, h in enumerate([4.0, 5.0, 5.0, 6.0, 5.5, 5.5, 5.2])]
     seg = _seg_of(bars)
-    assert seg.base_idx == 0  # E-tolerant base includes the pre-flat bar
+    assert seg.base_idx == 2
     fv = extract(bars, seg)
-    pole_high, pole_base = bars[3].high, bars[0].low
+    pole_high, pole_base = bars[3].high, bars[2].low
     cons_low = min(b.low for b in bars[4:])
     assert fv.retracement == pytest.approx((pole_high - cons_low) / (pole_high - pole_base))
 

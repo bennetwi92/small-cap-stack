@@ -60,16 +60,21 @@ fraction of price or a tick):
 So `n` bars → `n-1` tokens. Example from the original sketch: `["H","H","L","L","L"]` = a 2-bar
 pole (two higher highs above the base) then a 3-bar consolidation.
 
-**Decision (locked 2026-07-10) — `E` handling.** We adopt the permissive `E` token. `E` neither
-advances a pole nor breaks a consolidation (it belongs to whichever run it sits inside), but a run
-made *only* of `E` is flat, not a pole. `eps` is a small flatness tolerance (start at 1 tick /
-`tick_size`). This avoids a 1-tick wobble breaking an otherwise clean pole/consolidation.
+**Decision (locked 2026-07-10, refined) — `E` handling.** An `E` (equal high, within `eps`) is
+allowed **only in the consolidation**, never in the pole. The **pole is a run of strict higher
+highs (`H`)** — the first non-`H` going back ends it. In the consolidation `E` is permissive (a flat
+pullback candle is fine), but a run made *only* of `E` is a flat top, not a genuine pullback. `eps`
+is a small flatness tolerance (1 tick / `tick_size`), applied on an FP-rounded delta so an
+exactly-1-tick move reads as `E`. Barring `E` from the pole keeps the base strictly below the peak
+(so `pole_span > 0`) and stops a long flat run on an illiquid name from drifting the base onto a bar
+above the peak (#181: ITRG/IVF).
 
 ### 2.2 Segmentation (stage 2)
 
 A candidate shape is `base → POLE → CONSOLIDATION → (trigger)`:
 
-- **Pole** = the maximal leading run of `H` (equal highs permissive per above). _Intent: "The higher
+- **Pole** = the maximal leading run of strict `H` (no `E` — equal highs are consolidation-only).
+  _Intent: "The higher
   highs are the pole." "A pole cannot have lower highs."_
 - **Consolidation** = the run of `L`/`E` immediately after the pole peak. _Intent: "the lower highs
   are the consolidation." "A consolidation cannot have higher highs."_
@@ -115,7 +120,6 @@ The structural features that fall straight out of the token string.
 | `SHAPE_valid` | a pole+consolidation exists | segmentation in §2.2 succeeds (≥`min_pole` H, then 1..`max_flag` L, base above nothing yet) | `gate` | — |
 | `SHAPE_pole_len` | pole length (higher highs) | count of `H` in pole | `gate`+`score` | gate ≤ 4; score penalises longer |
 | `SHAPE_cons_len` | consolidation length | count of `L`/`E` in cons | `gate`+`score` | gate ≤ 4; score penalises longer |
-| `SHAPE_pole_strictness` | how clean the ascent is | fraction of pole steps that are strict `H` (vs `E`) | `score` | prefer 1.0 |
 | `SHAPE_cons_strictness` | how clean the pullback is | fraction of cons steps that are strict `L` | `score` | prefer high |
 | `SHAPE_token_string` | the raw shape | e.g. `"HHLLL"` | `record` | — |
 
@@ -248,7 +252,7 @@ Gates (reject) vs. score (rank), starting point:
 **Locked 2026-07-10:**
 
 1. **Max pole / consolidation length = 4 / 4** (hard gate; refinable, no data deleted).
-2. **`E` (equal-high) token** — permissive, `eps` = 1 tick.
+2. **`E` (equal-high) token** — allowed only in the consolidation (not the pole); `eps` = 1 tick.
 3. **Entry price** — last consolidation high **+ 3 ticks** (slippage); `entry_offset_ticks = 3`.
 
 4. **`POLE_height_pct` floor = 2%** (`min_pole_pct`); "abnormal" carried by `POLE_extension_atr`

@@ -7,12 +7,12 @@ store-raw / compute-on-read, so features replay over history.
 
 Anchors match the legacy detector — ``pole_base = bars[base_idx].low``,
 ``pole_high = bars[peak_idx].high``, ``cons_low = min(low over consolidation)`` — so retracement is
-numerically identical **for shapes both engines segment the same way** (strict-ascending poles).
-Caveat for the #179 parity test: a pole containing an equal-high (``E``) step re-anchors the base
-earlier than the legacy strict-ascending walk (segment.py is E-tolerant, detect.py is not), so its
-retracement/base intentionally diverge — parity is scoped to non-``E`` poles. "Pole bars" span
-``base_idx..peak_idx`` inclusive (same slice legacy ``detect`` uses for ``pole_has_big_green``);
-"consolidation bars" span ``peak_idx+1..cons_end_idx``.
+numerically identical for shapes both engines segment the same way. The pole is a run of strict
+higher highs (no ``E``), so ``pole_span > 0`` always. Parity is scoped to poles whose steps clear
+the ``eps`` (1-tick) tolerance: a near-1-tick step is ``E`` in v2 (an intended noise filter) but a
+higher high to the legacy strict-``>`` walk. "Pole bars" span ``base_idx..peak_idx`` inclusive
+(same slice legacy ``detect`` uses for ``pole_has_big_green``); "consolidation bars" span
+``peak_idx+1..cons_end_idx``.
 """
 
 from __future__ import annotations
@@ -44,8 +44,7 @@ class FeatureVector:
     # SHAPE
     pole_len: int
     cons_len: int
-    pole_strictness: float  # frac of pole steps that are strict H (vs E)
-    cons_strictness: float  # frac of cons steps that are strict L (vs E)
+    cons_strictness: float  # frac of cons steps that are strict L (vs E); pole is all-H by rule
     token_string: str  # e.g. "HHLLL"
     # VOL
     peak_gt_cons: bool  # peak-bar vol > max(cons.vol)  [gate input] (the locked #127 rule)
@@ -170,7 +169,6 @@ def extract(
         # SHAPE
         pole_len=seg.pole_len,
         cons_len=seg.cons_len,
-        pole_strictness=seg.pole_len / n_pole_steps,
         cons_strictness=cons_tokens.count("L") / seg.cons_len,
         token_string="".join(seg.tokens),
         # VOL
