@@ -41,45 +41,6 @@ from small_cap_stack.rmetrics import bar_interval
 from small_cap_stack.storage import Store
 
 _V2 = {"max_pole": 4, "max_cons": 4, "min_pole_pct": 0.02}
-_THRUST_MIN_BODY_FRAC = 0.5  # a candle needs body >= this fraction of its range to count as thrust
-
-
-def _is_green(bar: Bar) -> bool:
-    return bar.close > bar.open
-
-
-def _is_thrust(bar: Bar, threshold: float = _THRUST_MIN_BODY_FRAC) -> bool:
-    """A decisive/thrust candle: green (close > open) with body >= threshold of its range. A
-    technically-higher-high bar that's doji-like (small body relative to range) is a quiet pause,
-    not a real continuation of momentum, even though its high still ticks up — spotted on MUZ
-    (#182 review). A red candle never counts as thrust regardless of body size (see _pole_base_len)."""
-    if not _is_green(bar):
-        return False
-    rng = bar.high - bar.low
-    return rng > 0 and (bar.close - bar.open) / rng >= threshold
-
-
-def _pole_base_len(
-    bars: list[Bar], tokens: list[str], peak: int, max_pole: int
-) -> tuple[int, int] | None:
-    """(base, pole_len): walk backward from the peak through strict-H steps, but only extend PAST
-    a bar if that bar is itself a thrust candle — a quiet/doji bar breaks the run and becomes the
-    base instead of an intermediate pole bar, even though the step into it was technically H.
-
-    No red candle can be part of the pole, including the peak itself: a red "peak" (a new high
-    that reverses and closes weak within the same bar, e.g. IRE's shooting-star top, #182 review)
-    isn't a genuine thrust — it's disqualified here and the caller keeps searching later prefixes
-    for a green peak instead.
-    """
-    if peak - 1 < 0 or tokens[peak - 1] != "H" or not _is_green(bars[peak]):
-        return None  # no strict higher high into the peak, or the peak itself is red -> no pole
-    base, pole_len = peak - 1, 1
-    while (
-        pole_len < max_pole and base - 1 >= 0 and tokens[base - 1] == "H" and _is_thrust(bars[base])
-    ):
-        base -= 1
-        pole_len += 1
-    return base, pole_len
 
 
 def _params(settings: Settings) -> dict[str, object]:
@@ -119,20 +80,16 @@ def pick_setup(
             (i for i, b in enumerate(bars) if b.start + interval > first_hit), len(bars)
         )
 
-    # Peak selection reuses segment_at_end (the #163 dominant-high search); base/pole_len are then
-    # RE-derived via the thrust-aware walk (_pole_base_len) rather than trusted from the segment —
-    # a quiet/doji bar the segmenter would still count as a strict-H pole step gets excluded here.
+    # Peak/base/pole_len all come straight from segment_at_end — its native pole-walk already
+    # applies the #182/#190 color/thrust rule (a red peak or a doji-like intermediate bar is
+    # rejected/excluded there), so no re-derivation is needed here. Only the appearance-visibility
+    # restriction (peak_idx >= min_peak_idx) is layered on top by this loop.
     base = peak = pole_len = None
     for i in range(1, len(bars)):
         toks = tokenize(bars[: i + 1], eps=tick)
         seg = segment_at_end(bars[: i + 1], toks, max_pole=max_pole, max_cons=max_cons)
         if seg is not None and seg.peak_idx >= min_peak_idx:
-            refined = _pole_base_len(bars, toks, seg.peak_idx, max_pole)
-            if refined is None:
-                continue  # the dominant-high peak is red (a reversal, not a genuine thrust) ->
-                # keep scanning later prefixes for a green one instead of accepting this candidate
-            peak = seg.peak_idx
-            base, pole_len = refined
+            peak, base, pole_len = seg.peak_idx, seg.base_idx, seg.pole_len
             break
     if peak is None or base is None or pole_len is None:
         return None, None, None

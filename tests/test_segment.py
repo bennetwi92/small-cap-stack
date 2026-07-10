@@ -171,3 +171,8 @@ def test_weak_bodied_peak_is_still_a_valid_single_bar_pole() -> None:
 
 def test_flat_or_red_peak_disqualifies_even_with_valid_direction() -> None:
     assert _seg([4.0, 5.0, 4.5], colors=["green", "doji", "green"]) is None  # flat peak, not green
+
+
+def test_max_pole_zero_disables_the_pole() -> None:
+    # max_pole < 1 means "no pole allowed" -> None, even for an otherwise-valid single-bar pole.
+    assert _seg([4.0, 5.0, 4.5], max_pole=0) is None

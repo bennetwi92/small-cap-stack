@@ -93,8 +93,12 @@ def segment_at_end(
     # extend the pole PAST the peak's immediate predecessor, each additional bar must be a genuine
     # thrust (green, body >= half its range) — a doji-like or red bar breaks the walk and becomes
     # the base instead of an intermediate pole bar (#182/#190: MUZ/CRCG/CONL).
-    if peak - 1 < 0 or tokens[peak - 1] != "H" or classify(bars[peak]) != "green":
-        return None  # no strict higher high into the peak, or the peak isn't green -> no pole
+    #
+    # max_pole < 1 disables the pole entirely (matches the old loop, which never incremented
+    # pole_len past 0 in that case): peak - 1 is never negative here (_find_pole_peak's window
+    # floor `lo = max(1, n-1-max_cons)` guarantees peak >= 1), so that guard would be dead code.
+    if max_pole < 1 or tokens[peak - 1] != "H" or classify(bars[peak]) != "green":
+        return None  # pole disabled, no strict higher high into the peak, or the peak isn't green
     base, pole_len = peak - 1, 1
     while (
         pole_len < max_pole
