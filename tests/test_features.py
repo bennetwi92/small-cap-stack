@@ -130,3 +130,43 @@ def test_trigger_out_of_window() -> None:
     # Same bars, but a narrow window that excludes 10:xx ET -> False (plumbing check).
     fv = extract(_BARS, _seg_of(_BARS), window_start=time(11, 0), window_end=time(11, 30))
     assert fv.trigger_in_window is False
+
+
+def _timed_setup(base_utc: datetime) -> list[Bar]:
+    """The clean 3-bar setup shifted to start at ``base_utc`` (for window-boundary tests)."""
+    return [
+        Bar(start=base_utc + timedelta(minutes=5 * i), open=o, high=h, low=lo, close=c, volume=v)
+        for i, (o, h, lo, c, v) in enumerate(
+            [
+                (5.0, 5.8, 4.6, 5.6, 1000.0),
+                (5.6, 6.5, 5.5, 6.4, 2000.0),
+                (6.0, 6.1, 5.6, 5.7, 800.0),
+            ]
+        )
+    ]
+
+
+def test_trigger_window_anchors_on_breakout_not_cons_open() -> None:
+    # Consolidation completes on the 11:55 ET bar; the breakout bar opens 12:00 ET (past 11:59).
+    # Anchoring on cons_end's OPEN (11:55) would wrongly read in-window — the fix anchors on the
+    # next-bar open (12:00) -> out of window.
+    bars = _timed_setup(datetime(2026, 6, 29, 15, 45, tzinfo=UTC))  # bar2 @ 15:55 UTC = 11:55 ET
+    assert extract(bars, _seg_of(bars)).trigger_in_window is False
+
+
+def test_trigger_window_true_when_breakout_inside() -> None:
+    bars = _timed_setup(datetime(2026, 6, 29, 15, 40, tzinfo=UTC))  # bar2 @ 11:50 ET, trigger 11:55
+    assert extract(bars, _seg_of(bars)).trigger_in_window is True
+
+
+def test_retracement_uses_e_tolerant_base() -> None:
+    # A pole with a leading equal-high (E) step: v2 anchors the base at bar 0 (E-tolerant), which
+    # intentionally differs from the legacy strict walk (which stops at the flat). Documents the
+    # #179 parity scoping — parity is claimed for strict poles only.
+    bars = [_hbar(i, h) for i, h in enumerate([4.0, 5.0, 5.0, 6.0, 5.5, 5.5, 5.2])]
+    seg = _seg_of(bars)
+    assert seg.base_idx == 0  # E-tolerant base includes the pre-flat bar
+    fv = extract(bars, seg)
+    pole_high, pole_base = bars[3].high, bars[0].low
+    cons_low = min(b.low for b in bars[4:])
+    assert fv.retracement == pytest.approx((pole_high - cons_low) / (pole_high - pole_base))

@@ -5,9 +5,12 @@ compute a :class:`FeatureVector` covering the six areas (SHAPE / VOL / WICK / PO
 Pure over ``bars[base_idx .. cons_end_idx]`` plus (for the ATR baseline) the bars before the base —
 store-raw / compute-on-read, so features replay over history.
 
-Anchors match the legacy detector so a shape both engines accept computes identical
-retracement/pole geometry (the #179 parity guardrail): ``pole_base = bars[base_idx].low``,
-``pole_high = bars[peak_idx].high``, ``cons_low = min(low over consolidation)``. "Pole bars" span
+Anchors match the legacy detector — ``pole_base = bars[base_idx].low``,
+``pole_high = bars[peak_idx].high``, ``cons_low = min(low over consolidation)`` — so retracement is
+numerically identical **for shapes both engines segment the same way** (strict-ascending poles).
+Caveat for the #179 parity test: a pole containing an equal-high (``E``) step re-anchors the base
+earlier than the legacy strict-ascending walk (segment.py is E-tolerant, detect.py is not), so its
+retracement/base intentionally diverge — parity is scoped to non-``E`` poles. "Pole bars" span
 ``base_idx..peak_idx`` inclusive (same slice legacy ``detect`` uses for ``pole_has_big_green``);
 "consolidation bars" span ``peak_idx+1..cons_end_idx``.
 """
@@ -138,6 +141,13 @@ def extract(
         (cons_highs[-1] - cons_highs[0]) / (len(cons_highs) - 1) if len(cons_highs) > 1 else 0.0
     )
 
+    # trigger_in_window: the trigger (first H after the consolidation, bull-flag.md §4) lands on the
+    # bar AFTER cons_end, so the earliest it can fire is the consolidation's close = the next bar's
+    # open. Anchor there, not on cons_end's OPEN, else a flag completing at 11:55 reads in-window
+    # when its 12:00 breakout is past the 11:59 close. Bar interval = the gap into cons_end.
+    bar_interval = bars[cons_end_idx].start - bars[cons_end_idx - 1].start
+    trigger_time = bars[cons_end_idx].start + bar_interval
+
     return FeatureVector(
         # SHAPE
         pole_len=seg.pole_len,
@@ -166,8 +176,6 @@ def extract(
         cons_tightness=(max(b.high for b in cons) - cons_low) / pole_high,
         cons_drift_slope=cons_drift_slope,
         # LOC
-        trigger_in_window=within_window(
-            bars[cons_end_idx].start.astimezone(ET), window_start, window_end
-        ),
+        trigger_in_window=within_window(trigger_time.astimezone(ET), window_start, window_end),
         bars_before_scan=None,
     )

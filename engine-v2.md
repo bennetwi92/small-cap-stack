@@ -278,7 +278,11 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
 - `score`: monotonicity (shallower retrace / shorter pole / higher vol ratio never lowers score);
   contributions sum to `score`.
 - **Golden parity:** for a corpus of fixtures both engines accept, `as_bullflag()` ==
-  today's `detect()` output field-for-field, and `rmetrics` numbers are unchanged.
+  today's `detect()` output field-for-field, and `rmetrics` numbers are unchanged. **Scope: strict
+  (non-`E`) poles only** — v2's `E`-tolerant segmenter re-anchors the base earlier than the legacy
+  strict-ascending walk when the pole contains an equal-high step, so retracement/base intentionally
+  diverge for `E`-poles (an intended v2 change, not a parity violation). Fixtures use clearly
+  separated highs so no pole step falls within `eps`.
 - Reuse the named real cases already in `test_bullflag.py` (AHMA/VRXA/SNDQ/ETHT/NBIZ/CLRO/CYH/DJT).
 
 ## 12. Rollout (proposed issues, Refs #1)
