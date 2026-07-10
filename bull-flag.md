@@ -126,7 +126,7 @@ highs; first H in consolidation is entry; longest-first; longer patterns are wor
 
 | ID | Feature | Measures | Computation | Type | Default |
 |----|---------|----------|-------------|------|---------|
-| `VOL_peak_gt_cons` | thrust out-traded the pullback | `max(pole.volume) > max(cons.volume)` | `gate` | strict `>` |
+| `VOL_peak_gt_cons` | thrust out-traded the pullback | `peak-bar volume > max(cons.volume)` (the locked #127 rule) | `gate` | strict `>` |
 | `VOL_cons_reducing` | pullback volume drying up | `cons.volume` non-increasing | `score` | prefer true |
 | `VOL_pole_concentration` | thrust volume concentrated on the peak bar | `peak.volume / sum(pole.volume)` | `score` | prefer high |
 | `VOL_ratio` | how decisively pole beats cons | `max(pole.volume) / max(cons.volume)` | `score` | ≥ 1 (higher better) |
@@ -136,6 +136,13 @@ highs; first H in consolidation is entry; longest-first; longer patterns are wor
 _Intent: "The max bar volume in the pole must be greater than the max bar volume in the
 consolidation."_ (The engine's `cons_vol_reducing` / peak-volume gate already implement the first
 two rows.)
+
+> **Open decision — peak-bar vs. max-bar-in-pole.** The sketch above says "max bar volume in the
+> pole," but the **locked #127 rule** (CLAUDE.md) is the pole's **peak (thrust) bar** volume. These
+> differ for a multi-bar pole where a *non-peak* higher-high bar spikes in volume. v2 implements the
+> **peak-bar rule** (honours the locked decision, matches legacy exactly, keeps parity). If you want
+> the looser "max bar in the pole" redefinition, say so and we'll change `VOL_peak_gt_cons` +
+> re-run the #181 divergence spike — it is **not** currently adopted.
 
 ### 3.3 `WICK` — wickyness
 

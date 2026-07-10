@@ -17,9 +17,10 @@ retracement/base intentionally diverge — parity is scoped to non-``E`` poles. 
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import time
+from datetime import time, timedelta
 
 from ..capture import Bar
 from ..clock import ET, within_window
@@ -47,10 +48,10 @@ class FeatureVector:
     cons_strictness: float  # frac of cons steps that are strict L (vs E)
     token_string: str  # e.g. "HHLLL"
     # VOL
-    peak_gt_cons: bool  # max(pole.vol) > max(cons.vol)  [gate input]
-    vol_ratio: float  # max(pole.vol) / max(cons.vol)  (inf if cons has no volume)
+    peak_gt_cons: bool  # peak-bar vol > max(cons.vol)  [gate input] (the locked #127 rule)
+    vol_ratio: float  # peak-bar vol / max(cons.vol)  (inf if cons has no volume)
     cons_vol_reducing: bool  # consolidation volume non-increasing
-    pole_vol_concentration: float  # peak.vol / sum(pole.vol)
+    pole_vol_concentration: float  # peak.vol / sum(thrust.vol)  (thrust = pole bars above launch)
     # WICK
     peak_upper_wick: float  # upper-wick frac of the peak bar  [gate input]
     pole_has_big_green: bool  # a strong-bodied green candle in the pole
@@ -69,6 +70,18 @@ class FeatureVector:
     # LOC (recorded only this pass — scanner join lands in a later issue)
     trigger_in_window: bool  # detection time within the strategy window (ET)  [gate input]
     bars_before_scan: int | None  # None until the scanner_hits join lands
+
+
+def _modal_interval(bars: Sequence[Bar]) -> timedelta:
+    """The most common spacing between consecutive bar starts (the bar duration, usually 5 min).
+
+    Taken from the modal gap so a pre-market hole doesn't inflate it (like rmetrics.bar_interval).
+    Defaults to 5 minutes when there aren't two bars to measure.
+    """
+    if len(bars) < 2:
+        return timedelta(minutes=5)
+    gaps = [bars[i].start - bars[i - 1].start for i in range(1, len(bars))]
+    return Counter(gaps).most_common(1)[0][0]
 
 
 def _body_frac(bar: Bar) -> float:
@@ -118,6 +131,9 @@ def extract(
     """
     base_idx, peak_idx, cons_end_idx = seg.base_idx, seg.peak_idx, seg.cons_end_idx
     pole = bars[base_idx : peak_idx + 1]  # base .. peak inclusive (matches legacy `pole`)
+    thrust = bars[
+        base_idx + 1 : peak_idx + 1
+    ]  # the pole bars above the launch (may include E bars)
     cons = bars[peak_idx + 1 : cons_end_idx + 1]  # the consolidation (excludes the peak)
     n_pole_steps = peak_idx - base_idx  # number of pole tokens (>= pole_len >= 1)
     cons_tokens = seg.tokens[n_pole_steps:]
@@ -125,16 +141,18 @@ def extract(
     pole_base = bars[base_idx].low
     pole_high = bars[peak_idx].high
     cons_low = min(b.low for b in cons)
-    pole_vmax = max(b.volume for b in pole)
+    peak_vol = bars[peak_idx].volume
     cons_vmax = max(b.volume for b in cons)
-    pole_vsum = sum(b.volume for b in pole)
+    thrust_vsum = sum(
+        b.volume for b in thrust
+    )  # concentration denominator (thrust always non-empty)
     pole_span = pole_high - pole_base  # > 0: peak.high >= base.high > base.low
     pole_height_pct = pole_span / pole_base if pole_base > 0 else 0.0
 
-    # VOL: peak_gt_cons uses max(pole.vol) per bull-flag.md §3.2 — looser than the legacy peak-bar
-    # gate (peak.vol is in pole, so this accepts a superset; the shared-accepted shapes are
-    # unchanged, keeping #179 parity).
-    vol_ratio = pole_vmax / cons_vmax if cons_vmax > 0 else float("inf")
+    # VOL: the pole PEAK bar's volume vs the consolidation's max (the locked #127 rule, identical to
+    # legacy detect.py:157). Deliberately the peak bar, not max-over-pole — a low-volume thrust must
+    # not be rescued by a high-volume launch or earlier pole bar.
+    vol_ratio = peak_vol / cons_vmax if cons_vmax > 0 else float("inf")
 
     cons_highs = [b.high for b in cons]
     cons_drift_slope = (
@@ -144,9 +162,9 @@ def extract(
     # trigger_in_window: the trigger (first H after the consolidation, bull-flag.md §4) lands on the
     # bar AFTER cons_end, so the earliest it can fire is the consolidation's close = the next bar's
     # open. Anchor there, not on cons_end's OPEN, else a flag completing at 11:55 reads in-window
-    # when its 12:00 breakout is past the 11:59 close. Bar interval = the gap into cons_end.
-    bar_interval = bars[cons_end_idx].start - bars[cons_end_idx - 1].start
-    trigger_time = bars[cons_end_idx].start + bar_interval
+    # when its 12:00 breakout is past the 11:59 close. Use the MODAL bar spacing (not the last gap),
+    # so a missing/gapped bar before cons_end doesn't inflate the interval (#179 review).
+    trigger_time = bars[cons_end_idx].start + _modal_interval(bars)
 
     return FeatureVector(
         # SHAPE
@@ -156,10 +174,10 @@ def extract(
         cons_strictness=cons_tokens.count("L") / seg.cons_len,
         token_string="".join(seg.tokens),
         # VOL
-        peak_gt_cons=pole_vmax > cons_vmax,
+        peak_gt_cons=peak_vol > cons_vmax,
         vol_ratio=vol_ratio,
         cons_vol_reducing=_non_increasing([b.volume for b in cons]),
-        pole_vol_concentration=bars[peak_idx].volume / pole_vsum if pole_vsum > 0 else 0.0,
+        pole_vol_concentration=peak_vol / thrust_vsum if thrust_vsum > 0 else 0.0,
         # WICK
         peak_upper_wick=_upper_wick_frac(bars[peak_idx]),
         pole_has_big_green=any(_is_big_green(b) for b in pole),
