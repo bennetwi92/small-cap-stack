@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-08:SNDQ",
+  "symbol": "SNDQ",
+  "trading_date": "2026-07-08",
+  "note": "",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783498200,
+      "t1": 1783498800,
+      "low": 3.37,
+      "high": 3.88
+    },
+    "consolidation": {
+      "t0": 1783499100,
+      "t1": 1783499100,
+      "high": 3.88,
+      "low": 3.8
+    },
+    "entry": 3.89,
+    "stop": 3.8,
+    "entry_t": 1783499400,
+    "max_r": 1.22
+  },
+  "updated_utc": "2026-07-10T12:27:51.019Z"
+}
