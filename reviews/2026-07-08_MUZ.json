@@ -5,6 +5,23 @@
   "trading_date": "2026-07-08",
   "note": "I wouldn't have entered this as it already looked like it had slowed",
   "no_trigger": false,
-  "annotations": {},
-  "updated_utc": "2026-07-10T12:19:07.911Z"
+  "annotations": {
+    "pole": {
+      "t0": 1783498500,
+      "t1": 1783499700,
+      "low": 15.03,
+      "high": 16.16
+    },
+    "consolidation": {
+      "t0": 1783500000,
+      "t1": 1783500600,
+      "high": 16.16,
+      "low": 15.78
+    },
+    "entry": 15.99,
+    "stop": 15.78,
+    "entry_t": 1783500900,
+    "max_r": 0
+  },
+  "updated_utc": "2026-07-10T12:20:50.512Z"
 }
