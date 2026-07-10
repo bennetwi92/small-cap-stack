@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-08:BATL",
+  "symbol": "BATL",
+  "trading_date": "2026-07-08",
+  "note": "I would be unlikely to have taken this trade as the pole was not very good looking",
+  "no_trigger": false,
+  "annotations": {
+    "pole": {
+      "t0": 1783497600,
+      "t1": 1783497900,
+      "low": 1.73,
+      "high": 2.1
+    },
+    "consolidation": {
+      "t0": 1783498200,
+      "t1": 1783498200,
+      "high": 1.875,
+      "low": 1.78
+    },
+    "entry": 1.88,
+    "stop": 1.78,
+    "entry_t": 1783498500,
+    "max_r": 7.5
+  },
+  "updated_utc": "2026-07-10T12:16:59.167Z"
+}
