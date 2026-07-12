@@ -69,7 +69,11 @@ class Settings(BaseSettings):
     scan_max_price: float = 50.0  # widened from $10 → $1–$50 universe (#126)
     scan_change_pct: float = 10.0
     scan_min_5m_volume: int = 100_000  # trailing 5-min volume -> stVolume5minAbove
-    scan_max_rows: int = 10  # we only ever act on the top few
+    # Collect the full scanner breadth (IBKR API hard-caps numberOfRows at 50). Phase-1 is a
+    # data-collection exercise — on busy mornings there are far more than 10 low-float runners in
+    # play, and store-raw/compute-on-read means we want the whole ranked list captured. We still
+    # only *act* on the top few; the extra rows are dataset upside (#126 widened the universe too).
+    scan_max_rows: int = 50
 
     # Gate thresholds (issue #15) — most reuse the scan_* values above.
     float_max_shares: int = 20_000_000  # float < 20M shares

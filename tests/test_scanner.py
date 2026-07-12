@@ -58,6 +58,7 @@ def test_build_subscription_matches_strategy() -> None:
     assert tags["priceBelow"] == "50.0"
     assert tags["changePercAbove"] == "10.0"
     assert tags["stVolume5minAbove"] == "100000"  # 5-min window, not day volume
+    assert sub.numberOfRows == 50  # collect the full scanner breadth (API hard cap)
 
 
 def test_numberofrows_capped_at_50() -> None:
