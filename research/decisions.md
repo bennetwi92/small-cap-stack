@@ -82,6 +82,26 @@
   and the `price_gate` — both read the settings. `tick_size` stays $0.01 (all names ≥$1 use a penny
   tick). Store-raw is unaffected; this only changes what the scanner surfaces going forward.
 
+## Volume cutoff: keep scanner at 100k, add a read-time quality gate at 250k (DECISION 2026-07-12, #193)
+Making the 100k volume cutoff more selective **without moving seen time**. The 100k lived in two
+roles: the scanner's `stVolume5minAbove` appearance filter (which sets `first_hit` / "seen time",
+gating the entry #99) and the `volume_gate` (which was never wired into the EOD report, so volume
+was effectively unfiltered post-scan). Raising the single knob raises the **scanner** bar, which
+moves seen time — the exact thing to avoid.
+- **Analysis** over the Phase-1 record (7 trading days, 364 runs, from the `dashboard-data` charts):
+  raising the *scanner* threshold to 200k would delay appearance on retained names by a **median
+  ~30 min (max several hours)** *and* discard real winners (9 triggered / 2×≥1R / 1×≥2R lost). Bad.
+  A *read-time* gate on the run's **peak 5-min bar volume** (appearance→EOD) leaves seen time and
+  capture untouched. Its knee is **250k**: drops ~25% of runs (90/364, mostly low-volume
+  non-triggers) while keeping **every** ≥1R/≥2R winner that cleared 250k — notably ICCM (49R, peak
+  279k). At ≥300k real winners start dropping (ICCM). The one ≥1R name lost at 250k is a 125k-peak
+  outlier any raise above 150k also loses. Retained-set trigger rate 17.6%→19.0%, ≥1R 4.9%→6.2%.
+- **Change:** `scan_min_5m_volume` stays **100k** (appearance/seen time unchanged); new
+  `gate_min_5m_volume = 250_000` drives `volume_gate`, now fed the run's peak 5-min volume in
+  `report.py` → per-opportunity `volume_ok` + a `volume_ok` aggregate. Pure/replayable
+  (store-raw / compute-on-read): the threshold can be retuned and recomputed over cached bars.
+- Sibling to #129 (ATR%/movement gate): same shape — a bar-derived fact feeding a pure gate.
+
 ## Entry appearance-gate is bar-close granular (DECISION 2026-07-03, #122 — revises #99)
 The #99 appearance gate ("a setup may only *trigger* at/after the scanner hit") was implemented at
 **bar-start** granularity: reject a trigger bar whose `start < first_hit`. But the scanner ticks

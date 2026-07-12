@@ -23,7 +23,7 @@ import polars as pl
 from .capture import Bar
 from .clock import ET
 from .config import Settings
-from .gates import GateInputs, float_gate, news_gate
+from .gates import GateInputs, float_gate, news_gate, volume_gate
 from .rmetrics import compute_r_metrics
 from .storage import Store
 
@@ -52,6 +52,8 @@ class OpportunityAnalysis:
     cons_vol_reducing: bool | None = None  # consolidation volume non-increasing (#127)
     pole_has_big_green: bool | None = None  # pole holds a strong-bodied green candle (#132)
     news_recent: bool = False  # a news story dated today or yesterday (ET) for the symbol (#101)
+    peak_5m_volume: float | None = None  # run's busiest 5-min bar from appearance onward (#193)
+    volume_ok: bool | None = None  # peak_5m_volume clears the read-time quality bar (#193)
     first_hit: datetime | None = None  # first scanner appearance (gates entry); shown in the UI
     run: int = 1  # 1-based run index within the symbol's day (#36 re-entry segmentation)
     run_count: int = 1  # total runs the symbol formed that day
@@ -326,9 +328,20 @@ def _analyze_run(
     # R is gated to the run's appearance: a setup may form in the pre-appearance lookback, but the
     # entry may only trigger at/after the first scanner hit (#99) — never crediting an unseen move.
     rm = compute_r_metrics(obars, s, first_hit=first_hit)
+    # Read-time volume quality signal (#193): the run's PEAK 5-min bar volume from appearance
+    # onward — its busiest window. Seen time is unchanged (appearance is still the 100k crossing);
+    # this only classifies whether the name traded with real size. first_hit=None (no known
+    # appearance) falls back to the whole run.
+    vol_bars = [b.volume for b in obars if first_hit is None or b.start >= first_hit]
+    peak_5m_volume = max(vol_bars) if vol_bars else None
     # Single source of truth for the threshold predicates: reuse the gate engine rather than
     # re-deriving them here (a None datum stays None to distinguish "no data" from "fails gate").
-    gi = GateInputs(ts_utc=first_seen, float_shares=float_shares, has_recent_news=news_count > 0)
+    gi = GateInputs(
+        ts_utc=first_seen,
+        volume_5m=peak_5m_volume,
+        float_shares=float_shares,
+        has_recent_news=news_count > 0,
+    )
     return OpportunityAnalysis(
         opportunity_id=seg_id,
         symbol=symbol,
@@ -339,6 +352,8 @@ def _analyze_run(
         short_percent=short_percent,
         float_ok=float_gate(gi, s).passed if float_shares is not None else None,
         has_news=news_gate(gi, s).passed,
+        peak_5m_volume=peak_5m_volume,
+        volume_ok=volume_gate(gi, s).passed if peak_5m_volume is not None else None,
         # A valid bull flag always has positive risk (entry = breakout + offset > flag_low = stop),
         # so rm.setup_found (≥1 actionable setup in this run) is exactly the old `setup_count > 0` —
         # reuse the R-metrics pass rather than iterating the prefixes a second time (#112).
@@ -424,6 +439,7 @@ def build_eod_report(store: Store, settings: Settings, trading_date: date) -> Eo
             "with_news": 0,
             "with_recent_news": 0,
             "float_ok": 0,
+            "volume_ok": 0,
             "bull_flag": 0,
             "triggered": 0,
             "reached_1r": 0,
@@ -453,6 +469,7 @@ def build_eod_report(store: Store, settings: Settings, trading_date: date) -> Eo
             1 for a in analyses if a.news_recent
         ),  # news today/yesterday (#101)
         "float_ok": sum(1 for a in analyses if a.float_ok),
+        "volume_ok": sum(1 for a in analyses if a.volume_ok),  # cleared read-time vol bar (#193)
         "bull_flag": sum(1 for a in analyses if a.bull_flag),
         "triggered": sum(1 for a in analyses if a.triggered),
         "reached_1r": reached(1.0),
@@ -470,7 +487,8 @@ def _to_markdown(d: date, analyses: list[OpportunityAnalysis], agg: dict[str, An
         "",
         f"- opportunities: **{agg['opportunities']}** | with news: {agg['with_news']} | "
         f"news today/yest: {agg['with_recent_news']} | "
-        f"float<20M: {agg['float_ok']} | bull-flag: {agg['bull_flag']}",
+        f"float<20M: {agg['float_ok']} | vol-ok: {agg['volume_ok']} | "
+        f"bull-flag: {agg['bull_flag']}",
         f"- would-trigger: **{agg['triggered']}** | reached ≥1R: {agg['reached_1r']} | "
         f"≥2R: {agg['reached_2r']} | ≥3R: {agg['reached_3r']}",
         "",

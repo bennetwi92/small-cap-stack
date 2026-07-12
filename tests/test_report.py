@@ -146,6 +146,49 @@ def test_eod_report(tmp_path: Path) -> None:
     assert not dud.triggered and not dud.bull_flag and dud.float_shares is None
 
     assert "EOD report" in report.markdown and "AZI" in report.markdown
+    # Read-time volume quality gate (#193): peak 5-min bar volume from appearance onward. AZI's
+    # busiest bar is 2000 shares — well under the 250k quality bar — so it is captured but not
+    # counted as a quality opportunity. Seen time (first_hit) is untouched by this classification.
+    assert azi.peak_5m_volume == 2000.0 and azi.volume_ok is False
+    assert report.aggregates["volume_ok"] == 0
+
+
+def test_volume_gate_counts_high_volume_run(tmp_path: Path) -> None:
+    # A run whose busiest 5-min bar clears the read-time quality bar (gate_min_5m_volume) is counted
+    # in `volume_ok`; the scanner appearance threshold (seen time) is unrelated (#193).
+    store = Store(tmp_path)
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": "2026-06-29:BIGV",
+                "symbol": "BIGV",
+                "con_id": 9,
+                "trading_date": _DAY,
+                "first_seen_utc": _T0,
+                "first_rank": 0,
+            }
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "bars",
+        [
+            _bar_row("2026-06-29:BIGV", "BIGV", 0, 5.0, 5.2, 4.9, 5.1, vol=120_000),
+            _bar_row("2026-06-29:BIGV", "BIGV", 1, 5.1, 5.5, 5.0, 5.4, vol=400_000),  # peak > 250k
+            _bar_row("2026-06-29:BIGV", "BIGV", 2, 5.4, 5.6, 5.3, 5.5, vol=90_000),
+        ],
+        partition_date=_DAY,
+    )
+    store.append(
+        "scanner_hits",
+        [{"opportunity_id": "2026-06-29:BIGV", "symbol": "BIGV", "ts_utc": _T0, "rank": 0}],
+        partition_date=_DAY,
+    )
+    report = build_eod_report(store, _settings(), _DAY)
+    bigv = {a.symbol: a for a in report.analyses}["BIGV"]
+    assert bigv.peak_5m_volume == 400_000.0 and bigv.volume_ok is True
+    assert report.aggregates["volume_ok"] == 1
 
 
 def test_duplicate_raw_rows_are_deduped_on_read(tmp_path: Path) -> None:
@@ -240,6 +283,7 @@ def test_markdown_sort_keeps_zero_max_r_above_untriggered() -> None:
             "with_news",
             "with_recent_news",
             "float_ok",
+            "volume_ok",
             "bull_flag",
             "triggered",
             "reached_1r",

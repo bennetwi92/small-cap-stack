@@ -63,12 +63,16 @@ def change_gate(i: GateInputs, s: Settings) -> GateResult:
 
 
 def volume_gate(i: GateInputs, s: Settings) -> GateResult:
+    # The read-time quality bar (gate_min_5m_volume, #193), NOT the scanner appearance threshold
+    # (scan_min_5m_volume): the symbol already appeared at 100k, so tightening here never moves
+    # seen time. i.volume_5m is the run's PEAK 5-min bar volume (its busiest window), derived on
+    # read from the cached bars.
     if i.volume_5m is None:
         return _missing("volume_5m")
     return GateResult(
         "volume_5m",
-        i.volume_5m > s.scan_min_5m_volume,
-        {"volume_5m": i.volume_5m, "min": s.scan_min_5m_volume},
+        i.volume_5m > s.gate_min_5m_volume,
+        {"volume_5m": i.volume_5m, "min": s.gate_min_5m_volume},
     )
 
 

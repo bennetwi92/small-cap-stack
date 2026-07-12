@@ -23,7 +23,7 @@ def _passing_inputs() -> GateInputs:
         ts_utc=datetime(2026, 6, 29, 14, 0, tzinfo=UTC),
         price=5.0,
         change_pct=25.0,
-        volume_5m=250_000,
+        volume_5m=300_000,  # clears the read-time quality bar (gate_min_5m_volume=250k, #193)
         float_shares=8_000_000,
         has_recent_news=True,
         tradable=True,
@@ -61,7 +61,9 @@ def test_thresholds_are_strict() -> None:
     # change% and volume use strict > ; float uses strict <
     assert not _gate(base, s, change_pct=10.0)["change_pct"].passed  # not > 10
     assert _gate(base, s, change_pct=10.01)["change_pct"].passed
-    assert not _gate(base, s, volume_5m=100_000)["volume_5m"].passed  # not > 100k
+    # volume gate is the read-time quality bar (gate_min_5m_volume=250k, #193), not the 100k scanner
+    assert not _gate(base, s, volume_5m=250_000)["volume_5m"].passed  # not > 250k
+    assert _gate(base, s, volume_5m=250_001)["volume_5m"].passed
     assert not _gate(base, s, float_shares=20_000_000)["float"].passed  # not < 20M
     assert _gate(base, s, float_shares=19_999_999)["float"].passed
 

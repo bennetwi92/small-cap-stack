@@ -68,11 +68,23 @@ class Settings(BaseSettings):
     scan_min_price: float = 1.0  # widened from $2 → $1–$50 universe (#126)
     scan_max_price: float = 50.0  # widened from $10 → $1–$50 universe (#126)
     scan_change_pct: float = 10.0
-    scan_min_5m_volume: int = 100_000  # trailing 5-min volume -> stVolume5minAbove
+    # Scanner *appearance* threshold — trailing 5-min volume -> stVolume5minAbove. This decides WHEN
+    # a symbol first surfaces (first_hit / "seen time", which gates the entry, #99), so it is kept
+    # deliberately loose at 100k: raising it delays or drops appearances and provably discards real
+    # winners (see the volume-cutoff analysis, #193). Selectivity is applied on read via
+    # gate_min_5m_volume below, which never moves seen time.
+    scan_min_5m_volume: int = 100_000
     scan_max_rows: int = 10  # we only ever act on the top few
 
     # Gate thresholds (issue #15) — most reuse the scan_* values above.
     float_max_shares: int = 20_000_000  # float < 20M shares
+    # Read-time volume quality gate (#193): a symbol appears at 100k (above), but to be counted as a
+    # *quality* opportunity its run must have printed a 5-min bar above this bar. Decoupled from the
+    # scanner so it tightens selectivity WITHOUT moving seen time (store-raw / compute-on-read).
+    # 250k is the data-driven knee over the Phase-1 record: it drops ~25% of runs (mostly low-volume
+    # non-triggers) while retaining every >=1R/>=2R winner whose run cleared 250k — notably ICCM
+    # (49R, peak 279k). Raising it further (>=300k) starts discarding real winners.
+    gate_min_5m_volume: int = 250_000
 
     # Bull-flag detection (issue #16; redefined #127 from notes.md 2026-07-03). The pole is a run of
     # HIGHER HIGHS (not just "green candles"): even a SINGLE higher-high bar is a pole, up to a run
