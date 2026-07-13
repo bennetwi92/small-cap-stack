@@ -71,31 +71,15 @@ CASES: list[tuple[str, str]] = [
     ("WULF", "2026-07-08"),
 ]
 
-# Cases with a KNOWN-imperfect pinned value (the harness still guards the rest of the outcome).
-# The note rides along in the fixture header for the next reader; it is not asserted.
+# Notes ride along in the fixture header for the next reader; they are not asserted. The structural-
+# significance fix (#102) resolved the earlier SNDQ/WULF soft cycle-count residuals, so those cases
+# no longer need a caveat; the remaining note flags a setup that is easy to misread.
 NOTES: dict[str, str] = {
-    "SNDQ": (
-        "cycle_num is a KNOWN-imperfect SOFT value (#194/#102): contiguity (#196) cut the "
-        "disconnected pre-market blips (7->3), but the flat 08:00/08:10 churn ABUTS the pole and "
-        "still counts, so it reports cycle 3 (EXHAUSTED) where the trader reads cycle 1 (0 priors). "
-        "Left pinned deliberately (trader: 'ship wins, cycle=soft signal') — no volume/structure/"
-        "timing metric fully separates abutting flat churn from genuine prior pumps; needs #102. "
-        "The VERDICT is correct anyway: SNDQ rejects on vol_peak_gt_cons independent of exhaustion, "
-        "and its pole (08:20->08:35) is the point of this fixture."
-    ),
     "OPEN": (
-        "Red-peak setup (#196): the pole 10:50->11:00 has a RED peak (11:00) — now IDENTIFIED and "
+        "Red-peak setup (#196): the pole 10:50->11:00 has a RED peak (11:00), now IDENTIFIED and "
         "rejected via the peak_green gate rather than skipped (the old engine wandered to a junk "
-        "11:20 pole). cycle_num is a soft value (#102); the correct verdict is REJECT on the red "
-        "peak (plus 4-bar cons / retracement), which is the point of this fixture."
-    ),
-    "WULF": (
-        "cycle_num is a soft UNDER-count (#102): the trader reads a real prior cycle (pole "
-        "09:00->09:10, cons 09:15->09:20) that the engine DROPS because its peak volume (~84k) is "
-        "below the 100k significance floor — the mirror of SNDQ (where high-vol flat churn wrongly "
-        "counts). Confirms significance should be STRUCTURAL (clean green pole + pullback), not "
-        "volume. Verdict is correct anyway: a clean, fresh setup that REJECTS on wick_peak alone "
-        "(09:40 peak spiked to 22.90, closed 22.66 ~ 50% upper wick) — the point of this fixture."
+        "11:20 pole). Correctly cycle 3 / EXHAUSTED (a fading 3rd-cycle entry) and rejects on the "
+        "red peak plus the 4-bar cons / retracement — the point of this fixture."
     ),
 }
 
@@ -115,9 +99,9 @@ def evaluate(day_bars: list[Bar], first_hit: datetime | None, settings: Settings
     def t(i: int) -> str:
         return day_bars[i].start.astimezone(ET).strftime("%H:%M")
 
-    sig = significant_cycles(day_bars, all_cycles, min_volume=settings.scan_min_5m_volume)
+    sig = significant_cycles(day_bars, all_cycles, min_volume=settings.scan_min_5m_volume // 2)
     seg = setup.segment
-    cycle_num = cycle_number_for(day_bars, sig, seg.base_idx, seg.peak_idx)
+    cycle_num = cycle_number_for(day_bars, sig, seg.base_idx)
     return {
         "setup_found": True,
         "pole_base": t(seg.base_idx),

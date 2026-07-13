@@ -3,7 +3,6 @@
   "date": "2026-07-08",
   "opportunity_id": "2026-07-08:WULF",
   "first_hit": "2026-07-08T13:39:20.532062+00:00",
-  "notes": "cycle_num is a soft UNDER-count (#102): the trader reads a real prior cycle (pole 09:00->09:10, cons 09:15->09:20) that the engine DROPS because its peak volume (~84k) is below the 100k significance floor \u2014 the mirror of SNDQ (where high-vol flat churn wrongly counts). Confirms significance should be STRUCTURAL (clean green pole + pullback), not volume. Verdict is correct anyway: a clean, fresh setup that REJECTS on wick_peak alone (09:40 peak spiked to 22.90, closed 22.66 ~ 50% upper wick) \u2014 the point of this fixture.",
   "expected": {
     "setup_found": true,
     "pole_base": "09:20",
@@ -20,8 +19,8 @@
     "failing_gates": [
       "wick_peak"
     ],
-    "cycle_num": 1,
-    "total_significant_cycles": 17,
+    "cycle_num": 2,
+    "total_significant_cycles": 14,
     "exhausted": false
   },
   "bars": [
