@@ -69,6 +69,7 @@ CASES: list[tuple[str, str]] = [
     ("SNDQ", "2026-07-01"),
     ("OPEN", "2026-07-09"),
     ("WULF", "2026-07-08"),
+    ("MARA", "2026-07-09"),
 ]
 
 # Notes ride along in the fixture header for the next reader; they are not asserted. The structural-
@@ -80,6 +81,15 @@ NOTES: dict[str, str] = {
         "rejected via the peak_green gate rather than skipped (the old engine wandered to a junk "
         "11:20 pole). Correctly cycle 3 / EXHAUSTED (a fading 3rd-cycle entry) and rejects on the "
         "red peak plus the 4-bar cons / retracement — the point of this fixture."
+    ),
+    "MARA": (
+        "Exhaustion-driven reject (with FWDI, the only two): passes EVERY gate but is the 5th "
+        "contiguous pump of a worn-out move (4 real green-thrust priors 08:55->10:10, ascending "
+        "12.96->13.53 into the 13.80 target). Trader-confirmed correct reject on exhaustion alone. "
+        "Entry (10:35) is right and it would have been PROFITABLE — the deliberate cost of skipping "
+        "late chases. The point of this fixture is guarding the exhaustion path on a gates-passing "
+        "setup. Minor known render nuance: the 10:20 base bar (a weak non-bar; the real pole is the "
+        "10:25 expansion) reads as part of the pullback but is drawn as the pole's base, not shaded."
     ),
 }
 
