@@ -44,6 +44,7 @@ from viz_engine import (  # noqa: E402
     pick_setup,
     segment_cycles,
     significant_cycles,
+    token_eps,
 )
 
 _FIXTURES = Path(__file__).parent / "review_fixtures"
@@ -65,14 +66,28 @@ CASES: list[tuple[str, str]] = [
     ("FWDI", "2026-07-01"),
     ("CANF", "2026-07-01"),
     ("DFDV", "2026-07-02"),
+    ("SNDQ", "2026-07-01"),
 ]
+
+# Cases with a KNOWN-imperfect pinned value (the harness still guards the rest of the outcome).
+# The note rides along in the fixture header for the next reader; it is not asserted.
+NOTES: dict[str, str] = {
+    "SNDQ": (
+        "cycle_num/exhausted is a KNOWN-imperfect cosmetic value (#194/#102): the flat pre-08:25 "
+        "pre-market churn is miscounted as prior cycles, so it reports EXHAUSTED where the trader "
+        "reads cycle 1. Left pinned deliberately (trader: 'ship pole fix, flag SNDQ') — no volume/"
+        "structure/timing metric separates this churn from genuine prior pumps; it needs the #102 "
+        "'move' definition. The VERDICT is correct anyway: SNDQ rejects on vol_peak_gt_cons "
+        "independent of exhaustion, and its pole (08:20->08:35) is the point of this fixture."
+    ),
+}
 
 
 def evaluate(day_bars: list[Bar], first_hit: datetime | None, settings: Settings) -> dict[str, Any]:
     """The engine outcome for one opportunity, as a plain dict of confirmed-meaningful values
     (times in ET so a diff is human-readable). This is the single source of truth the extractor
     pins and the checker re-derives, so any drift shows up as a field mismatch."""
-    tokens = tokenize(day_bars, eps=settings.tick_size)
+    tokens = tokenize(day_bars, eps=token_eps(settings))
     all_cycles = segment_cycles(tokens)
     setup, cons_end, trig = pick_setup(
         day_bars, tokens, all_cycles, settings, first_hit=first_hit, params=_params(settings)
@@ -144,6 +159,7 @@ def extract(data_dir: str) -> None:
             "date": d,
             "opportunity_id": row["opportunity_id"],
             "first_hit": run.first_hit.isoformat() if run.first_hit else None,
+            **({"notes": NOTES[symbol]} if symbol in NOTES else {}),
             "expected": evaluate(day_bars, run.first_hit, settings),
         }
         bars = [[b.start.isoformat(), b.open, b.high, b.low, b.close, b.volume] for b in day_bars]
