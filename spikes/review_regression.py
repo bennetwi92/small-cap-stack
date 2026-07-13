@@ -73,6 +73,7 @@ CASES: list[tuple[str, str]] = [
     ("DJT", "2026-07-02"),
     ("ENVX", "2026-07-09"),
     ("IREN", "2026-07-06"),
+    ("CIFR", "2026-07-06"),
 ]
 
 # Notes ride along in the fixture header for the next reader; they are not asserted. The structural-
@@ -84,6 +85,12 @@ NOTES: dict[str, str] = {
         "rejected via the peak_green gate rather than skipped (the old engine wandered to a junk "
         "11:20 pole). Correctly cycle 3 / EXHAUSTED (a fading 3rd-cycle entry) and rejects on the "
         "red peak plus the 4-bar cons / retracement — the point of this fixture."
+    ),
+    "CIFR": (
+        "Confirmed reject on pole_height (+ wick_peak + cons_retracement): a marginal late-window "
+        "(seen 11:35) setup that is pure chop — the whole thing lives in a ~1% band (22.09-22.36). "
+        "The 'pole' (11:40) is only ~1.2% (< the 2% min), with a 57% upper wick, and the flag gave "
+        "back 56%. The suite's clearest pole_height (too-small-pole) reject as the lead reason."
     ),
     "IREN": (
         "Confirmed reject on cons_retracement: the pullback retraced ~86% of the pole (base low "
