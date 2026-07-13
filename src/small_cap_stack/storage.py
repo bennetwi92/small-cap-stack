@@ -44,12 +44,22 @@ class Store:
         pl.DataFrame(rows).write_parquet(path)
         return path
 
-    def read(self, dataset: str) -> pl.DataFrame:
-        """Read a whole dataset (empty frame if it has no data yet)."""
+    def read(self, dataset: str, *, dt: date | None = None) -> pl.DataFrame:
+        """Read a dataset (empty frame if it has no data yet).
+
+        ``dt`` scopes the read to a single ``dt=YYYY-MM-DD`` partition — loading just that day's
+        files instead of the whole history. The EOD report / dashboard backfill use it to bound
+        memory (reading all of ``bars`` for one date otherwise pulls the entire dataset, ~1.4 GB,
+        and OOMs the box). The path still carries ``dt=<date>`` so hive partitioning derives the
+        ``dt`` column identically to a full read.
+        """
         # One filesystem walk: the resolved file list doubles as the emptiness check and is passed
         # straight to DuckDB, which avoids re-globbing the pattern a second time internally. Hive
         # partitioning still derives the ``dt`` column from each path, identical to a glob read.
-        files = sorted(str(p) for p in (self.data_dir / dataset).glob("**/*.parquet"))
+        root = self.data_dir / dataset
+        if dt is not None:
+            root = root / f"dt={dt.isoformat()}"
+        files = sorted(str(p) for p in root.glob("**/*.parquet"))
         if not files:
             return pl.DataFrame()
         con = duckdb.connect()
