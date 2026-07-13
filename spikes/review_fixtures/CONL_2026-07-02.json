@@ -20,9 +20,9 @@
       "cons_retracement",
       "cons_holds_base"
     ],
-    "cycle_num": 5,
+    "cycle_num": 1,
     "total_significant_cycles": 24,
-    "exhausted": true
+    "exhausted": false
   },
   "bars": [
     ["2026-07-02T08:00:00+00:00", 5.0, 5.17, 4.95, 5.02, 207089.0],

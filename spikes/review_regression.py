@@ -67,18 +67,26 @@ CASES: list[tuple[str, str]] = [
     ("CANF", "2026-07-01"),
     ("DFDV", "2026-07-02"),
     ("SNDQ", "2026-07-01"),
+    ("OPEN", "2026-07-09"),
 ]
 
 # Cases with a KNOWN-imperfect pinned value (the harness still guards the rest of the outcome).
 # The note rides along in the fixture header for the next reader; it is not asserted.
 NOTES: dict[str, str] = {
     "SNDQ": (
-        "cycle_num/exhausted is a KNOWN-imperfect cosmetic value (#194/#102): the flat pre-08:25 "
-        "pre-market churn is miscounted as prior cycles, so it reports EXHAUSTED where the trader "
-        "reads cycle 1. Left pinned deliberately (trader: 'ship pole fix, flag SNDQ') — no volume/"
-        "structure/timing metric separates this churn from genuine prior pumps; it needs the #102 "
-        "'move' definition. The VERDICT is correct anyway: SNDQ rejects on vol_peak_gt_cons "
-        "independent of exhaustion, and its pole (08:20->08:35) is the point of this fixture."
+        "cycle_num is a KNOWN-imperfect SOFT value (#194/#102): contiguity (#196) cut the "
+        "disconnected pre-market blips (7->3), but the flat 08:00/08:10 churn ABUTS the pole and "
+        "still counts, so it reports cycle 3 (EXHAUSTED) where the trader reads cycle 1 (0 priors). "
+        "Left pinned deliberately (trader: 'ship wins, cycle=soft signal') — no volume/structure/"
+        "timing metric fully separates abutting flat churn from genuine prior pumps; needs #102. "
+        "The VERDICT is correct anyway: SNDQ rejects on vol_peak_gt_cons independent of exhaustion, "
+        "and its pole (08:20->08:35) is the point of this fixture."
+    ),
+    "OPEN": (
+        "Red-peak setup (#196): the pole 10:50->11:00 has a RED peak (11:00) — now IDENTIFIED and "
+        "rejected via the peak_green gate rather than skipped (the old engine wandered to a junk "
+        "11:20 pole). cycle_num is a soft value (#102); the correct verdict is REJECT on the red "
+        "peak (plus 4-bar cons / retracement), which is the point of this fixture."
     ),
 }
 
@@ -99,8 +107,8 @@ def evaluate(day_bars: list[Bar], first_hit: datetime | None, settings: Settings
         return day_bars[i].start.astimezone(ET).strftime("%H:%M")
 
     sig = significant_cycles(day_bars, all_cycles, min_volume=settings.scan_min_5m_volume)
-    cycle_num = cycle_number_for(all_cycles, sig, setup.segment.peak_idx)
     seg = setup.segment
+    cycle_num = cycle_number_for(day_bars, sig, seg.base_idx, seg.peak_idx)
     return {
         "setup_found": True,
         "pole_base": t(seg.base_idx),

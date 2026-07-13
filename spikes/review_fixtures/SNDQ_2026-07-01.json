@@ -3,7 +3,7 @@
   "date": "2026-07-01",
   "opportunity_id": "2026-07-01:SNDQ",
   "first_hit": "2026-07-01T12:35:41.508118+00:00",
-  "notes": "cycle_num/exhausted is a KNOWN-imperfect cosmetic value (#194/#102): the flat pre-08:25 pre-market churn is miscounted as prior cycles, so it reports EXHAUSTED where the trader reads cycle 1. Left pinned deliberately (trader: 'ship pole fix, flag SNDQ') \u2014 no volume/structure/timing metric separates this churn from genuine prior pumps; it needs the #102 'move' definition. The VERDICT is correct anyway: SNDQ rejects on vol_peak_gt_cons independent of exhaustion, and its pole (08:20->08:35) is the point of this fixture.",
+  "notes": "cycle_num is a KNOWN-imperfect SOFT value (#194/#102): contiguity (#196) cut the disconnected pre-market blips (7->3), but the flat 08:00/08:10 churn ABUTS the pole and still counts, so it reports cycle 3 (EXHAUSTED) where the trader reads cycle 1 (0 priors). Left pinned deliberately (trader: 'ship wins, cycle=soft signal') \u2014 no volume/structure/timing metric fully separates abutting flat churn from genuine prior pumps; needs #102. The VERDICT is correct anyway: SNDQ rejects on vol_peak_gt_cons independent of exhaustion, and its pole (08:20->08:35) is the point of this fixture.",
   "expected": {
     "setup_found": true,
     "pole_base": "08:20",
@@ -20,7 +20,7 @@
     "failing_gates": [
       "vol_peak_gt_cons"
     ],
-    "cycle_num": 7,
+    "cycle_num": 3,
     "total_significant_cycles": 26,
     "exhausted": true
   },
