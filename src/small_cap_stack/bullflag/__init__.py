@@ -8,6 +8,13 @@ stage 2 :mod:`.segment` (this issue #177); stages 3–4 (features/gates/score) f
 
 from __future__ import annotations
 
+from .cycles import (
+    Cycle,
+    contiguous_prior_cycles,
+    prior_cycle_count,
+    segment_cycles,
+    significant_cycles,
+)
 from .detect import BullFlag, classify, detect, detect_with_settings
 from .features import FeatureVector, extract, trailing_atr
 from .gates import GateResult, evaluate
@@ -19,20 +26,25 @@ from .tokens import Token, tokenize
 __all__ = [
     "DEFAULT_WEIGHTS",
     "BullFlag",
+    "Cycle",
     "FeatureVector",
     "GateResult",
     "Segment",
     "Setup",
     "Token",
     "classify",
+    "contiguous_prior_cycles",
     "detect",
     "detect_setup",
     "detect_setup_with_settings",
     "detect_with_settings",
     "evaluate",
     "extract",
+    "prior_cycle_count",
     "score",
     "segment_at_end",
+    "segment_cycles",
+    "significant_cycles",
     "tokenize",
     "trailing_atr",
 ]

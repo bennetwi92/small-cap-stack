@@ -328,3 +328,45 @@ Land 1–3 with **zero** behavioural change (legacy detector still drives report
 adds the v2 pipeline + parity test). #4 is the atomic cut-over (repoint + settings flip); #5
 quantifies it; #6 exposes it.
 ```
+
+## 13. Full-day detector (`detect_day`) — the visual-review port (#211)
+
+The per-opportunity **visual review** (`spikes/viz_engine.py`, 25 committed regression fixtures —
+#194/#102/#196/#198) refined the detector well past stages 1–4 above, and the trader chose a
+**full-day, compute-on-read** execution model over the end-anchored `detect_setup`. This matches
+"store raw, compute derived on read": given a whole day of bars and the scanner-appearance time,
+compute the one setup the trader would have taken.
+
+**`detect_day(bars, first_hit, settings) → DaySetup | None`** (new `day.py`) reproduces the spike's
+`pick_setup`: a greedy H/E/L **cycle walk** over the whole day picks each candidate pole; the pole
+is refined by the colour/thrust rule anchored to that peak; the **entry** is the first ≥1-tick break
+of the last consolidation candle, gated by **appearance** (the entry bar must open at/after
+`first_hit`) and **staleness**; the shape is scored/gated; and **exhaustion** rejects the 3rd+
+cycle. `DaySetup` carries the segment, features, entry-trigger/entry-fill/stop, gates (incl.
+`peak_green`), `passed`, `cycle_num`, `exhausted`, and score — everything the fixtures assert.
+
+Differences from stages 1–4 (all validated in review):
+
+- **eps = half a tick.** A genuine one-tick higher high extends the pole; only a truly-flat top
+  (Δhigh = 0) is `E` (#196/SNDQ). Reverses the "1-tick wobble = E" default of stage 1 for the v2
+  path.
+- **Red/flat peak → identify-and-reject, not skip.** `segment.refine_pole` keeps a red-peaked pole
+  (it is the setup the trader reads); the new **`peak_green` gate** rejects it. The old "red peak →
+  None, keep searching" made the greedy walk wander to a junk later pole (#196/OPEN, IRE).
+- **Exhaustion (`cycles.py`).** A countable prior cycle = a green-thrust pole (structure) + a bar
+  clearing `scan_min_5m_volume // 2` (a modest volume floor) + **contiguous** with the pole (≤1-bar
+  gap, walking back). Volume alone is the wrong axis — too high dropped WULF's real 84k pump, too
+  low kept SNDQ's high-volume doji churn (#102). No ascending requirement (a fading run still
+  exhausts; OPEN).
+
+**Port stages (#211):** (1) `cycles.py` + tests [this]; (2) rule ports into
+`segment`/`features`/`gates`/`config` (`refine_pole` + red-peak allowance, `peak_is_green`,
+`peak_green`, half-tick eps); (3) `day.py` (`DaySetup` + `detect_day`); (4) graduate the 25 fixtures
+into `tests/` against `detect_day`. The end-anchored `detect_setup` stays (its legacy-parity tests)
+until nothing consumes it. Repointing the review workbench / rmetrics to `detect_day` is the later
+cut-over (aligns with §12 #4 / #180), separate from the port.
+
+**Known deferred refinements** surfaced in review, not ported: the market-open regime — slowdown
+(equal-high) consolidations the cycle walk can't split, over-extension from the 09:30 open, and a
+wick-spike-and-reject bar that merges cycles (#203); pole-quality soft downgrades — a red base bar
+and a gravestone-doji last consolidation bar (#203).
