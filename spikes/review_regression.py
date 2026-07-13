@@ -74,6 +74,7 @@ CASES: list[tuple[str, str]] = [
     ("ENVX", "2026-07-09"),
     ("IREN", "2026-07-06"),
     ("CIFR", "2026-07-06"),
+    ("QGEN", "2026-07-09"),
 ]
 
 # Notes ride along in the fixture header for the next reader; they are not asserted. The structural-
@@ -85,6 +86,12 @@ NOTES: dict[str, str] = {
         "rejected via the peak_green gate rather than skipped (the old engine wandered to a junk "
         "11:20 pole). Correctly cycle 3 / EXHAUSTED (a fading 3rd-cycle entry) and rejects on the "
         "red peak plus the 4-bar cons / retracement — the point of this fixture."
+    ),
+    "QGEN": (
+        "Confirmed DOUBLE reject: cons_retracement (pullback gave back 70% of the pole) AND "
+        "exhausted (cycle 3). Two real prior pumps precede the target — 09:25->09:55 to 39.32, then "
+        "a violent +10% spike 10:00->10:10 to 43.21 — so the 10:30 push to 44.03 is the 3rd leg, and "
+        "its flag retraced to 42.03. Trader-confirmed; the 2 prior cycles read correctly."
     ),
     "CIFR": (
         "Confirmed reject on pole_height (+ wick_peak + cons_retracement): a marginal late-window "
