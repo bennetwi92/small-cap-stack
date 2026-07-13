@@ -71,6 +71,7 @@ CASES: list[tuple[str, str]] = [
     ("WULF", "2026-07-08"),
     ("MARA", "2026-07-09"),
     ("DJT", "2026-07-02"),
+    ("ENVX", "2026-07-09"),
 ]
 
 # Notes ride along in the fixture header for the next reader; they are not asserted. The structural-
@@ -82,6 +83,13 @@ NOTES: dict[str, str] = {
         "rejected via the peak_green gate rather than skipped (the old engine wandered to a junk "
         "11:20 pole). Correctly cycle 3 / EXHAUSTED (a fading 3rd-cycle entry) and rejects on the "
         "red peak plus the 4-bar cons / retracement — the point of this fixture."
+    ),
+    "ENVX": (
+        "Confirmed reject: a fresh (cycle 1) pump whose PEAK (07:45) is a red shooting star — 69% "
+        "upper wick, red body, on the day's heaviest volume (303k, a blow-off-top climax). Fails "
+        "peak_green (red) + wick_peak (69% > 50%). Pole boundary left as-is per trader: the engine's "
+        "tight 07:40->07:45 thrust launches off the borderline-body (41%) 07:35 base — 07:30/07:35 "
+        "are low-volume (~42k) lead-in, so excluding them is reasonable. Trader happy with reject."
     ),
     "DJT": (
         "Confirmed reject: a fresh (cycle 1) pump whose flag COLLAPSED into a reversal — 3 heavy "

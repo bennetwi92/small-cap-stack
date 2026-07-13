@@ -320,6 +320,8 @@ def pick_setup(
 _STEP = 26
 _MT, _MB, _ML, _MR = 56, 48, 62, 104
 _PLOT_H = 720
+_VOL_H = 150  # volume sub-panel height, drawn below the price plot (#204 review)
+_VOL_GAP = 20  # gap between the price plot and the volume panel
 
 
 def _et(b: Bar) -> str:
@@ -337,7 +339,7 @@ def _svg(
 ) -> str:
     n = len(bars)
     width = _ML + n * _STEP + _MR
-    height = _MT + _PLOT_H + _MB
+    height = _MT + _PLOT_H + _VOL_GAP + _VOL_H + _MB
     lo = min(b.low for b in bars)
     hi = max(b.high for b in bars)
     pad = (hi - lo) * 0.08 or 0.01
@@ -345,6 +347,8 @@ def _svg(
 
     def x(i: int) -> float:
         return _ML + i * _STEP + _STEP / 2
+
+    band_h = _PLOT_H + _VOL_GAP + _VOL_H  # bands span price + volume so pole bars line up with vol
 
     def y(p: float) -> float:
         return _MT + (top - p) / (top - bot) * _PLOT_H
@@ -373,21 +377,22 @@ def _svg(
             cx0 = x(c.pole_start + 1) - _STEP / 2
             cw = (c.cons_end - c.pole_start) * _STEP
             out.append(
-                f'<rect class="band prior" x="{cx0:.1f}" y="{_MT}" width="{cw:.1f}" height="{_PLOT_H}"/>'
+                f'<rect class="band prior" x="{cx0:.1f}" y="{_MT}" width="{cw:.1f}" height="{band_h}"/>'
             )
             out.append(
                 f'<text class="band-lbl prior" x="{cx0 + cw / 2:.1f}" y="{_MT + 30}" '
                 f'text-anchor="middle">cycle {i}</text>'
             )
 
-    # pole / consolidation bands. The pole band is the HIGHER-HIGH bars only (base+1..peak) — the
-    # launch/base bar is the rise's reference low, not part of the pole, so it never shows an E.
+    # pole / consolidation bands. The pole band spans base..peak INCLUSIVE — the trader reads the
+    # base (launch) bar as the first bar of the pole run, so it is shaded (#204 review: MARA/ENVX).
+    # pole_len still counts only the higher-high steps (base+1..peak); this is purely the shading.
     if setup is not None:
         seg = setup.segment
-        px0 = x(seg.base_idx + 1) - _STEP / 2
-        pw = (seg.peak_idx - seg.base_idx) * _STEP
+        px0 = x(seg.base_idx) - _STEP / 2
+        pw = (seg.peak_idx - seg.base_idx + 1) * _STEP
         out.append(
-            f'<rect class="band pole" x="{px0:.1f}" y="{_MT}" width="{pw:.1f}" height="{_PLOT_H}"/>'
+            f'<rect class="band pole" x="{px0:.1f}" y="{_MT}" width="{pw:.1f}" height="{band_h}"/>'
         )
         out.append(
             f'<text class="band-lbl pole" x="{px0 + pw / 2:.1f}" y="{_MT + 14}" text-anchor="middle">POLE</text>'
@@ -395,7 +400,7 @@ def _svg(
         cx0 = x(seg.peak_idx + 1) - _STEP / 2
         cw = (seg.cons_end_idx - seg.peak_idx) * _STEP
         out.append(
-            f'<rect class="band cons" x="{cx0:.1f}" y="{_MT}" width="{cw:.1f}" height="{_PLOT_H}"/>'
+            f'<rect class="band cons" x="{cx0:.1f}" y="{_MT}" width="{cw:.1f}" height="{band_h}"/>'
         )
         out.append(
             f'<text class="band-lbl cons" x="{cx0 + cw / 2:.1f}" y="{_MT + 14}" text-anchor="middle">CONSOLIDATION</text>'
@@ -424,6 +429,26 @@ def _svg(
             out.append(
                 f'<text class="axis" x="{cx:.1f}" y="{height - _MB + 16}" text-anchor="middle">{_et(b)}</text>'
             )
+
+    # volume sub-panel — real participation is half the judgment (thrust vs churn, the peak-vs-cons
+    # volume gate, market-open drive). Drawn below the price plot, x-aligned with the candles.
+    vtop = _MT + _PLOT_H + _VOL_GAP
+    vbot = vtop + _VOL_H
+    maxvol = max((b.volume for b in bars), default=1.0) or 1.0
+    out.append(
+        f'<line class="grid" x1="{_ML}" y1="{vbot:.1f}" x2="{width - _MR}" y2="{vbot:.1f}"/>'
+    )
+    out.append(
+        f'<text class="axis" x="{_ML - 8}" y="{vtop + 9:.1f}" text-anchor="end">vol {int(maxvol):,}</text>'
+    )
+    out.append(f'<text class="axis" x="{_ML - 8}" y="{vbot:.1f}" text-anchor="end">0</text>')
+    for i, b in enumerate(bars):
+        vh = b.volume / maxvol * _VOL_H
+        vcls = "up" if b.close >= b.open else "down"
+        out.append(
+            f'<rect class="vol {vcls}" x="{x(i) - _STEP * 0.32:.1f}" y="{vbot - vh:.1f}" '
+            f'width="{_STEP * 0.64:.1f}" height="{max(vh, 0.6):.1f}"><title>{_et(b)}  vol {int(b.volume):,}</title></rect>'
+        )
 
     # base / peak markers, entry / stop lines, trigger
     if setup is not None:
@@ -536,6 +561,7 @@ svg.chart{display:block}
 .grid{stroke:var(--grid);stroke-width:1}.axis{fill:var(--mut);font-size:10px}
 .wick{stroke-width:1.4}.wick.up,.body.up{stroke:var(--up)}.wick.down,.body.down{stroke:var(--down)}
 .body.up{fill:var(--up)}.body.down{fill:var(--down)}.body{stroke-width:1}
+.vol{stroke-width:0;opacity:.55}.vol.up{fill:var(--up)}.vol.down{fill:var(--down)}
 .band{opacity:.12}.band.pole{fill:var(--pole)}.band.cons{fill:var(--cons)}.band.prior{fill:var(--mut);opacity:.10}
 .band-lbl{font-size:10px;font-weight:700;letter-spacing:.08em;opacity:.8}.band-lbl.pole{fill:var(--pole)}.band-lbl.cons{fill:var(--cons)}.band-lbl.prior{fill:var(--mut);opacity:.7;font-weight:600}
 .tok{font-size:10px;font-weight:700}.tok-h{fill:var(--up)}.tok-l{fill:var(--down)}.tok-e{fill:var(--mut)}
