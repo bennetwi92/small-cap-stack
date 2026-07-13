@@ -15,6 +15,7 @@ from .cycles import (
     segment_cycles,
     significant_cycles,
 )
+from .day import DaySetup, detect_day, detect_day_with_settings
 from .detect import BullFlag, classify, detect, detect_with_settings
 from .features import FeatureVector, extract, trailing_atr
 from .gates import GateResult, evaluate
@@ -27,6 +28,7 @@ __all__ = [
     "DEFAULT_WEIGHTS",
     "BullFlag",
     "Cycle",
+    "DaySetup",
     "FeatureVector",
     "GateResult",
     "Segment",
@@ -35,6 +37,8 @@ __all__ = [
     "classify",
     "contiguous_prior_cycles",
     "detect",
+    "detect_day",
+    "detect_day_with_settings",
     "detect_setup",
     "detect_setup_with_settings",
     "detect_with_settings",

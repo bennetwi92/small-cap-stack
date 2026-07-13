@@ -105,6 +105,11 @@ class Settings(BaseSettings):
     # worse, 3-tick fill to avoid overstating the edge — "often I fill at the trigger price anyway,
     # 3 ticks is being conservative." Applied downstream of the trigger, not in place of it.
     bull_flag_fill_offset_ticks: int = 3
+    # Exhaustion (engine-v2 full-day detector, #102/#211): reject entry on the (cap+1)'th contiguous
+    # significant pump/fade cycle of the day — "entering the third cycle is entering an exhausted
+    # opportunity" (trader). A cycle counts if its pole carries a green thrust bar and a bar clears
+    # scan_min_5m_volume // 2, and it abuts the run (see bullflag.cycles).
+    bull_flag_exhaustion_cap: int = 2
     # Entry staleness (#130): a break more than this many minutes after the scanner appearance reads
     # as "faded" — the opportunity is no longer takeable (AHMA triggered ~1hr+ after the scan). Only
     # applies when the appearance (first_hit) is known; a large value disables the bound.
