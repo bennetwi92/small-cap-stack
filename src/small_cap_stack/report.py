@@ -453,12 +453,15 @@ def build_eod_report(store: Store, settings: Settings, trading_date: date) -> Eo
         }
         return EodReport(trading_date, [], empty, f"# EOD {trading_date}\n\nNo opportunities.")
 
-    bars = store.read("bars")
-    news = store.read("news")
+    # Scope every read to this trading date's partition (all datasets are dt=YYYY-MM-DD partitioned,
+    # and one day's opportunities only reference that day's bars/news/funds/scans). Reading all of
+    # `bars` otherwise pulls the whole history into memory (~1.4 GB) and OOMs the box (#180).
+    bars = store.read("bars", dt=trading_date)
+    news = store.read("news", dt=trading_date)
     if not news.is_empty():  # dedup re-fetched news (same article) so news_count isn't inflated
         news = news.unique(subset=["opportunity_id", "article_id"], keep="first")
-    funds = store.read("fundamentals")
-    scans = store.read("scanner_hits")  # NOT deduped: each row is a distinct scanner appearance
+    funds = store.read("fundamentals", dt=trading_date)
+    scans = store.read("scanner_hits", dt=trading_date)  # NOT deduped: each row is a distinct hit
 
     analyses: list[OpportunityAnalysis] = []
     for row in opps.iter_rows(named=True):

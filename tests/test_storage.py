@@ -43,6 +43,19 @@ def test_read_missing_dataset_is_empty(tmp_path: Path) -> None:
     assert Store(tmp_path).read("nope").is_empty()
 
 
+def test_read_scoped_to_one_date_partition(tmp_path: Path) -> None:
+    # dt= scopes the read to a single partition (bounds memory for the EOD report / backfill, #180).
+    store = Store(tmp_path)
+    store.append("bars", [{"symbol": "AZI", "high": 1.0}], partition_date=date(2026, 6, 29))
+    store.append("bars", [{"symbol": "NNBR", "high": 2.0}], partition_date=date(2026, 6, 30))
+    assert store.read("bars").height == 2  # both days
+    one = store.read("bars", dt=date(2026, 6, 30))
+    assert one.height == 1  # only the 06-30 partition loaded
+    assert one["symbol"].to_list() == ["NNBR"]
+    assert one["dt"].to_list() == [date(2026, 6, 30)]  # hive column still derived
+    assert store.read("bars", dt=date(2026, 7, 1)).is_empty()  # absent partition -> empty
+
+
 def test_append_accumulates_across_partitions(tmp_path: Path) -> None:
     store = Store(tmp_path)
     store.append("candidates", _rows(), partition_date=date(2026, 6, 29))
