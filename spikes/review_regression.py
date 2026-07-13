@@ -68,6 +68,7 @@ CASES: list[tuple[str, str]] = [
     ("DFDV", "2026-07-02"),
     ("SNDQ", "2026-07-01"),
     ("OPEN", "2026-07-09"),
+    ("WULF", "2026-07-08"),
 ]
 
 # Cases with a KNOWN-imperfect pinned value (the harness still guards the rest of the outcome).
@@ -87,6 +88,14 @@ NOTES: dict[str, str] = {
         "rejected via the peak_green gate rather than skipped (the old engine wandered to a junk "
         "11:20 pole). cycle_num is a soft value (#102); the correct verdict is REJECT on the red "
         "peak (plus 4-bar cons / retracement), which is the point of this fixture."
+    ),
+    "WULF": (
+        "cycle_num is a soft UNDER-count (#102): the trader reads a real prior cycle (pole "
+        "09:00->09:10, cons 09:15->09:20) that the engine DROPS because its peak volume (~84k) is "
+        "below the 100k significance floor — the mirror of SNDQ (where high-vol flat churn wrongly "
+        "counts). Confirms significance should be STRUCTURAL (clean green pole + pullback), not "
+        "volume. Verdict is correct anyway: a clean, fresh setup that REJECTS on wick_peak alone "
+        "(09:40 peak spiked to 22.90, closed 22.66 ~ 50% upper wick) — the point of this fixture."
     ),
 }
 
