@@ -19,6 +19,46 @@ article > header {
   color: var(--pico-muted-color);
 }
 
+/* --- shared page nav (#219): compact pill tabs; one thin bar, same markup on both pages ----- */
+.topnav {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start; /* override Pico's default nav `space-between` (else tabs split apart) */
+  gap: 0.35rem;
+}
+/* Dashboard: full-width sticky bar above the scrolling container; clears a notch. */
+body:not(.review) .topnav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 0.3rem 0.6rem;
+  padding-top: max(0.3rem, env(safe-area-inset-top));
+  background: var(--pico-background-color);
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+/* Review: a thin flex row atop the 100dvh column (rv-wrap already clears the notch + pads sides). */
+body.review .topnav {
+  flex: 0 0 auto;
+  padding-bottom: 0.1rem;
+}
+.topnav-tab {
+  padding: 0.15rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--pico-muted-color);
+  text-decoration: none;
+  border-radius: 999px;
+}
+.topnav-tab:hover {
+  color: var(--pico-color);
+  background: rgba(128, 128, 128, 0.15);
+}
+.topnav-tab[aria-current="page"] {
+  color: var(--pico-primary-inverse);
+  background: var(--pico-primary);
+}
+
 /* section divider (e.g. "Last completed session") */
 .section-head {
   margin: 1.6rem 0 0.6rem;

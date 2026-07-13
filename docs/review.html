@@ -13,6 +13,12 @@
   </head>
   <body class="review">
     <div class="rv-wrap">
+      <!-- Shared page nav (#219): compact pill tabs, active tab marked per page (no JS). -->
+      <nav class="topnav" aria-label="Pages">
+        <a class="topnav-tab" href="index.html">Dashboard</a>
+        <a class="topnav-tab" href="review.html" aria-current="page">Review</a>
+      </nav>
+
       <!-- Top control bar: date + symbol dropdowns with prev/next arrows (#142) -->
       <header class="rv-top">
         <select id="rv-date" class="rv-select rv-date" title="Trading date"></select>
