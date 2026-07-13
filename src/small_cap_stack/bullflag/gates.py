@@ -45,6 +45,12 @@ def evaluate(
         GateResult("cons_len", fv.cons_len <= max_cons, fv.cons_len),
         GateResult("vol_peak_gt_cons", fv.peak_gt_cons, fv.vol_ratio),
         GateResult("wick_peak", fv.peak_upper_wick <= max_peak_wick, fv.peak_upper_wick),
+        # "No red candle in the pole" as an identify-and-reject gate rather than a detection skip
+        # (#196). refine_pole keeps a red/flat-peaked pole so the trader sees the setup they'd read;
+        # here it fails instead. Intermediate pole bars are green (the thrust walk), so the peak is
+        # the only bar that can be non-green. For the end-anchored segment_at_end, which already
+        # requires a green peak, this gate always passes.
+        GateResult("peak_green", fv.peak_is_green, fv.peak_is_green),
         GateResult("pole_height", fv.pole_height_pct >= min_pole_pct, fv.pole_height_pct),
         GateResult("cons_retracement", fv.retracement <= max_retracement, fv.retracement),
         GateResult("cons_holds_base", fv.holds_base, fv.holds_base),

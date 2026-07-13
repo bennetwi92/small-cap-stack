@@ -45,6 +45,7 @@ def test_clean_setup_passes_all() -> None:
         "cons_len",
         "vol_peak_gt_cons",
         "wick_peak",
+        "peak_green",
         "pole_height",
         "cons_retracement",
         "cons_holds_base",

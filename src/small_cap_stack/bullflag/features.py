@@ -24,7 +24,7 @@ from datetime import time, timedelta
 
 from ..capture import Bar
 from ..clock import ET, within_window
-from .detect import _is_big_green, _non_increasing, _upper_wick_frac
+from .detect import _is_big_green, _non_increasing, _upper_wick_frac, classify
 from .segment import Segment
 
 # A "doji"/small-bodied bar: body <= this fraction of its range. Used only by the
@@ -53,6 +53,7 @@ class FeatureVector:
     pole_vol_concentration: float  # peak.vol / sum(thrust.vol)  (thrust = pole bars above launch)
     # WICK
     peak_upper_wick: float  # upper-wick frac of the peak bar  [gate input]
+    peak_is_green: bool  # the peak bar closes green  [gate input] — the peak_green gate (#196)
     pole_has_big_green: bool  # a strong-bodied green candle in the pole
     pole_avg_body: float  # mean body fraction across pole bars
     cons_indecision: float  # frac of cons bars that are small-bodied / doji
@@ -178,6 +179,7 @@ def extract(
         pole_vol_concentration=peak_vol / thrust_vsum if thrust_vsum > 0 else 0.0,
         # WICK
         peak_upper_wick=_upper_wick_frac(bars[peak_idx]),
+        peak_is_green=classify(bars[peak_idx]) == "green",
         pole_has_big_green=any(_is_big_green(b) for b in pole),
         pole_avg_body=sum(_body_frac(b) for b in pole) / len(pole),
         cons_indecision=sum(_body_frac(b) <= _DOJI_MAX_BODY_FRAC for b in cons) / len(cons),

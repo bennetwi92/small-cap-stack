@@ -117,3 +117,33 @@ def segment_at_end(
         pole_len=pole_len,
         cons_len=cons_len,
     )
+
+
+def refine_pole(
+    bars: Sequence[Bar], tokens: Sequence[Token], peak: int, *, max_pole: int
+) -> tuple[int, int] | None:
+    """``(base_idx, pole_len)`` for the pole ending at a GIVEN ``peak``, or ``None`` if none forms.
+
+    The full-day detector (``detect_day``, engine-v2.md §13) anchors the pole to whatever peak its
+    greedy cycle walk found — NOT the dominant-high search :func:`segment_at_end` uses — so this
+    shares the colour/thrust extension rule without the end-anchoring or dominant-peak selection.
+
+    Walk backward from the peak through strict higher-high **thrust** bars (green, body >= half its
+    range, :func:`._is_big_green`), capped at ``max_pole``; a doji-like/red bar stops the walk and
+    becomes the base (#182/#190: MUZ/CRCG/CONL). The peak itself is NOT colour-checked here — a
+    red/flat peak still forms a pole and is rejected downstream by the ``peak_green`` gate
+    (identify-and-reject, #196: OPEN/IRE), rather than being skipped so the greedy walk wanders to a
+    later junk pole. Returns ``None`` only when the pole is disabled (``max_pole < 1``) or there is
+    no higher-high step into the peak (``tokens[peak-1] != "H"``)."""
+    if max_pole < 1 or peak - 1 < 0 or tokens[peak - 1] != "H":
+        return None
+    base, pole_len = peak - 1, 1
+    while (
+        pole_len < max_pole
+        and base - 1 >= 0
+        and tokens[base - 1] == "H"
+        and _is_big_green(bars[base])
+    ):
+        base -= 1
+        pole_len += 1
+    return base, pole_len

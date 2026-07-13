@@ -17,8 +17,21 @@ from collections.abc import Sequence
 from typing import Literal
 
 from ..capture import Bar
+from ..config import Settings
 
 Token = Literal["H", "L", "E"]
+
+
+def token_eps(settings: Settings) -> float:
+    """The engine-v2 tokenisation flatness tolerance: HALF a tick.
+
+    A full one-tick higher high IS a higher high (directional) and must extend a pole, so it can't
+    be swallowed as ``E``; only a truly-flat top (Δhigh = 0) is ``E`` (#196/SNDQ: a +0.01 higher
+    high was mislabeled ``E`` at eps=1 tick, truncating the pole). Half a tick keeps every real
+    >= 1-tick move directional while still absorbing sub-tick float noise (``tokenize`` rounds the
+    delta first). This is the v2 default for the full-day ``detect_day`` path; the end-anchored
+    ``detect_setup`` keeps its own ``eps`` argument."""
+    return settings.tick_size / 2
 
 
 def tokenize(bars: Sequence[Bar], *, eps: float) -> list[Token]:
