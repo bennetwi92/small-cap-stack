@@ -72,6 +72,7 @@ CASES: list[tuple[str, str]] = [
     ("MARA", "2026-07-09"),
     ("DJT", "2026-07-02"),
     ("ENVX", "2026-07-09"),
+    ("IREN", "2026-07-06"),
 ]
 
 # Notes ride along in the fixture header for the next reader; they are not asserted. The structural-
@@ -83,6 +84,15 @@ NOTES: dict[str, str] = {
         "rejected via the peak_green gate rather than skipped (the old engine wandered to a junk "
         "11:20 pole). Correctly cycle 3 / EXHAUSTED (a fading 3rd-cycle entry) and rejects on the "
         "red peak plus the 4-bar cons / retracement — the point of this fixture."
+    ),
+    "IREN": (
+        "Confirmed reject on cons_retracement: the pullback retraced ~86% of the pole (base low "
+        "43.28 -> peak high 44.34, cons low 43.43) — deep, though the base is the weak-body (18%) "
+        "09:40 bar; measured from the real run start (09:35) it's ~42%. Volume signature is "
+        "otherwise healthy (pole 1.2-1.8M, cons fading 0.84->0.52M). Trader-confirmed reject; would "
+        "have been ~1.5R (a modest winner correctly skipped). Also notable: seen 10:06 is very late "
+        "for a 09:40-09:50 setup — the old top-10 scanner surfaced it late (fixed by scan_max_rows "
+        "10->50, #192; worst at market open, #203). Review data predates that deploy."
     ),
     "ENVX": (
         "Confirmed reject: a fresh (cycle 1) pump whose PEAK (07:45) is a red shooting star — 69% "
