@@ -70,6 +70,7 @@ CASES: list[tuple[str, str]] = [
     ("OPEN", "2026-07-09"),
     ("WULF", "2026-07-08"),
     ("MARA", "2026-07-09"),
+    ("DJT", "2026-07-02"),
 ]
 
 # Notes ride along in the fixture header for the next reader; they are not asserted. The structural-
@@ -81,6 +82,14 @@ NOTES: dict[str, str] = {
         "rejected via the peak_green gate rather than skipped (the old engine wandered to a junk "
         "11:20 pole). Correctly cycle 3 / EXHAUSTED (a fading 3rd-cycle entry) and rejects on the "
         "red peak plus the 4-bar cons / retracement — the point of this fixture."
+    ),
+    "DJT": (
+        "Confirmed reject: a fresh (cycle 1) pump whose flag COLLAPSED into a reversal — 3 heavy "
+        "red bars (10:15-10:25) retraced ~137% of the pole, broke below the base (low 8.44 < base "
+        "8.55) on HIGHER volume than the peak; fails vol_peak_gt_cons + cons_retracement + "
+        "cons_holds_base together. Also the trader's market-open blind spot (#203): the move "
+        "extended from 09:30 with slowdown (not lower-high) consolidations the cycle walk can't see, "
+        "so cycle 1 UNDER-counts its over-extension — verdict is unaffected (rejects on the gates)."
     ),
     "MARA": (
         "Exhaustion-driven reject (with FWDI, the only two): passes EVERY gate but is the 5th "
