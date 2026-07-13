@@ -76,6 +76,7 @@ CASES: list[tuple[str, str]] = [
     ("CIFR", "2026-07-06"),
     ("QGEN", "2026-07-09"),
     ("MSTU", "2026-07-01"),
+    ("FATE", "2026-07-01"),
 ]
 
 # Notes ride along in the fixture header for the next reader; they are not asserted. The structural-
@@ -87,6 +88,14 @@ NOTES: dict[str, str] = {
         "rejected via the peak_green gate rather than skipped (the old engine wandered to a junk "
         "11:20 pole). Correctly cycle 3 / EXHAUSTED (a fading 3rd-cycle entry) and rejects on the "
         "red peak plus the 4-bar cons / retracement — the point of this fixture."
+    ),
+    "FATE": (
+        "Confirmed clean PASS (the trader would take it) — the suite's first FRESH-reviewed pass. A "
+        "textbook bull flag: a 4-bar ascending green pole (10:00->10:20, 2.80->3.07 ~10%, building "
+        "volume 50k->288k), clean peak close, a tight 4-bar consolidation on FADING volume that "
+        "retraces only 33%, then the 10:45 breakout. All gates pass, cycle 1, mid-morning (no market-"
+        "open baggage). Balances the reject-heavy fixture set. Nit: vol_peak_gt_cons is close "
+        "(peak 205k vs cons 183k) but holds; seen 10:28 is late (pole from 10:00) yet entry stays takeable."
     ),
     "MSTU": (
         "Confirmed reject — the flag dragged out and DIED: cons_len (7 bars, > the 4 max) + "
