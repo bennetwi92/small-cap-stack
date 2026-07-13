@@ -121,10 +121,22 @@ def cycle_number_for(all_cycles: list[Cycle], sig_cycles: list[Cycle], peak_idx:
     return prior + 1
 
 
+def token_eps(settings: Settings) -> float:
+    """Tokenisation flatness tolerance = HALF a tick. A full one-tick move IS a higher/lower high
+    (directional) and must not be swallowed as ``E``; only a truly-flat top (delta 0) is ``E``.
+
+    #194/SNDQ 2026-07-01: the 08:25->08:30 +0.01 higher high was mislabeled ``E`` at eps=tick,
+    truncating the pole to a single bar (the trader reads that whole 08:25->08:35 run as the pole).
+    Half a tick keeps every real >=1-tick move directional while still absorbing sub-tick FP noise
+    (tokenize already rounds the delta). This reverses tokens.py's original "1-tick wobble = E"
+    default for the spike; validated to leave all 14 confirmed cases' verdicts unchanged (only
+    CONL's cosmetic cycle count shifts). Ported to core tokens.py when the spike rules graduate."""
+    return settings.tick_size / 2
+
+
 def _params(settings: Settings) -> dict[str, object]:
-    tick = settings.tick_size
     # entry_offset isn't read here — pick_setup always uses the validated +1 tick directly.
-    return {**_V2, "eps": tick, "gate_window": False}
+    return {**_V2, "eps": token_eps(settings), "gate_window": False}
 
 
 def _refine_pole(
@@ -558,7 +570,7 @@ def main() -> None:
     # day-space remapping, since pick_setup's greedy cycle walk (#182 review: DFDV) needs the whole
     # day anyway to find pole/cons/breakout boundaries correctly.
     day_bars = day_chart_bars(bars_df, row["opportunity_id"], settings)
-    day_tokens = tokenize(day_bars, eps=settings.tick_size)
+    day_tokens = tokenize(day_bars, eps=token_eps(settings))
     all_cycles = segment_cycles(day_tokens)
 
     setup, _cons_end_idx, trig_idx = pick_setup(
