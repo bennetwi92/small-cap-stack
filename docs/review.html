@@ -32,6 +32,10 @@
         <button class="rv-tool" data-mode="stop" title="Set stop (one tap)">Stop</button>
         <button id="rv-clear" class="rv-tool rv-clear" title="Clear annotations">Clear</button>
         <button id="rv-notrigger" class="rv-verdict" type="button" aria-pressed="false" title="Mark as no trigger — not a tradeable setup (entry/stop not applicable)">No trigger</button>
+        <!-- Engine overlay toggle (#216): show/hide the engine-v2 detector's read (pole/consolidation
+             bands, H/L/E tokens, base/peak, prior cycles) so it reads like-for-like against the
+             trader's own annotations. Default ON. -->
+        <button id="rv-engine-toggle" class="rv-engine-toggle armed" type="button" aria-pressed="true" title="Show/hide the engine's read (pole/consolidation, tokens, cycles)">Engine</button>
         <span id="rv-ann" class="rv-ann muted">tap a tool to draw</span>
       </div>
 
@@ -84,6 +88,17 @@
         <button id="rv-news-close" class="secondary outline rv-sheet-close" title="Close">✕</button>
       </div>
       <div id="rv-news-list" class="rv-news-list"></div>
+    </section>
+
+    <!-- Slide-up engine drawer (#216): the detector's verdict, per-gate reasons, score
+         contributions and cycle/exhaustion context — the explainable ranking behind the on-chart
+         overlay. Opened by tapping the engine badge in the readout strip. -->
+    <section id="rv-engine-sheet" class="rv-sheet" aria-hidden="true" aria-label="Engine detection detail">
+      <div class="rv-sheet-head">
+        <strong id="rv-engine-title" class="rv-sheet-title">Engine</strong>
+        <button id="rv-engine-close" class="secondary outline rv-sheet-close" title="Close">✕</button>
+      </div>
+      <div id="rv-engine-detail" class="rv-engine-detail"></div>
     </section>
 
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>

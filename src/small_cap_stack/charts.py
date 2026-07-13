@@ -23,7 +23,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
+from .bullflag import (
+    contiguous_prior_cycles,
+    detect_day_with_settings,
+    segment_cycles,
+    significant_cycles,
+    token_eps,
+    tokenize,
+)
 from .capture import Bar
 from .config import Settings
 from .rmetrics import bar_interval, compute_r_metrics
@@ -39,6 +48,7 @@ class ChartData:
     triggered: bool
     stopped_out: bool
     max_r: float | None
+    engine: dict[str, Any]  # engine-v2 detector's read of the drawn series (overlay #216)
 
 
 def _bar_containing(bars: list[Bar], t: datetime) -> int | None:
@@ -66,6 +76,81 @@ def _marker_ts(bars: list[Bar], idx: int | None) -> int | None:
     if idx is None or not 0 <= idx < len(bars):
         return None
     return int(bars[idx].start.timestamp())
+
+
+def _engine_block(
+    bars: list[Bar], settings: Settings, first_hit: datetime | None
+) -> dict[str, Any]:
+    """The engine-v2 detector's read of ``bars``, shaped for the review overlay (#216).
+
+    Runs :func:`detect_day_with_settings` over the **same series the chart draws** (the full day
+    when ``chart_bars`` was supplied to :func:`build_opportunity_chart`), so every emitted
+    coordinate is an epoch timestamp into those bars — the front-end lays the pole/consolidation
+    and prior-cycle bands, the H/L/E token row, and the base/peak/trigger markers straight onto the
+    candles, mirroring ``spikes/viz_engine.py``. The token walk and significant cycles are
+    recomputed with the same ``eps`` / volume floor ``detect_day`` uses internally, so the drawn
+    prior-cycle bands match its ``cycle_num`` badge exactly.
+
+    Always emits the per-bar ``tokens`` (meaningful even with no setup); ``setup: False`` when no
+    pole forms, otherwise the full segment / gates / score / cycle context.
+    """
+    eps = token_eps(settings)
+    tokens = tokenize(bars, eps=eps)
+    # tokens[i-1] is the H/L/E step INTO bar i (bar 0 has no incoming step) — mirrors the spike's
+    # per-bar token row.
+    token_row = [
+        {"t": int(bars[i].start.timestamp()), "tok": tokens[i - 1]} for i in range(1, len(bars))
+    ]
+    setup = detect_day_with_settings(bars, settings, first_hit)
+    if setup is None:
+        return {"setup": False, "tokens": token_row}
+
+    seg = setup.segment
+    # The prior significant cycles that COUNT toward exhaustion — same inputs detect_day used — so
+    # the drawn bands match its cycle_num (a gapped earlier cycle is significant but not a counted
+    # prior, so it isn't drawn).
+    sig = significant_cycles(
+        bars, segment_cycles(tokens), min_volume=settings.scan_min_5m_volume // 2
+    )
+    prior_cycles = [
+        {
+            "t0": int(bars[c.pole_start + 1].start.timestamp()),
+            "t1": int(bars[c.cons_end].start.timestamp()),
+            "n": n,
+        }
+        for n, c in enumerate(contiguous_prior_cycles(bars, sig, seg.base_idx), 1)
+    ]
+    trig_t = (
+        int(bars[setup.trigger_idx].start.timestamp()) if setup.trigger_idx is not None else None
+    )
+    return {
+        "setup": True,
+        "passed": setup.passed,
+        "takeable": setup.takeable,
+        "score": setup.score,
+        "contributions": dict(setup.contributions),
+        "cycle_num": setup.cycle_num,
+        "total_significant_cycles": setup.total_significant_cycles,
+        "exhausted": setup.exhausted,
+        "segment": {
+            "base_t": int(bars[seg.base_idx].start.timestamp()),
+            "peak_t": int(bars[seg.peak_idx].start.timestamp()),
+            "cons_end_t": int(bars[seg.cons_end_idx].start.timestamp()),
+            "pole_len": seg.pole_len,
+            "cons_len": seg.cons_len,
+            "token_string": "".join(seg.tokens),
+        },
+        "gates": [{"name": g.name, "passed": g.passed} for g in setup.gates],
+        "levels": {
+            "entry_trigger": setup.entry_trigger,
+            "entry_fill": setup.entry_fill,
+            "breakout": setup.breakout_level,
+            "stop": setup.stop,
+        },
+        "trigger_t": trig_t,
+        "prior_cycles": prior_cycles,
+        "tokens": token_row,
+    }
 
 
 def build_opportunity_chart(
@@ -118,4 +203,5 @@ def build_opportunity_chart(
         triggered=rm.triggered,
         stopped_out=rm.stopped_out,
         max_r=rm.max_r,
+        engine=_engine_block(render_bars, settings, first_hit),
     )
