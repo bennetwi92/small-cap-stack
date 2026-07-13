@@ -51,6 +51,13 @@ class OpportunityAnalysis:
     pole_len: int | None = None  # number of higher highs in the traded setup's pole (#127)
     cons_vol_reducing: bool | None = None  # consolidation volume non-increasing (#127)
     pole_has_big_green: bool | None = None  # pole holds a strong-bodied green candle (#132)
+    entry_fill: float | None = None  # +3-tick conservative fill R is measured against (#180)
+    takeable: bool = False  # triggered AND passed all gates AND not exhausted (the trade we'd take)
+    exhausted: bool = False  # a late entry into a worn-out move (>= the exhaustion cap) (#102)
+    passed: bool | None = None  # all engine-v2 gates passed (shape quality)
+    cycle_num: int | None = None  # 1 = fresh; N = Nth contiguous pump of the day
+    failing_gates: tuple[str, ...] = ()  # engine-v2 gate rejections (Phase-1 learning signal)
+    score: float | None = None  # 0..1 quality score
     news_recent: bool = False  # a news story dated today or yesterday (ET) for the symbol (#101)
     first_hit: datetime | None = None  # first scanner appearance (gates entry); shown in the UI
     run: int = 1  # 1-based run index within the symbol's day (#36 re-entry segmentation)
@@ -311,6 +318,7 @@ def _analyze_run(
     seg_id: str,
     symbol: str,
     obars: list[Bar],
+    day_bars: list[Bar],
     *,
     first_seen: datetime,
     first_hit: datetime | None,
@@ -325,7 +333,10 @@ def _analyze_run(
 ) -> OpportunityAnalysis:
     # R is gated to the run's appearance: a setup may form in the pre-appearance lookback, but the
     # entry may only trigger at/after the first scanner hit (#99) — never crediting an unseen move.
-    rm = compute_r_metrics(obars, s, first_hit=first_hit)
+    # Engine-v2 (#180) runs over the WHOLE trading day (day_bars) with the run's first_hit, so
+    # exhaustion counts pump/fade cycles across the day; ``obars`` (the run window) is just the bar
+    # count shown in the UI.
+    rm = compute_r_metrics(day_bars, s, first_hit=first_hit)
     # Single source of truth for the threshold predicates: reuse the gate engine rather than
     # re-deriving them here (a None datum stays None to distinguish "no data" from "fails gate").
     gi = GateInputs(ts_utc=first_seen, float_shares=float_shares, has_recent_news=news_count > 0)
@@ -354,6 +365,13 @@ def _analyze_run(
         pole_len=rm.pole_len,
         cons_vol_reducing=rm.cons_vol_reducing,
         pole_has_big_green=rm.pole_has_big_green,
+        entry_fill=rm.entry_fill,
+        takeable=rm.takeable,
+        exhausted=rm.exhausted,
+        passed=rm.passed,
+        cycle_num=rm.cycle_num,
+        failing_gates=rm.failing_gates,
+        score=rm.score,
         news_recent=news_recent,
         first_hit=first_hit,
         run=run,
@@ -376,6 +394,8 @@ def _analyses_for_symbol(
     news_times, news_undated = _news_for(news, oid)
     news_recent = _news_recent(news_times, row["trading_date"])  # day-level recency (#101)
     float_shares, short_percent = _funds_for(funds, oid)
+    # Engine-v2 detection runs over the full trading day (#180); shared across the symbol's runs.
+    day_bars = day_chart_bars(bars, oid, s)
 
     out: list[OpportunityAnalysis] = []
     for run in symbol_runs(row, bars, scans, s):
@@ -388,6 +408,7 @@ def _analyses_for_symbol(
                 run.seg_id,
                 row["symbol"],
                 run.bars,
+                day_bars,
                 first_seen=run.start or row["first_seen_utc"],
                 first_hit=run.first_hit,
                 news_count=news_count,

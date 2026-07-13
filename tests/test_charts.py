@@ -31,7 +31,7 @@ def _ts(i: int) -> int:
 
 
 # Same bull flag as test_rmetrics: launch bar + one higher-high pole bar (heavier volume) + a red
-# flag at index 2. breakout 6.1, entry 6.15 (+5t), stop 5.6. The breakout is always a later bar.
+# flag at index 2. breakout 6.1, entry 6.11 (+1t, v2), stop 5.6. The breakout is always a later bar.
 _LAUNCH = _bar(0, 5.0, 5.8, 4.6, 5.7)
 _POLE = _bar(1, 5.7, 6.5, 5.6, 6.4, vol=2000)
 _FLAG = _bar(2, 6.4, 6.1, 5.6, 5.7)
@@ -63,7 +63,7 @@ def test_triggered_markers_map_to_bars() -> None:
     ]
     cd = build_opportunity_chart(bars, _settings())
     assert cd.triggered and not cd.stopped_out
-    assert cd.levels == {"entry": 6.15, "stop": 5.6}
+    assert cd.levels == {"entry": 6.11, "stop": 5.6}
     assert cd.markers["entry"] == _ts(3)
     assert cd.markers["max_r"] == _ts(4)  # entry_index (3) + bars_to_max_r (1)
     assert cd.markers["stop"] is None
@@ -93,10 +93,21 @@ def test_same_bar_trigger_and_stop_share_the_index() -> None:
 
 
 def test_setup_but_not_triggered_keeps_levels_without_trade_markers() -> None:
-    bars = [*_SETUP, _bar(3, 5.7, 6.0, 5.65, 5.8)]  # high 6.0 < entry 6.15
-    cd = build_opportunity_chart(bars, _settings())
+    # v2: a setup-found-but-not-triggered case is a STALE break — the flag forms and its
+    # consolidation runs on, but the only break comes >30 min after appearance, so the trigger is
+    # dropped (#130). Its levels are still surfaced; no trade markers.
+    bars = [
+        *_SETUP,
+        _bar(3, 5.7, 5.9, 5.6, 5.8),
+        _bar(4, 5.8, 5.9, 5.6, 5.7),
+        _bar(5, 5.7, 5.9, 5.6, 5.8),
+        _bar(6, 5.8, 5.9, 5.6, 5.7),
+        _bar(7, 5.7, 5.9, 5.6, 5.8),
+        _bar(8, 5.8, 7.0, 5.8, 6.9),  # +40 min: breaks, but too stale to be takeable
+    ]
+    cd = build_opportunity_chart(bars, _settings(), first_hit=_T0)  # appeared at +0
     assert not cd.triggered
-    assert cd.levels == {"entry": 6.15, "stop": 5.6}  # where a fill would have been
+    assert cd.levels == {"entry": 5.91, "stop": 5.6}  # where a fill would have been
     assert cd.markers["entry"] is None
     assert cd.markers["max_r"] is None
     assert cd.markers["stop"] is None
@@ -157,7 +168,7 @@ def test_chart_bars_renders_full_series_without_moving_markers() -> None:
     # …but the markers still carry the run bars' timestamps, landing on the right full-day candle.
     assert cd.markers["entry"] == _ts(3)
     assert cd.markers["max_r"] == _ts(4)
-    assert cd.levels == {"entry": 6.15, "stop": 5.6}
+    assert cd.levels == {"entry": 6.11, "stop": 5.6}
 
 
 def test_chart_bars_defaults_to_the_run_window() -> None:
