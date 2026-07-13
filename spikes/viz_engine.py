@@ -33,6 +33,7 @@ from small_cap_stack.bullflag import (
     trailing_atr,
 )
 from small_cap_stack.bullflag.detect import _is_big_green, classify
+from small_cap_stack.bullflag.gates import GateResult
 from small_cap_stack.bullflag.gates import passed as gates_passed
 from small_cap_stack.capture import Bar
 from small_cap_stack.clock import ET
@@ -106,19 +107,38 @@ def significant_cycles(bars: list[Bar], cycles: list[Cycle], min_volume: float) 
     ]
 
 
-def cycle_number_for(all_cycles: list[Cycle], sig_cycles: list[Cycle], peak_idx: int) -> int | None:
-    """1-based cycle number for the target (the setup being evaluated): 1 + how many SIGNIFICANT
-    cycles completed entirely before it. The target is located in the RAW (unfiltered) cycle list —
-    it must count as itself regardless of whether ITS OWN peak clears the significance floor (FWDI:
-    the target's peak volume was 97,227, just under the 100k floor, so it must never be silently
-    "not found" — only PRIOR cycles need to pass the filter to count against it). Returns None if
-    the target's peak matches no cycle at all (the color/thrust-gated entry pole and the pure-token
-    cycle pole usually coincide, but can differ for a multi-bar pole with a red/doji intermediate)."""
-    target = next((c for c in all_cycles if c.peak == peak_idx), None)
-    if target is None:
-        return None
-    prior = sum(1 for c in sig_cycles if c.peak < target.pole_start)
-    return prior + 1
+def prior_cycle_count(
+    bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int, pole_peak_idx: int
+) -> int:
+    """How many PRIOR pump/fade cycles count toward exhaustion for the target pole.
+
+    Only a TIGHT, ASCENDING staircase of pumps leading straight into the pole counts (#196, CONL/
+    SNDQ visual review): walking back from the pole, a prior significant cycle counts only while it
+    (a) ABUTS the next counted cycle (<= 1 bar gap — contiguous, no quiet drift between them) AND
+    (b) made a strictly LOWER high than it (so read forward the peaks step UP into the pole). The
+    first cycle that gaps out or breaks the ascent stops the count. This drops slow multi-hour drift
+    (CONL's 5.30->5.47 over 3.5h, gapped) and disconnected pre-market blips (SNDQ's 04:xx) that the
+    raw volume-floor significance filter wrongly counted, while keeping real rapid pump-fade runs
+    (MSTZ/FWDI/TVRD). The count is a deliberately SOFT signal (#194/#102) — it can still mis-count
+    edge cases (SNDQ's flat churn abutting the pole survives as a residual) and is rarely the sole
+    reason a setup rejects; exhaustion only flips a gates-passing setup (FWDI) among the review set."""
+    priors = [c for c in sig_cycles if c.peak < pole_base_idx]
+    count = 0
+    nxt_start, nxt_high = pole_base_idx, bars[pole_peak_idx].high
+    for c in reversed(priors):
+        if nxt_start - c.cons_end <= 1 and bars[c.peak].high < nxt_high:
+            count += 1
+            nxt_start, nxt_high = c.pole_start, bars[c.peak].high
+        else:
+            break  # a gap or a non-ascending step ends the contiguous run
+    return count
+
+
+def cycle_number_for(
+    bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int, pole_peak_idx: int
+) -> int:
+    """1-based cycle number = the target counts as itself, plus its contiguous ascending priors."""
+    return prior_cycle_count(bars, sig_cycles, pole_base_idx, pole_peak_idx) + 1
 
 
 def token_eps(settings: Settings) -> float:
@@ -148,8 +168,14 @@ def _refine_pole(
     GREEDY cycle walk found (see pick_setup) rather than a dominant-high search. Temporarily
     duplicated in the spike pending a core segment.py refactor to share this between the two
     peak-finding strategies (#182 review: DFDV — greedy peak-finding is being prototyped here first).
-    None if the peak itself isn't green (a red/flat peak is disqualified)."""
-    if peak - 1 < 0 or tokens[peak - 1] != "H" or classify(bars[peak]) != "green":
+
+    A RED (or flat) peak is NO LONGER skipped here (#196/OPEN 2026-07-09): the trader reads such a
+    bar as the setup's peak and REJECTS it for the red candle, rather than the engine silently
+    skipping it and wandering to a different, later pole. The "no red in the pole" rule is enforced
+    downstream as the ``peak_green`` gate in pick_setup (identify-and-reject) — intermediate pole
+    bars are already green by the ``_is_big_green`` extension, so the peak is the only bar that can
+    be red. Only the H direction step is required here. None if there is no higher-high step."""
+    if peak - 1 < 0 or tokens[peak - 1] != "H":
         return None
     base, pole_len = peak - 1, 1
     while (
@@ -247,6 +273,12 @@ def pick_setup(
         min_pole_pct=float(params.get("min_pole_pct", 0.02)),  # type: ignore[arg-type]
         max_retracement=float(params.get("max_retracement", 0.5)),  # type: ignore[arg-type]
     )
+    # "No red candle in the pole" as an identify-and-reject GATE rather than a detection skip
+    # (#196/OPEN): _refine_pole now keeps a red/flat-peaked pole so the trader sees the setup they'd
+    # read; here it fails. Intermediate pole bars are green by the _is_big_green extension, so the
+    # peak is the only bar that can be non-green — checking it covers the whole pole.
+    peak_is_green = classify(day_bars[peak]) == "green"
+    gates = (*gates, GateResult("peak_green", peak_is_green, peak_is_green))
     sc, contrib = score(fv, max_pole=max_pole)
     last_high = day_bars[cons_end].high
     stop = min(b.low for b in day_bars[peak + 1 : cons_end + 1])
@@ -583,15 +615,16 @@ def main() -> None:
     )
 
     # Exhaustion (#182 review: FWDI/TVRD) — a SEPARATE, looser pass over the whole day (pure H/E/L,
-    # no color/gates) counting complete pump/fade cycles, then dropping ones whose peak never
-    # cleared real scanner-level volume. Reject entry if _EXHAUSTION_CAP+ SIGNIFICANT cycles already
-    # completed before this one's pole — the "easy" move is spent by the 3rd+ repeat. The target is
-    # located in the RAW cycle list (cycle_number_for) so it's always found even if its own peak
-    # volume is borderline (FWDI: 97,227, just under the 100k floor) — only PRIOR cycles need to
-    # clear the floor to count against it.
+    # no color/gates) counting complete pump/fade cycles, dropping sub-volume noise, then keeping
+    # only a TIGHT ASCENDING staircase leading into the pole (prior_cycle_count, #196: CONL's gapped
+    # multi-hour drift and SNDQ's disconnected blips don't count). Reject entry if _EXHAUSTION_CAP+
+    # cycles already completed before this one's pole — the "easy" move is spent by the 3rd+ repeat.
+    # Soft signal (#194/#102): rarely the sole reject reason; flips only a gates-passing setup.
     cycles = significant_cycles(day_bars, all_cycles, min_volume=settings.scan_min_5m_volume)
     cycle_num = (
-        cycle_number_for(all_cycles, cycles, setup.segment.peak_idx) if setup is not None else None
+        cycle_number_for(day_bars, cycles, setup.segment.base_idx, setup.segment.peak_idx)
+        if setup is not None
+        else None
     )
     exhausted = cycle_num is not None and cycle_num > _EXHAUSTION_CAP
 

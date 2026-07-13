@@ -5,24 +5,25 @@
   "first_hit": "2026-07-08T13:35:20.534977+00:00",
   "expected": {
     "setup_found": true,
-    "pole_base": "10:15",
-    "pole_peak": "10:20",
-    "pole_len": 1,
-    "cons_start": "10:25",
-    "cons_end": "10:25",
+    "pole_base": "09:35",
+    "pole_peak": "09:45",
+    "pole_len": 2,
+    "cons_start": "09:50",
+    "cons_end": "09:50",
     "cons_len": 1,
-    "entry_time": null,
-    "entry_trigger": 13.71,
-    "entry_fill": 13.73,
-    "stop": 13.49,
+    "entry_time": "09:55",
+    "entry_trigger": 13.54,
+    "entry_fill": 13.56,
+    "stop": 13.06,
     "passed": false,
     "failing_gates": [
-      "wick_peak",
-      "cons_retracement"
+      "cons_retracement",
+      "cons_holds_base",
+      "peak_green"
     ],
-    "cycle_num": 3,
+    "cycle_num": 1,
     "total_significant_cycles": 6,
-    "exhausted": true
+    "exhausted": false
   },
   "bars": [
     ["2026-07-08T08:00:00+00:00", 12.15, 12.34, 11.84, 11.96, 85066.0],
