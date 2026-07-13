@@ -47,7 +47,7 @@ from viz_engine import (  # noqa: E402
     token_eps,
 )
 
-_FIXTURES = Path(__file__).parent / "review_fixtures"
+_FIXTURES = Path(__file__).parent.parent / "tests" / "fixtures" / "review_cases"
 
 # Every case the trader has walked through and confirmed in the visual review (#182). Add a
 # (symbol, date) here, run --extract, eyeball the viz, and commit the fixture once confirmed.

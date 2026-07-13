@@ -19,9 +19,9 @@
     "passed": false,
     "failing_gates": [
       "wick_peak",
+      "peak_green",
       "cons_retracement",
-      "cons_holds_base",
-      "peak_green"
+      "cons_holds_base"
     ],
     "cycle_num": 3,
     "total_significant_cycles": 8,
