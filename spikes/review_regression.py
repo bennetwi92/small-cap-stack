@@ -75,6 +75,7 @@ CASES: list[tuple[str, str]] = [
     ("IREN", "2026-07-06"),
     ("CIFR", "2026-07-06"),
     ("QGEN", "2026-07-09"),
+    ("MSTU", "2026-07-01"),
 ]
 
 # Notes ride along in the fixture header for the next reader; they are not asserted. The structural-
@@ -86,6 +87,12 @@ NOTES: dict[str, str] = {
         "rejected via the peak_green gate rather than skipped (the old engine wandered to a junk "
         "11:20 pole). Correctly cycle 3 / EXHAUSTED (a fading 3rd-cycle entry) and rejects on the "
         "red peak plus the 4-bar cons / retracement — the point of this fixture."
+    ),
+    "MSTU": (
+        "Confirmed reject — the flag dragged out and DIED: cons_len (7 bars, > the 4 max) + "
+        "cons_retracement (86% of a tiny ~3.6% pole) + NO trigger (never broke the consolidation "
+        "high). After a small pop to 2.02 (11:20) price sat flat at ~2.00 for 35 min and bled. The "
+        "suite's clearest cons_len (consolidation-too-long) + no-trigger reject."
     ),
     "QGEN": (
         "Confirmed DOUBLE reject: cons_retracement (pullback gave back 70% of the pole) AND "
