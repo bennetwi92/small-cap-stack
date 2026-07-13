@@ -89,56 +89,58 @@ def segment_cycles(tokens: list[str]) -> list[Cycle]:
 
 
 def significant_cycles(bars: list[Bar], cycles: list[Cycle], min_volume: float) -> list[Cycle]:
-    """Drop noise-level cycles that satisfy the loose H/E/L grammar but never had real participation
-    — a cycle only counts toward exhaustion if ANY bar across its whole pole span clears min_volume.
-    Checking only the FINAL peak bar undercounts multi-bar poles that front-load volume on the
-    initial breakout bar and taper as they grind higher (FWDI: bar18's 09:30 breakout had 265,239
-    volume, but the pole's last bar, bar21 at 09:45, had only 55,679 — checking just bar21 wrongly
-    called this cycle insignificant). Height% alone doesn't work as a filter either: TVRD's early
-    pre-market cycles moved 5-12% but on only hundreds/low-thousands of shares, while the real
-    cycles (from market open on) cleared 100k+ (#182 review). min_volume reuses
-    Settings.scan_min_5m_volume — the same trailing-5-min threshold the scanner itself requires to
-    surface a name in the first place; a cycle that never cleared it wouldn't have been visible on
-    the scanner either."""
-    return [
-        c
-        for c in cycles
-        if max(b.volume for b in bars[c.pole_start + 1 : c.peak + 1]) >= min_volume
-    ]
+    """Keep only cycles that are a REAL pump — a green THRUST + real participation — dropping the
+    two kinds of noise that satisfy the loose H/E/L grammar but aren't cycles a trader would count:
+
+    - STRUCTURE: the pole span must carry a green thrust bar (``_is_big_green``: green, body >= half
+      range). This kills flat/doji churn even when it trades heavily — SNDQ's 04:00-08:20 oscillation
+      printed 200k-524k on bars that open and close within a cent, so a pure volume floor wrongly
+      counted it; the thrust test drops it because no bar has a real green body (#102 / #194 review).
+    - VOLUME: some bar in the pole span must clear ``min_volume``. This kills tiny green blips
+      (ARCT/FCEL/SDOT had sub-20k pre-market pumps with real bodies that structure alone counted).
+      The floor is deliberately LOWER than the scanner's (``scan_min_5m_volume // 2``): the old 100k
+      floor dropped WULF's genuine 84k pole+pullback (09:00-09:10) that the trader DOES count — the
+      mirror failure that proved volume alone is the wrong axis. Checking the whole span (not just
+      the peak bar) matters for front-loaded poles (FWDI: 09:30 breakout 265k, 09:45 peak only 55k).
+
+    Volume alone was simultaneously too high (dropped WULF's 84k real cycle) and too low (kept
+    SNDQ's high-volume doji churn); structure + a lower floor separates them (validated 17/17)."""
+    out = []
+    for c in cycles:
+        span = bars[c.pole_start + 1 : c.peak + 1]
+        if any(_is_big_green(b) for b in span) and max(b.volume for b in span) >= min_volume:
+            out.append(c)
+    return out
 
 
-def prior_cycle_count(
-    bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int, pole_peak_idx: int
-) -> int:
+def prior_cycle_count(bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int) -> int:
     """How many PRIOR pump/fade cycles count toward exhaustion for the target pole.
 
-    Only a TIGHT, ASCENDING staircase of pumps leading straight into the pole counts (#196, CONL/
-    SNDQ visual review): walking back from the pole, a prior significant cycle counts only while it
-    (a) ABUTS the next counted cycle (<= 1 bar gap — contiguous, no quiet drift between them) AND
-    (b) made a strictly LOWER high than it (so read forward the peaks step UP into the pole). The
-    first cycle that gaps out or breaks the ascent stops the count. This drops slow multi-hour drift
-    (CONL's 5.30->5.47 over 3.5h, gapped) and disconnected pre-market blips (SNDQ's 04:xx) that the
-    raw volume-floor significance filter wrongly counted, while keeping real rapid pump-fade runs
-    (MSTZ/FWDI/TVRD). The count is a deliberately SOFT signal (#194/#102) — it can still mis-count
-    edge cases (SNDQ's flat churn abutting the pole survives as a residual) and is rarely the sole
-    reason a setup rejects; exhaustion only flips a gates-passing setup (FWDI) among the review set."""
+    Only a CONTIGUOUS run of real cycles leading straight into the pole counts (#196/#102): walking
+    back from the pole, a prior significant cycle counts only while it ABUTS the next counted one
+    (<= 1 bar gap — no quiet drift between them). The first gap ends the run. This drops slow
+    multi-hour drift separated from the move (CONL's 5.30->5.47 over 3.5h) and disconnected pre-
+    market blips, while keeping rapid pump-fade runs (MSTZ/FWDI/TVRD) and — since exhaustion is
+    about REPETITION regardless of direction — a FADING sequence of ever-lower pumps (OPEN, a 3rd-
+    cycle entry into a dying move). No ascending requirement: an earlier draft added one to suppress
+    SNDQ's flat churn, but structural significance (green thrust, significant_cycles) now drops that
+    churn directly, and the ascending rule wrongly zeroed OPEN's descending exhaustion. Validated
+    17/17 against the review set."""
     priors = [c for c in sig_cycles if c.peak < pole_base_idx]
     count = 0
-    nxt_start, nxt_high = pole_base_idx, bars[pole_peak_idx].high
+    nxt_start = pole_base_idx
     for c in reversed(priors):
-        if nxt_start - c.cons_end <= 1 and bars[c.peak].high < nxt_high:
+        if nxt_start - c.cons_end <= 1:
             count += 1
-            nxt_start, nxt_high = c.pole_start, bars[c.peak].high
+            nxt_start = c.pole_start
         else:
-            break  # a gap or a non-ascending step ends the contiguous run
+            break  # a gap ends the contiguous run
     return count
 
 
-def cycle_number_for(
-    bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int, pole_peak_idx: int
-) -> int:
-    """1-based cycle number = the target counts as itself, plus its contiguous ascending priors."""
-    return prior_cycle_count(bars, sig_cycles, pole_base_idx, pole_peak_idx) + 1
+def cycle_number_for(bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int) -> int:
+    """1-based cycle number = the target counts as itself, plus its contiguous prior cycles."""
+    return prior_cycle_count(bars, sig_cycles, pole_base_idx) + 1
 
 
 def token_eps(settings: Settings) -> float:
@@ -620,11 +622,9 @@ def main() -> None:
     # multi-hour drift and SNDQ's disconnected blips don't count). Reject entry if _EXHAUSTION_CAP+
     # cycles already completed before this one's pole — the "easy" move is spent by the 3rd+ repeat.
     # Soft signal (#194/#102): rarely the sole reject reason; flips only a gates-passing setup.
-    cycles = significant_cycles(day_bars, all_cycles, min_volume=settings.scan_min_5m_volume)
+    cycles = significant_cycles(day_bars, all_cycles, min_volume=settings.scan_min_5m_volume // 2)
     cycle_num = (
-        cycle_number_for(day_bars, cycles, setup.segment.base_idx, setup.segment.peak_idx)
-        if setup is not None
-        else None
+        cycle_number_for(day_bars, cycles, setup.segment.base_idx) if setup is not None else None
     )
     exhausted = cycle_num is not None and cycle_num > _EXHAUSTION_CAP
 

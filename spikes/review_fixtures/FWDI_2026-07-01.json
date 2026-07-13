@@ -18,7 +18,7 @@
     "passed": true,
     "failing_gates": [],
     "cycle_num": 3,
-    "total_significant_cycles": 3,
+    "total_significant_cycles": 5,
     "exhausted": true
   },
   "bars": [

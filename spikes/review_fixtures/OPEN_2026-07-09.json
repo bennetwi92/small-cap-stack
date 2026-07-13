@@ -3,7 +3,7 @@
   "date": "2026-07-09",
   "opportunity_id": "2026-07-09:OPEN",
   "first_hit": "2026-07-09T14:58:20.532177+00:00",
-  "notes": "Red-peak setup (#196): the pole 10:50->11:00 has a RED peak (11:00) \u2014 now IDENTIFIED and rejected via the peak_green gate rather than skipped (the old engine wandered to a junk 11:20 pole). cycle_num is a soft value (#102); the correct verdict is REJECT on the red peak (plus 4-bar cons / retracement), which is the point of this fixture.",
+  "notes": "Red-peak setup (#196): the pole 10:50->11:00 has a RED peak (11:00), now IDENTIFIED and rejected via the peak_green gate rather than skipped (the old engine wandered to a junk 11:20 pole). Correctly cycle 3 / EXHAUSTED (a fading 3rd-cycle entry) and rejects on the red peak plus the 4-bar cons / retracement \u2014 the point of this fixture.",
   "expected": {
     "setup_found": true,
     "pole_base": "10:50",
@@ -23,9 +23,9 @@
       "cons_holds_base",
       "peak_green"
     ],
-    "cycle_num": 1,
-    "total_significant_cycles": 17,
-    "exhausted": false
+    "cycle_num": 3,
+    "total_significant_cycles": 8,
+    "exhausted": true
   },
   "bars": [
     ["2026-07-09T08:00:00+00:00", 4.89, 4.89, 4.82, 4.85, 24282.0],
