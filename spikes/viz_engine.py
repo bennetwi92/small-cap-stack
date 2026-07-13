@@ -32,8 +32,7 @@ from small_cap_stack.bullflag import (
     tokenize,
     trailing_atr,
 )
-from small_cap_stack.bullflag.detect import _is_big_green, classify
-from small_cap_stack.bullflag.gates import GateResult
+from small_cap_stack.bullflag.detect import _is_big_green
 from small_cap_stack.bullflag.gates import passed as gates_passed
 from small_cap_stack.capture import Bar
 from small_cap_stack.clock import ET
@@ -283,12 +282,10 @@ def pick_setup(
         min_pole_pct=float(params.get("min_pole_pct", 0.02)),  # type: ignore[arg-type]
         max_retracement=float(params.get("max_retracement", 0.5)),  # type: ignore[arg-type]
     )
-    # "No red candle in the pole" as an identify-and-reject GATE rather than a detection skip
-    # (#196/OPEN): _refine_pole now keeps a red/flat-peaked pole so the trader sees the setup they'd
-    # read; here it fails. Intermediate pole bars are green by the _is_big_green extension, so the
-    # peak is the only bar that can be non-green — checking it covers the whole pole.
-    peak_is_green = classify(day_bars[peak]) == "green"
-    gates = (*gates, GateResult("peak_green", peak_is_green, peak_is_green))
+    # "No red candle in the pole" is the peak_green gate — now built into the core evaluate() (#211
+    # stage 2), so it's already in `gates` (was appended here before the port; appending again would
+    # double-count it). refine_pole keeps a red/flat-peaked pole so the trader sees the setup; the
+    # gate rejects it (identify-and-reject, #196/OPEN).
     sc, contrib = score(fv, max_pole=max_pole)
     last_high = day_bars[cons_end].high
     stop = min(b.low for b in day_bars[peak + 1 : cons_end + 1])
