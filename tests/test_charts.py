@@ -175,3 +175,53 @@ def test_chart_bars_defaults_to_the_run_window() -> None:
     bars = [_LAUNCH, _POLE]
     cd = build_opportunity_chart(bars, _settings())
     assert [b["t"] for b in cd.bars] == [int(b.start.timestamp()) for b in bars]
+
+
+# --- engine-v2 overlay block (#216) --------------------------------------------------------------
+# The `engine` block carries the detector's read of the DRAWN series so the review page can overlay
+# the same segmentation the spike (viz_engine) shows: per-bar H/L/E tokens, pole/cons segment,
+# gates/score, and the prior-cycle exhaustion context. Every coordinate is an epoch timestamp.
+
+
+def test_engine_block_present_for_a_setup() -> None:
+    bars = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9), _bar(4, 6.9, 7.64, 6.8, 7.5)]
+    eng = build_opportunity_chart(bars, _settings()).engine
+    assert eng["setup"] is True
+    # Segment lands on the launch/pole/flag bars, as timestamps into the drawn series.
+    assert eng["segment"]["base_t"] == _ts(0)
+    assert eng["segment"]["peak_t"] == _ts(1)
+    assert eng["segment"]["cons_end_t"] == _ts(2)
+    assert eng["segment"]["pole_len"] == 1
+    assert eng["segment"]["token_string"] == "HL"
+    # Levels mirror the surfaced entry trigger; the breakout bar (index 3) is the trigger.
+    assert eng["levels"]["entry_trigger"] == 6.11
+    assert eng["trigger_t"] == _ts(3)
+    assert isinstance(eng["passed"], bool) and isinstance(eng["score"], float)
+    assert eng["gates"] and all({"name", "passed"} <= g.keys() for g in eng["gates"])
+    # Per-bar tokens: one per bar after the first (the step INTO that bar).
+    assert eng["tokens"] == [
+        {"t": _ts(1), "tok": "H"},
+        {"t": _ts(2), "tok": "L"},
+        {"t": _ts(3), "tok": "H"},
+        {"t": _ts(4), "tok": "H"},
+    ]
+
+
+def test_engine_block_no_setup_still_carries_tokens() -> None:
+    bars = [_bar(0, 6.0, 6.1, 5.9, 5.95), _bar(1, 5.95, 6.0, 5.8, 5.85)]  # all red, no pole
+    eng = build_opportunity_chart(bars, _settings()).engine
+    assert eng["setup"] is False
+    assert "segment" not in eng
+    assert eng["tokens"] == [{"t": _ts(1), "tok": "L"}]  # 6.1 -> 6.0 = lower high
+
+
+def test_engine_block_maps_onto_full_day_bars() -> None:
+    # The engine runs over the DRAWN series (chart_bars = the full day), so its timestamps land on
+    # the real launch/pole/flag/trigger bars even though their full-day indices differ.
+    run = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9), _bar(4, 6.9, 7.64, 6.8, 7.5)]
+    full_day = [_bar(-2, 4.0, 4.2, 3.9, 4.1), *run, _bar(6, 7.5, 7.6, 7.2, 7.3)]
+    eng = build_opportunity_chart(run, _settings(), chart_bars=full_day).engine
+    assert eng["setup"] is True
+    assert eng["segment"]["peak_t"] == _ts(1)
+    assert eng["segment"]["cons_end_t"] == _ts(2)
+    assert eng["trigger_t"] == _ts(3)
