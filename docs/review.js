@@ -51,6 +51,13 @@ const MK = {
   // opaque band-edge colours: bright vertical grab-handles at each band boundary so a placed band
   // reads clearly and its edges are visibly draggable (UX #152). Also used for the pending-edge line.
   poleEdge: "rgba(137,87,229,0.95)", consEdge: "rgba(212,167,44,0.98)",
+  // engine-v2 overlay (#216) — the DETECTOR's read, kept visually distinct from the trader's own
+  // annotations above: faint full-height fills + a solid top cap bar per band (vs the trader's
+  // heavier translucent fills), and coloured H/L/E token letters (green/red/grey) along the top.
+  engPole: "#3584e4", engCons: "#e5a50a", engBase: "#3584e4", engPeak: "#e5a50a",
+  engPoleFill: "rgba(53,132,228,0.12)", engConsFill: "rgba(229,165,10,0.14)",
+  engPrior: "rgba(139,148,161,0.10)", engPriorLbl: "#8b949e",
+  tokH: "#3fb950", tokL: "#f85149", tokE: "#8b949e",
 };
 
 let chartsData = null; // last-fetched charts/<date>.json payload for the selected date
@@ -231,6 +238,145 @@ class BandPrimitive {
   }
 }
 
+// --- Engine-v2 detection overlay (#216) ----------------------------------------------------
+// The detector's read of the SAME full-day series the chart draws, published in charts.json's
+// `engine` block (charts.py::_engine_block): per-bar H/L/E tokens, the pole/consolidation segment,
+// the contiguous prior-cycle (exhaustion) run, gates/score and cycle context. Rendered as a layer
+// visually distinct from the trader's own annotations so the two reads compare like-for-like — the
+// same overlay the `viz_engine` spike shows. Toggle default ON; degrades to nothing when a chart
+// predates the engine block.
+let engineOn = true; // whether the engine layer is shown (toggled by the Engine button)
+let engineData = null; // current opportunity's `engine` block (or null when absent / no setup)
+let engineBands = null; // EngineLayer('bands') — full-height fills behind the candles
+let engineMarks = null; // EngineLayer('marks') — caps/labels/tokens/base-peak on top of the candles
+
+// Two Lightweight-Charts v4 series primitives share the module-level engine state: one draws the
+// band fills UNDER the candles, the other the tokens/labels/caps OVER them (a primitive has a single
+// z-order, so the readable text can't share a layer with the translucent fills).
+class EngineLayer {
+  constructor(role) {
+    this._role = role; // 'bands' | 'marks'
+    this._chart = null;
+    this._paneView = new EnginePaneView(this);
+    this._requestUpdate = null;
+  }
+  attached(params) {
+    this._chart = params.chart;
+    this._requestUpdate = params.requestUpdate;
+  }
+  detached() {
+    this._chart = null;
+    this._requestUpdate = null;
+  }
+  updateAllViews() {
+    this._paneView.update();
+  }
+  paneViews() {
+    return [this._paneView];
+  }
+  // Re-run the projection and request a repaint (called when the layer toggles or data changes).
+  refresh() {
+    this._paneView.update();
+    if (this._requestUpdate) this._requestUpdate();
+  }
+}
+class EnginePaneView {
+  constructor(source) {
+    this._source = source;
+    this._items = null;
+  }
+  update() {
+    const chart = this._source._chart;
+    if (!chart || !engineOn || !engineData) {
+      this._items = null;
+      return;
+    }
+    const ts = chart.timeScale();
+    const X = (t) => (t == null ? null : ts.timeToCoordinate(t));
+    // No setup formed → seg is null, so only the H/L/E token row draws (bands/base/peak require a
+    // segment), mirroring the spike's "no v2 setup" chart which still shows the token walk.
+    const seg = engineData.segment || null;
+    this._items = {
+      pole: seg ? { x1: X(seg.base_t), x2: X(seg.peak_t) } : null,
+      cons: seg ? { x1: X(seg.peak_t), x2: X(seg.cons_end_t) } : null,
+      priors: (engineData.prior_cycles || []).map((c) => ({ x1: X(c.t0), x2: X(c.t1), n: c.n })),
+      tokens: (engineData.tokens || []).map((tk) => ({ x: X(tk.t), tok: tk.tok })),
+      base: seg ? X(seg.base_t) : null,
+      peak: seg ? X(seg.peak_t) : null,
+    };
+  }
+  renderer() {
+    return new EngineRenderer(this._source._role, this._items);
+  }
+  zOrder() {
+    return this._source._role === "bands" ? "bottom" : "top";
+  }
+}
+class EngineRenderer {
+  constructor(role, items) {
+    this._role = role;
+    this._items = items;
+  }
+  draw(target) {
+    const it = this._items;
+    if (!it) return;
+    target.useBitmapCoordinateSpace((scope) => {
+      const ctx = scope.context;
+      const hr = scope.horizontalPixelRatio;
+      const vr = scope.verticalPixelRatio;
+      const h = scope.bitmapSize.height;
+      const px = (x) => x * hr;
+      const fill = (x1, x2, color) => {
+        if (x1 == null || x2 == null) return;
+        ctx.fillStyle = color;
+        ctx.fillRect(px(Math.min(x1, x2)), 0, Math.max(1, px(Math.abs(x2 - x1))), h);
+      };
+      if (this._role === "bands") {
+        for (const p of it.priors) fill(p.x1, p.x2, MK.engPrior); // faint, drawn first (underneath)
+        if (it.pole) fill(it.pole.x1, it.pole.x2, MK.engPoleFill);
+        if (it.cons) fill(it.cons.x1, it.cons.x2, MK.engConsFill);
+        return;
+      }
+      // marks layer: token row, band top-caps + labels, prior-cycle labels, base/peak.
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = `${10 * vr}px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif`;
+      for (const tk of it.tokens) {
+        if (tk.x == null) continue;
+        ctx.fillStyle = tk.tok === "H" ? MK.tokH : tk.tok === "L" ? MK.tokL : MK.tokE;
+        ctx.fillText(tk.tok, px(tk.x), 12 * vr);
+      }
+      const cap = (band, color, label) => {
+        if (!band || band.x1 == null || band.x2 == null) return;
+        const x1 = px(Math.min(band.x1, band.x2));
+        const x2 = px(Math.max(band.x1, band.x2));
+        ctx.fillStyle = color;
+        ctx.fillRect(x1, 22 * vr, Math.max(1, x2 - x1), Math.max(2, 2 * vr));
+        ctx.font = `600 ${9 * vr}px -apple-system,sans-serif`;
+        ctx.fillText(label, (x1 + x2) / 2, 31 * vr);
+      };
+      cap(it.pole, MK.engPole, "POLE");
+      cap(it.cons, MK.engCons, "CONS");
+      ctx.font = `${9 * vr}px -apple-system,sans-serif`;
+      ctx.fillStyle = MK.engPriorLbl;
+      for (const p of it.priors) {
+        if (p.x1 == null || p.x2 == null) continue;
+        ctx.fillText(`cyc ${p.n}`, px((p.x1 + p.x2) / 2), 43 * vr);
+      }
+      if (it.base != null) {
+        ctx.fillStyle = MK.engBase;
+        ctx.fillText("▲base", px(it.base), 55 * vr);
+      }
+      if (it.peak != null) {
+        ctx.fillStyle = MK.engPeak;
+        ctx.fillText("▼peak", px(it.peak), 55 * vr);
+      }
+      ctx.restore();
+    });
+  }
+}
+
 // Compact "SYMBOL #run · 2.3R" option label, mirroring the dashboard's chart picker.
 function optionLabel(c) {
   const label = c.run_count > 1 ? `${c.symbol} #${c.run}` : c.symbol;
@@ -281,6 +427,14 @@ function buildChart(c) {
   candleSeries.attachPrimitive(bandPrimitive);
   chartApi.subscribeClick(onChartClick);
 
+  // Engine-v2 overlay (#216): the detector's read of this opportunity. Two primitives — band fills
+  // under the candles, tokens/labels/base-peak over them — both reading the module-level engineData.
+  engineData = c.engine || null;
+  engineBands = new EngineLayer("bands");
+  engineMarks = new EngineLayer("marks");
+  candleSeries.attachPrimitive(engineBands);
+  candleSeries.attachPrimitive(engineMarks);
+
   // Volume histogram overlaid on its own scale in the bottom ~20%, coloured by candle direction.
   const hasVolume = c.bars.some((b) => b.v != null);
   if (hasVolume) {
@@ -320,6 +474,8 @@ function buildChart(c) {
   chartApi.timeScale().fitContent();
 
   renderReadout(c);
+  renderEngineDetail(c);
+  updateEngineToggleUI();
 }
 
 // (Re)draw the engine's dashed entry/stop context lines for chart `c`, keeping the handles so a
@@ -379,18 +535,40 @@ function volChip(c) {
   return `<span class="mk rv-vol" title="volume of the 5-min bar when the scanner triggered">5m vol ${fmtShares(bar.v)}</span>`;
 }
 
+// The engine verdict chip that leads the readout strip: PASS/REJECT · score · cycle (or "no setup"),
+// tappable to open the engine detail sheet. Empty when the layer is off or the chart has no engine
+// block (a chart published before #216). Kept in sync with the on-chart overlay via the same toggle.
+function engineBadgeHtml() {
+  if (!engineOn || !engineData) return "";
+  if (!engineData.setup)
+    return '<span class="mk rv-eng-badge muted" title="engine: no v2 setup formed">v2 no setup</span>';
+  const verdict = engineData.passed ? "PASS" : "REJECT";
+  const cyc =
+    engineData.cycle_num != null
+      ? ` · cyc ${engineData.cycle_num}${engineData.exhausted ? "⚠" : ""}`
+      : "";
+  const score = engineData.score != null ? ` · ${round2(engineData.score)}` : "";
+  return (
+    `<span class="mk rv-eng-badge rv-eng-${verdict.toLowerCase()}"` +
+    ' title="tap for engine gates + score">' +
+    `v2 ${verdict}${score}${cyc}</span>`
+  );
+}
+
 function renderReadout(c) {
   const out = el("rv-readout");
   if (!c) return;
   const context = floatChip(c) + volChip(c); // recorded float + trigger-bar volume (shown in both states)
   if (noTrigger) {
     out.innerHTML =
+      engineBadgeHtml() +
       `<span class="mk" style="color:${MK.stop}">no trigger</span>` +
       '<span class="muted">entry / stop N/A</span>' +
       context;
     return;
   }
   out.innerHTML =
+    engineBadgeHtml() +
     `<span class="mk" style="color:${MK.entry}">entry ${c.levels.entry ?? "—"}</span>` +
     `<span class="mk" style="color:${MK.stop}">stop ${c.levels.stop ?? "—"}</span>` +
     `<span class="mk" style="color:${MK.maxR}">Max R ${c.max_r != null ? c.max_r + "R" : "—"}</span>` +
@@ -405,6 +583,7 @@ function clearChart(message) {
     candleSeries = null;
     volumeSeries = null;
   }
+  engineData = engineBands = engineMarks = null; // primitives died with the chart
   el("rv-readout").innerHTML = `<span class="muted">${esc(message)}</span>`;
 }
 
@@ -982,6 +1161,90 @@ async function saveNote() {
   }
 }
 
+// --- Engine overlay controls (#216) --------------------------------------------------------
+// Toggle the whole engine layer (on-chart bands/tokens/base-peak + the readout badge). Default ON;
+// the setting persists across opportunities so the trader can park it off and draw unbiased.
+function toggleEngine() {
+  engineOn = !engineOn;
+  if (engineBands) engineBands.refresh();
+  if (engineMarks) engineMarks.refresh();
+  updateEngineToggleUI();
+  renderReadout(currentOpp); // show/hide the badge
+}
+function updateEngineToggleUI() {
+  const btn = el("rv-engine-toggle");
+  if (!btn) return;
+  btn.classList.toggle("armed", engineOn);
+  btn.setAttribute("aria-pressed", engineOn ? "true" : "false");
+}
+
+// Build the engine detail sheet: verdict, score, cycle/exhaustion, the segment, entry/stop levels,
+// the per-gate pass/fail table and the score contributions — the explainable ranking (#182, folded
+// into #216) behind the on-chart overlay.
+function renderEngineDetail(c) {
+  const box = el("rv-engine-detail");
+  const title = el("rv-engine-title");
+  if (!box) return;
+  if (title) title.textContent = c ? `Engine · ${optionLabel(c)}` : "Engine";
+  const e = c && c.engine;
+  if (!e) {
+    box.innerHTML = '<p class="muted">No engine data for this opportunity (chart predates the overlay).</p>';
+    return;
+  }
+  if (!e.setup) {
+    box.innerHTML = '<p class="muted">No v2 setup formed — the tokeniser found no pole into a consolidation.</p>';
+    return;
+  }
+  const verdict = e.passed
+    ? '<span class="rv-eng-badge rv-eng-pass">PASS</span>'
+    : '<span class="rv-eng-badge rv-eng-reject">REJECT</span>';
+  const cyc =
+    e.cycle_num != null
+      ? `cycle ${e.cycle_num}${e.total_significant_cycles != null ? ` / ${e.total_significant_cycles}` : ""}` +
+        (e.exhausted ? ' <span class="rv-eng-exh">exhausted</span>' : "")
+      : "—";
+  const seg = e.segment || {};
+  const lv = e.levels || {};
+  const gatesRows = (e.gates || [])
+    .map(
+      (g) =>
+        `<tr class="${g.passed ? "ok" : "no"}"><td>${esc(g.name)}</td>` +
+        `<td>${g.passed ? "✓" : "✗"}</td></tr>`,
+    )
+    .join("");
+  const contribRows = Object.entries(e.contributions || {})
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<tr><td>${esc(k)}</td><td>${round2(v)}</td></tr>`)
+    .join("");
+  box.innerHTML =
+    `<div class="rv-eng-head">${verdict}` +
+    `<span class="rv-eng-score">score ${e.score != null ? round2(e.score) : "—"}</span>` +
+    `<span class="muted">${cyc}</span></div>` +
+    '<dl class="rv-eng-kv">' +
+    `<dt>segment</dt><dd>pole ${seg.pole_len ?? "—"} · cons ${seg.cons_len ?? "—"} · <code>${esc(seg.token_string ?? "")}</code></dd>` +
+    `<dt>entry</dt><dd>trigger ${lv.entry_trigger ?? "—"} · fill ${lv.entry_fill ?? "—"}</dd>` +
+    `<dt>stop</dt><dd>${lv.stop ?? "—"}</dd>` +
+    "</dl>" +
+    '<h4 class="rv-eng-h">Gates</h4>' +
+    `<table class="rv-eng-gates">${gatesRows}</table>` +
+    (contribRows
+      ? '<h4 class="rv-eng-h">Score contributions</h4>' +
+        `<table class="rv-eng-gates rv-eng-contrib">${contribRows}</table>`
+      : "");
+}
+
+function openEngineSheet() {
+  renderEngineDetail(currentOpp);
+  el("rv-scrim").hidden = false;
+  el("rv-engine-sheet").classList.add("open");
+  el("rv-engine-sheet").setAttribute("aria-hidden", "false");
+}
+function closeEngineSheet() {
+  el("rv-scrim").hidden = true;
+  el("rv-engine-sheet").classList.remove("open");
+  el("rv-engine-sheet").setAttribute("aria-hidden", "true");
+}
+
 function openSheet() {
   el("rv-scrim").hidden = false;
   el("rv-sheet").classList.add("open");
@@ -1081,6 +1344,9 @@ for (const btn of document.querySelectorAll(".rv-tool")) {
 }
 el("rv-clear").addEventListener("click", clearAnnotations);
 el("rv-notrigger").addEventListener("click", toggleNoTrigger);
+// Engine overlay (#216): toggle the layer; open the detail sheet from the readout badge / its close.
+el("rv-engine-toggle").addEventListener("click", toggleEngine);
+el("rv-engine-close").addEventListener("click", closeEngineSheet);
 
 // Drag-to-refine (UX #152): our own pointer loop on the chart container. Listeners are attached
 // once here (the container is stable across opportunities); handlers read the live chart globals.
@@ -1096,16 +1362,22 @@ el("rv-pat").value = getPat(); // restore the phone-local token across reloads
 el("rv-pat").addEventListener("input", (e) => localStorage.setItem(PAT_KEY, e.target.value.trim()));
 el("rv-notes-toggle").addEventListener("click", openSheet);
 el("rv-sheet-close").addEventListener("click", closeSheet);
-// Shared scrim closes whichever sheet is open (notes or news); both are idempotent.
+// Shared scrim closes whichever sheet is open (notes / news / engine); all are idempotent.
 el("rv-scrim").addEventListener("click", () => {
   closeSheet();
   closeNewsSheet();
+  closeEngineSheet();
 });
 // News drawer (#109).
 el("rv-news-toggle").addEventListener("click", openNewsSheet);
 el("rv-news-close").addEventListener("click", closeNewsSheet);
-// Tap the float chip to reveal/hide the all-sources breakdown.
+// Readout strip taps: the engine badge opens the detail sheet (#216); the float chip toggles its
+// all-sources breakdown (#109).
 el("rv-readout").addEventListener("click", (e) => {
+  if (e.target.closest(".rv-eng-badge")) {
+    openEngineSheet();
+    return;
+  }
   const chip = e.target.closest(".rv-float-toggle");
   if (!chip) return;
   const all = chip.parentElement.querySelector(".rv-float-all");
