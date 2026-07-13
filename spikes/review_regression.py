@@ -1,0 +1,217 @@
+"""Spike #182 — regression harness for the per-opportunity visual review cases.
+
+Every opportunity the trader has walked through and confirmed (pole/consolidation/entry/exhaustion)
+is pinned here as a committed fixture: the day's bars PLUS the expected engine outcome. The checker
+re-runs the current engine (viz_engine.pick_setup + the cycle/exhaustion logic) over each fixture
+and asserts it still matches — so as we keep changing the rules we can prove we didn't silently
+regress a case the trader already signed off on.
+
+    python spikes/review_regression.py                 # CHECK: assert every fixture still matches
+    python spikes/review_regression.py --extract       # REBUILD fixtures from a live /data snapshot
+
+Check mode reads only the committed fixtures (spikes/review_fixtures/*.json) — no box/`/data` needed,
+so it runs anywhere and survives a reboot. Extract mode needs the data snapshot (--data-dir) and is
+how you (re)generate a fixture: run it, eyeball the viz, and if the trader confirms the new outcome,
+commit the regenerated fixture (that's the intentional "update the golden value" step).
+
+Spike-side for now (the greedy-walk / appearance / cycle / exhaustion rules it covers still live in
+viz_engine.py); graduates into tests/ with committed fixtures once those rules land in the core
+engine (bullflag package). Fixtures are tiny curated OHLCV slices, distinct from the runtime dataset
+the "never commit data" rule protects — committed deliberately (user OK, #182 review).
+"""
+
+# ruff: noqa: E501 — a few bar-serialisation / print lines are naturally long; wrapping them adds
+# noise for zero benefit in this throwaway regression spike.
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
+
+from small_cap_stack.bullflag import tokenize
+from small_cap_stack.capture import Bar
+from small_cap_stack.clock import ET
+from small_cap_stack.config import Settings
+
+sys.path.insert(0, str(Path(__file__).parent))
+from viz_engine import (  # noqa: E402
+    _EXHAUSTION_CAP,
+    _params,
+    cycle_number_for,
+    pick_setup,
+    segment_cycles,
+    significant_cycles,
+)
+
+_FIXTURES = Path(__file__).parent / "review_fixtures"
+
+# Every case the trader has walked through and confirmed in the visual review (#182). Add a
+# (symbol, date) here, run --extract, eyeball the viz, and commit the fixture once confirmed.
+CASES: list[tuple[str, str]] = [
+    ("VRAX", "2026-07-09"),
+    ("MSTZ", "2026-07-06"),
+    ("MUZ", "2026-07-08"),
+    ("TVRD", "2026-07-07"),
+    ("CRCG", "2026-07-02"),
+    ("ARCT", "2026-07-02"),
+    ("IRE", "2026-07-08"),
+    ("CONL", "2026-07-02"),
+    ("FCEL", "2026-07-09"),
+    ("OKLL", "2026-07-01"),
+    ("SDOT", "2026-07-09"),
+    ("FWDI", "2026-07-01"),
+    ("CANF", "2026-07-01"),
+    ("DFDV", "2026-07-02"),
+]
+
+
+def evaluate(day_bars: list[Bar], first_hit: datetime | None, settings: Settings) -> dict[str, Any]:
+    """The engine outcome for one opportunity, as a plain dict of confirmed-meaningful values
+    (times in ET so a diff is human-readable). This is the single source of truth the extractor
+    pins and the checker re-derives, so any drift shows up as a field mismatch."""
+    tokens = tokenize(day_bars, eps=settings.tick_size)
+    all_cycles = segment_cycles(tokens)
+    setup, cons_end, trig = pick_setup(
+        day_bars, tokens, all_cycles, settings, first_hit=first_hit, params=_params(settings)
+    )
+    if setup is None or cons_end is None:
+        return {"setup_found": False}
+
+    def t(i: int) -> str:
+        return day_bars[i].start.astimezone(ET).strftime("%H:%M")
+
+    sig = significant_cycles(day_bars, all_cycles, min_volume=settings.scan_min_5m_volume)
+    cycle_num = cycle_number_for(all_cycles, sig, setup.segment.peak_idx)
+    seg = setup.segment
+    return {
+        "setup_found": True,
+        "pole_base": t(seg.base_idx),
+        "pole_peak": t(seg.peak_idx),
+        "pole_len": seg.pole_len,
+        "cons_start": t(seg.peak_idx + 1),
+        "cons_end": t(cons_end),
+        "cons_len": seg.cons_len,
+        "entry_time": t(trig) if trig is not None else None,
+        "entry_trigger": setup.entry_trigger,
+        "entry_fill": setup.entry_fill,
+        "stop": setup.stop,
+        "passed": setup.passed,
+        "failing_gates": [g.name for g in setup.gates if not g.passed],
+        "cycle_num": cycle_num,
+        "total_significant_cycles": len(sig),
+        "exhausted": cycle_num is not None and cycle_num > _EXHAUSTION_CAP,
+    }
+
+
+def _bars_from_fixture(rows: list[list[Any]]) -> list[Bar]:
+    return [
+        Bar(start=datetime.fromisoformat(s), open=o, high=h, low=lo, close=c, volume=v)
+        for s, o, h, lo, c, v in rows
+    ]
+
+
+def extract(data_dir: str) -> None:
+    from small_cap_stack.report import day_chart_bars, day_opportunities, symbol_runs
+    from small_cap_stack.storage import Store
+
+    settings = Settings()
+    store = Store(Path(data_dir))
+    bars_df, scans = store.read("bars"), store.read("scanner_hits")
+    _FIXTURES.mkdir(parents=True, exist_ok=True)
+    for symbol, d in CASES:
+        trading_date = date.fromisoformat(d)
+        row = next(
+            (
+                r
+                for r in day_opportunities(store, trading_date).iter_rows(named=True)
+                if r["symbol"] == symbol
+            ),
+            None,
+        )
+        if row is None:
+            print(f"  SKIP {symbol} {d}: no opportunity in the snapshot")
+            continue
+        run = next((r for r in symbol_runs(row, bars_df, scans, settings) if r.idx == 1), None)
+        if run is None or not run.bars:
+            print(f"  SKIP {symbol} {d}: run 1 has no bars")
+            continue
+        day_bars = day_chart_bars(bars_df, row["opportunity_id"], settings)
+        header = {
+            "symbol": symbol,
+            "date": d,
+            "opportunity_id": row["opportunity_id"],
+            "first_hit": run.first_hit.isoformat() if run.first_hit else None,
+            "expected": evaluate(day_bars, run.first_hit, settings),
+        }
+        bars = [[b.start.isoformat(), b.open, b.high, b.low, b.close, b.volume] for b in day_bars]
+        path = _FIXTURES / f"{symbol}_{d}.json"
+        path.write_text(_dump(header, bars))
+        print(f"  wrote {path.name} ({len(day_bars)} bars)")
+
+
+def _dump(header: dict[str, Any], bars: list[list[Any]]) -> str:
+    """Pretty header (the human-reviewed metadata + expected outcome) with one compact line per
+    bar — readable git diffs, a third the size of a fully-indented dump."""
+    head = json.dumps(header, indent=2)[1:-1].rstrip()  # drop the outer braces, keep inner fields
+    rows = ",\n    ".join(json.dumps(b) for b in bars)
+    return f'{{{head},\n  "bars": [\n    {rows}\n  ]\n}}\n'
+
+
+def check() -> int:
+    settings = Settings()
+    fixtures = sorted(_FIXTURES.glob("*.json"))
+    if not fixtures:
+        print("no fixtures found — run with --extract first")
+        return 1
+    failures = 0
+    for path in fixtures:
+        fx = json.loads(path.read_text())
+        day_bars = _bars_from_fixture(fx["bars"])
+        first_hit = datetime.fromisoformat(fx["first_hit"]) if fx["first_hit"] else None
+        actual = evaluate(day_bars, first_hit, settings)
+        expected = fx["expected"]
+        diffs = {
+            k: (expected.get(k), actual.get(k))
+            for k in expected
+            if expected.get(k) != actual.get(k)
+        }
+        diffs.update({k: (None, actual.get(k)) for k in actual if k not in expected})
+        if diffs:
+            failures += 1
+            print(f"FAIL {fx['symbol']} {fx['date']}")
+            for k, (exp, act) in diffs.items():
+                print(f"       {k}: expected {exp!r} -> got {act!r}")
+        else:
+            v = actual
+            verdict = (
+                "no setup"
+                if not v["setup_found"]
+                else (
+                    f"{'PASS' if v['passed'] else 'REJECT'}, entry {v['entry_time']}, "
+                    f"cycle {v['cycle_num']}{' EXHAUSTED' if v['exhausted'] else ''}"
+                )
+            )
+            print(f"ok   {fx['symbol']:5} {fx['date']}  {verdict}")
+    print(
+        f"\n{len(fixtures) - failures}/{len(fixtures)} cases match"
+        + ("" if not failures else " — REGRESSIONS ABOVE")
+    )
+    return 1 if failures else 0
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--extract", action="store_true", help="rebuild fixtures from a /data snapshot")
+    ap.add_argument("--data-dir", default="/tmp/scs-data", help="store root for --extract")
+    args = ap.parse_args()
+    if args.extract:
+        extract(args.data_dir)
+    else:
+        sys.exit(check())
+
+
+if __name__ == "__main__":
+    main()

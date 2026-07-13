@@ -96,3 +96,31 @@ python spikes/ibkr_tradability_check.py --port 4002 --symbols NNBR,AZI,SKYQ,PETS
 Confirmed live: a scanner hit (CBRG) came back **BLOCKED** (PRIIPs/KID restriction) while the
 rest were TRADABLE — so this gate is load-bearing. Re-validate verdicts on a **live** account
 in Phase 3 (paper may not perfectly mirror restrictions).
+
+## `viz_engine.py` — issues #140 / #176 / #182
+
+Per-opportunity **visual review** of the engine-v2 bull-flag detector: renders one opportunity's
+full trading day (04:00–16:00 ET) as an HTML candle chart, marking how the engine tokenises the
+day and picks the pole / consolidation / entry, the prior pump–fade **cycles** (for the
+exhaustion rule), the scanner-appearance ("seen") line, entry/stop levels, and the gate table.
+This is the harness the trader drives one opportunity at a time to refine the rules (greedy
+pole/peak walk, appearance-anchoring, cycle-exhaustion). Still spike-side; the validated rules
+graduate into the core `bullflag` package later.
+
+## `review_regression.py` — issue #194
+
+Regression net for the `viz_engine.py` review: every opportunity the trader has walked through
+and confirmed is pinned as a committed fixture under `review_fixtures/` — the day's bars **plus**
+the expected engine outcome (pole/cons/entry/stop, passed, failing gates, cycle number,
+exhausted). The checker re-runs the current engine over each fixture and asserts it still matches,
+so a rule change can't silently regress a signed-off case.
+
+```bash
+python spikes/review_regression.py              # CHECK: assert every fixture still matches
+python spikes/review_regression.py --extract    # re-pin fixtures from a live /data snapshot (Mac/VPS)
+```
+
+Check mode reads only the committed fixtures (no `/data`/box needed → survives a reboot, runs
+anywhere). `--extract` is the deliberate "re-pin the golden value" step after the trader confirms
+a new outcome. The fixtures are ~160K of curated OHLCV **test inputs** (not runtime data, and
+outside the gitignored `data/`) — a documented, trader-approved exception to "never commit data".
