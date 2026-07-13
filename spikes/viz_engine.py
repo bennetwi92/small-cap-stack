@@ -113,29 +113,37 @@ def significant_cycles(bars: list[Bar], cycles: list[Cycle], min_volume: float) 
     return out
 
 
-def prior_cycle_count(bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int) -> int:
-    """How many PRIOR pump/fade cycles count toward exhaustion for the target pole.
+def contiguous_prior_cycles(
+    bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int
+) -> list[Cycle]:
+    """The PRIOR cycles that count toward exhaustion, in chronological order.
 
     Only a CONTIGUOUS run of real cycles leading straight into the pole counts (#196/#102): walking
     back from the pole, a prior significant cycle counts only while it ABUTS the next counted one
     (<= 1 bar gap — no quiet drift between them). The first gap ends the run. This drops slow
-    multi-hour drift separated from the move (CONL's 5.30->5.47 over 3.5h) and disconnected pre-
-    market blips, while keeping rapid pump-fade runs (MSTZ/FWDI/TVRD) and — since exhaustion is
-    about REPETITION regardless of direction — a FADING sequence of ever-lower pumps (OPEN, a 3rd-
-    cycle entry into a dying move). No ascending requirement: an earlier draft added one to suppress
-    SNDQ's flat churn, but structural significance (green thrust, significant_cycles) now drops that
-    churn directly, and the ascending rule wrongly zeroed OPEN's descending exhaustion. Validated
-    17/17 against the review set."""
+    multi-hour drift separated from the move (CONL's 5.30->5.47 over 3.5h) and disconnected earlier
+    blips (MARA's 08:00 pump, 7 bars before the next), while keeping rapid pump-fade runs
+    (MSTZ/FWDI/TVRD) and — since exhaustion is about REPETITION regardless of direction — a FADING
+    sequence of ever-lower pumps (OPEN, a 3rd-cycle entry into a dying move). No ascending
+    requirement: an earlier draft added one to suppress SNDQ's flat churn, but structural
+    significance (green thrust, significant_cycles) now drops that churn directly, and the ascending
+    rule wrongly zeroed OPEN's descending exhaustion. The renderer draws EXACTLY these, so the chart
+    bands match the cycle badge — a gapped earlier cycle is not a counted prior. Validated 17/17."""
     priors = [c for c in sig_cycles if c.peak < pole_base_idx]
-    count = 0
+    counted: list[Cycle] = []
     nxt_start = pole_base_idx
     for c in reversed(priors):
         if nxt_start - c.cons_end <= 1:
-            count += 1
+            counted.append(c)
             nxt_start = c.pole_start
         else:
             break  # a gap ends the contiguous run
-    return count
+    return list(reversed(counted))
+
+
+def prior_cycle_count(bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int) -> int:
+    """How many PRIOR pump/fade cycles count toward exhaustion (see contiguous_prior_cycles)."""
+    return len(contiguous_prior_cycles(bars, sig_cycles, pole_base_idx))
 
 
 def cycle_number_for(bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int) -> int:
@@ -356,28 +364,21 @@ def _svg(
             f'<text class="axis" x="{_ML - 8}" y="{yy + 3:.1f}" text-anchor="end">{p:.2f}</text>'
         )
 
-    # Prior-cycle markers (#182 review: FWDI/TVRD) — the pure H/E/L cycle walk, muted/faint, drawn
-    # UNDERNEATH the current setup's own bands. Filtered chronologically (peak strictly before the
-    # target's own base) rather than by list position — cycles is the SIGNIFICANT list, which may
-    # include cycles chronologically AFTER the target too (e.g. later in the day), and the target
-    # itself may not appear in it at all if its own peak volume is borderline (FWDI: 97,227, just
-    # under the 100k floor) — neither should affect which prior cycles get drawn.
-    target_base = setup.segment.base_idx if setup is not None else None
-    shown = 0
-    for c in cycles:
-        if target_base is not None and c.peak >= target_base:
-            continue  # not chronologically before the target -> not a "prior" cycle
-        shown += 1
-        i = shown
-        cx0 = x(c.pole_start + 1) - _STEP / 2
-        cw = (c.cons_end - c.pole_start) * _STEP
-        out.append(
-            f'<rect class="band prior" x="{cx0:.1f}" y="{_MT}" width="{cw:.1f}" height="{_PLOT_H}"/>'
-        )
-        out.append(
-            f'<text class="band-lbl prior" x="{cx0 + cw / 2:.1f}" y="{_MT + 30}" '
-            f'text-anchor="middle">cycle {i}</text>'
-        )
+    # Prior-cycle markers (#182 review: FWDI/TVRD) — muted/faint, drawn UNDERNEATH the setup's own
+    # bands. Draw EXACTLY the cycles that COUNT toward exhaustion (the contiguous run into the pole,
+    # contiguous_prior_cycles) so the bands match the cycle badge: a gapped earlier cycle (MARA's
+    # 08:00 pump, 7 bars before the next) is significant but NOT a counted prior, so it isn't drawn.
+    if setup is not None:
+        for i, c in enumerate(contiguous_prior_cycles(bars, cycles, setup.segment.base_idx), 1):
+            cx0 = x(c.pole_start + 1) - _STEP / 2
+            cw = (c.cons_end - c.pole_start) * _STEP
+            out.append(
+                f'<rect class="band prior" x="{cx0:.1f}" y="{_MT}" width="{cw:.1f}" height="{_PLOT_H}"/>'
+            )
+            out.append(
+                f'<text class="band-lbl prior" x="{cx0 + cw / 2:.1f}" y="{_MT + 30}" '
+                f'text-anchor="middle">cycle {i}</text>'
+            )
 
     # pole / consolidation bands. The pole band is the HIGHER-HIGH bars only (base+1..peak) — the
     # launch/base bar is the rise's reference low, not part of the pole, so it never shows an E.
