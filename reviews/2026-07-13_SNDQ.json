@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "opportunity_id": "2026-07-13:SNDQ",
+  "symbol": "SNDQ",
+  "trading_date": "2026-07-13",
+  "note": "The pole here is a problem and should have been rejected - those wicks aren't acceptable ",
+  "no_trigger": false,
+  "annotations": {},
+  "updated_utc": "2026-07-14T09:35:17.864Z"
+}
