@@ -167,20 +167,24 @@ def build_opportunity_chart(
     levels are surfaced even when the setup never triggered (from the earliest actionable setup), so
     the chart still shows where a fill *would* have been.
 
-    R-metrics (levels + marker indices) are always computed over ``bars`` — the run window, so the
-    entry gate matches the analysis. ``chart_bars`` chooses the OHLC series actually drawn: pass the
-    symbol's **full trading day** to render the un-clipped review-workbench series (#141), leaving
-    the annotations correct because markers are emitted as timestamps into the shared bar times.
-    Defaults to ``bars`` (the legacy run-window chart).
+    ``chart_bars`` chooses the series everything is computed and drawn over: pass the symbol's
+    **full trading day** to render the un-clipped review-workbench series (#141). Defaults to
+    ``bars`` (the legacy run-window chart).
+
+    R-metrics, the engine block and the markers all read that one series, so the chart's ``max_r``
+    matches the EOD report's (``report.py`` measures over the full day too) and the verdict always
+    describes the setup the R was measured from. The run window must not be used here: it ends when
+    the *scanner* stops hitting, which would truncate a live trade at a boundary the trade itself
+    never saw (and would hide the exhaustion cycles ``detect_day`` counts across the day, #180).
     """
-    rm = compute_r_metrics(bars, settings, first_hit=first_hit)
+    render_bars = chart_bars if chart_bars is not None else bars
+    rm = compute_r_metrics(render_bars, settings, first_hit=first_hit)
     max_r_idx = (
         rm.entry_index + rm.bars_to_max_r
         if rm.entry_index is not None and rm.bars_to_max_r is not None
         else None
     )
-    first_hit_idx = _bar_containing(bars, first_hit) if first_hit is not None else None
-    render_bars = chart_bars if chart_bars is not None else bars
+    first_hit_idx = _bar_containing(render_bars, first_hit) if first_hit is not None else None
     return ChartData(
         bars=[
             {
@@ -195,10 +199,10 @@ def build_opportunity_chart(
         ],
         levels={"entry": rm.entry_trigger, "stop": rm.stop},
         markers={
-            "first_hit": _marker_ts(bars, first_hit_idx),
-            "entry": _marker_ts(bars, rm.entry_index),
-            "max_r": _marker_ts(bars, max_r_idx),
-            "stop": _marker_ts(bars, rm.stop_index),
+            "first_hit": _marker_ts(render_bars, first_hit_idx),
+            "entry": _marker_ts(render_bars, rm.entry_index),
+            "max_r": _marker_ts(render_bars, max_r_idx),
+            "stop": _marker_ts(render_bars, rm.stop_index),
         },
         triggered=rm.triggered,
         stopped_out=rm.stopped_out,

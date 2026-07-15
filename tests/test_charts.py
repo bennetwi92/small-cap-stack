@@ -153,7 +153,8 @@ def test_first_hit_gates_the_entry_marker() -> None:
 
 
 def test_chart_bars_renders_full_series_without_moving_markers() -> None:
-    # R-metrics are computed over the run window, but chart_bars renders a wider full-day series.
+    # R-metrics are computed over chart_bars (the full day); the markers still land on the same
+    # candles here because the extra pre-open/late bars don't change the setup or the Max R bar.
     run = [
         *_SETUP,
         _bar(3, 5.7, 7.0, 5.7, 6.9),  # entry bar
@@ -169,6 +170,32 @@ def test_chart_bars_renders_full_series_without_moving_markers() -> None:
     assert cd.markers["entry"] == _ts(3)
     assert cd.markers["max_r"] == _ts(4)
     assert cd.levels == {"entry": 6.11, "stop": 5.6}
+
+
+def test_max_r_measures_past_the_run_window_when_the_full_day_is_drawn() -> None:
+    """A trade still open at the run's end keeps running: measure to the stop, not to the boundary.
+
+    The run window closes when the *scanner* stops hitting, which is not a trade event — clipping
+    there truncated live trades and made the chart's Max R disagree with the EOD report's (which
+    measures over the full day). Regression for the run-window/full-day split.
+    """
+    run = [
+        *_SETUP,
+        _bar(3, 5.7, 7.0, 5.7, 6.9),  # entry bar (entry 6.11, stop 5.6 -> risk 0.51)
+        _bar(4, 6.9, 7.64, 6.8, 7.5),  # best bar INSIDE the run window
+    ]
+    # The move continues after the run window ends, never trading back down to the 5.6 stop.
+    full_day = [*run, _bar(5, 7.5, 8.15, 7.4, 8.1)]
+
+    clipped = build_opportunity_chart(run, _settings())
+    full = build_opportunity_chart(run, _settings(), chart_bars=full_day)
+
+    assert clipped.max_r is not None and full.max_r is not None
+    # Same trade, same risk — the full day just sees the rest of it.
+    assert clipped.levels == full.levels == {"entry": 6.11, "stop": 5.6}
+    assert full.max_r > clipped.max_r
+    assert full.markers["max_r"] == _ts(5)  # the later high, outside the run window
+    assert clipped.markers["max_r"] == _ts(4)
 
 
 def test_chart_bars_defaults_to_the_run_window() -> None:
