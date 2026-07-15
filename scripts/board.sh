@@ -26,7 +26,9 @@ case "$status" in
   *) echo "unknown status: $status (use Todo | 'In Progress' | Done)" >&2; exit 2 ;;
 esac
 
-item=$(gh project item-list "$PROJ_NUM" --owner "$OWNER" --format json --limit 100 \
+# --limit must exceed the board's item count, or recently-added issues fall outside the
+# returned window and look "not on the board" (hit at 101 items with the old limit of 100).
+item=$(gh project item-list "$PROJ_NUM" --owner "$OWNER" --format json --limit 1000 \
   | python3 -c "import sys,json;n=int('$num');print(next((i['id'] for i in json.load(sys.stdin)['items'] if i.get('content',{}).get('number')==n),''))")
 
 if [ -z "$item" ]; then
