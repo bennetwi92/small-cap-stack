@@ -684,3 +684,104 @@ body.review {
   text-decoration: none;
   white-space: nowrap;
 }
+
+/* --- virtual portfolio (#230): pre-shadow paper book — books, tiles, equity curve, trade log --- */
+.pf-meta {
+  font-size: 0.8rem;
+  margin-top: 0.15rem;
+}
+.pf-books {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.9rem;
+}
+.pf-book {
+  cursor: pointer;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: 1px solid var(--pico-muted-border-color);
+  background: transparent;
+  color: var(--pico-color);
+}
+.pf-book:hover {
+  background: rgba(128, 128, 128, 0.15);
+}
+.pf-book[aria-current="true"] {
+  background: #2f81f7;
+  border-color: #2f81f7;
+  color: #fff;
+}
+.pf-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.pf-tile {
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  background: rgba(128, 128, 128, 0.09);
+  text-align: center;
+}
+.pf-tile-val {
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.pf-tile-lbl {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pico-muted-color);
+  margin-top: 0.15rem;
+}
+.pf-pos {
+  color: #1a7f37;
+}
+.pf-neg {
+  color: #c0362c;
+}
+@media (prefers-color-scheme: dark) {
+  .pf-pos { color: #3fb950; }
+  .pf-neg { color: #f85149; }
+}
+:root[data-theme="dark"] .pf-pos { color: #3fb950; }
+:root[data-theme="dark"] .pf-neg { color: #f85149; }
+:root[data-theme="light"] .pf-pos { color: #1a7f37; }
+:root[data-theme="light"] .pf-neg { color: #c0362c; }
+.pf-chart-wrap {
+  margin: 0.25rem 0 0.5rem;
+}
+.pf-chart {
+  width: 100%;
+  height: auto;
+  max-height: 260px;
+}
+.pf-axis {
+  fill: var(--pico-muted-color);
+  font-size: 11px;
+}
+.pf-note {
+  font-size: 0.78rem;
+  margin: 0 0 0.9rem;
+}
+.pf-table table {
+  font-size: 0.82rem;
+  margin-bottom: 0;
+}
+.pf-table th,
+.pf-table td {
+  padding: 0.3rem 0.45rem;
+  white-space: nowrap;
+}
+.pf-reason {
+  font-size: 0.7rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.18);
+}
+.pf-reason-target { background: rgba(26, 127, 55, 0.22); }
+.pf-reason-stop { background: rgba(192, 54, 44, 0.22); }

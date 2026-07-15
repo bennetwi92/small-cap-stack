@@ -244,3 +244,42 @@ Goal: build, test, fetch data, and deploy entirely from the Claude Code web/mobi
 - **Blocked on the VM (#6):** the deploy *execution* and the VPS-side fixture *producer*. The
   VM-independent halves (SessionStart hook, fixtures consumer scaffolding, the GHCR build job, the
   deploy workflow definition, and these docs) land now.
+
+## Virtual-portfolio tracker + execution model (DECISION 2026-07-15, #230)
+A **pre-shadow** virtual portfolio, computed on-read over the Phase-1 dataset, that "takes" the
+trades the user would take and reports an equity curve + trade log + stats in the web app. It places
+no orders; it is the down-payment on Phase-2 (the *select → size → simulate-exit* logic is the real
+shadow-mode brain — only "simulate exit from bars" gets swapped for "place bracket + capture fill"
+in P2). Locks the following execution parameters (chosen by the user 2026-07-15):
+
+- **Account:** UK **cash** account (no PDT; T+1 settlement / free-riding risk noted but **settlement
+  is IGNORED for v1** — cap trades/day instead; a settled-cash model is a later refinement so the
+  tracker can show the *achievable* cadence). Starting equity **$500 USD**.
+- **Position sizing = capital-based, not risk-based:** **50% of the day's opening virtual equity per
+  trade** (`qty = floor(0.50 × equity / entry_fill)`) → **max 2 concurrent positions, 2 entries per
+  day**. The user is knowingly "all-in" at this size; risk-per-trade therefore floats with stop
+  distance. Because R-multiples are size-independent, expectancy is still tracked in R.
+- **Qualifying trade (all must hold):** (1) engine **v2 `pass`** (setup + every gate) **and
+  triggered**; (2) **strictly pre-market fill** — the **trigger bar** opens before **09:30 ET**
+  (deliberately stricter than the results-page `first_hit`-based "premarket" label, which can tag a
+  setup that only *breaks* in-session); (3) **entry price (`entry_fill`) ∈ [$1, $20]** (narrower
+  than the $1–50 scan universe, #126); (4) take the **first 2 by trigger time** each day, later
+  qualifiers logged as *missed — at capacity*.
+- **Stop:** consolidation low (engine v2, unchanged — the R denominator, #182/#190).
+- **Exit = fixed R target `T` + optional breakeven arm at `b`·R.** Realized R is simulated by walking
+  each trade's captured bars (reusing the `rmetrics._measure` stop-first / gap-through convention)
+  inside the 16:00 ET analysis window (#93). **Commission + exit slippage are netted out** — at
+  ~$250 notional they are first-order, not a footnote.
+- **Adaptive target:** `T` (and `b`) are re-fit from recent results — over a trailing window pick the
+  `(T, b)` maximising expectancy `E[R] = p(T)·T − (1 − p(T))·1` (with breakeven converting some −1R
+  losers to 0R), where `p(T)` = fraction of recent qualifying setups that reached +`T`·R before the
+  stop. Directly computable from the Max-R / bar data already captured. **Small-sample overfit is the
+  main risk** (~2 trades/day): prefer a positive-expectancy *plateau* over the razor's-edge argmax;
+  window length is a tunable parameter. No loss-based **kill-switch** for now (2 trades/day makes it
+  moot) — but a hard **≤2 open / ≤2 entries-per-day guard** is kept as idempotency against a
+  reconnect/detection bug over-firing.
+
+Deliverable: a typed, exhaustively-tested simulator in `src/small_cap_stack/` (per CLAUDE.md, this is
+trading logic — the product), a `portfolio.json` export to the `dashboard-data` branch, and a thin
+`docs/portfolio.html`/`.js` page. Open exit questions from `findings-index.md` §3 Q3 are **resolved
+for this account** by the fixed-R-target-from-trailing-expectancy model above.
