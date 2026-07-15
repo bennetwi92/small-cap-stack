@@ -58,6 +58,12 @@ def build_subscription(settings: Settings) -> tuple[ScannerSubscription, list[Ta
         TagValue("changePercAbove", str(settings.scan_change_pct)),
         TagValue("stVolume5minAbove", str(settings.scan_min_5m_volume)),
     ]
+    # Exclude ETFs/ETNs et al. via IBKR's `stkTypes` combo filter (codes from the scanner-parameters
+    # dump, spike #8): each excluded type is an `exc:<TYPE>` selection, comma-joined. Intersection
+    # of "all excluding X" leaves common stock, ADRs, REITs, CEFs — everything with a real float.
+    if settings.scan_exclude_stock_types:
+        exc = ",".join(f"exc:{t}" for t in settings.scan_exclude_stock_types)
+        filters.append(TagValue("stkTypes", exc))
     return sub, filters
 
 

@@ -58,7 +58,19 @@ def test_build_subscription_matches_strategy() -> None:
     assert tags["priceBelow"] == "50.0"
     assert tags["changePercAbove"] == "10.0"
     assert tags["stVolume5minAbove"] == "100000"  # 5-min window, not day volume
+    assert tags["stkTypes"] == "exc:ETF,exc:ETN"  # drop float-less ETFs/ETNs server-side
     assert sub.numberOfRows == 50  # collect the full scanner breadth (API hard cap)
+
+
+def test_stktypes_filter_omitted_when_no_exclusions() -> None:
+    _, filters = build_subscription(_settings(scan_exclude_stock_types=()))
+    assert not any(f.tag == "stkTypes" for f in filters)
+
+
+def test_stktypes_filter_reflects_configured_exclusions() -> None:
+    _, filters = build_subscription(_settings(scan_exclude_stock_types=("ETF", "ETN", "CEF")))
+    tags = {f.tag: f.value for f in filters}
+    assert tags["stkTypes"] == "exc:ETF,exc:ETN,exc:CEF"
 
 
 def test_numberofrows_capped_at_50() -> None:
