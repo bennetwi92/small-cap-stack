@@ -252,9 +252,15 @@ no orders; it is the down-payment on Phase-2 (the *select → size → simulate-
 shadow-mode brain — only "simulate exit from bars" gets swapped for "place bracket + capture fill"
 in P2). Locks the following execution parameters (chosen by the user 2026-07-15):
 
-- **Account:** UK **cash** account (no PDT; T+1 settlement / free-riding risk noted but **settlement
-  is IGNORED for v1** — cap trades/day instead; a settled-cash model is a later refinement so the
-  tracker can show the *achievable* cadence). Starting equity **$500 USD**.
+- **Account:** UK **cash** account (no PDT — that's a margin-account rule). Starting equity **$500
+  USD**. **Settlement needs no model — the 50% × 2/day cap already discharges it** (AMENDED
+  2026-07-15, #234, superseding "settlement is IGNORED for v1"): per `broker-costs.md` §6 the
+  binding rule is *total daily buy notional ≤ settled cash at the **start** of the day*, and since
+  both trades size off `opening_equity` at 50% with a 2/day cap, max daily buy notional
+  `= 2 × floor(0.50 × opening_equity / entry) × entry ≤ opening_equity`. Every trade closes
+  same-day, so no unsettled position is carried and T+1 opens each day fully settled. The cap **is**
+  the constraint, pinned by `test_settled_cash_invariant`. (The live danger is *sequential reuse* —
+  recycling the same $250 twice intraday is a good-faith violation — which this book never does.)
 - **Position sizing = capital-based, not risk-based:** **50% of the day's opening virtual equity per
   trade** (`qty = floor(0.50 × equity / entry_fill)`) → **max 2 concurrent positions, 2 entries per
   day**. The user is knowingly "all-in" at this size; risk-per-trade therefore floats with stop
@@ -268,8 +274,22 @@ in P2). Locks the following execution parameters (chosen by the user 2026-07-15)
 - **Stop:** consolidation low (engine v2, unchanged — the R denominator, #182/#190).
 - **Exit = fixed R target `T` + optional breakeven arm at `b`·R.** Realized R is simulated by walking
   each trade's captured bars (reusing the `rmetrics._measure` stop-first / gap-through convention)
-  inside the 16:00 ET analysis window (#93). **Commission + exit slippage are netted out** — at
-  ~$250 notional they are first-order, not a footnote.
+  inside the 16:00 ET analysis window (#93). **Costs + exit slippage are netted out** — at ~$250
+  notional they are first-order, not a footnote.
+- **Cost model = full IBKR tiered** (AMENDED 2026-07-15, #234, from commission-only; see
+  `research/broker-costs.md`, #232). **Tiered** is the right plan for this account — IBKR Lite is
+  US-residents-only, and tiered beats fixed across ~$1.70–20. Tiered **unbundles** the pass-throughs,
+  and at these share counts they roughly **equal the commission itself**, so the original
+  commission-only model understated a round trip by **20–50%**. Charged per trade: commission
+  `max($0.35, qty × $0.0035)` + exchange liquidity-removal `$0.0030/sh` + clearing `$0.0002/sh` on
+  **both** sides, plus FINRA TAF `$0.000166/sh` (cap $8.30) and SEC Section 31 `0.0000278 × proceeds`
+  on the **sell**. The book is always liquidity-**removing** (stop-triggered entries, stop/market
+  exits) so it never earns an add-liquidity rebate. Plus the **$10/mo market-data subscription**,
+  charged at month rollover, waived above $30/mo commission, and applied **inline** so it compounds
+  into sizing — it is ~2%/mo of a $500 book, and #232's central finding is that **fixed costs do not
+  scale down with capital** (drag is ~9–13%/mo at $500 vs ~2.9%/mo at $2,000).
+  ⚠️ The `$0.35` minimum and the `$0.0030/sh` removal rate are from corroborating secondary sources
+  (IBKR 403s automated fetches) — verify in Client Portal before P2 funds anything real.
 - **Adaptive target:** `T` (and `b`) are re-fit from recent results — over a trailing window pick the
   `(T, b)` maximising expectancy `E[R] = p(T)·T − (1 − p(T))·1` (with breakeven converting some −1R
   losers to 0R), where `p(T)` = fraction of recent qualifying setups that reached +`T`·R before the

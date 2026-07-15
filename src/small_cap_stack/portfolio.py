@@ -16,8 +16,25 @@ Rules locked in ``research/decisions.md`` (#230, 2026-07-15):
   size off the *day's opening equity* (they're concurrent positions committed before either
   resolves), so 50% × 2 fully deploys the account.
 - **Exit** — a fixed R target with an optional breakeven arm, simulated bar-by-bar with the same
-  conservative stop-first / gap-through convention as :mod:`rmetrics`. Commission + exit slippage
-  are netted out so the equity curve is honest at ~$250 notional.
+  conservative stop-first / gap-through convention as :mod:`rmetrics`. Costs + exit slippage are
+  netted out so the equity curve is honest at ~$250 notional.
+
+**Cost model** (``research/broker-costs.md``, #232) — IBKR **tiered**, which is the cheapest plan
+available to a UK client (IBKR Lite is US-residents-only) across essentially this whole price band.
+Tiered *unbundles* the exchange/regulatory pass-throughs, and at these share counts they roughly
+equal the commission itself, so charging commission alone understates a round trip by 20–50%. See
+:func:`trade_costs`. The monthly market-data subscription is charged too (:class:`_DataFeeLedger`):
+it is ~2%/month of a $500 book, and #232's central finding is that fixed costs do **not** scale down
+with capital.
+
+**Settled-cash invariant** — this is a UK *cash* account, so a purchase needs settled funds, and
+buying with unsettled proceeds then selling before they settle is a good-faith violation (#232 §6).
+The book is compliant *by construction* rather than by simulating settlement: both trades size off
+``opening_equity`` at 50% with a 2/day cap, so max daily buy notional
+``= 2 × floor(0.50 × opening_equity / entry) × entry ≤ opening_equity``; and since every trade
+closes same-day, no unsettled position is carried and T+1 opens each day settled. The cap *is*
+the constraint — see ``test_settled_cash_invariant``, which fails loudly if the config is ever
+changed such that ``position_fraction × max_trades_per_day > 1``.
 """
 
 from __future__ import annotations
@@ -110,8 +127,43 @@ def size_position(equity: float, entry_price: float, fraction: float) -> int:
 
 
 def commission(qty: int, per_share: float, minimum: float) -> float:
-    """IBKR-style per-order-side commission: ``max(minimum, qty × per_share)``."""
+    """IBKR-style per-order-side commission: ``max(minimum, qty × per_share)``.
+
+    This is the IBKR line ONLY. Under tiered pricing the exchange/regulatory pass-throughs are
+    unbundled and charged on top — see :func:`trade_costs` for the all-in figure."""
     return round(max(minimum, qty * per_share), 4)
+
+
+@dataclass(frozen=True)
+class TradeCosts:
+    """All-in round-trip cost of one paper trade, split so the drag is visible, not buried.
+
+    ``commission_usd`` is IBKR's own line; ``fees_usd`` is everything tiered pricing unbundles
+    (exchange removal + clearing on both sides, FINRA TAF + SEC Section 31 on the sell)."""
+
+    commission_usd: float
+    fees_usd: float
+
+    @property
+    def total_usd(self) -> float:
+        return round(self.commission_usd + self.fees_usd, 4)
+
+
+def trade_costs(qty: int, entry_price: float, exit_price: float, s: Settings) -> TradeCosts:
+    """Full IBKR tiered round-trip cost for ``qty`` shares (#232 §1).
+
+    Both sides pay commission + exchange removal + clearing; only the sell pays TAF and SEC. The
+    book is always liquidity-removing (stop-triggered entries, stop/market exits), so no
+    add-liquidity rebate is ever credited."""
+    if qty < 1:
+        return TradeCosts(0.0, 0.0)
+    comm = 2 * commission(qty, s.portfolio_commission_per_share, s.portfolio_commission_min)
+    per_share_both = (
+        2 * qty * (s.portfolio_exchange_fee_per_share + s.portfolio_clearing_fee_per_share)
+    )
+    taf = min(qty * s.portfolio_taf_per_share, s.portfolio_taf_max)
+    sec = max(0.0, qty * exit_price) * s.portfolio_sec_fee_rate
+    return TradeCosts(round(comm, 4), round(per_share_both + taf + sec, 4))
 
 
 # --- --- Trade model ------------------------------------------------------------------
@@ -167,8 +219,9 @@ class PaperTrade:
     reason: str
     exit_price: float
     gross_pnl_usd: float
-    commission_usd: float
-    net_pnl_usd: float
+    commission_usd: float  # IBKR's own line
+    fees_usd: float  # exchange + clearing + TAF + SEC (tiered unbundles these) — #232 §1
+    net_pnl_usd: float  # gross − commission − fees
     equity_before: float
     equity_after: float
 
@@ -188,6 +241,11 @@ class PortfolioResult:
     expectancy_usd: float | None
     return_pct: float
     max_drawdown_pct: float
+    # Cost attribution (#232) — kept split so the page can show where the money actually went.
+    commission_usd: float  # IBKR's own line, all trades
+    fees_usd: float  # exchange + clearing + TAF + SEC, all trades
+    data_fees_usd: float  # market-data subscription, charged monthly net of the waiver
+    total_costs_usd: float
 
 
 # --- --- Extraction (reads the store; reuses the report seams) ------------------------
@@ -291,10 +349,8 @@ def _take_day(
             continue
         outcome = c.exit_under(s, target_r, breakeven_r)
         gross = round(qty * (outcome.exit_price - c.entry_price), 4)
-        comm = round(
-            2 * commission(qty, s.portfolio_commission_per_share, s.portfolio_commission_min), 4
-        )
-        net = round(gross - comm, 4)
+        costs = trade_costs(qty, c.entry_price, outcome.exit_price, s)
+        net = round(gross - costs.total_usd, 4)
         before = equity
         equity = round(equity + net, 4)
         out.append(
@@ -313,7 +369,8 @@ def _take_day(
                 reason=outcome.reason,
                 exit_price=outcome.exit_price,
                 gross_pnl_usd=gross,
-                commission_usd=comm,
+                commission_usd=costs.commission_usd,
+                fees_usd=costs.fees_usd,
                 net_pnl_usd=net,
                 equity_before=before,
                 equity_after=equity,
@@ -322,11 +379,59 @@ def _take_day(
     return out
 
 
+class _DataFeeLedger:
+    """Accrues the monthly market-data subscription, waived above a commission threshold (#232 §4).
+
+    Charged at month rollover and applied *inline* by the callers (not as a post-pass) so it lands
+    in ``equity`` before the next day is sized — sizing is capital-based, so a fee that didn't
+    compound would flatter the book. Months present in the data but with no trades are still
+    charged: the subscription bills whether or not you trade, which is the entire point of #232."""
+
+    def __init__(self, s: Settings) -> None:
+        self._s = s
+        self._month: tuple[int, int] | None = None
+        self._commission = 0.0
+        self.total_charged = 0.0
+
+    def roll(self, day: date) -> float:
+        """Fee due *before* trading ``day``, i.e. charged when ``day`` opens a new month."""
+        m = (day.year, day.month)
+        if self._month is None:
+            self._month = m
+            return 0.0
+        if m == self._month:
+            return 0.0
+        fee = self._settle()
+        self._month = m
+        return fee
+
+    def observe(self, trades: Sequence[PaperTrade]) -> None:
+        self._commission += sum(t.commission_usd for t in trades)
+
+    def close(self) -> float:
+        """Fee for the final (possibly partial) month."""
+        return self._settle() if self._month is not None else 0.0
+
+    def _settle(self) -> float:
+        waived = self._commission >= self._s.portfolio_market_data_waiver_usd
+        fee = 0.0 if waived else self._s.portfolio_market_data_usd_per_month
+        self._commission = 0.0
+        self.total_charged = round(self.total_charged + fee, 4)
+        return fee
+
+
 def _finalize(
-    trades: list[PaperTrade], curve: list[tuple[date, float]], s: Settings
+    trades: list[PaperTrade],
+    curve: list[tuple[date, float]],
+    s: Settings,
+    end_equity: float,
+    data_fees_usd: float,
 ) -> PortfolioResult:
     start = s.portfolio_start_equity_usd
-    equity = trades[-1].equity_after if trades else start
+    equity = end_equity
+    # Drawdown walks trade-resolution equity. Month-rollover data fees are already folded into
+    # `equity_before`/`equity_after` by the caller, so only the final month's fee (charged after the
+    # last trade) sits outside this walk; `end_equity` carries it.
     peak, max_dd = start, 0.0
     for t in trades:
         peak = max(peak, t.equity_after)
@@ -348,6 +453,12 @@ def _finalize(
         expectancy_usd=round(sum(t.net_pnl_usd for t in trades) / n, 4) if n else None,
         return_pct=round((equity - start) / start, 4) if start else 0.0,
         max_drawdown_pct=round(max_dd, 4),
+        commission_usd=round(sum(t.commission_usd for t in trades), 4),
+        fees_usd=round(sum(t.fees_usd for t in trades), 4),
+        data_fees_usd=round(data_fees_usd, 4),
+        total_costs_usd=round(
+            sum(t.commission_usd + t.fees_usd for t in trades) + data_fees_usd, 4
+        ),
     )
 
 
@@ -367,12 +478,18 @@ def simulate_portfolio(
     equity = s.portfolio_start_equity_usd
     trades: list[PaperTrade] = []
     curve: list[tuple[date, float]] = []
+    fees = _DataFeeLedger(s)
     for day, cands in sorted(candidates_by_day, key=lambda dc: dc[0]):
+        equity = round(equity - fees.roll(day), 4)
         day_trades = _take_day(day, cands, equity, s, tr, be)
+        fees.observe(day_trades)
         trades.extend(day_trades)
         equity = day_trades[-1].equity_after if day_trades else equity
         curve.append((day, equity))
-    return _finalize(trades, curve, s)
+    equity = round(equity - fees.close(), 4)
+    if curve:  # the final month's fee lands on the last day
+        curve[-1] = (curve[-1][0], equity)
+    return _finalize(trades, curve, s, equity, fees.total_charged)
 
 
 def simulate_portfolio_adaptive(
@@ -396,6 +513,7 @@ def simulate_portfolio_adaptive(
     trades: list[PaperTrade] = []
     curve: list[tuple[date, float]] = []
     chosen: list[tuple[date, float]] = []
+    fees = _DataFeeLedger(s)
 
     for i, (day, cands) in enumerate(days):
         window_start = day - timedelta(days=s.portfolio_adaptive_window_days)
@@ -411,11 +529,16 @@ def simulate_portfolio_adaptive(
             if pick is not None:
                 target = pick.target_r
         chosen.append((day, target))
+        equity = round(equity - fees.roll(day), 4)
         day_trades = _take_day(day, cands, equity, s, target, be)
+        fees.observe(day_trades)
         trades.extend(day_trades)
         equity = day_trades[-1].equity_after if day_trades else equity
         curve.append((day, equity))
-    return _finalize(trades, curve, s), chosen
+    equity = round(equity - fees.close(), 4)
+    if curve:  # the final month's fee lands on the last day
+        curve[-1] = (curve[-1][0], equity)
+    return _finalize(trades, curve, s, equity, fees.total_charged), chosen
 
 
 # --- --- Adaptive target optimiser ----------------------------------------------------
@@ -495,6 +618,8 @@ def _trade_json(t: PaperTrade) -> dict[str, object]:
         "realized_r": t.realized_r,
         "reason": t.reason,
         "exit_price": t.exit_price,
+        "gross_pnl": t.gross_pnl_usd,
+        "costs": round(t.commission_usd + t.fees_usd, 4),
         "net_pnl": t.net_pnl_usd,
         "equity_after": t.equity_after,
     }
@@ -515,6 +640,10 @@ def _book_json(
             "end_equity": res.end_equity,
             "return_pct": res.return_pct,
             "max_drawdown_pct": res.max_drawdown_pct,
+            "commission_usd": res.commission_usd,
+            "fees_usd": res.fees_usd,
+            "data_fees_usd": res.data_fees_usd,
+            "total_costs_usd": res.total_costs_usd,
         },
         "equity_curve": [{"date": d.isoformat(), "equity": e} for d, e in res.equity_curve],
         "trades": [_trade_json(t) for t in res.trades],
@@ -551,6 +680,10 @@ def build_portfolio_payload(
             "breakeven_r": s.portfolio_breakeven_r,
             "commission_per_share": s.portfolio_commission_per_share,
             "commission_min": s.portfolio_commission_min,
+            "exchange_fee_per_share": s.portfolio_exchange_fee_per_share,
+            "clearing_fee_per_share": s.portfolio_clearing_fee_per_share,
+            "market_data_usd_per_month": s.portfolio_market_data_usd_per_month,
+            "market_data_waiver_usd": s.portfolio_market_data_waiver_usd,
             "exit_slippage_ticks": s.portfolio_exit_slippage_ticks,
             "adaptive_window_days": s.portfolio_adaptive_window_days,
             "adaptive_min_samples": s.portfolio_adaptive_min_samples,
