@@ -454,6 +454,25 @@ def test_extract_day_trades_rejects_in_session(tmp_path: Path) -> None:
     assert extract_day_trades(store, _s(), day) == []  # same setup, but the trigger is in-session
 
 
+def test_extract_day_trades_excludes_configured_symbols(tmp_path: Path) -> None:
+    """ETFs mis-captured before the scanner's #226 ETF/ETN filter are dropped from the book.
+
+    They're leveraged single-stock ETFs with no share float, so they were never Warrior candidates;
+    the scanner no longer captures them but the stored opportunities remain. The exclude list drops
+    them on-read. Matching is case-insensitive so a config typo can't leak one back in."""
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))  # 08:00 ET
+
+    # The seeded AZI setup qualifies by default...
+    assert [c.symbol for c in extract_day_trades(store, _s(), day)] == ["AZI"]
+    # ...but is excluded when listed (case-insensitively).
+    assert extract_day_trades(store, _s(portfolio_exclude_symbols=("azi",)), day) == []
+
+
 def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     from small_cap_stack.portfolio import build_portfolio_payload
     from small_cap_stack.storage import Store
