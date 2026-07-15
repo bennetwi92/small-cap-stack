@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     # play, and store-raw/compute-on-read means we want the whole ranked list captured. We still
     # only *act* on the top few; the extra rows are dataset upside (#126 widened the universe too).
     scan_max_rows: int = 50
+    # IBKR `stkTypes` codes to exclude from the STK scan. `STK.US.MAJOR` mixes common stock with
+    # ETFs/ETNs (incl. leveraged single-stock products like MSTX/RKLX), which have no share float
+    # and aren't Warrior-style momentum candidates — drop them server-side. Empty tuple = keep all.
+    scan_exclude_stock_types: tuple[str, ...] = ("ETF", "ETN")
 
     # Gate thresholds (issue #15) — most reuse the scan_* values above.
     float_max_shares: int = 20_000_000  # float < 20M shares
