@@ -35,6 +35,7 @@ from .dashboard import (
     write_json,
 )
 from .logging import configure_logging, get_logger
+from .portfolio import build_portfolio_payload
 from .report import build_eod_report
 from .storage import Store
 
@@ -81,6 +82,8 @@ def regenerate(
         out / "index.json",
         upsert_index_date(read_json(out / "index.json"), trading_date, charts, now_utc),
     )
+    # The virtual-portfolio book (#230) is cross-day; rebuild it whenever any date is regenerated.
+    write_json(out / "portfolio.json", build_portfolio_payload(store, settings, now_utc))
 
     n_opps = len(report.analyses)
     n_charts = len(charts["charts"])
@@ -119,6 +122,7 @@ def regenerate_archive(
         total_charts += len(charts["charts"])
 
     write_json(out / "index.json", build_index(date_charts, now_utc))
+    write_json(out / "portfolio.json", build_portfolio_payload(store, settings, now_utc))
 
     if dates:  # keep the legacy single-day dashboard on the newest session
         latest = dates[-1]

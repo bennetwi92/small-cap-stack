@@ -160,8 +160,13 @@ class Settings(BaseSettings):
     portfolio_premarket_cutoff: time = time(9, 30)  # strict: the TRIGGER bar must open before this
     portfolio_entry_price_min: float = 1.0  # entry_fill price band (narrower than the $1–50 scan)
     portfolio_entry_price_max: float = 20.0
-    portfolio_target_r: float = 2.0  # fixed R target (the adaptive optimiser overrides per window)
+    portfolio_target_r: float = 2.0  # fallback fixed R target (used until the window has samples)
     portfolio_breakeven_r: float = 0.0  # arm a breakeven stop once +Nb·R is reached; 0 disables
+    # Adaptive target: each day re-fits the target to the highest-expectancy grid value over the
+    # trailing window of prior candidates. Small-N overfit is guarded by the window + plateau bias.
+    portfolio_target_grid: tuple[float, ...] = (1.5, 2.0, 2.5, 3.0)
+    portfolio_adaptive_window_days: int = 20  # trailing lookback for the expectancy re-fit
+    portfolio_adaptive_min_samples: int = 8  # need this many trailing trades before re-fitting
     # Costs, netted out of every trade so the equity curve is honest at ~$250 notional. IBKR tiered
     # US-stock schedule: ~$0.0035/share, $0.35 minimum, PER ORDER SIDE (entry + exit both charged).
     portfolio_commission_per_share: float = 0.0035

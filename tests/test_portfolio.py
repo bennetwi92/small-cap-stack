@@ -222,6 +222,34 @@ def test_portfolio_empty_is_safe() -> None:
     assert res.win_rate is None and res.avg_r is None
 
 
+def test_adaptive_falls_back_before_enough_samples_then_refits() -> None:
+    from datetime import timedelta
+
+    from small_cap_stack.portfolio import simulate_portfolio_adaptive
+
+    # 6 warm-up days (1 trade each) then a decision day. min_samples=6, window big, grid {1.5,3.0}.
+    # Warm-up trades reach exactly +2R favourable (high 12) then close, so over the trailing window
+    # target 1.5 hits (+1.5R each) and target 3.0 never hits (marks to close at +2R) -> 3.0 wins
+    # expectancy. The decision day must therefore be taken at 3.0, not the 2.0 fallback.
+    reach2 = [_bar(10, 12.0, 9.95, 12.0)]  # favourable to +2R then closes at +2R
+    s = _s(
+        portfolio_target_grid=(1.5, 3.0),
+        portfolio_adaptive_min_samples=6,
+        portfolio_adaptive_window_days=90,
+        portfolio_exit_slippage_ticks=0,
+    )
+    base = date(2026, 7, 1)
+    days = [(base + timedelta(days=i), [_cand(f"W{i}", 5, 10.0, 9.0, reach2)]) for i in range(6)]
+    days.append((base + timedelta(days=6), [_cand("DEC", 5, 10.0, 9.0, reach2)]))
+
+    res, chosen = simulate_portfolio_adaptive(days, s)
+    per_day = dict(chosen)
+    assert per_day[base] == s.portfolio_target_r  # day 0: no trailing samples -> fallback (2.0)
+    assert per_day[base + timedelta(days=6)] == 3.0  # decision day: re-fit to the best trailing T
+    dec = [t for t in res.trades if t.symbol == "DEC"][0]
+    assert dec.target_r == 3.0
+
+
 # --- --- adaptive optimiser -----------------------------------------------------------
 
 
@@ -370,3 +398,26 @@ def test_extract_day_trades_rejects_in_session(tmp_path: Path) -> None:
     store = Store(tmp_path)
     _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 16, 0, tzinfo=ET_UTC))  # 12:00 ET
     assert extract_day_trades(store, _s(), day) == []  # same setup, but the trigger is in-session
+
+
+def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
+    from small_cap_stack.portfolio import build_portfolio_payload
+    from small_cap_stack.storage import Store
+
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))  # 08:00 ET
+    payload = build_portfolio_payload(store, _s(), datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC))
+
+    assert payload["start_equity"] == 500.0
+    assert "adaptive" in payload["books"]
+    assert set(payload["targets"]) >= {"1.5", "2", "3"}  # grid widened with extremes
+    adaptive = payload["books"]["adaptive"]
+    assert adaptive["stats"]["n_trades"] == 1
+    assert "daily_targets" in adaptive  # only the adaptive book carries the per-day target
+    assert "daily_targets" not in payload["books"]["2"]  # fixed books do not
+    trade = adaptive["trades"][0]
+    assert trade["symbol"] == "AZI" and trade["reason"] == "target"
+    # fully JSON-serialisable (dates/datetimes already stringified)
+    import json
+
+    json.dumps(payload)

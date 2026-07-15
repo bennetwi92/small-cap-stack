@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from .capture import Bar
 from .clock import ET
@@ -270,6 +270,87 @@ def extract_day_trades(store: Store, s: Settings, trading_date: date) -> list[Ca
 # --- --- Portfolio simulation ---------------------------------------------------------
 
 
+def _take_day(
+    day: date,
+    cands: Sequence[CandidateTrade],
+    equity: float,
+    s: Settings,
+    target_r: float,
+    breakeven_r: float,
+) -> list[PaperTrade]:
+    """Take a single day's ≤N trades (trigger-time order), all sized off the day's opening equity.
+
+    Both concurrent positions size off ``equity`` (the day's open) since they're committed before
+    either resolves; equity accrues sequentially only for the running-balance bookkeeping."""
+    opening_equity = equity
+    taken = sorted(cands, key=lambda c: c.trigger_at)[: s.portfolio_max_trades_per_day]
+    out: list[PaperTrade] = []
+    for c in taken:
+        qty = size_position(opening_equity, c.entry_price, s.portfolio_position_fraction)
+        if qty < 1:  # position too small to afford a share — skip
+            continue
+        outcome = c.exit_under(s, target_r, breakeven_r)
+        gross = round(qty * (outcome.exit_price - c.entry_price), 4)
+        comm = round(
+            2 * commission(qty, s.portfolio_commission_per_share, s.portfolio_commission_min), 4
+        )
+        net = round(gross - comm, 4)
+        before = equity
+        equity = round(equity + net, 4)
+        out.append(
+            PaperTrade(
+                trading_date=c.trading_date,
+                symbol=c.symbol,
+                seg_id=c.seg_id,
+                run=c.run,
+                trigger_at=c.trigger_at,
+                entry_price=c.entry_price,
+                stop=c.stop,
+                qty=qty,
+                target_r=target_r,
+                breakeven_r=breakeven_r,
+                realized_r=outcome.realized_r,
+                reason=outcome.reason,
+                exit_price=outcome.exit_price,
+                gross_pnl_usd=gross,
+                commission_usd=comm,
+                net_pnl_usd=net,
+                equity_before=before,
+                equity_after=equity,
+            )
+        )
+    return out
+
+
+def _finalize(
+    trades: list[PaperTrade], curve: list[tuple[date, float]], s: Settings
+) -> PortfolioResult:
+    start = s.portfolio_start_equity_usd
+    equity = trades[-1].equity_after if trades else start
+    peak, max_dd = start, 0.0
+    for t in trades:
+        peak = max(peak, t.equity_after)
+        if peak > 0:
+            max_dd = max(max_dd, (peak - t.equity_after) / peak)
+    n = len(trades)
+    total_r = round(sum(t.realized_r for t in trades), 4)
+    return PortfolioResult(
+        start_equity=start,
+        end_equity=equity,
+        trades=tuple(trades),
+        equity_curve=tuple(curve),
+        n_trades=n,
+        wins=sum(1 for t in trades if t.net_pnl_usd > 0),
+        losses=sum(1 for t in trades if t.net_pnl_usd < 0),
+        win_rate=round(sum(1 for t in trades if t.net_pnl_usd > 0) / n, 4) if n else None,
+        total_r=total_r,
+        avg_r=round(total_r / n, 4) if n else None,
+        expectancy_usd=round(sum(t.net_pnl_usd for t in trades) / n, 4) if n else None,
+        return_pct=round((equity - start) / start, 4) if start else 0.0,
+        max_drawdown_pct=round(max_dd, 4),
+    )
+
+
 def simulate_portfolio(
     candidates_by_day: Sequence[tuple[date, Sequence[CandidateTrade]]],
     s: Settings,
@@ -277,81 +358,64 @@ def simulate_portfolio(
     target_r: float | None = None,
     breakeven_r: float | None = None,
 ) -> PortfolioResult:
-    """Walk days chronologically, taking ≤N trades/day sized off that day's opening equity.
+    """Walk days chronologically at a FIXED target, taking ≤N trades/day off the day's open equity.
 
-    ``candidates_by_day`` need not be pre-sorted; days are ordered here and each day's trades are
-    taken in trigger-time order up to ``portfolio_max_trades_per_day``. ``target_r`` /
-    ``breakeven_r`` default to the configured values (so the caller can sweep them here)."""
+    ``target_r`` / ``breakeven_r`` default to the configured values (so the caller can sweep them —
+    the manual-slider path). For the daily re-fit path see :func:`simulate_portfolio_adaptive`."""
     tr = s.portfolio_target_r if target_r is None else target_r
     be = s.portfolio_breakeven_r if breakeven_r is None else breakeven_r
     equity = s.portfolio_start_equity_usd
     trades: list[PaperTrade] = []
     curve: list[tuple[date, float]] = []
-    peak = equity
-    max_dd = 0.0
-
     for day, cands in sorted(candidates_by_day, key=lambda dc: dc[0]):
-        opening_equity = equity  # both concurrent positions size off the day's open
-        taken = sorted(cands, key=lambda c: c.trigger_at)[: s.portfolio_max_trades_per_day]
-        for c in taken:
-            qty = size_position(opening_equity, c.entry_price, s.portfolio_position_fraction)
-            if qty < 1:  # position too small to afford a share — skip, still logged by count
-                continue
-            outcome = c.exit_under(s, tr, be)
-            gross = round(qty * (outcome.exit_price - c.entry_price), 4)
-            comm = round(
-                2 * commission(qty, s.portfolio_commission_per_share, s.portfolio_commission_min), 4
-            )
-            net = round(gross - comm, 4)
-            before = equity
-            equity = round(equity + net, 4)
-            peak = max(peak, equity)
-            if peak > 0:
-                max_dd = max(max_dd, (peak - equity) / peak)
-            trades.append(
-                PaperTrade(
-                    trading_date=c.trading_date,
-                    symbol=c.symbol,
-                    seg_id=c.seg_id,
-                    run=c.run,
-                    trigger_at=c.trigger_at,
-                    entry_price=c.entry_price,
-                    stop=c.stop,
-                    qty=qty,
-                    target_r=tr,
-                    breakeven_r=be,
-                    realized_r=outcome.realized_r,
-                    reason=outcome.reason,
-                    exit_price=outcome.exit_price,
-                    gross_pnl_usd=gross,
-                    commission_usd=comm,
-                    net_pnl_usd=net,
-                    equity_before=before,
-                    equity_after=equity,
-                )
-            )
+        day_trades = _take_day(day, cands, equity, s, tr, be)
+        trades.extend(day_trades)
+        equity = day_trades[-1].equity_after if day_trades else equity
         curve.append((day, equity))
+    return _finalize(trades, curve, s)
 
-    n = len(trades)
-    wins = sum(1 for t in trades if t.net_pnl_usd > 0)
-    losses = sum(1 for t in trades if t.net_pnl_usd < 0)
-    total_r = round(sum(t.realized_r for t in trades), 4)
-    start = s.portfolio_start_equity_usd
-    return PortfolioResult(
-        start_equity=start,
-        end_equity=equity,
-        trades=tuple(trades),
-        equity_curve=tuple(curve),
-        n_trades=n,
-        wins=wins,
-        losses=losses,
-        win_rate=round(wins / n, 4) if n else None,
-        total_r=total_r,
-        avg_r=round(total_r / n, 4) if n else None,
-        expectancy_usd=round(sum(t.net_pnl_usd for t in trades) / n, 4) if n else None,
-        return_pct=round((equity - start) / start, 4) if start else 0.0,
-        max_drawdown_pct=round(max_dd, 4),
-    )
+
+def simulate_portfolio_adaptive(
+    candidates_by_day: Sequence[tuple[date, Sequence[CandidateTrade]]],
+    s: Settings,
+    *,
+    breakeven_r: float | None = None,
+) -> tuple[PortfolioResult, list[tuple[date, float]]]:
+    """Walk days chronologically, re-fitting the R target each day from a TRAILING window.
+
+    Each day's target = the highest-expectancy grid target over the candidates from the prior
+    ``portfolio_adaptive_window_days`` days (strictly before today — no look-ahead). Until at least
+    ``portfolio_adaptive_min_samples`` trailing candidates exist the target falls back to the
+    configured ``portfolio_target_r``. Returns the book plus the per-day (date, chosen_target) list
+    so the page can show how the target drifted. Overfit is real at low N — the window + a
+    plateau-preferring :func:`best_target` are the guards, not a cure."""
+    be = s.portfolio_breakeven_r if breakeven_r is None else breakeven_r
+    grid = list(s.portfolio_target_grid)
+    days = sorted(candidates_by_day, key=lambda dc: dc[0])
+    equity = s.portfolio_start_equity_usd
+    trades: list[PaperTrade] = []
+    curve: list[tuple[date, float]] = []
+    chosen: list[tuple[date, float]] = []
+
+    for i, (day, cands) in enumerate(days):
+        window_start = day - timedelta(days=s.portfolio_adaptive_window_days)
+        trailing = [
+            c
+            for d, cs in days[:i]
+            if d >= window_start
+            for c in cs  # strictly-prior days only
+        ]
+        target = s.portfolio_target_r
+        if len(trailing) >= s.portfolio_adaptive_min_samples:
+            pick = best_target(expectancy_curve(trailing, s, target_grid=grid, breakeven_r=be))
+            if pick is not None:
+                target = pick.target_r
+        chosen.append((day, target))
+        day_trades = _take_day(day, cands, equity, s, target, be)
+        trades.extend(day_trades)
+        equity = day_trades[-1].equity_after if day_trades else equity
+        curve.append((day, equity))
+    return _finalize(trades, curve, s), chosen
 
 
 # --- --- Adaptive target optimiser ----------------------------------------------------
@@ -401,3 +465,96 @@ def best_target(stats: Sequence[TargetStat]) -> TargetStat | None:
     if not scored:
         return None
     return max(scored, key=lambda st: (st.expectancy_r or 0.0, -st.target_r))
+
+
+# --- --- JSON payload for the web page ------------------------------------------------
+
+
+def collected_dates(store: Store) -> list[date]:
+    """Every trading date with a captured opportunity, ascending (compute-on-read)."""
+    import polars as pl
+
+    opps = store.read("opportunities")
+    if opps.is_empty() or "trading_date" not in opps.columns:
+        return []
+    vals = opps.select(pl.col("trading_date")).unique().to_series().to_list()
+    return sorted(d for d in vals if d is not None)
+
+
+def _trade_json(t: PaperTrade) -> dict[str, object]:
+    return {
+        "date": t.trading_date.isoformat(),
+        "symbol": t.symbol,
+        "seg_id": t.seg_id,
+        "run": t.run,
+        "trigger_at": t.trigger_at.astimezone(ET).isoformat(),
+        "entry": t.entry_price,
+        "stop": t.stop,
+        "qty": t.qty,
+        "target_r": t.target_r,
+        "realized_r": t.realized_r,
+        "reason": t.reason,
+        "exit_price": t.exit_price,
+        "net_pnl": t.net_pnl_usd,
+        "equity_after": t.equity_after,
+    }
+
+
+def _book_json(
+    res: PortfolioResult, daily_targets: list[tuple[date, float]] | None
+) -> dict[str, object]:
+    book: dict[str, object] = {
+        "stats": {
+            "n_trades": res.n_trades,
+            "wins": res.wins,
+            "losses": res.losses,
+            "win_rate": res.win_rate,
+            "total_r": res.total_r,
+            "avg_r": res.avg_r,
+            "expectancy_usd": res.expectancy_usd,
+            "end_equity": res.end_equity,
+            "return_pct": res.return_pct,
+            "max_drawdown_pct": res.max_drawdown_pct,
+        },
+        "equity_curve": [{"date": d.isoformat(), "equity": e} for d, e in res.equity_curve],
+        "trades": [_trade_json(t) for t in res.trades],
+    }
+    if daily_targets is not None:
+        book["daily_targets"] = [{"date": d.isoformat(), "target": t} for d, t in daily_targets]
+    return book
+
+
+def build_portfolio_payload(
+    store: Store, s: Settings, generated_utc: datetime
+) -> dict[str, object]:
+    """Build the ``portfolio.json`` the web page reads: the adaptive book plus a fixed-target sweep.
+
+    Extracts every day's qualifying trades once, then simulates the adaptive (daily re-fit) book
+    and one fixed-target book per selectable target — all server-side so the page needs no bars and
+    no duplicated logic. Written to ``/data/dashboard`` at EOD and shipped by publish-dashboard."""
+    by_day = [(d, extract_day_trades(store, s, d)) for d in collected_dates(store)]
+    adaptive_res, daily_targets = simulate_portfolio_adaptive(by_day, s)
+    # Selectable fixed targets: the adaptive grid widened with a couple of extremes for exploration.
+    targets = sorted(set(s.portfolio_target_grid) | {1.0, 4.0, 5.0})
+    books: dict[str, object] = {"adaptive": _book_json(adaptive_res, daily_targets)}
+    for t in targets:
+        books[f"{t:g}"] = _book_json(simulate_portfolio(by_day, s, target_r=t), None)
+    return {
+        "generated_utc": generated_utc.isoformat(),
+        "start_equity": s.portfolio_start_equity_usd,
+        "config": {
+            "position_fraction": s.portfolio_position_fraction,
+            "max_trades_per_day": s.portfolio_max_trades_per_day,
+            "premarket_cutoff_et": s.portfolio_premarket_cutoff.isoformat(),
+            "entry_price_min": s.portfolio_entry_price_min,
+            "entry_price_max": s.portfolio_entry_price_max,
+            "breakeven_r": s.portfolio_breakeven_r,
+            "commission_per_share": s.portfolio_commission_per_share,
+            "commission_min": s.portfolio_commission_min,
+            "exit_slippage_ticks": s.portfolio_exit_slippage_ticks,
+            "adaptive_window_days": s.portfolio_adaptive_window_days,
+            "adaptive_min_samples": s.portfolio_adaptive_min_samples,
+        },
+        "targets": [f"{t:g}" for t in targets],
+        "books": books,
+    }

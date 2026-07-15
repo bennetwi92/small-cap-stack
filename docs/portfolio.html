@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>small-cap-stack · virtual portfolio</title>
+    <meta name="robots" content="noindex" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Shared page nav (#219): compact pill tabs, active tab marked per page (no JS). -->
+    <nav class="topnav" aria-label="Pages">
+      <a class="topnav-tab" href="index.html">Dashboard</a>
+      <a class="topnav-tab" href="review.html">Review</a>
+      <a class="topnav-tab" href="results.html">Results</a>
+      <a class="topnav-tab" href="portfolio.html" aria-current="page">Portfolio</a>
+    </nav>
+    <main class="container">
+      <hgroup>
+        <h1>Virtual portfolio</h1>
+        <p class="muted">
+          Pre-shadow paper book — the trades I'd take, over the data already collected ·
+          <button id="pf-refresh" class="secondary outline" title="Refresh now">↻</button>
+        </p>
+        <p id="pf-meta" class="muted pf-meta">loading…</p>
+      </hgroup>
+
+      <p id="pf-error" class="error" hidden></p>
+
+      <!-- Exit-target selector: Adaptive (daily re-fit) + one book per fixed R target. -->
+      <div id="pf-books" class="pf-books"></div>
+
+      <div id="pf-tiles" class="pf-tiles"></div>
+
+      <div id="pf-chart-wrap" class="pf-chart-wrap"></div>
+      <div id="pf-note"></div>
+
+      <div id="pf-trades-wrap" class="scroll pf-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Sym</th>
+              <th>Trigger</th>
+              <th>Entry</th>
+              <th>Stop</th>
+              <th>Qty</th>
+              <th>Tgt</th>
+              <th>Exit</th>
+              <th>R</th>
+              <th>Net</th>
+              <th>Balance</th>
+            </tr>
+          </thead>
+          <tbody id="pf-trades">
+            <tr><td colspan="11" class="muted">loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <footer class="muted">
+        <small>
+          Not advice, not real orders — a paper book computed on-read from the tracker's own data
+          (engine-v2 takeable setups · strictly pre-market fills · entry $1–20 · 3-tick fill ·
+          costs netted). Small samples: treat as a wiring/sanity view, not an edge estimate.
+          · <a href="https://github.com/bennetwi92/small-cap-stack">repo</a>
+        </small>
+      </footer>
+    </main>
+    <script src="portfolio.js"></script>
+  </body>
+</html>

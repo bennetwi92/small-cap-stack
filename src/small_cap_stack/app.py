@@ -43,6 +43,7 @@ from .monitoring import (
     metric_value,
     start_metrics_server,
 )
+from .portfolio import build_portfolio_payload
 from .report import EodReport, analysis_records, build_eod_report
 from .scanner import Scanner
 from .scheduler import build_scheduler
@@ -302,8 +303,19 @@ class Application:
             )
             self._write_report_markdown(report)
         self._export_stats_charts(report, now_et().astimezone(UTC))
+        self._export_portfolio(now_et().astimezone(UTC))
         log.info("report.eod_done", **report.aggregates)
         self.capture.reset()
+
+    def _export_portfolio(self, now_utc: datetime) -> None:
+        """Rebuild the virtual-portfolio book (#230) once at EOD. Best-effort — never breaks EOD."""
+        if not self.settings.dashboard_enabled:
+            return
+        try:
+            payload = build_portfolio_payload(self.store, self.settings, now_utc)
+            write_json(self.settings.data_dir / "dashboard" / "portfolio.json", payload)
+        except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
+            log.warning("dashboard.portfolio_write_failed")
 
     def _write_report_markdown(self, report: EodReport) -> None:
         out = self.settings.data_dir / "reports"
