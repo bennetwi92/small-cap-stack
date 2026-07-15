@@ -606,3 +606,81 @@ body.review {
 .rv-eng-gates tr.ok td:last-child {
   color: #3fb950;
 }
+
+/* --- results table (#222/#223): cross-day opportunity table with filters ------------------- */
+.rs-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: flex-end;
+  margin-bottom: 0.9rem;
+}
+.rs-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+}
+.rs-filter-lbl {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pico-muted-color);
+}
+.rs-filter select {
+  width: auto;
+  min-width: 12rem;
+  margin: 0;
+  padding: 0.2rem 1.8rem 0.2rem 0.55rem;
+  font-size: 0.85rem;
+  --pico-form-element-spacing-vertical: 0.25rem;
+}
+.rs-table table {
+  width: 100%;
+  white-space: nowrap;
+}
+.rs-table th.rs-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.rs-table th.rs-sortable:hover {
+  color: var(--pico-color);
+}
+.rs-badge {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.rs-badge.rs-pass {
+  color: #fff;
+  background: #1a7f37;
+}
+.rs-badge.rs-reject {
+  color: #fff;
+  background: #c0362c;
+}
+.rs-badge.rs-muted {
+  color: var(--pico-muted-color);
+  background: rgba(128, 128, 128, 0.15);
+}
+.rs-sess {
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+.rs-sess-premarket {
+  color: #8957e5;
+}
+.rs-sess-market {
+  color: #2f81f7;
+}
+.rs-sess-unknown {
+  color: var(--pico-muted-color);
+}
+.rs-chart-link {
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
