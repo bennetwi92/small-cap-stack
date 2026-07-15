@@ -167,11 +167,27 @@ class Settings(BaseSettings):
     portfolio_target_grid: tuple[float, ...] = (1.5, 2.0, 2.5, 3.0)
     portfolio_adaptive_window_days: int = 20  # trailing lookback for the expectancy re-fit
     portfolio_adaptive_min_samples: int = 8  # need this many trailing trades before re-fitting
-    # Costs, netted out of every trade so the equity curve is honest at ~$250 notional. IBKR tiered
-    # US-stock schedule: ~$0.0035/share, $0.35 minimum, PER ORDER SIDE (entry + exit both charged).
+    # Costs, netted out of every trade so the equity curve is honest at ~$250 notional. Full IBKR
+    # TIERED US-stock schedule per research/broker-costs.md (#232) — tiered UNBUNDLES the exchange /
+    # regulatory pass-throughs, and at these share counts they roughly equal the commission itself,
+    # so charging commission alone understates a round trip by 20-50%. Rates are per ORDER SIDE.
     portfolio_commission_per_share: float = 0.0035
     portfolio_commission_min: float = 0.35
+    # Exchange liquidity-REMOVAL fee. Entries are stop/stop-limit triggers above the consolidation
+    # high and exits are stops/market, so this book is always marketable and never earns the
+    # add-liquidity rebate. Representative lit-venue rate; varies by venue (#232 §1 caveat).
+    portfolio_exchange_fee_per_share: float = 0.0030
+    portfolio_clearing_fee_per_share: float = 0.0002
+    # Sell-side only:
+    portfolio_taf_per_share: float = 0.000166  # FINRA Trading Activity Fee
+    portfolio_taf_max: float = 8.30  # per-order cap (never binds at this size; kept for fidelity)
+    portfolio_sec_fee_rate: float = 0.0000278  # SEC Section 31, on proceeds
     portfolio_exit_slippage_ticks: int = 2  # slippage on stop / mark-to-close exits (limit TP = 0)
+    # Market data (#232 §4). $10/mo is ~2%/mo of a $500 book — the whole point of #232 is that fixed
+    # costs do NOT scale down with capital, so the curve carries it. Charged at month rollover and
+    # waived when that month's IBKR commission clears the threshold.
+    portfolio_market_data_usd_per_month: float = 10.0
+    portfolio_market_data_waiver_usd: float = 30.0
 
 
 @lru_cache

@@ -69,8 +69,21 @@ function equitySvg(curve, start) {
 
 // --- Stat tiles ---------------------------------------------------------------------------------
 
-function tile(label, value, cls = "") {
-  return `<div class="pf-tile"><div class="pf-tile-val ${cls}">${value}</div><div class="pf-tile-lbl">${esc(label)}</div></div>`;
+function tile(label, value, cls = "", title = "") {
+  const t = title ? ` title="${esc(title)}"` : "";
+  return `<div class="pf-tile"${t}><div class="pf-tile-val ${cls}">${value}</div><div class="pf-tile-lbl">${esc(label)}</div></div>`;
+}
+
+// Costs are first-order on a $500 book (research/broker-costs.md, #232) — show the drag as a share
+// of starting equity rather than burying it inside net P&L.
+function costTile(s, start) {
+  if (s.total_costs_usd == null) return "";
+  const pct = start ? ` <span class="muted">(${((s.total_costs_usd / start) * 100).toFixed(1)}%)</span>` : "";
+  const breakdown =
+    `IBKR commission ${fmtUsd(s.commission_usd)} · ` +
+    `exchange/clearing/TAF/SEC ${fmtUsd(s.fees_usd)} · ` +
+    `market data ${fmtUsd(s.data_fees_usd)}`;
+  return tile("Costs", fmtUsd(s.total_costs_usd) + pct, "pf-neg", breakdown);
 }
 
 function statTiles(book, start) {
@@ -83,7 +96,8 @@ function statTiles(book, start) {
     tile("Trades", `${fmtInt(s.n_trades)} <span class="muted">(${s.wins}W/${s.losses}L)</span>`) +
     tile("Avg R", fmtR(s.avg_r)) +
     tile("Expectancy", fmtUsd(s.expectancy_usd) + "/trade") +
-    tile("Max DD", s.max_drawdown_pct == null ? "—" : "-" + (s.max_drawdown_pct * 100).toFixed(1) + "%", "pf-neg")
+    tile("Max DD", s.max_drawdown_pct == null ? "—" : "-" + (s.max_drawdown_pct * 100).toFixed(1) + "%", "pf-neg") +
+    costTile(s, start)
   );
 }
 
@@ -176,7 +190,8 @@ async function load() {
   el("pf-meta").innerHTML =
     `Start ${fmtUsd(PAYLOAD.start_equity)} · ${(c.position_fraction * 100).toFixed(0)}% per trade · ` +
     `max ${c.max_trades_per_day}/day · pre-market fills only (&lt; ${esc(c.premarket_cutoff_et.slice(0, 5))} ET) · ` +
-    `entry $${c.entry_price_min}–${c.entry_price_max} · costs on`;
+    `entry $${c.entry_price_min}–${c.entry_price_max} · ` +
+    `IBKR tiered costs + $${c.market_data_usd_per_month}/mo data (#232)`;
   render();
 }
 

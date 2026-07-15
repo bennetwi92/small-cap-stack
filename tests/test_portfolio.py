@@ -21,6 +21,7 @@ from small_cap_stack.portfolio import (
     simulate_exit,
     simulate_portfolio,
     size_position,
+    trade_costs,
 )
 
 ET = ZoneInfo("America/New_York")
@@ -35,6 +36,51 @@ def _bar(o: float, h: float, low: float, c: float, *, minute: int = 0, hour: int
     # ET-aware; hour defaults to 08:00 (pre-market) so trigger-time checks pass unless overridden.
     start = datetime(2026, 7, 14, hour, minute, tzinfo=ET)
     return Bar(start=start, open=o, high=h, low=low, close=c, volume=1000.0)
+
+
+# --- --- Cost model (#232) ------------------------------------------------------------
+
+
+def test_trade_costs_matches_broker_costs_research_table() -> None:
+    """Pin the all-in round trip against research/broker-costs.md §3's table, to the cent.
+
+    That table is what the account-viability verdict rests on, so if these drift apart one of the
+    two is wrong. A $250 position at each price point; exit priced flat to entry so the SEC fee
+    (charged on proceeds) is computed off a known notional."""
+    s = _s()
+    for price, qty, expected_rt in [
+        (1.50, 166, 2.26),  # per-share rate binds; fees ≈ commission
+        (2.50, 100, 1.36),  # exactly at the $0.35 minimum's break-even share count
+        (10.00, 25, 0.87),  # minimum binds hard; you pay ~4× the headline rate
+        (20.00, 12, 0.79),
+    ]:
+        c = trade_costs(qty, price, price, s)
+        assert round(c.total_usd, 2) == expected_rt, f"${price} × {qty}sh"
+
+
+def test_trade_costs_commission_only_would_understate_badly() -> None:
+    """The bug this change fixes: commission alone misses ~half the cost at 100+ shares."""
+    s = _s()
+    c = trade_costs(100, 2.50, 2.50, s)
+    commission_only = 2 * commission(
+        100, s.portfolio_commission_per_share, s.portfolio_commission_min
+    )
+    assert commission_only == 0.70
+    assert c.total_usd > 1.9 * commission_only  # pass-throughs ≈ double it
+
+
+def test_trade_costs_sell_side_only_fees() -> None:
+    """TAF + SEC are sell-side only: a higher exit lifts cost only via the SEC fee on proceeds."""
+    s = _s()
+    flat = trade_costs(100, 10.0, 10.0, s)
+    up = trade_costs(100, 10.0, 20.0, s)
+    # only the SEC fee moves: (100×20 − 100×10) × 0.0000278
+    assert round(up.fees_usd - flat.fees_usd, 6) == round(1000 * s.portfolio_sec_fee_rate, 6)
+    assert up.commission_usd == flat.commission_usd
+
+
+def test_trade_costs_zero_qty_is_free() -> None:
+    assert trade_costs(0, 10.0, 10.0, _s()).total_usd == 0.0
 
 
 # --- --- simulate_exit ----------------------------------------------------------------
@@ -186,18 +232,26 @@ def test_portfolio_both_trades_size_off_opening_equity() -> None:
 
 
 def test_portfolio_pnl_and_equity_bookkeeping() -> None:
-    # single winner: 25 sh × (12.0 - 10.0) = $50 gross; commission 2 × max(0.35, 25×0.0035=0.0875)
-    # = 2 × 0.35 = $0.70; net $49.30; equity 500 -> 549.30.
+    # Single winner: 25 sh × (12.0 - 10.0) = $50 gross.
+    #   commission = 2 × max(0.35, 25×0.0035=0.0875) = 2 × 0.35 = $0.70
+    #   fees       = 2×25×(0.0030+0.0002) + min(25×0.000166, 8.30) + (25×12.0)×0.0000278
+    #              = 0.16 + 0.00415 + 0.00834 = $0.1725
+    # -> round trip $0.8725, matching research/broker-costs.md's $0.87 for 25 sh of a $10 stock.
+    # The market-data fee is zeroed here so this stays a test of *trade* bookkeeping; the
+    # subscription has its own tests below.
     win = [_bar(10, 12.5, 9.95, 12.3)]
     res = simulate_portfolio(
-        [(date(2026, 7, 14), [_cand("AAA", 5, 10.0, 9.0, win)])], _s(), target_r=2.0
+        [(date(2026, 7, 14), [_cand("AAA", 5, 10.0, 9.0, win)])],
+        _s(portfolio_market_data_usd_per_month=0.0),
+        target_r=2.0,
     )
     t = res.trades[0]
     assert t.qty == 25
     assert t.gross_pnl_usd == 50.0
     assert t.commission_usd == 0.70
-    assert t.net_pnl_usd == 49.30
-    assert res.end_equity == 549.30
+    assert t.fees_usd == 0.1725
+    assert t.net_pnl_usd == 49.1275
+    assert res.end_equity == 549.1275
     assert res.wins == 1 and res.losses == 0
     assert res.win_rate == 1.0
 
@@ -421,3 +475,64 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     import json
 
     json.dumps(payload)
+
+
+# --- --- Market-data fee + settled-cash invariant (#232, #234) -------------------------
+
+
+def test_data_fee_charged_at_month_rollover_when_under_waiver() -> None:
+    """A quiet month bills the $10 subscription; it lands in equity, not just in the stats."""
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    days = [
+        (date(2026, 6, 29), [_cand("AAA", 5, 10.0, 9.0, win)]),
+        (date(2026, 7, 14), [_cand("BBB", 5, 10.0, 9.0, win)]),  # new month -> June settles
+    ]
+    res = simulate_portfolio(days, _s(), target_r=2.0)
+    # June's commission ($0.70) is nowhere near the $30 waiver, and so is July's -> both billed.
+    assert res.data_fees_usd == 20.0
+    gross_net = sum(t.net_pnl_usd for t in res.trades)
+    assert res.end_equity == round(500.0 + gross_net - 20.0, 4)
+    assert res.total_costs_usd == round(res.commission_usd + res.fees_usd + 20.0, 4)
+
+
+def test_data_fee_waived_when_month_clears_commission_threshold() -> None:
+    """Above the threshold the subscription is free — model the waiver, don't over-charge."""
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    days = [(date(2026, 7, 14), [_cand("AAA", 5, 10.0, 9.0, win)])]
+    # Drop the waiver below this month's commission ($0.70) -> waived.
+    res = simulate_portfolio(days, _s(portfolio_market_data_waiver_usd=0.5), target_r=2.0)
+    assert res.data_fees_usd == 0.0
+
+
+def test_data_fee_compounds_into_sizing() -> None:
+    """The fee must reduce the NEXT day's opening equity, hence its position size.
+
+    Applied as a post-pass it would flatter the book: sizing is capital-based, so a $10 fee that
+    doesn't compound leaves every later position too large. Priced at $5/share so the $10 fee
+    actually crosses a whole-share boundary (~$245 vs ~$255 of buying power -> 48 vs 49 shares);
+    at $10/share it wouldn't, and the test would pass vacuously."""
+    win = [_bar(5, 6.5, 4.95, 6.3)]
+    flat = [_bar(5, 5.05, 4.95, 5.0)]  # no-op day: marks to close ~flat
+    days = [
+        (date(2026, 6, 30), [_cand("AAA", 5, 5.0, 4.5, flat)]),
+        (date(2026, 7, 1), [_cand("BBB", 5, 5.0, 4.5, win)]),  # new month -> June's fee settles
+    ]
+    charged = simulate_portfolio(days, _s(), target_r=2.0)
+    free = simulate_portfolio(days, _s(portfolio_market_data_usd_per_month=0.0), target_r=2.0)
+    # July's trade sizes off a $10-lighter account, so it buys strictly fewer shares.
+    assert charged.trades[1].qty < free.trades[1].qty
+
+
+def test_settled_cash_invariant_holds_by_construction() -> None:
+    """#232 §6: total daily buy notional must not exceed the day's OPENING settled cash.
+
+    The book never simulates settlement — the 50% × 2/day cap *is* the constraint. This pins that
+    the config can't drift into a book the cash account couldn't actually have traded."""
+    s = _s()
+    assert s.portfolio_position_fraction * s.portfolio_max_trades_per_day <= 1.0
+
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
+    res = simulate_portfolio([(date(2026, 7, 14), cands)], s, target_r=2.0)
+    spent = sum(t.qty * t.entry_price for t in res.trades)
+    assert spent <= s.portfolio_start_equity_usd  # 2 × 25sh × $10 = $500 exactly, never more
