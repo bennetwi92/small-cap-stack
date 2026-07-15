@@ -284,8 +284,11 @@ def extract_day_trades(store: Store, s: Settings, trading_date: date) -> list[Ca
         return []
     bars_df = store.read("bars", dt=trading_date)
     scans = store.read("scanner_hits", dt=trading_date)
+    excluded = {sym.upper() for sym in s.portfolio_exclude_symbols}
     out: list[CandidateTrade] = []
     for row in opps.iter_rows(named=True):
+        if str(row["symbol"]).upper() in excluded:  # ETFs mis-captured pre-#226 — never a candidate
+            continue
         oid = row["opportunity_id"]
         day_bars = day_chart_bars(bars_df, oid, s)
         if not day_bars:

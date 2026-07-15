@@ -160,6 +160,12 @@ class Settings(BaseSettings):
     portfolio_premarket_cutoff: time = time(9, 30)  # strict: the TRIGGER bar must open before this
     portfolio_entry_price_min: float = 1.0  # entry_fill price band (narrower than the $1–50 scan)
     portfolio_entry_price_max: float = 20.0
+    # Symbols to exclude from the paper book. Before #226/#227 added the scanner's `stkTypes`
+    # ETF/ETN filter, `STK.US.MAJOR` captured a handful of leveraged single-stock ETFs (no share
+    # float, not Warrior-style candidates) that then flowed into this compute-on-read book. The
+    # scanner no longer captures them, but the already-stored opportunities still would; drop them
+    # here so the historical book is clean. Verified no-float in the captured fundamentals.
+    portfolio_exclude_symbols: tuple[str, ...] = ("CCUP", "CRCG", "OKLL", "SNDQ")
     portfolio_target_r: float = 2.0  # fallback fixed R target (used until the window has samples)
     portfolio_breakeven_r: float = 0.0  # arm a breakeven stop once +Nb·R is reached; 0 disables
     # Adaptive target: each day re-fits the target to the highest-expectancy grid value over the
