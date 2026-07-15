@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>small-cap-stack · results table</title>
+    <meta name="robots" content="noindex" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Shared page nav (#219): compact pill tabs, active tab marked per page (no JS). Sticky so it
+         stays reachable while the (potentially long) results table scrolls. -->
+    <nav class="topnav" aria-label="Pages">
+      <a class="topnav-tab" href="index.html">Dashboard</a>
+      <a class="topnav-tab" href="review.html">Review</a>
+      <a class="topnav-tab" href="results.html" aria-current="page">Results</a>
+    </nav>
+    <main class="container">
+      <hgroup>
+        <h1>Results</h1>
+        <p class="muted">
+          Every opportunity across every collected day ·
+          <span id="rs-count" class="muted">loading…</span>
+          <button id="rs-refresh" class="secondary outline" title="Refresh now">↻</button>
+        </p>
+      </hgroup>
+
+      <p id="rs-error" class="error" hidden></p>
+
+      <!-- Filters (#223): time-of-day + engine verdict. Compose (AND); re-render client-side. -->
+      <div class="rs-filters">
+        <label class="rs-filter">
+          <span class="rs-filter-lbl">Time of day</span>
+          <select id="rs-session">
+            <option value="all">All</option>
+            <option value="premarket">Pre-market (&lt; 09:30 ET)</option>
+            <option value="market">Market (&ge; 09:30 ET)</option>
+          </select>
+        </label>
+        <label class="rs-filter">
+          <span class="rs-filter-lbl">Engine</span>
+          <select id="rs-engine">
+            <option value="all">All</option>
+            <option value="pass">Pass</option>
+            <option value="reject">Reject</option>
+          </select>
+        </label>
+      </div>
+
+      <div id="rs-table" class="scroll rs-table">
+        <p class="muted">loading…</p>
+      </div>
+
+      <footer class="muted">
+        <small>
+          Reads the same published data as the review workbench. Times in ET · Pred Max R is the
+          engine's measured Max R (3-tick fill, stop-first). Phase-1 = tracking only, no orders.
+          · <a href="https://github.com/bennetwi92/small-cap-stack">repo</a>
+        </small>
+      </footer>
+    </main>
+    <script src="results.js"></script>
+  </body>
+</html>

@@ -1316,7 +1316,22 @@ async function init() {
   dateSel.innerHTML = dates
     .map((d) => `<option value="${esc(d.date)}">${esc(dateLabel(d.date))}</option>`)
     .join("");
+  // Deep-link (#224): the Results table (results.html) links each row to
+  // `review.html?date=<date>&oid=<opportunity_id>`. Preselect that date + opportunity when present;
+  // absent/unknown params fall through to the default (newest date, first opportunity) so plain
+  // `review.html` is unchanged. `oid` carries a `#` for multi-run ids, so it arrives URL-decoded.
+  const params = new URLSearchParams(location.search);
+  const wantDate = params.get("date");
+  const wantOid = params.get("oid");
+  if (wantDate && dates.some((d) => d.date === wantDate)) dateSel.value = wantDate;
   await loadDate(dateSel.value);
+  if (wantOid) {
+    const sym = el("rv-symbol");
+    if ([...sym.options].some((o) => o.value === wantOid)) {
+      sym.value = wantOid;
+      drawSelected();
+    }
+  }
 }
 
 // Navigation guards (#156): a date/symbol change discards any unsaved review, so confirm first and
