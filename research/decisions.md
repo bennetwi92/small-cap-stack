@@ -311,3 +311,56 @@ Deliverable: a typed, exhaustively-tested simulator in `src/small_cap_stack/` (p
 trading logic — the product), a `portfolio.json` export to the `dashboard-data` branch, and a thin
 `docs/portfolio.html`/`.js` page. Open exit questions from `findings-index.md` §3 Q3 are **resolved
 for this account** by the fixed-R-target-from-trailing-expectancy model above.
+
+## Getting paid — withdrawals + UK tax + running cost (DECISION 2026-07-16)
+The virtual book previously only ever **compounded** — it netted broker costs but never took money
+out, so it answered "how big does $500 grow" and not "how much actually reaches my bank." This adds
+a **getting-paid layer** on top: periodic withdrawals, a UK tax reserve, and the VPS running cost,
+surfaced as a take-home figure in GBP. Built as a modelling layer on the existing paper book (three
+new boundary ledgers alongside `_DataFeeLedger` in `portfolio.py`); **exhaustively unit-tested**, and
+flowing through `portfolio.json` → the "Getting paid" panel on `docs/portfolio.html`. Decisions
+(chosen by the user 2026-07-16):
+
+- **Withdrawal rule = % of profit above a high-water mark, quarterly.** Each `withdraw_cadence_months`
+  (default **3**) pay out `withdraw_fraction` (default **50%**) of the profit above the prior HWM,
+  never below a **viability floor** (`withdraw_floor_usd`, default **$2,000**) and never distributing
+  cash reserved for tax. The HWM then **ratchets to the post-withdrawal balance**, so each period only
+  pays on genuinely new profit. Chosen over a fixed £/month salary (which drains the account to ruin
+  in a drawdown) and over %-of-equity (which dips into base capital). **A no-op at the $500 start** —
+  it stays dormant until the account clears the floor, which is the honest state (`broker-costs.md`
+  §9: $500 is plumbing validation, not strategy validation). Withdrawals reduce equity, so the
+  settled-cash invariant is preserved by construction (`test_settled_cash_invariant` still holds).
+- **Tax = UK CGT base case, rate configurable.** Reserve `cgt_rate` (default **24%**, higher-rate
+  share CGT post-30-Oct-2024) on net realised gains above the **£3,000** annual exempt amount
+  (`cgt_annual_exempt_gbp`), accrued **per UK tax year (6 Apr–5 Apr)** and settled at the boundary.
+  The reserve is held back from withdrawals so the book keeps enough to pay HMRC. Losses reduce the
+  year's gain (floored at £0 within the year; cross-year loss carry-forward not modelled — a
+  documented, conservative simplification). Real CGT is due the following **31 Jan**; the book settles
+  at year-end, which reserves *earlier* (the safe direction for take-home).
+  - ⚠️ **CGT-vs-trading-income is the biggest risk.** HMRC *could* treat systematic automated
+    day-trading as a **trade** → Income Tax + Class 2/4 NIC (~42–47%) rather than CGT. For an
+    individual, share speculation is *usually* still CGT (the badges of trade rarely bite securities
+    dealing), but it is a genuine tail risk. The **rate is a config knob** precisely so the
+    income-tax scenario can be modelled without code changes — set `cgt_rate` to ~0.42–0.47.
+- **FX = single assumed GBP/USD rate** (`gbpusd_rate`, default **1.27**). The book is kept in USD
+  (funded once from GBP, then permanently USD — `broker-costs.md` §5), so tax, VPS and take-home are
+  derived through one rate rather than a daily FX series. The rate is quoted the market way (1 GBP =
+  `gbpusd_rate` USD): USD→GBP divides, GBP→USD multiplies. **FX moves the taxable gain** (gains are
+  legally computed in GBP per disposal); a single rate is an approximation, with a per-disposal daily
+  series the accurate-but-heavier alternative (deferred).
+- **VPS running cost** (`vps_gbp_per_month`, default **£10**) — charged monthly like the market-data
+  fee but kept as its own line (different real-world expense; no waiver). Every month present is
+  billed whether or not it traded.
+
+**Other factors, recorded as non-blocking context** (so they aren't re-litigated): IBKR withdrawal
+mechanics (1 free/month then a fee, plus a USD→GBP conversion spread — quarterly cadence keeps these
+small; can be added as a per-withdrawal cost later); **PTP / Section 1446(f)** 10%-of-gross-proceeds
+withholding on sales of US Publicly Traded Partnerships by non-US persons (rare for these names, ETFs
+already excluded); and the *non-factors* — **no US CGT** for a non-resident alien (W-8BEN on file),
+**no UK stamp duty** on US shares, and **no dividends** (intraday only).
+
+Metrics stay honest under the new cash-flows: `return_pct` is a **total-value return** that adds
+withdrawn cash back (so paying yourself doesn't read as a loss, while tax + VPS legitimately reduce
+it), and `max_drawdown_pct` is measured on the **pure trading-P&L path** so scheduled cash-outs never
+masquerade as a drawdown. Config knobs live in `config.py` as `portfolio_*` defaults (env-overridable,
+consistent with the other portfolio knobs — not surfaced in `.env.example`).

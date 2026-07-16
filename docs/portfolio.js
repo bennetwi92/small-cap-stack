@@ -16,6 +16,7 @@ const esc = (s) =>
 const MK = { up: "#3fb950", down: "#f85149", flat: "#8b949e", line: "#2f81f7" };
 
 const fmtUsd = (x) => (x == null || !isFinite(x) ? "—" : "$" + Number(x).toFixed(2));
+const fmtGbp = (x) => (x == null || !isFinite(x) ? "—" : "£" + Number(x).toFixed(2));
 const fmtR = (x) => (x == null || !isFinite(x) ? "—" : (x >= 0 ? "+" : "") + Number(x).toFixed(2) + "R");
 const fmtPct = (x) => (x == null || !isFinite(x) ? "—" : (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%");
 const fmtInt = (x) => (x == null || !isFinite(x) ? "—" : String(x));
@@ -41,7 +42,7 @@ async function fetchJson(file) {
 
 // --- Equity curve (inline SVG, theme-agnostic via currentColor + explicit marks) ----------------
 
-function equitySvg(curve, start) {
+function equitySvg(curve, start, cashFlows = []) {
   const pts = [{ date: null, equity: start }, ...curve]; // anchor at the opening balance
   if (pts.length < 2) return '<p class="muted">Not enough data to chart yet.</p>';
   const W = 720, H = 240, PAD = 34;
@@ -55,10 +56,23 @@ function equitySvg(curve, start) {
   const end = pts[pts.length - 1].equity;
   const stroke = end >= start ? MK.up : MK.down;
   const baseY = y(start).toFixed(1);
+  // Mark each quarterly withdrawal on the curve so its step-down reads as a payout, not a loss.
+  const idxByDate = new Map(curve.map((p, i) => [p.date, i + 1])); // +1 for the start anchor
+  const marks = (cashFlows || [])
+    .filter((c) => c.kind === "withdrawal" && idxByDate.has(c.date))
+    .map((c) => {
+      const mx = x(idxByDate.get(c.date)).toFixed(1);
+      return (
+        `<line x1="${mx}" x2="${mx}" y1="${PAD}" y2="${H - PAD}" stroke="${MK.line}" stroke-dasharray="2 3" stroke-width="1" opacity="0.55"/>` +
+        `<text x="${mx}" y="${(PAD - 4).toFixed(1)}" text-anchor="middle" class="pf-axis">↓£${Number(c.gbp).toFixed(0)}</text>`
+      );
+    })
+    .join("");
   return (
     `<svg viewBox="0 0 ${W} ${H}" class="pf-chart" role="img" aria-label="Equity curve">` +
     `<line x1="${PAD}" x2="${W - PAD}" y1="${baseY}" y2="${baseY}" stroke="${MK.flat}" stroke-dasharray="3 3" stroke-width="1"/>` +
     `<text x="${W - PAD}" y="${(+baseY - 4).toFixed(1)}" text-anchor="end" class="pf-axis">start ${fmtUsd(start)}</text>` +
+    marks +
     `<path d="${area}" fill="${stroke}" opacity="0.10"/>` +
     `<path d="${line}" fill="none" stroke="${stroke}" stroke-width="2"/>` +
     `<circle cx="${x(pts.length - 1).toFixed(1)}" cy="${y(end).toFixed(1)}" r="3.5" fill="${stroke}"/>` +
@@ -98,6 +112,54 @@ function statTiles(book, start) {
     tile("Expectancy", fmtUsd(s.expectancy_usd) + "/trade") +
     tile("Max DD", s.max_drawdown_pct == null ? "—" : "-" + (s.max_drawdown_pct * 100).toFixed(1) + "%", "pf-neg") +
     costTile(s, start)
+  );
+}
+
+// --- Getting paid: withdrawals + UK CGT + VPS, in GBP -------------------------------------------
+
+const CF_LBL = { withdrawal: "Withdrawal", tax: "CGT", vps: "VPS" };
+
+// The take-home layer: what actually reaches your bank after tax + the box's running cost.
+// All in GBP (the book is USD, converted at the assumed rate the payload carries).
+function payoutTiles(book) {
+  const s = book.stats;
+  return (
+    tile("Take-home", fmtGbp(s.net_take_home_gbp), s.net_take_home_gbp > 0 ? "pf-pos" : "", "Sum of withdrawals paid out to you, net, in GBP") +
+    tile("CGT reserved", fmtGbp(s.tax_paid_gbp), s.tax_paid_gbp > 0 ? "pf-neg" : "", "UK Capital Gains Tax reserved on realised gains above the annual allowance") +
+    tile("VPS cost", fmtGbp(s.vps_costs_gbp), s.vps_costs_gbp > 0 ? "pf-neg" : "", "Running cost of the box, charged monthly")
+  );
+}
+
+function cashFlowRows(book, cfg) {
+  const flows = book.cash_flows || [];
+  if (!flows.length) {
+    const floor = cfg && cfg.withdraw_floor_usd != null ? fmtUsd(cfg.withdraw_floor_usd) : "the floor";
+    return (
+      `<p class="muted pf-note">No payouts yet — withdrawals stay dormant until the balance clears ` +
+      `${floor} (profit above a high-water mark is paid out ` +
+      `${cfg ? (cfg.withdraw_fraction * 100).toFixed(0) : "—"}% every ` +
+      `${cfg ? cfg.withdraw_cadence_months : "—"} months), and CGT is only reserved on gains above the allowance.</p>`
+    );
+  }
+  const rows = flows
+    .slice()
+    .reverse() // newest first
+    .map((c) => {
+      const cls = c.kind === "withdrawal" ? "pf-pos" : "pf-neg";
+      return (
+        "<tr>" +
+        `<td>${esc(c.date)}</td>` +
+        `<td><span class="pf-reason pf-reason-${c.kind === "withdrawal" ? "target" : "stop"}">${CF_LBL[c.kind] || c.kind}</span></td>` +
+        `<td class="${cls}">${fmtGbp(c.gbp)}</td>` +
+        `<td class="muted">${fmtUsd(c.usd)}</td>` +
+        "</tr>"
+      );
+    })
+    .join("");
+  return (
+    '<div class="scroll pf-table"><table><thead><tr>' +
+    "<th>Date</th><th>Type</th><th>GBP</th><th>USD</th>" +
+    `</tr></thead><tbody>${rows}</tbody></table></div>`
   );
 }
 
@@ -164,8 +226,10 @@ function render() {
   const book = PAYLOAD.books[BOOK];
   el("pf-books").innerHTML = bookSelector();
   el("pf-tiles").innerHTML = statTiles(book, PAYLOAD.start_equity);
-  el("pf-chart-wrap").innerHTML = equitySvg(book.equity_curve, PAYLOAD.start_equity);
+  el("pf-chart-wrap").innerHTML = equitySvg(book.equity_curve, PAYLOAD.start_equity, book.cash_flows);
   el("pf-note").innerHTML = BOOK === "adaptive" ? adaptiveTargetNote(book) : "";
+  el("pf-payout-tiles").innerHTML = payoutTiles(book);
+  el("pf-cashflows").innerHTML = cashFlowRows(book, PAYLOAD.config);
   el("pf-trades").innerHTML = tradeRows(book);
   document.querySelectorAll(".pf-book").forEach((b) =>
     b.addEventListener("click", () => {
@@ -192,7 +256,10 @@ async function load() {
     `max ${(c.position_fraction * 100).toFixed(0)}% size · ` +
     `max ${c.max_trades_per_day}/day · pre-market fills only (&lt; ${esc(c.premarket_cutoff_et.slice(0, 5))} ET) · ` +
     `entry $${c.entry_price_min}–${c.entry_price_max} · ` +
-    `IBKR tiered costs + $${c.market_data_usd_per_month}/mo data (#232)`;
+    `IBKR tiered costs + $${c.market_data_usd_per_month}/mo data (#232) · ` +
+    `withdraw ${(c.withdraw_fraction * 100).toFixed(0)}% of profit &gt; ${fmtUsd(c.withdraw_floor_usd)} every ` +
+    `${c.withdraw_cadence_months}mo · ${(c.cgt_rate * 100).toFixed(0)}% CGT &gt; £${c.cgt_annual_exempt_gbp} · ` +
+    `£/$ ${Number(PAYLOAD.gbpusd_rate).toFixed(2)}`;
   render();
 }
 

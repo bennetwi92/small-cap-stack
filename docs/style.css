@@ -768,6 +768,20 @@ body.review {
   font-size: 0.78rem;
   margin: 0 0 0.9rem;
 }
+.pf-payout {
+  margin: 0.6rem 0 1rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--pico-muted-border-color);
+}
+.pf-subhead {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 0.6rem;
+}
+.pf-subhead .muted {
+  font-size: 0.8rem;
+  font-weight: 400;
+}
 .pf-table table {
   font-size: 0.82rem;
   margin-bottom: 0;
