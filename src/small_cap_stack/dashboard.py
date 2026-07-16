@@ -83,12 +83,39 @@ def _latest_candidates(
     return cands, last_ts
 
 
-def _count(df: pl.DataFrame, prefix: str, distinct: list[str] | None) -> dict[str, int]:
-    if df.is_empty():
-        return {"today": 0, "total": 0}
-    base = df.unique(subset=distinct) if distinct else df
-    today = base.filter(pl.col("opportunity_id").str.starts_with(prefix))
-    return {"today": today.height, "total": base.height}
+def _count_expr(distinct: list[str] | None) -> str:
+    """DuckDB count expression: raw ``COUNT(*)`` or ``COUNT(DISTINCT …)`` over the subset."""
+    if distinct is None:
+        return "COUNT(*)"
+    inner = distinct[0] if len(distinct) == 1 else "(" + ", ".join(distinct) + ")"
+    return f"COUNT(DISTINCT {inner})"
+
+
+def _data_counts(store: Store, prefix: str) -> dict[str, dict[str, int]]:
+    """Per-dataset ``{today, total}`` row counts computed in DuckDB (never materialise the frame).
+
+    ``total`` is intentionally cross-history, so it cannot be ``dt=``-scoped like the other reads
+    (#246); instead push the aggregation into a single ``COUNT``/``COUNT(DISTINCT …)`` query so the
+    box never pulls the full ~1.4 GB ``bars`` dataset into memory on every 60s status tick.
+    ``today`` is the same count filtered to this trading date's ``opportunity_id`` prefix. Absent
+    datasets (a fresh store) report zeros. All dataset/column names are code constants; only
+    ``prefix`` is derived (from the trading date) and is single-quote-escaped defensively."""
+    counts = {name: {"today": 0, "total": 0} for name, _ in _DATASET_COUNTS}
+    available = set(store.datasets())
+    present = [(name, distinct) for name, distinct in _DATASET_COUNTS if name in available]
+    if not present:
+        return counts
+    esc = prefix.replace("'", "''")
+    selects = [
+        f"SELECT '{name}' AS dataset, {_count_expr(distinct)} AS total, "
+        f"{_count_expr(distinct)} FILTER (WHERE starts_with(opportunity_id, '{esc}')) AS today "
+        f'FROM "{name}"'
+        for name, distinct in present
+    ]
+    result = store.query(" UNION ALL ".join(selects))
+    for row in result.iter_rows(named=True):
+        counts[row["dataset"]] = {"today": int(row["today"]), "total": int(row["total"])}
+    return counts
 
 
 def _open_opportunities(store: Store, trading_date: date) -> dict[str, Any]:
@@ -103,8 +130,7 @@ def _open_opportunities(store: Store, trading_date: date) -> dict[str, Any]:
 def build_status(store: Store, s: StatusInputs) -> dict[str, Any]:
     """Frequent snapshot: service health, scanner activity, open opportunities, data counts."""
     candidates, last_scan = _latest_candidates(store, s.trading_date)
-    prefix = _prefix(s.trading_date)
-    data = {name: _count(store.read(name), prefix, distinct) for name, distinct in _DATASET_COUNTS}
+    data = _data_counts(store, _prefix(s.trading_date))
     return {
         "generated_utc": s.now.isoformat(),
         "trading_date": s.trading_date.isoformat(),
@@ -150,10 +176,14 @@ def build_charts(
     opps = day_opportunities(store, trading_date)
     charts: list[dict[str, Any]] = []
     if not opps.is_empty():
-        bars = store.read("bars")
-        scans = store.read("scanner_hits")
-        news = store.read("news")
-        funds = store.read("fundamentals")
+        # Scope every read to this trading date's partition — the day's opportunities only ever
+        # reference that day's bars/scans/news/funds (ids embed the date). An unscoped read pulls
+        # the whole `bars` history (~1.4 GB) into memory each tick / archive iteration and OOMs the
+        # box (#246, mirrors report.build_eod_report / portfolio.extract_day_trades).
+        bars = store.read("bars", dt=trading_date)
+        scans = store.read("scanner_hits", dt=trading_date)
+        news = store.read("news", dt=trading_date)
+        funds = store.read("fundamentals", dt=trading_date)
         for row in opps.iter_rows(named=True):
             oid = row["opportunity_id"]
             full_day = day_chart_bars(bars, oid, settings)
