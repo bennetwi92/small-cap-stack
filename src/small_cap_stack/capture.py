@@ -186,7 +186,15 @@ class CaptureService:
         # separate single-row Parquet file, so ~50 candidates x ~480 in-window ticks produced ~24k
         # one-row files a day in a single dt= partition — and every read globs + union_by_names all
         # of them. Same raw rows, one file. (Empty candidate list -> append is a no-op.)
-        await self.store.append_async("scanner_hits", hits, partition_date=trading_date)
+        #
+        # Guarded for the same reason the loop is: `app._on_tick` doesn't wrap this call, so an
+        # append failure here would skip the rest of the tick (the dashboard status/stats refresh)
+        # on top of losing the hits. Batching makes that all-or-nothing where it used to be
+        # per-candidate, which is the price of one file per tick — so don't let it escape.
+        try:
+            await self.store.append_async("scanner_hits", hits, partition_date=trading_date)
+        except Exception:  # noqa: BLE001 — a hit-log failure must not abort the tick
+            log.warning("capture.scanner_hits_append_failed", count=len(hits))
 
     async def _open_opportunity(
         self, oid: str, c: Candidate, now: datetime, trading_date: date
@@ -196,6 +204,15 @@ class CaptureService:
             [opportunity_record(c, oid, now, trading_date)],
             partition_date=trading_date,
         )
+        # Mark it open the moment its row is durable — BEFORE the best-effort enrichment below.
+        # The persisted row *is* the definition of "already open" (`_ensure_hydrated` re-seeds
+        # `_open` from exactly this on restart), so anything that fails after it must not cause a
+        # re-open: the next tick would append a second row, and the next, and the next — ~480
+        # duplicate rows and Parquet files a day for one bad symbol, which is the #247 small-files
+        # explosion moved into `opportunities`. Enrichment gaps are recovered at EOD instead
+        # (`capture_missing_fundamentals` #255, `capture_day_news` #97).
+        self._open.add(oid)
+        OPPORTUNITIES.inc()
         try:
             items = await self.news.fetch_news(
                 c, lookback_days=self.settings.news_lookback_days, limit=self.settings.news_max
@@ -214,8 +231,6 @@ class CaptureService:
                 [fundamentals_record(oid, f, now) for f in funds],
                 partition_date=trading_date,
             )
-        self._open.add(oid)
-        OPPORTUNITIES.inc()
         log.info(
             "capture.opportunity_opened",
             opportunity_id=oid,
@@ -357,14 +372,27 @@ class CaptureService:
                 log.info("capture.day_news_appended", opportunity_id=oid, count=len(items))
 
     def _opportunities_with_fundamentals(self, trading_date: date) -> set[str]:
-        """opportunity_ids that already have at least one stored fundamentals row.
+        """opportunity_ids that already have a *usable* fundamentals row — non-null float_shares.
+
+        "Has any row" is the wrong test. ``yfinance``'s ``.info`` routinely omits ``floatShares``
+        for micro-caps, and ``from_info`` still returns a ``Fundamentals`` — so a row exists with
+        ``float_shares=None``, which is exactly the case the float gate fails conservatively on.
+        Counting that as covered would make this back-fill skip precisely the opportunities it
+        exists for.
+
+        Known limit: an opportunity with a usable float from *one* source counts as covered even if
+        a higher-priority source (``_FLOAT_PRIORITY`` puts fmp above yfinance) errored — we re-fetch
+        for a missing float, not for a better one.
 
         Scoped to the day's partition — fundamentals are written under the opportunity's
         ``trading_date``, so a full-history read would be pure waste (and the #246 OOM lesson)."""
         funds = self.store.read("fundamentals", dt=trading_date)
-        if funds.is_empty():
+        if funds.is_empty() or "float_shares" not in funds.columns:
             return set()
-        return set(funds["opportunity_id"].unique().to_list())
+        usable = funds.filter(pl.col("float_shares").is_not_null())
+        if usable.is_empty():
+            return set()
+        return set(usable["opportunity_id"].unique().to_list())
 
     async def capture_missing_fundamentals(self, trading_date: date) -> int:
         """End-of-day: re-fetch fundamentals for opportunities that have none. Returns how many.

@@ -268,23 +268,15 @@ def test_backfill_recent_scans_multiple_days(tmp_path: Path) -> None:
 # --- per-candidate isolation + batched scanner_hits (#254, #247) --------------------------------
 
 
-class _BoomNews:
-    """News source that raises for one symbol — a stand-in for any per-candidate failure."""
-
-    def __init__(self, boom_symbol: str) -> None:
-        self.boom_symbol = boom_symbol
-
-    async def fetch_news(
-        self, candidate: Candidate, *, lookback_days: int, limit: int
-    ) -> list[NewsItem]:
-        return []
-
-
 class _BoomFundamentals:
+    """Raises for one symbol; records every symbol it was asked for."""
+
     def __init__(self, boom_symbol: str) -> None:
         self.boom_symbol = boom_symbol
+        self.seen: list[str] = []
 
     async def fetch_all(self, candidate: Candidate) -> list[Fundamentals]:
+        self.seen.append(candidate.symbol)
         if candidate.symbol == self.boom_symbol:
             raise RuntimeError("fundamentals exploded")
         return [Fundamentals(candidate.symbol, 5_000_000, 9_000_000, 0.1, "fake")]
@@ -296,7 +288,7 @@ def test_scan_tick_isolates_a_failing_candidate(tmp_path: Path) -> None:
     svc = CaptureService(
         store=store,
         bars=FakeBars([]),  # type: ignore[arg-type]
-        news=_BoomNews("BAD"),  # type: ignore[arg-type]
+        news=FakeNews([]),
         settings=_settings(),
         fundamentals=_BoomFundamentals("BAD"),  # type: ignore[arg-type]
     )
@@ -306,8 +298,7 @@ def test_scan_tick_isolates_a_failing_candidate(tmp_path: Path) -> None:
     asyncio.run(svc.on_scan_tick(cands, now))  # must not raise
 
     opps = store.read("opportunities")
-    opened = set(opps["symbol"].to_list())
-    assert "GOOD" in opened and "ALSOGOOD" in opened  # the failure didn't stall them
+    assert sorted(opps["symbol"].to_list()) == ["ALSOGOOD", "BAD", "GOOD"]  # not stalled
 
     # Every candidate still gets a scanner hit — that it appeared is true regardless of opening.
     hits = store.read("scanner_hits")
@@ -414,18 +405,91 @@ def test_eod_fundamentals_still_missing_is_retried_not_recorded(tmp_path: Path) 
 
 
 def test_eod_fundamentals_isolates_a_raising_symbol(tmp_path: Path) -> None:
+    """A symbol whose source raises is skipped, not propagated — and the batch still runs it."""
     store = Store(tmp_path)
-    svc = _fund_svc(store, _BoomFundamentals("BAD"))
+    funds = _BoomFundamentals("BAD")
+    svc = _fund_svc(store, funds)
     now = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
     asyncio.run(svc.on_scan_tick([_candidate("BAD"), _candidate("GOOD")], now))
+    assert set(store.read("fundamentals")["symbol"].to_list()) == {"GOOD"}
 
-    # GOOD got fundamentals at open; BAD raised. Only BAD is missing, and it raises again here.
+    funds.seen.clear()
     filled = asyncio.run(svc.capture_missing_fundamentals(_TRADING_DATE))
-    assert filled == 0  # BAD still fails, but the call returns rather than propagating
+
+    # It was actually attempted (not silently excluded) and it raised — so nothing was filled...
+    assert funds.seen == ["BAD"]
+    assert filled == 0
+    # ...and GOOD, already covered, was not re-fetched.
     assert set(store.read("fundamentals")["symbol"].to_list()) == {"GOOD"}
 
 
 def test_eod_fundamentals_no_opportunities_is_a_noop(tmp_path: Path) -> None:
     store = Store(tmp_path)
     svc = _fund_svc(store, _FlakyFundamentals())
+    assert asyncio.run(svc.capture_missing_fundamentals(_TRADING_DATE)) == 0
+
+
+def test_partially_opened_symbol_is_not_reopened_every_tick(tmp_path: Path) -> None:
+    """A failure *after* the opportunities row must not re-open the symbol next tick.
+
+    `_open_opportunity` writes the row first and enriches after. If the oid were only marked open
+    at the end, any enrichment failure would leave the row written but the symbol un-opened — so
+    every subsequent tick appends another row. Over a ~480-tick scan window that is ~480 duplicate
+    rows and Parquet files for one bad symbol: the #247 small-files explosion, moved into
+    `opportunities`. The row itself is the definition of "open" (`_ensure_hydrated` re-seeds from
+    it), so it is marked open as soon as it is durable.
+    """
+    store = Store(tmp_path)
+    svc = _fund_svc(store, _BoomFundamentals("BAD"))
+    now = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
+
+    for _ in range(5):  # five ticks, same failing candidate
+        asyncio.run(svc.on_scan_tick([_candidate("BAD"), _candidate("GOOD")], now))
+
+    opps = store.read("opportunities")
+    assert sorted(opps["symbol"].to_list()) == ["BAD", "GOOD"]  # one row each, not five
+    assert opps.height == 2
+
+
+def test_scan_tick_survives_a_scanner_hits_append_failure(tmp_path: Path) -> None:
+    """A hit-log write failure must not abort the tick — app._on_tick doesn't wrap this call."""
+    store = Store(tmp_path)
+    svc = _svc(store, FakeBars([]), FakeNews([]))
+
+    async def boom(*args: object, **kwargs: object) -> None:
+        raise OSError("No space left on device")
+
+    svc.store.append_async = boom  # type: ignore[method-assign]
+    # Must return normally: raising here would skip the dashboard refresh for the whole tick.
+    asyncio.run(svc.on_scan_tick([_candidate("AZI")], datetime(2026, 6, 29, 14, 0, tzinfo=UTC)))
+
+
+def test_eod_fundamentals_refetches_a_null_float_row(tmp_path: Path) -> None:
+    """A row with float_shares=None is NOT coverage — it's the case the float gate fails on (#255).
+
+    yfinance's `.info` routinely omits floatShares for micro-caps and `from_info` still returns a
+    Fundamentals, so "has any row" would mark exactly these opportunities as done forever.
+    """
+    store = Store(tmp_path)
+
+    class _NullThenReal:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def fetch_all(self, candidate: Candidate) -> list[Fundamentals]:
+            self.calls += 1
+            if self.calls == 1:  # a row, but with no usable float
+                return [Fundamentals(candidate.symbol, None, 9_000_000, 0.1, "yfinance")]
+            return [Fundamentals(candidate.symbol, 5_000_000, 9_000_000, 0.1, "fmp")]
+
+    funds = _NullThenReal()
+    svc = _fund_svc(store, funds)
+    asyncio.run(svc.on_scan_tick([_candidate("AZI")], datetime(2026, 6, 29, 14, 0, tzinfo=UTC)))
+    assert store.read("fundamentals").height == 1  # the null-float row exists
+
+    assert asyncio.run(svc.capture_missing_fundamentals(_TRADING_DATE)) == 1  # re-fetched anyway
+
+    df = store.read("fundamentals")
+    assert sorted(x for x in df["float_shares"].to_list() if x is not None) == [5_000_000]
+    # ...and now that a usable float exists, it is not fetched a third time.
     assert asyncio.run(svc.capture_missing_fundamentals(_TRADING_DATE)) == 0
