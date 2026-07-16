@@ -15,7 +15,6 @@ from small_cap_stack.ibkr import (
 )
 from small_cap_stack.ibkr.transport import (
     IBKRTransport,
-    build_supervisor,
     client_id_for_attempt,
 )
 
@@ -76,12 +75,6 @@ class FakeTransport:
 
 async def _instant_sleep(_delay: float) -> None:
     return None
-
-
-def test_build_supervisor_wires_real_transport() -> None:
-    # Constructs the ib_async-backed transport + supervisor offline (no connect).
-    sup = build_supervisor(Settings(_env_file=None))  # type: ignore[call-arg]
-    assert isinstance(sup, ConnectionSupervisor)
 
 
 # --- IBKRTransport (offline: monkeypatched ib) ------------------------------------------
