@@ -160,16 +160,41 @@ class CaptureService:
         self._hydrated_date = trading_date
 
     async def on_scan_tick(self, candidates: Sequence[Candidate], now: datetime) -> None:
-        """Discovery only: open new opportunities and log every scanner appearance."""
+        """Discovery only: open new opportunities and log every scanner appearance.
+
+        Each candidate is isolated (#254, matching ``_fetch_bars_for``'s per-symbol isolation): one
+        symbol failing to open — a disk-full/corrupt-file append, a source blowing up — must not
+        stop the candidates ranked below it from being opened *or* from getting a scanner hit. It
+        used to: the loop was unguarded and ``app._on_tick`` doesn't wrap the call, so a persistent
+        error on a high-rank symbol silently starved every symbol behind it, every tick.
+
+        The hit is recorded either way — "this symbol was on the scanner at this time" is true
+        regardless of whether we managed to open its record.
+        """
         trading_date = now.date()
         self._ensure_hydrated(trading_date)
+        hits: list[dict[str, Any]] = []
         for c in candidates:
             oid = opportunity_id(trading_date, c.symbol)
             if oid not in self._open:
-                await self._open_opportunity(oid, c, now, trading_date)
-            await self.store.append_async(
-                "scanner_hits", [scanner_hit_record(oid, c, now)], partition_date=trading_date
-            )
+                try:
+                    await self._open_opportunity(oid, c, now, trading_date)
+                except Exception:  # noqa: BLE001 — one candidate must not stall the rest
+                    log.warning("capture.open_opportunity_failed", opportunity_id=oid)
+            hits.append(scanner_hit_record(oid, c, now))
+        # One append per tick, not one per candidate (#247): the old per-candidate call wrote a
+        # separate single-row Parquet file, so ~50 candidates x ~480 in-window ticks produced ~24k
+        # one-row files a day in a single dt= partition — and every read globs + union_by_names all
+        # of them. Same raw rows, one file. (Empty candidate list -> append is a no-op.)
+        #
+        # Guarded for the same reason the loop is: `app._on_tick` doesn't wrap this call, so an
+        # append failure here would skip the rest of the tick (the dashboard status/stats refresh)
+        # on top of losing the hits. Batching makes that all-or-nothing where it used to be
+        # per-candidate, which is the price of one file per tick — so don't let it escape.
+        try:
+            await self.store.append_async("scanner_hits", hits, partition_date=trading_date)
+        except Exception:  # noqa: BLE001 — a hit-log failure must not abort the tick
+            log.warning("capture.scanner_hits_append_failed", count=len(hits))
 
     async def _open_opportunity(
         self, oid: str, c: Candidate, now: datetime, trading_date: date
@@ -179,6 +204,15 @@ class CaptureService:
             [opportunity_record(c, oid, now, trading_date)],
             partition_date=trading_date,
         )
+        # Mark it open the moment its row is durable — BEFORE the best-effort enrichment below.
+        # The persisted row *is* the definition of "already open" (`_ensure_hydrated` re-seeds
+        # `_open` from exactly this on restart), so anything that fails after it must not cause a
+        # re-open: the next tick would append a second row, and the next, and the next — ~480
+        # duplicate rows and Parquet files a day for one bad symbol, which is the #247 small-files
+        # explosion moved into `opportunities`. Enrichment gaps are recovered at EOD instead
+        # (`capture_missing_fundamentals` #255, `capture_day_news` #97).
+        self._open.add(oid)
+        OPPORTUNITIES.inc()
         try:
             items = await self.news.fetch_news(
                 c, lookback_days=self.settings.news_lookback_days, limit=self.settings.news_max
@@ -197,8 +231,6 @@ class CaptureService:
                 [fundamentals_record(oid, f, now) for f in funds],
                 partition_date=trading_date,
             )
-        self._open.add(oid)
-        OPPORTUNITIES.inc()
         log.info(
             "capture.opportunity_opened",
             opportunity_id=oid,
@@ -338,6 +370,74 @@ class CaptureService:
                     partition_date=trading_date,
                 )
                 log.info("capture.day_news_appended", opportunity_id=oid, count=len(items))
+
+    def _opportunities_with_fundamentals(self, trading_date: date) -> set[str]:
+        """opportunity_ids that already have a *usable* fundamentals row — non-null float_shares.
+
+        "Has any row" is the wrong test. ``yfinance``'s ``.info`` routinely omits ``floatShares``
+        for micro-caps, and ``from_info`` still returns a ``Fundamentals`` — so a row exists with
+        ``float_shares=None``, which is exactly the case the float gate fails conservatively on.
+        Counting that as covered would make this back-fill skip precisely the opportunities it
+        exists for.
+
+        Known limit: an opportunity with a usable float from *one* source counts as covered even if
+        a higher-priority source (``_FLOAT_PRIORITY`` puts fmp above yfinance) errored — we re-fetch
+        for a missing float, not for a better one.
+
+        Scoped to the day's partition — fundamentals are written under the opportunity's
+        ``trading_date``, so a full-history read would be pure waste (and the #246 OOM lesson)."""
+        funds = self.store.read("fundamentals", dt=trading_date)
+        if funds.is_empty() or "float_shares" not in funds.columns:
+            return set()
+        usable = funds.filter(pl.col("float_shares").is_not_null())
+        if usable.is_empty():
+            return set()
+        return set(usable["opportunity_id"].unique().to_list())
+
+    async def capture_missing_fundamentals(self, trading_date: date) -> int:
+        """End-of-day: re-fetch fundamentals for opportunities that have none. Returns how many.
+
+        Without this a missing fundamentals row is **permanent** (#255), and it costs a real runner:
+        the float gate reads ``float_shares=None`` and fails conservatively (``gates.py``), so a
+        genuine low-float mover is disqualified from analysis for good.
+
+        It does not take a crash to get there. ``MultiFundamentals.fetch_all`` gathers with
+        ``return_exceptions=True`` and keeps only the successes, so *any* fetch failure or timeout
+        at open time yields no row — and ``_open_opportunity`` still marks the oid open, while a
+        restart re-seeds ``_open`` from the persisted opportunities row. Either way the symbol
+        looks already-done and is never retried. Mirrors ``capture_missing_bars``; idempotent
+        (only opportunities with zero rows are fetched, and reads dedup by source).
+        """
+        opps = self._day_opportunities(trading_date)
+        if opps.is_empty():
+            return 0
+        have = self._opportunities_with_fundamentals(trading_date)
+        missing = opps.filter(~pl.col("opportunity_id").is_in(list(have)))
+        if missing.is_empty():
+            return 0
+        filled = 0
+        for row in missing.iter_rows(named=True):
+            oid = row["opportunity_id"]
+            cand = _candidate_from_row(row)
+            try:
+                funds = await self.fundamentals.fetch_all(cand)
+            except Exception:  # noqa: BLE001 — one symbol's failure must not stall the batch
+                log.warning("capture.day_fundamentals_failed", opportunity_id=oid)
+                continue
+            if not funds:
+                continue  # still unavailable; the next EOD run tries again
+            await self.store.append_async(
+                "fundamentals",
+                [fundamentals_record(oid, f, datetime.now(UTC)) for f in funds],
+                partition_date=trading_date,
+            )
+            filled += 1
+            log.info(
+                "capture.day_fundamentals_appended",
+                opportunity_id=oid,
+                sources={f.source: f.float_shares for f in funds},
+            )
+        return filled
 
     def reset(self) -> None:
         """Clear open-opportunity state (call at end of the capture window / new session)."""

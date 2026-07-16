@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from .capture import CaptureService
 from .clock import ET_NAME, now_et, within_window
@@ -256,9 +256,17 @@ class Application:
         Both run before the report. The news re-fetch (#97) captures stories that broke after a
         symbol's first sighting. Retries on a disconnect / transient failure rather than skipping
         outright (#100); if every attempt fails, the morning back-fill recovers the day.
+
+        The fundamentals back-fill runs afterwards and *outside* the IBKR retry — see
+        ``_backfill_fundamentals``.
         """
         log.info("bars.eod_start")
         trading_date = now_et().date()
+        await self._eod_ibkr_batch(trading_date)
+        await self._backfill_fundamentals(trading_date)
+
+    async def _eod_ibkr_batch(self, trading_date: date) -> None:
+        """The Gateway-dependent half of EOD: bars + the news re-fetch, with retries."""
         for attempt in range(1, self.settings.eod_retry_attempts + 1):
             try:
                 if not self.transport.is_connected():
@@ -275,19 +283,40 @@ class Application:
                     await asyncio.sleep(self.settings.eod_retry_delay_sec)
         log.error("bars.eod_failed_after_retries")  # the morning back-fill (#100) will recover it
 
+    async def _backfill_fundamentals(self, trading_date: date) -> None:
+        """Re-fetch fundamentals for opportunities missing a usable float (#255).
+
+        Deliberately *outside* the IBKR retry loop above: fundamentals come from yfinance/FMP over
+        plain HTTP and need no Gateway. Gating them on the connection would mean they never run in
+        the one scenario they exist for — the Gateway being down at 16:20 ET is also when the
+        open-time fetch was most likely to have failed. Nothing else would retry them, and a
+        permanently-null float disqualifies a genuine low-float runner from analysis for good.
+        """
+        try:
+            filled = await self.capture.capture_missing_fundamentals(trading_date)
+            if filled:
+                log.info("fundamentals.backfilled", count=filled, date=trading_date.isoformat())
+        except Exception:  # noqa: BLE001 — never let this take down the EOD path
+            log.warning("fundamentals.backfill_failed", date=trading_date.isoformat())
+
     async def _on_eod_backfill(self) -> None:
         """Morning catch-up: fill bars for any recent day whose opportunities are missing them.
 
         Recovers days where the EOD batch never completed (Gateway down at 16:20). Idempotent —
         bars dedup on read — and it refreshes the report markdown for each day it repairs (#100).
+
+        Fundamentals get the same net, and *before* the connection gate: they need no Gateway, so a
+        still-disconnected morning must not skip them (#255). Without this pass, a day whose EOD
+        never ran has no other route back to a usable float.
         """
         log.info("backfill.start")
+        today = now_et().date()
+        for i in range(self.settings.backfill_days):
+            await self._backfill_fundamentals(today - timedelta(days=i))
         if not self.transport.is_connected():
             log.warning("backfill.skipped_disconnected")
             return
-        filled = await self.capture.backfill_recent(
-            now_et().date(), days=self.settings.backfill_days
-        )
+        filled = await self.capture.backfill_recent(today, days=self.settings.backfill_days)
         for d in filled:
             report = build_eod_report(self.store, self.settings, d)
             if report.analyses:
