@@ -142,6 +142,10 @@ See `research/decisions.md` → "Phone-driven control plane".
   1. Register a **self-hosted GitHub Actions runner** on the VM, labelled `self-hosted, vps`,
      as a systemd service (`./config.sh --labels vps && ./svc.sh install && ./svc.sh start`).
      The runner polls GitHub outbound — **no inbound ports, no SSH key off-box**.
+     Then install `deploy/actions-runner-restart.conf` as a drop-in (see the header in that file)
+     — **the generated unit has no `Restart=`**, so an OOM-killed job leaves the runner `failed`
+     forever and every later dispatch silently queues against an offline runner. Re-check this
+     after any `svc.sh install`, which rewrites the unit.
   2. From the phone, trigger **Actions → `deploy` → Run workflow** (or via the GitHub MCP
      `actions_run_trigger`). Inputs: `ref` (branch/tag/SHA) and `restart_only`. The job updates the
      working tree, restarts the service, and asserts `:9090/metrics` is healthy.
