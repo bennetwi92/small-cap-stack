@@ -27,6 +27,11 @@ on:
         type: boolean
         required: false
         default: false
+      force:
+        description: "Required with 'all'. ⚠️ Full-archive rebuild has OOM-killed the box (#264)."
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: backfill-dashboard
@@ -47,7 +52,17 @@ jobs:
           fi
           args=""
           if [ "${{ inputs.all }}" = "true" ]; then
-            args="--all --force"  # the workflow input is the confirmation (#261)
+            # A second, separate confirmation — the `all` toggle alone is not enough. --all rebuilds
+            # every collected date in one process and has OOM-killed the box (#264), and this
+            # workflow is the phone path that would actually do it. Auto-supplying --force here
+            # would make the CLI guard theatre.
+            if [ "${{ inputs.force }}" != "true" ]; then
+              echo "Refusing --all without 'force'. It rebuilds every collected date in one" >&2
+              echo "process and has OOM-killed the box (#264). Prefer a single 'date'." >&2
+              echo "If you really mean the full archive, re-run with force: true." >&2
+              exit 1
+            fi
+            args="--all --force"
           elif [ -n "${{ inputs.date }}" ]; then
             args="--date ${{ inputs.date }}"
           fi

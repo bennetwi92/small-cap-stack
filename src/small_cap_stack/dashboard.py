@@ -244,15 +244,6 @@ def index_from_entries(entries: list[dict[str, Any]], now: datetime) -> dict[str
     return {"generated_utc": now.isoformat(), "dates": dates}
 
 
-def build_index(date_charts: list[tuple[date, dict[str, Any]]], now: datetime) -> dict[str, Any]:
-    """The review-workbench navigation index over every collected date (#141).
-
-    ``date_charts`` pairs each trading date with its :func:`build_charts` payload. Dates are sorted
-    newest-first so the date picker opens on the latest session; each date lists its opportunities
-    (mirroring the chart selection list)."""
-    return index_from_entries([index_entry(d, cp) for d, cp in date_charts], now)
-
-
 def upsert_index_date(
     existing: dict[str, Any] | None,
     trading_date: date,

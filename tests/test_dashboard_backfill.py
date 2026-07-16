@@ -173,7 +173,24 @@ def test_parse_date_defaults_to_yesterday() -> None:
 # --- --all guard (#261) ------------------------------------------------------------------------
 
 
-def test_all_without_force_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.fixture
+def _isolated_main(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep main() from reaching the developer's real environment.
+
+    main() calls get_settings() — @lru_cache'd, and Settings reads a cwd-relative .env — then
+    configure_logging(). Unstubbed, these tests would cache the developer's live config (including
+    its data_dir) for the whole pytest session and globally reconfigure structlog, which is both
+    order-dependent and a route to a later test touching the real store.
+    """
+    monkeypatch.setattr(
+        "small_cap_stack.dashboard_backfill.get_settings", lambda: _settings(tmp_path)
+    )
+    monkeypatch.setattr("small_cap_stack.dashboard_backfill.configure_logging", lambda **kw: None)
+
+
+def test_all_without_force_is_refused(
+    monkeypatch: pytest.MonkeyPatch, _isolated_main: None
+) -> None:
     """--all is the flag that OOM-killed the box (#264); it must not fire on a bare invocation."""
     monkeypatch.setattr(sys, "argv", ["dashboard_backfill", "--all"])
     ran: list[str] = []
@@ -187,7 +204,9 @@ def test_all_without_force_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ran == []  # and crucially: the archive rebuild never started
 
 
-def test_all_with_force_runs_the_archive(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_all_with_force_runs_the_archive(
+    monkeypatch: pytest.MonkeyPatch, _isolated_main: None
+) -> None:
     monkeypatch.setattr(sys, "argv", ["dashboard_backfill", "--all", "--force"])
     ran: list[str] = []
     monkeypatch.setattr(
@@ -198,7 +217,9 @@ def test_all_with_force_runs_the_archive(monkeypatch: pytest.MonkeyPatch) -> Non
     assert ran == ["archive"]
 
 
-def test_force_alone_does_not_imply_all(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_force_alone_does_not_imply_all(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _isolated_main: None
+) -> None:
     """--force is a modifier on --all, not a mode: it must not trigger an archive rebuild."""
     monkeypatch.setattr(sys, "argv", ["dashboard_backfill", "--date", "2026-07-01", "--force"])
     ran: list[str] = []

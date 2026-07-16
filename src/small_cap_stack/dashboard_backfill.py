@@ -120,15 +120,21 @@ def regenerate_archive(
     dates = collected_dates(store)
     entries: list[dict[str, Any]] = []
     total_charts = 0
+    latest_charts: dict[str, Any] | None = None
     for d in dates:
         charts = build_charts(store, settings, d, now_utc)
         write_json(charts_path(out, d), charts)
-        # Reduce the date to its index row and drop the payload. Accumulating every date's full
-        # charts (all bars for all opportunities, all dates) just to build the index is what made
-        # --all a memory bomb on the 4 GB box — the per-date reads are already dt-scoped (#246).
+        # `dates` is ascending, so the final iteration's payload is the newest session's — keep it
+        # for the legacy charts.json below rather than rebuilding the most expensive date twice.
+        latest_charts = charts
+        # Reduce the date to its index row and drop the payload: accumulating every date's full
+        # charts (all bars for all opportunities, all dates) purely to build the index retained the
+        # archive for no reason. This removes ONE O(archive) retention — it does not make --all
+        # cheap. build_portfolio_payload below still materialises every day's candidates (with
+        # their bars) at once, which is the dominant term and why even a --date run can OOM the box
+        # (#273). Don't read this loop as "--all is safe now".
         entries.append(index_entry(d, charts))
         total_charts += len(charts["charts"])
-        del charts
 
     write_json(out / "index.json", index_from_entries(entries, now_utc))
     # Full-archive rebuild: extract every date once and prime the candidate cache for later
@@ -140,11 +146,10 @@ def regenerate_archive(
         ),
     )
 
-    if dates:  # keep the legacy single-day dashboard on the newest session
-        latest = dates[-1]
-        report = build_eod_report(store, settings, latest)
+    if dates and latest_charts is not None:  # keep the legacy dashboard on the newest session
+        report = build_eod_report(store, settings, dates[-1])
         write_json(out / "stats.json", build_stats(report, now_utc))
-        write_json(out / "charts.json", build_charts(store, settings, latest, now_utc))
+        write_json(out / "charts.json", latest_charts)
 
     log.info(
         "dashboard.archive_backfill_done",
@@ -179,10 +184,10 @@ def main() -> None:
     )
     args = parser.parse_args()
     if args.all and not args.force:
-        # A speed bump, not a lock: --all rebuilds every collected date in one process, and on
-        # 2026-07-16 an OOM-killed backfill took the box's CI runner down for 5h37m (#264). It is
-        # now cheaper (per-date reads are dt-scoped, #246, and the index no longer retains every
-        # payload), but "cheaper" is not "safe on a 4 GB box", and it is trivially mistyped.
+        # --all rebuilds every collected date in one process; an OOM-killed backfill took the box's
+        # CI runner offline for 5h37m on 2026-07-16 (#264). The callers that dispatch --all (the
+        # phone workflows) require their own separate `force` toggle rather than supplying this
+        # automatically — a confirmation the caller auto-answers protects nobody.
         parser.error(
             "--all rebuilds every collected date in one process and has OOM-killed the box "
             "(#264, CLAUDE.md). Prefer one date at a time: --date YYYY-MM-DD. "
