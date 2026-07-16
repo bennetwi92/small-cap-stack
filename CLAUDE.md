@@ -74,6 +74,18 @@ When running on the **Mac** (the primary working dir, not a cloud/web session), 
 - **Trigger GitHub Actions** (deploy, backfill, data-export, publish-dashboard) with `gh workflow run <name>.yml --field k=v`; they run on the self-hosted `vps` runner. Deploy: `gh workflow run deploy.yml --field ref=main`.
 - **SSH into the box**: `ssh -i ~/.ssh/oracle_scs root@138.199.151.179` (root; repo `/opt/small-cap-stack`; app container `small-cap-stack-app-1`; systemd unit `small-cap-stack`). Full details in **`deploy/host.local.md`** (gitignored). ICMP is firewalled so `ping` always fails — that's normal, not a symptom.
 - ⚠️ **The box is small (Hetzner CX22: 2 vCPU / 4 GB).** Heavy jobs will OOM/thrash it until sshd can't even complete its banner and the runner drops **offline (busy)** — and then you can't cancel or SSH in (recovery = OOM-killer reaping the job, or a hard reboot from the Hetzner console). **NEVER run `backfill-dashboard --all` (all dates + every chart) on it** — recompute **per date** instead (`--field date=YYYY-MM-DD`, one at a time), or SSH in and `docker exec … python -m small_cap_stack.dashboard_backfill --date <d>` sequentially. `build_eod_report` is compute-on-read, so per-date backfill is cheap (~4 s/day locally).
+- ⚠️ **Per-date backfill is not automatically safe either.** On 2026-07-16 a plain `--date <today>`
+  run grew to 1.5 GB RSS and got OOM-killed after 13 min on the box (#243/#263 have since made
+  single-date backfill O(1 day); before them it fanned out over full history). Treat *any*
+  backfill as a job that can OOM the box: check the box is on a commit that includes those fixes,
+  prefer a **past** date over the live day, and watch `free -m` if you run several.
+- ⚠️ **After an OOM, check the runner is actually back.** A job OOM leaves the runner service
+  `failed` and CI silently queues forever — `gh api repos/bennetwi92/small-cap-stack/actions/runners`
+  shows `offline`. `deploy/actions-runner-restart.conf` (a `Restart=always` drop-in) should now
+  self-heal this within 30 s; if it doesn't, the drop-in is missing — see `deploy/RUNBOOK.md` §11.
+- ⚠️ **Never `systemctl restart` the runner while a job is in flight** — it cancels the job. If that
+  job is a deploy, it can leave the app container **stopped** (compose has torn the old one down but
+  not brought the new one up). Check `docker ps` and re-run `deploy.yml` before walking away.
 
 ## Working remotely (Claude Code on mobile / web)
 The cloud environment has GitHub access (issues, PRs, board, CI all work) and can run `make setup`/`make check`, but it does **NOT** have: the local `.venv`, the local `gh` keyring token, the `.env` file, or any **live IBKR connection**. Therefore:
