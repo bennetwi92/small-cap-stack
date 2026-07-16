@@ -72,9 +72,18 @@ def segment_cycles(tokens: Sequence[Token]) -> list[Cycle]:
             cycles.append(Cycle(pole_start, peak, cons_start, i, i + 1))
             pole_start, peak, cons_start, state = i, i + 1, None, "pole"
     if pole_start is not None and peak is not None and state != "searching":
-        cycles.append(
-            Cycle(pole_start, peak, cons_start, cons_start - 1 if cons_start else peak, None)
-        )
+        # The open cycle's consolidation runs to the end of the day, so its last consolidation bar
+        # is the last bar — index ``len(tokens)`` under this module's convention (token k compares
+        # bars[k] to bars[k+1], so N tokens span bars 0..N).
+        #
+        # This used to be ``cons_start - 1``, which is *always* exactly ``peak`` (cons_start is set
+        # to i+1 on the same token where peak became i), i.e. it dropped the entire open
+        # consolidation from a field documented as "the last consolidation bar so far". Dormant
+        # today — the open cycle is chronologically last, so it never satisfies
+        # ``c.peak < pole_base_idx`` in :func:`contiguous_prior_cycles`, which is what both the
+        # exhaustion count and the chart overlay filter through — but wrong for any future reader.
+        cons_end = len(tokens) if cons_start is not None else peak
+        cycles.append(Cycle(pole_start, peak, cons_start, cons_end, None))
     return cycles
 
 

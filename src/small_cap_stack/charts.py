@@ -33,9 +33,9 @@ from .bullflag import (
     token_eps,
     tokenize,
 )
-from .capture import Bar
+from .capture import Bar, bar_interval
 from .config import Settings
-from .rmetrics import bar_interval, compute_r_metrics
+from .rmetrics import compute_r_metrics
 
 
 @dataclass(frozen=True)

@@ -27,14 +27,13 @@ from pathlib import Path
 import polars as pl
 
 from small_cap_stack.bullflag import detect_setup
-from small_cap_stack.capture import Bar
+from small_cap_stack.capture import Bar, bar_interval
 from small_cap_stack.config import Settings
 from small_cap_stack.report import day_opportunities, symbol_runs
 from small_cap_stack.rmetrics import (
     RMetrics,
     _first_trigger,
     _measure,
-    bar_interval,
     compute_r_metrics,
 )
 from small_cap_stack.storage import Store

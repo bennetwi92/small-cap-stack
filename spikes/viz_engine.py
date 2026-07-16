@@ -34,11 +34,10 @@ from small_cap_stack.bullflag import (
 )
 from small_cap_stack.bullflag.detect import _is_big_green
 from small_cap_stack.bullflag.gates import passed as gates_passed
-from small_cap_stack.capture import Bar
+from small_cap_stack.capture import Bar, bar_interval
 from small_cap_stack.clock import ET
 from small_cap_stack.config import Settings
 from small_cap_stack.report import day_chart_bars, day_opportunities, symbol_runs
-from small_cap_stack.rmetrics import bar_interval
 from small_cap_stack.storage import Store
 
 _V2 = {"max_pole": 4, "max_cons": 4, "min_pole_pct": 0.02}

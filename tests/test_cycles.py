@@ -73,6 +73,32 @@ def test_segment_cycles_leading_noise_and_equal_highs() -> None:
     assert cycles[0].cons_end == 5  # flag L,E ends at the next H (index 5)
 
 
+def test_open_cycle_cons_end_is_the_last_bar_not_the_peak() -> None:
+    """An open cycle mid-flag must report its consolidation, not drop it (#253).
+
+    `cons_end` is documented as "the last consolidation bar so far". For the open final cycle it
+    was computed as `cons_start - 1`, which is always exactly `peak` — dropping the whole open
+    consolidation. Dormant (the open cycle is chronologically last, so `contiguous_prior_cycles`'
+    `peak < pole_base_idx` filter never admits it, and the chart overlay filters through the same
+    call), so nothing else would catch a regression here.
+    """
+    # H L L : pole peaks at bar 1, then consolidates to the end of the day. 3 tokens -> bars 0..3.
+    cycles = segment_cycles(["H", "L", "L"])
+    assert len(cycles) == 1
+    c = cycles[0]
+    assert (c.pole_start, c.peak, c.cons_start, c.breakout) == (0, 1, 2, None)
+    assert c.cons_end == 3  # the last bar — was 1 (== peak), silently dropping bars 2..3
+    assert c.cons_end >= c.cons_start  # the invariant the old value violated
+
+
+def test_open_cycle_still_mid_pole_reports_cons_end_at_the_peak() -> None:
+    """No consolidation started -> cons_end == peak, per the field's contract."""
+    cycles = segment_cycles(["H", "H"])
+    assert len(cycles) == 1
+    c = cycles[0]
+    assert (c.pole_start, c.peak, c.cons_start, c.cons_end, c.breakout) == (0, 2, None, 2, None)
+
+
 def test_segment_cycles_empty_and_no_pole() -> None:
     assert segment_cycles([]) == []
     assert segment_cycles(["L", "L", "E"]) == []  # never a higher high -> no cycle
