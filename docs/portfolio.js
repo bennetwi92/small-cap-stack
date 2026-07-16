@@ -253,18 +253,33 @@ function bookSelector() {
     .join("");
 }
 
+const pct = (r) => (r * 100).toFixed(2).replace(/\.?0+$/, "") + "%"; // 0.025 -> "2.5%"
+
 function adaptiveTargetNote(book) {
-  if (!book.daily_targets || !book.daily_targets.length) return "";
-  const active = book.daily_targets.filter((d) => d.target != null);
-  if (!active.length) return "";
-  const last = active[active.length - 1];
-  const uniq = [...new Set(active.map((d) => d.target))].sort((a, b) => a - b);
   const c = PAYLOAD.config;
-  return (
-    `<p class="muted pf-note">Target re-fits daily from the trailing ${c.adaptive_window_days}-day ` +
-    `window (needs ≥ ${c.adaptive_min_samples} prior trades, else the configured fallback). ` +
-    `Latest chosen target: <strong>${last.target}R</strong> · targets used: ${uniq.map((t) => t + "R").join(", ")}.</p>`
-  );
+  let out = "";
+  const targets = (book.daily_targets || []).filter((d) => d.target != null);
+  if (targets.length) {
+    const last = targets[targets.length - 1];
+    const uniq = [...new Set(targets.map((d) => d.target))].sort((a, b) => a - b);
+    out +=
+      `<p class="muted pf-note">Target re-fits daily from the trailing ${c.adaptive_window_days}-day ` +
+      `window (needs ≥ ${c.adaptive_min_samples} prior trades, else the configured fallback). ` +
+      `Latest chosen target: <strong>${last.target}R</strong> · targets used: ${uniq.map((t) => t + "R").join(", ")}.</p>`;
+  }
+  const risk = book.daily_risk || [];
+  if (risk.length) {
+    const last = risk[risk.length - 1];
+    const ladder = (c.risk_ladder || []).map(pct).join(" / ");
+    const d = c.risk_step_days || 1;
+    const days = d === 1 ? "day" : `${d} days`;
+    out +=
+      `<p class="muted pf-note">Risk throttle (kill-switch): position risk walks ${c.risk_rungs} rungs ` +
+      `(${ladder}), starting at full risk. It takes ${days} in a row of net-positive results to step ` +
+      `risk up a rung (and ${days} of net-negative to step down); at 0% the book sits out but still ` +
+      `watches the tape to re-arm. Latest risk: <strong>${pct(last.risk)}</strong> of equity per trade.</p>`;
+  }
+  return out;
 }
 
 function render() {
@@ -299,7 +314,7 @@ async function load() {
   if (!PAYLOAD.books[BOOK]) BOOK = "adaptive";
   const c = PAYLOAD.config;
   el("pf-meta").innerHTML =
-    `Start ${fmtUsd(PAYLOAD.start_equity)} · ${(c.risk_fraction * 100).toFixed(0)}% risk / trade, ` +
+    `Start ${fmtUsd(PAYLOAD.start_equity)} · up to ${(c.risk_fraction * 100).toFixed(0)}% risk / trade (adaptive throttles), ` +
     `max ${(c.position_fraction * 100).toFixed(0)}% size · ` +
     `max ${c.max_trades_per_day}/day · pre-market fills only (&lt; ${esc(c.premarket_cutoff_et.slice(0, 5))} ET) · ` +
     `entry $${c.entry_price_min}–${c.entry_price_max} · ` +

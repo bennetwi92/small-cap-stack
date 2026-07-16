@@ -303,8 +303,9 @@ in P2). Locks the following execution parameters (chosen by the user 2026-07-15)
   losers to 0R), where `p(T)` = fraction of recent qualifying setups that reached +`T`·R before the
   stop. Directly computable from the Max-R / bar data already captured. **Small-sample overfit is the
   main risk** (~2 trades/day): prefer a positive-expectancy *plateau* over the razor's-edge argmax;
-  window length is a tunable parameter. No loss-based **kill-switch** for now (2 trades/day makes it
-  moot) — but a hard **≤2 open / ≤2 entries-per-day guard** is kept as idempotency against a
+  window length is a tunable parameter. ~~No loss-based **kill-switch** for now (2 trades/day makes
+  it moot)~~ **(reversed 2026-07-16, #239 — an adaptive risk throttle / kill-switch was added; see
+  below.)** A hard **≤2 open / ≤2 entries-per-day guard** is kept as idempotency against a
   reconnect/detection bug over-firing.
 
 Deliverable: a typed, exhaustively-tested simulator in `src/small_cap_stack/` (per CLAUDE.md, this is
@@ -364,3 +365,36 @@ withdrawn cash back (so paying yourself doesn't read as a loss, while tax + VPS 
 it), and `max_drawdown_pct` is measured on the **pure trading-P&L path** so scheduled cash-outs never
 masquerade as a drawdown. Config knobs live in `config.py` as `portfolio_*` defaults (env-overridable,
 consistent with the other portfolio knobs — not surfaced in `.env.example`).
+
+## Adaptive risk throttle / kill-switch (DECISION 2026-07-16, #239 — reverses the #230 "no kill-switch" note)
+
+The per-trade **risk fraction** (previously a fixed 5%) is now itself adaptive in the **adaptive
+book**, throttled by recent results so exposure tracks how hot the market is — a kill-switch that
+cuts to 0% in a losing streak and winds back to full in a good one. #230 had punted on this ("no
+loss-based kill-switch for now — 2 trades/day makes it moot"); this decision adopts one.
+
+- **Ladder (coarse on purpose).** Risk walks a small ladder of evenly-spaced rungs from **0 up to
+  `portfolio_risk_fraction`** (the 5% cap), `portfolio_risk_rungs` rungs *including* the 0 floor —
+  default **3 → (0%, 2.5%, 5%)**. Few rungs is deliberate: the user wants a **fast wind-up** back to
+  full risk, not a slow many-step climb. `1` disables the throttle.
+- **Signal = winning/losing *days*, with a streak requirement.** The ladder steps **one rung only
+  after `portfolio_risk_step_days` consecutive same-direction days** (default **2**; `1` = eager,
+  one rung per decisive day). A run of net-positive days steps risk **up** one rung, a run of
+  net-negative days **down** one. The day's result is its **aggregate realised R over its qualifying
+  setups** — deliberately **size-independent** (pure R, not sized P&L), so a book throttled to the
+  **0 rung** (which takes no trades) can still be scored on its *would-be* setups and **re-arm** when
+  the tape turns; otherwise 0% would be an absorbing state (no trades → no P&L → stuck). A
+  **flat / no-setup day holds both the rung and the streak** — an information-less day carries no
+  momentum, so "in a row" counts *decisive* days across flat gaps rather than resetting on them.
+  (Amended same day, #239: the first cut was one-rung-per-day, which the user found too twitchy — a
+  single green/red day shouldn't move risk — so the streak requirement was added.)
+- **Starts at full risk.** Kill-switch framing: the book begins live at the top rung and cuts *down*
+  from there on a bad run, rather than earning in from 0. Stepping *today's* rung, then computing
+  the step from *today's* resolved result for *tomorrow*, keeps it causal (no look-ahead) — the same
+  discipline as the adaptive target.
+- **Scope.** Only the **adaptive** book throttles risk (it already re-fits the R target); the
+  fixed-target books stay at the full 5% as a clean baseline. Implemented as pure, replayable
+  functions (`risk_ladder` / `step_risk_rung` / `_day_signal_r`) in `portfolio.py`, exposed on the
+  page as a `daily_risk` series + a note, and exhaustively unit-tested (per CLAUDE.md). The
+  settled-cash invariant is untouched: the throttle only ever sizes ≤ the existing 5% target, and
+  the 50% notional cap remains the binding upper bound.
