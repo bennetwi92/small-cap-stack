@@ -261,10 +261,18 @@ in P2). Locks the following execution parameters (chosen by the user 2026-07-15)
   same-day, so no unsettled position is carried and T+1 opens each day fully settled. The cap **is**
   the constraint, pinned by `test_settled_cash_invariant`. (The live danger is *sequential reuse* —
   recycling the same $250 twice intraday is a good-faith violation — which this book never does.)
-- **Position sizing = capital-based, not risk-based:** **50% of the day's opening virtual equity per
-  trade** (`qty = floor(0.50 × equity / entry_fill)`) → **max 2 concurrent positions, 2 entries per
-  day**. The user is knowingly "all-in" at this size; risk-per-trade therefore floats with stop
-  distance. Because R-multiples are size-independent, expectancy is still tracked in R.
+- **Position sizing = risk-based, capped by notional** (AMENDED 2026-07-16, #237, superseding the
+  original capital-based rule): each position **targets 5% of the day's opening virtual equity at
+  risk** — `risk_qty = floor(0.05 × equity / (entry − stop))` — but is **capped at 50% of opening
+  equity in notional** — `cap_qty = floor(0.50 × equity / entry)` — taking `qty = min(risk_qty,
+  cap_qty)`. The 5% risk target binds on tight stops (where capital-based sizing would have taken
+  wildly variable risk); the 50% cap binds on wide stops and remains the concentration /
+  settled-cash bound. → still **max 2 concurrent positions, 2 entries per day**. Because the cap is
+  always the upper bound, the settled-cash invariant is unchanged (`position_fraction ×
+  max_trades_per_day = 0.50 × 2 = 1.0`, still pinned by `test_settled_cash_invariant`). R-multiples
+  are size-independent so expectancy is still tracked in R.
+  - *Superseded original:* capital-based, 50% of opening equity per trade
+    (`qty = floor(0.50 × equity / entry_fill)`), risk-per-trade floating freely with stop distance.
 - **Qualifying trade (all must hold):** (1) engine **v2 `pass`** (setup + every gate) **and
   triggered**; (2) **strictly pre-market fill** — the **trigger bar** opens before **09:30 ET**
   (deliberately stricter than the results-page `first_hit`-based "premarket" label, which can tag a

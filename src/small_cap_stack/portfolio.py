@@ -12,9 +12,13 @@ Rules locked in ``research/decisions.md`` (#230, 2026-07-15):
   *triggered*, whose **trigger bar opens strictly pre-market** (before 09:30 ET — stricter than the
   ``first_hit``-based results-page "premarket" label), with an ``entry_fill`` price in the
   configured band ($1–20). At most ``portfolio_max_trades_per_day`` per day, in trigger-time order.
-- **Size** — capital-based: ``floor(opening_equity × fraction / entry)``. Both of the day's trades
-  size off the *day's opening equity* (they're concurrent positions committed before either
-  resolves), so 50% × 2 fully deploys the account.
+- **Size** — risk-based, capped by notional (#237): each position targets ``risk_fraction`` (5%)
+  of opening equity at risk — ``floor(opening_equity × risk_fraction / (entry − stop))`` — but is
+  capped at ``position_fraction`` (50%) of opening equity in notional, i.e. ``min(risk_qty,
+  cap_qty)``. Both of the day's trades size off the *day's opening equity* (they're concurrent
+  positions committed before either resolves), so at the cap 50% × 2 fully deploys the account; the
+  risk target sizes smaller whenever the stop is tighter than ``risk_fraction / position_fraction``
+  of the entry.
 - **Exit** — a fixed R target with an optional breakeven arm, simulated bar-by-bar with the same
   conservative stop-first / gap-through convention as :mod:`rmetrics`. Costs + exit slippage are
   netted out so the equity curve is honest at ~$250 notional.
@@ -29,10 +33,11 @@ with capital.
 
 **Settled-cash invariant** — this is a UK *cash* account, so a purchase needs settled funds, and
 buying with unsettled proceeds then selling before they settle is a good-faith violation (#232 §6).
-The book is compliant *by construction* rather than by simulating settlement: both trades size off
-``opening_equity`` at 50% with a 2/day cap, so max daily buy notional
+The book is compliant *by construction* rather than by simulating settlement: the notional **cap**
+bounds every position at 50% of ``opening_equity`` (the risk target only ever sizes *smaller*), so
+with a 2/day cap max daily buy notional
 ``= 2 × floor(0.50 × opening_equity / entry) × entry ≤ opening_equity``; and since every trade
-closes same-day, no unsettled position is carried and T+1 opens each day settled. The cap *is*
+closes same-day, no unsettled position is carried and T+1 opens each day settled. The *cap* is
 the constraint — see ``test_settled_cash_invariant``, which fails loudly if the config is ever
 changed such that ``position_fraction × max_trades_per_day > 1``.
 """
@@ -119,11 +124,31 @@ def simulate_exit(
 # --- --- Sizing & costs ---------------------------------------------------------------
 
 
-def size_position(equity: float, entry_price: float, fraction: float) -> int:
-    """Whole-share quantity for a capital-based position: ``floor(equity × fraction / entry)``."""
+def size_position(
+    equity: float,
+    entry_price: float,
+    stop: float,
+    *,
+    risk_fraction: float,
+    max_position_fraction: float,
+) -> int:
+    """Risk-based whole-share quantity, capped at a max position notional (#237).
+
+    Targets ``risk_fraction`` of equity at risk — ``qty × (entry − stop) ≈ equity × risk_fraction``,
+    so ``risk_qty = floor(equity × risk_fraction / (entry − stop))`` — then caps the position at
+    ``cap_qty = floor(equity × max_position_fraction / entry)`` so a tight stop can't size past the
+    concentration / settled-cash limit. Returns ``min(risk_qty, cap_qty)``: the risk target binds
+    on tight stops, the notional cap on wide ones. ``risk = entry − stop`` is guaranteed positive by
+    the caller (candidates are pre-filtered on ``risk > 0``); a non-positive risk falls back to cap.
+    """
     if entry_price <= 0:
         return 0
-    return int((equity * fraction) // entry_price)
+    cap_qty = int((equity * max_position_fraction) // entry_price)
+    risk_per_share = entry_price - stop
+    if risk_per_share <= 0:  # degenerate; caller guarantees risk > 0, cap-bound defensively
+        return cap_qty
+    risk_qty = int((equity * risk_fraction) // risk_per_share)
+    return min(risk_qty, cap_qty)
 
 
 def commission(qty: int, per_share: float, minimum: float) -> float:
@@ -347,7 +372,13 @@ def _take_day(
     taken = sorted(cands, key=lambda c: c.trigger_at)[: s.portfolio_max_trades_per_day]
     out: list[PaperTrade] = []
     for c in taken:
-        qty = size_position(opening_equity, c.entry_price, s.portfolio_position_fraction)
+        qty = size_position(
+            opening_equity,
+            c.entry_price,
+            c.stop,
+            risk_fraction=s.portfolio_risk_fraction,
+            max_position_fraction=s.portfolio_position_fraction,
+        )
         if qty < 1:  # position too small to afford a share — skip
             continue
         outcome = c.exit_under(s, target_r, breakeven_r)
@@ -675,6 +706,7 @@ def build_portfolio_payload(
         "generated_utc": generated_utc.isoformat(),
         "start_equity": s.portfolio_start_equity_usd,
         "config": {
+            "risk_fraction": s.portfolio_risk_fraction,
             "position_fraction": s.portfolio_position_fraction,
             "max_trades_per_day": s.portfolio_max_trades_per_day,
             "premarket_cutoff_et": s.portfolio_premarket_cutoff.isoformat(),

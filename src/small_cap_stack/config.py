@@ -155,8 +155,14 @@ class Settings(BaseSettings):
     # dataset. Rules locked in research/decisions.md (2026-07-15): UK cash account, capital-based
     # sizing, strict pre-market fills, engine-v2 takeable setups only, fixed-R exit + breakeven.
     portfolio_start_equity_usd: float = 500.0
-    portfolio_position_fraction: float = 0.50  # fraction of the day's opening equity per trade
-    portfolio_max_trades_per_day: int = 2  # 50% × 2 = fully deployed → 2 concurrent positions
+    # Sizing = risk-based, capped by notional (#237). Each position targets `risk_fraction` of the
+    # day's opening equity at risk (qty ≈ equity × risk_fraction / (entry − stop)) but is capped at
+    # `position_fraction` of opening equity in notional (qty ≤ equity × position_fraction / entry).
+    # The cap binds on wide stops, the risk target on tight ones; qty = min(risk_qty, cap_qty), so
+    # the cap is always the upper bound — that is what keeps the settled-cash invariant intact.
+    portfolio_risk_fraction: float = 0.05  # target risk per trade, as a fraction of opening equity
+    portfolio_position_fraction: float = 0.50  # max position notional, as a fraction of opening eq.
+    portfolio_max_trades_per_day: int = 2  # cap 50% × 2 = at most fully deployed → 2 concurrent
     portfolio_premarket_cutoff: time = time(9, 30)  # strict: the TRIGGER bar must open before this
     portfolio_entry_price_min: float = 1.0  # entry_fill price band (narrower than the $1–50 scan)
     portfolio_entry_price_max: float = 20.0

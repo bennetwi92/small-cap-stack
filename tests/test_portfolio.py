@@ -178,13 +178,43 @@ def test_exit_requires_positive_risk() -> None:
 # --- --- sizing & costs ---------------------------------------------------------------
 
 
+def _size(equity: float, entry: float, stop: float) -> int:
+    return size_position(equity, entry, stop, risk_fraction=0.05, max_position_fraction=0.50)
+
+
+def test_size_position_risk_target_binds_on_tight_stop() -> None:
+    # $500 eq, 5% risk = $25. Entry 10 / stop 9.5 -> risk/sh $0.50 -> floor(25/0.5)=50 by risk,
+    # but the 50% cap is floor(250/10)=25 -> the CAP binds (25 < 50).
+    assert _size(500.0, 10.0, 9.5) == 25
+    # Entry 10 / stop 5 -> risk/sh $5 -> floor(25/5)=5 by risk; cap floor(250/10)=25 -> RISK binds.
+    assert _size(500.0, 10.0, 5.0) == 5
+
+
+def test_size_position_notional_cap_binds_on_wide_stop() -> None:
+    # Entry 3 / stop 2 -> risk/sh $1 -> floor(25/1)=25 by risk; cap floor(250/3)=83 -> RISK binds
+    # (the cheap stock is risk-limited, not capital-limited, so it no longer buys 83 shares).
+    assert _size(500.0, 3.0, 2.0) == 25
+    # Entry 20 / stop 19 -> risk floor(25/1)=25; cap floor(250/20)=12 -> the CAP binds.
+    assert _size(500.0, 20.0, 19.0) == 12
+
+
 def test_size_position_floors_to_whole_shares() -> None:
-    assert size_position(500.0, 3.0, 0.50) == 83  # 250 / 3 = 83.33 -> 83
-    assert size_position(500.0, 20.0, 0.50) == 12  # 250 / 20 = 12.5 -> 12
+    # risk/sh $0.30 -> floor(25/0.30)=83.33 -> 83, and the cap (floor(250/3)=83) coincides here.
+    assert _size(500.0, 3.0, 2.70) == 83
 
 
 def test_size_position_zero_when_unaffordable() -> None:
-    assert size_position(500.0, 300.0, 0.50) == 0  # 250 < 300 -> can't afford a share
+    assert _size(500.0, 300.0, 299.0) == 0  # cap floor(250/300)=0 -> can't afford a share
+
+
+def test_size_position_zero_when_stop_too_wide_for_risk_budget() -> None:
+    # Affordable (cap floor(250/100)=2) but risk/sh $30 > the $25 budget -> risk_qty 0 wins.
+    assert _size(500.0, 100.0, 70.0) == 0
+
+
+def test_size_position_nonpositive_risk_falls_back_to_cap() -> None:
+    # Degenerate stop >= entry (caller guarantees this never happens) -> cap-bound defensively.
+    assert size_position(500.0, 10.0, 10.0, risk_fraction=0.05, max_position_fraction=0.50) == 25
 
 
 def test_commission_respects_minimum() -> None:
@@ -224,7 +254,8 @@ def test_portfolio_caps_at_two_trades_per_day_by_trigger_time() -> None:
 
 
 def test_portfolio_both_trades_size_off_opening_equity() -> None:
-    # $500 open, 50% each = $250 -> floor(250/10)=25 shares each, regardless of the first's outcome.
+    # $500 open. Entry 10 / stop 9 -> risk/sh $1 -> 5% risk floor(25/1)=25; 50% cap floor(250/10)=25
+    # (they coincide here) -> 25 shares each, regardless of the first trade's outcome.
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
     res = simulate_portfolio([(date(2026, 7, 14), cands)], _s(), target_r=2.0)
