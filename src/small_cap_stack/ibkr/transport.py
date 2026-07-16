@@ -95,4 +95,3 @@ class IBKRTransport:
         elif action is ConnAction.DATA_OK:
             self._data_farm_ok = True  # 1102: link restored, subscriptions maintained
             log.info("ibkr.connectivity_restored", code=code)
-
