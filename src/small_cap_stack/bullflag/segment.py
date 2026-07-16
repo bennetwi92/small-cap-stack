@@ -94,20 +94,18 @@ def segment_at_end(
     # thrust (green, body >= half its range) — a doji-like or red bar breaks the walk and becomes
     # the base instead of an intermediate pole bar (#182/#190: MUZ/CRCG/CONL).
     #
-    # max_pole < 1 disables the pole entirely (matches the old loop, which never incremented
-    # pole_len past 0 in that case): peak - 1 is never negative here (_find_pole_peak's window
-    # floor `lo = max(1, n-1-max_cons)` guarantees peak >= 1), so that guard would be dead code.
-    if max_pole < 1 or tokens[peak - 1] != "H" or classify(bars[peak]) != "green":
-        return None  # pole disabled, no strict higher high into the peak, or the peak isn't green
-    base, pole_len = peak - 1, 1
-    while (
-        pole_len < max_pole
-        and base - 1 >= 0
-        and tokens[base - 1] == "H"
-        and _is_big_green(bars[base])
-    ):
-        base -= 1
-        pole_len += 1
+    # The extension walk itself is :func:`refine_pole` — the only thing this path adds is the
+    # green-peak requirement, which refine_pole deliberately omits (the day detector wants a red
+    # peak identified-and-rejected downstream, not skipped). refine_pole also covers the rest of
+    # the old condition: `max_pole < 1` disables the pole, and `tokens[peak - 1] != "H"` means no
+    # strict higher-high step into the peak. Its extra `peak - 1 < 0` guard is dead here
+    # (_find_pole_peak's window floor `lo = max(1, n-1-max_cons)` guarantees peak >= 1).
+    if classify(bars[peak]) != "green":
+        return None  # a red/doji peak disqualifies this candidate (#182/#190: IRE's shooting star)
+    refined = refine_pole(bars, tokens, peak, max_pole=max_pole)
+    if refined is None:
+        return None  # pole disabled, or no strict higher high into the peak
+    base, pole_len = refined
 
     return Segment(
         base_idx=base,

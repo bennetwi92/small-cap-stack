@@ -25,25 +25,13 @@ and yields setup-found-but-not-triggered). Pure and replayable over the cached r
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from .bullflag import detect_day_with_settings
 from .capture import Bar
 from .config import Settings
-
-
-def bar_interval(bars: Sequence[Bar]) -> timedelta:
-    """The modal spacing between consecutive bar starts — the bar duration (usually 5 min).
-
-    Taken from the *most common* gap so a pre-market hole doesn't inflate it. Defaults to 5 minutes
-    when there aren't two bars to measure. (Kept for callers that reason about bar close times.)"""
-    if len(bars) < 2:
-        return timedelta(minutes=5)
-    gaps = [bars[i].start - bars[i - 1].start for i in range(1, len(bars))]
-    return Counter(gaps).most_common(1)[0][0]
 
 
 @dataclass(frozen=True)

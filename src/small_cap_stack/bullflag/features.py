@@ -17,12 +17,11 @@ higher high to the legacy strict-``>`` walk. "Pole bars" span ``base_idx..peak_i
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import time, timedelta
+from datetime import time
 
-from ..capture import Bar
+from ..capture import Bar, bar_interval
 from ..clock import ET, within_window
 from .detect import _is_big_green, _non_increasing, _upper_wick_frac, classify
 from .segment import Segment
@@ -70,18 +69,6 @@ class FeatureVector:
     # LOC (recorded only this pass — scanner join lands in a later issue)
     trigger_in_window: bool  # detection time within the strategy window (ET)  [gate input]
     bars_before_scan: int | None  # None until the scanner_hits join lands
-
-
-def _modal_interval(bars: Sequence[Bar]) -> timedelta:
-    """The most common spacing between consecutive bar starts (the bar duration, usually 5 min).
-
-    Taken from the modal gap so a pre-market hole doesn't inflate it (like rmetrics.bar_interval).
-    Defaults to 5 minutes when there aren't two bars to measure.
-    """
-    if len(bars) < 2:
-        return timedelta(minutes=5)
-    gaps = [bars[i].start - bars[i - 1].start for i in range(1, len(bars))]
-    return Counter(gaps).most_common(1)[0][0]
 
 
 def _body_frac(bar: Bar) -> float:
@@ -164,7 +151,7 @@ def extract(
     # open. Anchor there, not on cons_end's OPEN, else a flag completing at 11:55 reads in-window
     # when its 12:00 breakout is past the 11:59 close. Use the MODAL bar spacing (not the last gap),
     # so a missing/gapped bar before cons_end doesn't inflate the interval (#179 review).
-    trigger_time = bars[cons_end_idx].start + _modal_interval(bars)
+    trigger_time = bars[cons_end_idx].start + bar_interval(bars)
 
     return FeatureVector(
         # SHAPE

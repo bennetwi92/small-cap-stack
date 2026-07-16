@@ -11,6 +11,7 @@ is append-only via the Store; nothing is mutated.
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
@@ -42,6 +43,23 @@ class Bar:
     low: float
     close: float
     volume: float
+
+
+def bar_interval(bars: Sequence[Bar]) -> timedelta:
+    """The modal spacing between consecutive bar starts — the bar duration (usually 5 min).
+
+    Taken from the *most common* gap so a pre-market hole doesn't inflate it. Defaults to 5 minutes
+    when there aren't two bars to measure.
+
+    Lives here, next to :class:`Bar`, because both callers already import ``Bar`` from this module:
+    ``rmetrics`` (chart/R timing) and ``bullflag.features`` (the trigger-time anchor) each had a
+    byte-identical private copy (#258). It cannot live in ``rmetrics`` — that imports ``bullflag``,
+    so ``bullflag.features`` importing it back would be a cycle.
+    """
+    if len(bars) < 2:
+        return timedelta(minutes=5)
+    gaps = [bars[i].start - bars[i - 1].start for i in range(1, len(bars))]
+    return Counter(gaps).most_common(1)[0][0]
 
 
 @dataclass(frozen=True)
