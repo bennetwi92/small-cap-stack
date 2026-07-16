@@ -18,7 +18,8 @@ Rules locked in ``research/decisions.md`` (#230, 2026-07-15):
   cap_qty)``. Both of the day's trades size off the *day's opening equity* (they're concurrent
   positions committed before either resolves), so at the cap 50% × 2 fully deploys the account; the
   risk target sizes smaller whenever the stop is tighter than ``risk_fraction / position_fraction``
-  of the entry.
+  of the entry. In the *adaptive* book ``risk_fraction`` is itself throttled day-by-day by a
+  kill-switch ladder (#239) — see :func:`simulate_portfolio_adaptive`.
 - **Exit** — a fixed R target with an optional breakeven arm, simulated bar-by-bar with the same
   conservative stop-first / gap-through convention as :mod:`rmetrics`. Costs + exit slippage are
   netted out so the equity curve is honest at ~$250 notional.
@@ -356,6 +357,14 @@ def extract_day_trades(store: Store, s: Settings, trading_date: date) -> list[Ca
 # --- --- Portfolio simulation ---------------------------------------------------------
 
 
+def _select_day(cands: Sequence[CandidateTrade], s: Settings) -> list[CandidateTrade]:
+    """The ≤N candidates a day actually takes, in trigger-time order.
+
+    The single source of truth for *which* trades a day acts on — shared by sizing
+    (:func:`_take_day`) and the risk-throttle signal (:func:`_day_signal_r`) so they never drift."""
+    return sorted(cands, key=lambda c: c.trigger_at)[: s.portfolio_max_trades_per_day]
+
+
 def _take_day(
     day: date,
     cands: Sequence[CandidateTrade],
@@ -363,20 +372,25 @@ def _take_day(
     s: Settings,
     target_r: float,
     breakeven_r: float,
+    *,
+    risk_fraction: float | None = None,
 ) -> list[PaperTrade]:
     """Take a single day's ≤N trades (trigger-time order), all sized off the day's opening equity.
 
     Both concurrent positions size off ``equity`` (the day's open) since they're committed before
-    either resolves; equity accrues sequentially only for the running-balance bookkeeping."""
+    either resolves; equity accrues sequentially only for the running-balance bookkeeping.
+    ``risk_fraction`` defaults to the configured value; the adaptive kill-switch passes the day's
+    throttled fraction, and a 0 fraction sizes every position to 0 (the day takes no trades)."""
+    rf = s.portfolio_risk_fraction if risk_fraction is None else risk_fraction
     opening_equity = equity
-    taken = sorted(cands, key=lambda c: c.trigger_at)[: s.portfolio_max_trades_per_day]
+    taken = _select_day(cands, s)
     out: list[PaperTrade] = []
     for c in taken:
         qty = size_position(
             opening_equity,
             c.entry_price,
             c.stop,
-            risk_fraction=s.portfolio_risk_fraction,
+            risk_fraction=rf,
             max_position_fraction=s.portfolio_position_fraction,
         )
         if qty < 1:  # position too small to afford a share — skip
@@ -531,22 +545,35 @@ def simulate_portfolio_adaptive(
     s: Settings,
     *,
     breakeven_r: float | None = None,
-) -> tuple[PortfolioResult, list[tuple[date, float]]]:
-    """Walk days chronologically, re-fitting the R target each day from a TRAILING window.
+) -> tuple[PortfolioResult, list[tuple[date, float]], list[tuple[date, float]]]:
+    """Walk days chronologically, re-fitting BOTH the R target and the risk fraction each day.
 
-    Each day's target = the highest-expectancy grid target over the candidates from the prior
-    ``portfolio_adaptive_window_days`` days (strictly before today — no look-ahead). Until at least
-    ``portfolio_adaptive_min_samples`` trailing candidates exist the target falls back to the
-    configured ``portfolio_target_r``. Returns the book plus the per-day (date, chosen_target) list
-    so the page can show how the target drifted. Overfit is real at low N — the window + a
-    plateau-preferring :func:`best_target` are the guards, not a cure."""
+    **Target** — each day's target = the highest-expectancy grid target over the candidates from the
+    prior ``portfolio_adaptive_window_days`` days (strictly before today — no look-ahead). Until at
+    least ``portfolio_adaptive_min_samples`` trailing candidates exist the target falls back to the
+    configured ``portfolio_target_r``. Overfit is real at low N — the window + a plateau-preferring
+    :func:`best_target` are the guards, not a cure.
+
+    **Risk (kill-switch)** — the per-trade risk fraction walks the :func:`risk_ladder` (0 →
+    ``portfolio_risk_fraction`` over ``portfolio_risk_rungs`` rungs). It starts at full risk (top
+    rung) and each night steps one rung by the sign of that day's aggregate realised R over its
+    qualifying setups (:func:`step_risk_rung`): net-positive up, net-negative down, flat holds. The
+    signal is *size-independent* — computed from the day's would-be setups, not its sized P&L — so a
+    book throttled to the 0 rung (which takes no trades) still re-arms once setups start working.
+    Applying today's rung, then stepping from today's result, keeps it causal (no look-ahead).
+
+    Returns the book plus the per-day ``(date, chosen_target)`` and ``(date, risk_fraction)`` lists
+    so the page can show how each knob drifted."""
     be = s.portfolio_breakeven_r if breakeven_r is None else breakeven_r
     grid = list(s.portfolio_target_grid)
+    ladder = risk_ladder(s)
+    rung = len(ladder) - 1  # start at full risk — the kill-switch cuts DOWN from the top
     days = sorted(candidates_by_day, key=lambda dc: dc[0])
     equity = s.portfolio_start_equity_usd
     trades: list[PaperTrade] = []
     curve: list[tuple[date, float]] = []
     chosen: list[tuple[date, float]] = []
+    daily_risk: list[tuple[date, float]] = []
     fees = _DataFeeLedger(s)
 
     for i, (day, cands) in enumerate(days):
@@ -563,16 +590,21 @@ def simulate_portfolio_adaptive(
             if pick is not None:
                 target = pick.target_r
         chosen.append((day, target))
+        risk_fraction = ladder[rung]
+        daily_risk.append((day, risk_fraction))
         equity = round(equity - fees.roll(day), 4)
-        day_trades = _take_day(day, cands, equity, s, target, be)
+        day_trades = _take_day(day, cands, equity, s, target, be, risk_fraction=risk_fraction)
         fees.observe(day_trades)
         trades.extend(day_trades)
         equity = day_trades[-1].equity_after if day_trades else equity
         curve.append((day, equity))
+        # Step the ladder for TOMORROW from today's setups (size-independent → re-arms at rung 0).
+        signal = _day_signal_r(_select_day(cands, s), s, target, be)
+        rung = step_risk_rung(rung, signal, len(ladder))
     equity = round(equity - fees.close(), 4)
     if curve:  # the final month's fee lands on the last day
         curve[-1] = (curve[-1][0], equity)
-    return _finalize(trades, curve, s, equity, fees.total_charged), chosen
+    return _finalize(trades, curve, s, equity, fees.total_charged), chosen, daily_risk
 
 
 # --- --- Adaptive target optimiser ----------------------------------------------------
@@ -624,6 +656,45 @@ def best_target(stats: Sequence[TargetStat]) -> TargetStat | None:
     return max(scored, key=lambda st: (st.expectancy_r or 0.0, -st.target_r))
 
 
+# --- --- Adaptive risk throttle (kill-switch, #239) -----------------------------------
+
+
+def risk_ladder(s: Settings) -> tuple[float, ...]:
+    """The risk-fraction rungs the kill-switch walks: 0 up to ``portfolio_risk_fraction``, evenly.
+
+    ``portfolio_risk_rungs`` rungs *including* the 0 floor, so 3 → ``(0.0, 0.025, 0.05)`` at the 5%
+    default. A single rung disables the throttle (always full risk). Fewer rungs ⇒ a faster wind-up
+    back to full risk after a knock-down, which is the point of keeping the ladder coarse."""
+    n = max(1, s.portfolio_risk_rungs)
+    top = s.portfolio_risk_fraction
+    if n == 1:
+        return (top,)
+    return tuple(round(top * i / (n - 1), 6) for i in range(n))
+
+
+def step_risk_rung(rung: int, day_signal: float, n_rungs: int) -> int:
+    """Walk the ladder one rung: up on a net-positive day, down on a net-negative day, else hold.
+
+    ``day_signal`` is the day's aggregate realised R over its qualifying setups (see
+    :func:`_day_signal_r`) — size-independent, so a book throttled to the 0 rung still climbs when
+    setups start working again. The result is clamped to ``[0, n_rungs - 1]``."""
+    if day_signal > 0:
+        return min(n_rungs - 1, rung + 1)
+    if day_signal < 0:
+        return max(0, rung - 1)
+    return rung
+
+
+def _day_signal_r(
+    taken: Sequence[CandidateTrade], s: Settings, target_r: float, breakeven_r: float
+) -> float:
+    """Aggregate realised R of a day's taken setups under ``(target_r, breakeven_r)``.
+
+    The throttle's day result: size-independent (pure R), so it is defined even on days the book
+    took no positions (the 0 rung), which is exactly what lets the kill-switch re-arm."""
+    return round(sum(c.exit_under(s, target_r, breakeven_r).realized_r for c in taken), 4)
+
+
 # --- --- JSON payload for the web page ------------------------------------------------
 
 
@@ -660,7 +731,9 @@ def _trade_json(t: PaperTrade) -> dict[str, object]:
 
 
 def _book_json(
-    res: PortfolioResult, daily_targets: list[tuple[date, float]] | None
+    res: PortfolioResult,
+    daily_targets: list[tuple[date, float]] | None,
+    daily_risk: list[tuple[date, float]] | None = None,
 ) -> dict[str, object]:
     book: dict[str, object] = {
         "stats": {
@@ -684,6 +757,8 @@ def _book_json(
     }
     if daily_targets is not None:
         book["daily_targets"] = [{"date": d.isoformat(), "target": t} for d, t in daily_targets]
+    if daily_risk is not None:
+        book["daily_risk"] = [{"date": d.isoformat(), "risk": r} for d, r in daily_risk]
     return book
 
 
@@ -696,10 +771,10 @@ def build_portfolio_payload(
     and one fixed-target book per selectable target — all server-side so the page needs no bars and
     no duplicated logic. Written to ``/data/dashboard`` at EOD and shipped by publish-dashboard."""
     by_day = [(d, extract_day_trades(store, s, d)) for d in collected_dates(store)]
-    adaptive_res, daily_targets = simulate_portfolio_adaptive(by_day, s)
+    adaptive_res, daily_targets, daily_risk = simulate_portfolio_adaptive(by_day, s)
     # Selectable fixed targets: the adaptive grid widened with a couple of extremes for exploration.
     targets = sorted(set(s.portfolio_target_grid) | {1.0, 4.0, 5.0})
-    books: dict[str, object] = {"adaptive": _book_json(adaptive_res, daily_targets)}
+    books: dict[str, object] = {"adaptive": _book_json(adaptive_res, daily_targets, daily_risk)}
     for t in targets:
         books[f"{t:g}"] = _book_json(simulate_portfolio(by_day, s, target_r=t), None)
     return {
@@ -722,6 +797,8 @@ def build_portfolio_payload(
             "exit_slippage_ticks": s.portfolio_exit_slippage_ticks,
             "adaptive_window_days": s.portfolio_adaptive_window_days,
             "adaptive_min_samples": s.portfolio_adaptive_min_samples,
+            "risk_rungs": s.portfolio_risk_rungs,
+            "risk_ladder": list(risk_ladder(s)),
         },
         "targets": [f"{t:g}" for t in targets],
         "books": books,

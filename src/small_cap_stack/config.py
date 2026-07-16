@@ -179,6 +179,15 @@ class Settings(BaseSettings):
     portfolio_target_grid: tuple[float, ...] = (1.5, 2.0, 2.5, 3.0)
     portfolio_adaptive_window_days: int = 20  # trailing lookback for the expectancy re-fit
     portfolio_adaptive_min_samples: int = 8  # need this many trailing trades before re-fitting
+    # Adaptive risk throttle / kill-switch (#239): the per-trade `risk_fraction` itself walks a
+    # small ladder from 0 up to `portfolio_risk_fraction`, driven by recent daily results. The
+    # adaptive book starts at full risk (top rung); each net-positive day (by aggregate realised R
+    # of its qualifying setups) steps risk up one rung, each net-negative day steps it down one, and
+    # flat days hold. At the 0% rung no capital is committed, but the day's *would-be* setups are
+    # still scored (the signal is size-independent by design) so the switch re-arms when the tape
+    # turns. Few rungs = a fast wind-up back to full risk. `1` disables the throttle. Only the
+    # adaptive book throttles; fixed-target books stay at full `risk_fraction` as a baseline.
+    portfolio_risk_rungs: int = 3  # rungs incl. the 0 floor → (0, 2.5%, 5%)
     # Costs, netted out of every trade so the equity curve is honest at ~$250 notional. Full IBKR
     # TIERED US-stock schedule per research/broker-costs.md (#232) — tiered UNBUNDLES the exchange /
     # regulatory pass-throughs, and at these share counts they roughly equal the commission itself,
