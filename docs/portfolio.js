@@ -188,7 +188,8 @@ async function load() {
   if (!PAYLOAD.books[BOOK]) BOOK = "adaptive";
   const c = PAYLOAD.config;
   el("pf-meta").innerHTML =
-    `Start ${fmtUsd(PAYLOAD.start_equity)} · ${(c.position_fraction * 100).toFixed(0)}% per trade · ` +
+    `Start ${fmtUsd(PAYLOAD.start_equity)} · ${(c.risk_fraction * 100).toFixed(0)}% risk / trade, ` +
+    `max ${(c.position_fraction * 100).toFixed(0)}% size · ` +
     `max ${c.max_trades_per_day}/day · pre-market fills only (&lt; ${esc(c.premarket_cutoff_et.slice(0, 5))} ET) · ` +
     `entry $${c.entry_price_min}–${c.entry_price_max} · ` +
     `IBKR tiered costs + $${c.market_data_usd_per_month}/mo data (#232)`;
