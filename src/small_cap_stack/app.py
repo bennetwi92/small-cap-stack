@@ -265,6 +265,7 @@ class Application:
                     raise ConnectionError("ibkr disconnected")
                 await self.capture.capture_day_bars(trading_date)
                 await self.capture.capture_day_news(trading_date)
+                await self.capture.capture_missing_fundamentals(trading_date)
                 log.info("bars.eod_done")
                 return
             except Exception:  # noqa: BLE001 — retry any transient failure; back-fill is the net

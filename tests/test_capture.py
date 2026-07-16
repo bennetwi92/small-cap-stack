@@ -15,6 +15,7 @@ from small_cap_stack.capture import (
     parse_news_ts,
 )
 from small_cap_stack.config import Settings
+from small_cap_stack.fundamentals import Fundamentals
 from small_cap_stack.scanner import Candidate
 from small_cap_stack.storage import Store
 
@@ -262,3 +263,169 @@ def test_backfill_recent_scans_multiple_days(tmp_path: Path) -> None:
     filled = asyncio.run(svc.backfill_recent(date(2026, 6, 30), days=3))
     assert filled == [_TRADING_DATE]  # only the day that had a missing opportunity
     assert store.read("bars")["symbol"].to_list() == ["AAA"]
+
+
+# --- per-candidate isolation + batched scanner_hits (#254, #247) --------------------------------
+
+
+class _BoomNews:
+    """News source that raises for one symbol — a stand-in for any per-candidate failure."""
+
+    def __init__(self, boom_symbol: str) -> None:
+        self.boom_symbol = boom_symbol
+
+    async def fetch_news(
+        self, candidate: Candidate, *, lookback_days: int, limit: int
+    ) -> list[NewsItem]:
+        return []
+
+
+class _BoomFundamentals:
+    def __init__(self, boom_symbol: str) -> None:
+        self.boom_symbol = boom_symbol
+
+    async def fetch_all(self, candidate: Candidate) -> list[Fundamentals]:
+        if candidate.symbol == self.boom_symbol:
+            raise RuntimeError("fundamentals exploded")
+        return [Fundamentals(candidate.symbol, 5_000_000, 9_000_000, 0.1, "fake")]
+
+
+def test_scan_tick_isolates_a_failing_candidate(tmp_path: Path) -> None:
+    """A high-rank symbol failing to open must not starve the ones ranked below it (#254)."""
+    store = Store(tmp_path)
+    svc = CaptureService(
+        store=store,
+        bars=FakeBars([]),  # type: ignore[arg-type]
+        news=_BoomNews("BAD"),  # type: ignore[arg-type]
+        settings=_settings(),
+        fundamentals=_BoomFundamentals("BAD"),  # type: ignore[arg-type]
+    )
+    now = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
+    cands = [_candidate("BAD"), _candidate("GOOD"), _candidate("ALSOGOOD")]
+
+    asyncio.run(svc.on_scan_tick(cands, now))  # must not raise
+
+    opps = store.read("opportunities")
+    opened = set(opps["symbol"].to_list())
+    assert "GOOD" in opened and "ALSOGOOD" in opened  # the failure didn't stall them
+
+    # Every candidate still gets a scanner hit — that it appeared is true regardless of opening.
+    hits = store.read("scanner_hits")
+    assert set(hits["symbol"].to_list()) == {"BAD", "GOOD", "ALSOGOOD"}
+
+
+def test_scan_tick_writes_one_scanner_hits_file_per_tick(tmp_path: Path) -> None:
+    """One append per tick, not one per candidate (#247 small-files explosion)."""
+    store = Store(tmp_path)
+    svc = _svc(store, FakeBars([]), FakeNews([]))
+    now = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
+    cands = [_candidate("AZI"), _candidate("BZI"), _candidate("CZI")]
+
+    asyncio.run(svc.on_scan_tick(cands, now))
+
+    part_dir = tmp_path / "scanner_hits" / "dt=2026-06-29"
+    assert len(list(part_dir.glob("*.parquet"))) == 1  # was 1 file per candidate
+    assert store.read("scanner_hits").height == 3  # same raw rows
+
+    asyncio.run(svc.on_scan_tick(cands, now))  # a second tick adds exactly one more file
+    assert len(list(part_dir.glob("*.parquet"))) == 2
+    assert store.read("scanner_hits").height == 6
+
+
+def test_scan_tick_with_no_candidates_writes_nothing(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    svc = _svc(store, FakeBars([]), FakeNews([]))
+    asyncio.run(svc.on_scan_tick([], datetime(2026, 6, 29, 14, 0, tzinfo=UTC)))
+    assert store.read("scanner_hits").is_empty()
+
+
+# --- EOD fundamentals backfill (#255) ----------------------------------------------------------
+
+
+class _FlakyFundamentals:
+    """Fails on the first call for a symbol, succeeds afterwards — the #255 scenario."""
+
+    def __init__(self, *, fail_first: bool = True) -> None:
+        self.fail_first = fail_first
+        self.calls: list[str] = []
+
+    async def fetch_all(self, candidate: Candidate) -> list[Fundamentals]:
+        self.calls.append(candidate.symbol)
+        if self.fail_first and self.calls.count(candidate.symbol) == 1:
+            return []  # what MultiFundamentals returns when every source errors
+        return [Fundamentals(candidate.symbol, 5_000_000, 9_000_000, 0.1, "fake")]
+
+
+def _fund_svc(store: Store, funds: object) -> CaptureService:
+    return CaptureService(
+        store=store,
+        bars=FakeBars([]),  # type: ignore[arg-type]
+        news=FakeNews([]),
+        settings=_settings(),
+        fundamentals=funds,  # type: ignore[arg-type]
+    )
+
+
+def test_eod_backfills_fundamentals_missing_from_a_failed_open(tmp_path: Path) -> None:
+    """A fetch failure at open time must not disqualify the symbol forever (#255)."""
+    store = Store(tmp_path)
+    funds = _FlakyFundamentals()
+    svc = _fund_svc(store, funds)
+
+    asyncio.run(svc.on_scan_tick([_candidate("AZI")], datetime(2026, 6, 29, 14, 0, tzinfo=UTC)))
+    assert store.read("fundamentals").is_empty()  # the open-time fetch came back empty
+
+    filled = asyncio.run(svc.capture_missing_fundamentals(_TRADING_DATE))
+
+    assert filled == 1
+    df = store.read("fundamentals")
+    assert df.height == 1
+    assert df["symbol"].to_list() == ["AZI"]
+    assert df["float_shares"].to_list() == [5_000_000]
+    assert df["opportunity_id"].to_list() == ["2026-06-29:AZI"]
+
+
+def test_eod_fundamentals_skips_opportunities_that_already_have_them(tmp_path: Path) -> None:
+    """Idempotent: no redundant fetches for opportunities already covered."""
+    store = Store(tmp_path)
+    funds = _FlakyFundamentals(fail_first=False)  # succeeds at open time
+    svc = _fund_svc(store, funds)
+    asyncio.run(svc.on_scan_tick([_candidate("AZI")], datetime(2026, 6, 29, 14, 0, tzinfo=UTC)))
+    assert store.read("fundamentals").height == 1
+    calls_after_open = len(funds.calls)
+
+    assert asyncio.run(svc.capture_missing_fundamentals(_TRADING_DATE)) == 0
+    assert funds.calls == funds.calls[:calls_after_open]  # no re-fetch
+    assert store.read("fundamentals").height == 1
+
+
+def test_eod_fundamentals_still_missing_is_retried_not_recorded(tmp_path: Path) -> None:
+    """A source that is still down leaves no row — and stays eligible for the next run."""
+    store = Store(tmp_path)
+
+    class _AlwaysEmpty:
+        async def fetch_all(self, candidate: Candidate) -> list[Fundamentals]:
+            return []
+
+    svc = _fund_svc(store, _AlwaysEmpty())
+    asyncio.run(svc.on_scan_tick([_candidate("AZI")], datetime(2026, 6, 29, 14, 0, tzinfo=UTC)))
+    assert asyncio.run(svc.capture_missing_fundamentals(_TRADING_DATE)) == 0
+    assert store.read("fundamentals").is_empty()
+
+
+def test_eod_fundamentals_isolates_a_raising_symbol(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    svc = _fund_svc(store, _BoomFundamentals("BAD"))
+    now = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
+    asyncio.run(svc.on_scan_tick([_candidate("BAD"), _candidate("GOOD")], now))
+
+    # GOOD got fundamentals at open; BAD raised. Only BAD is missing, and it raises again here.
+    filled = asyncio.run(svc.capture_missing_fundamentals(_TRADING_DATE))
+    assert filled == 0  # BAD still fails, but the call returns rather than propagating
+    assert set(store.read("fundamentals")["symbol"].to_list()) == {"GOOD"}
+
+
+def test_eod_fundamentals_no_opportunities_is_a_noop(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    svc = _fund_svc(store, _FlakyFundamentals())
+    assert asyncio.run(svc.capture_missing_fundamentals(_TRADING_DATE)) == 0
