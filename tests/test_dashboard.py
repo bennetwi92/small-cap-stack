@@ -10,10 +10,11 @@ from small_cap_stack.config import Settings
 from small_cap_stack.dashboard import (
     StatusInputs,
     build_charts,
-    build_index,
     build_stats,
     build_status,
     charts_path,
+    index_entry,
+    index_from_entries,
     read_json,
     upsert_index_date,
     write_json,
@@ -498,9 +499,12 @@ def _charts_payload() -> dict:
     }
 
 
-def test_build_index_projects_and_sorts_dates_newest_first() -> None:
+def test_index_from_entries_projects_and_sorts_dates_newest_first() -> None:
     older = {"generated_utc": "t", "trading_date": "2026-06-30", "charts": []}
-    idx = build_index([(date(2026, 6, 30), older), (date(2026, 7, 1), _charts_payload())], _NOW)
+    idx = index_from_entries(
+        [index_entry(date(2026, 6, 30), older), index_entry(date(2026, 7, 1), _charts_payload())],
+        _NOW,
+    )
 
     assert idx["generated_utc"] == _NOW.isoformat()
     assert [d["date"] for d in idx["dates"]] == ["2026-07-01", "2026-06-30"]  # newest first
@@ -518,7 +522,7 @@ def test_build_index_projects_and_sorts_dates_newest_first() -> None:
 
 
 def test_upsert_index_date_replaces_and_reorders() -> None:
-    base = build_index([(date(2026, 6, 30), {"charts": []})], _NOW)
+    base = index_from_entries([index_entry(date(2026, 6, 30), {"charts": []})], _NOW)
     updated = upsert_index_date(base, date(2026, 7, 1), _charts_payload(), _NOW)
     assert [d["date"] for d in updated["dates"]] == ["2026-07-01", "2026-06-30"]
 

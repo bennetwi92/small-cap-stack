@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from small_cap_stack.config import Settings
+from small_cap_stack.dashboard import index_entry, index_from_entries
 from small_cap_stack.dashboard_backfill import (
-    _collected_dates,
     _parse_date,
+    main,
     regenerate,
     regenerate_archive,
 )
+from small_cap_stack.portfolio import collected_dates
 from small_cap_stack.storage import Store
 
 _DAY = date(2026, 6, 29)
@@ -136,7 +141,8 @@ def test_regenerate_archive_backfills_every_date(tmp_path: Path) -> None:
 
 
 def test_collected_dates_empty_store(tmp_path: Path) -> None:
-    assert _collected_dates(Store(tmp_path)) == []
+    # dashboard_backfill delegates to portfolio.collected_dates now (#257) — one implementation.
+    assert collected_dates(Store(tmp_path)) == []
 
 
 def test_regenerate_archive_empty_store_writes_empty_index(tmp_path: Path) -> None:
@@ -162,3 +168,111 @@ def test_parse_date_defaults_to_yesterday() -> None:
     assert _parse_date("2026-07-01") == date(2026, 7, 1)
     # default is strictly before today (ET) — a stable property without freezing the clock
     assert _parse_date(None) < datetime.now(UTC).date() + timedelta(days=1)
+
+
+# --- --all guard (#261) ------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _isolated_main(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep main() from reaching the developer's real environment.
+
+    main() calls get_settings() — @lru_cache'd, and Settings reads a cwd-relative .env — then
+    configure_logging(). Unstubbed, these tests would cache the developer's live config (including
+    its data_dir) for the whole pytest session and globally reconfigure structlog, which is both
+    order-dependent and a route to a later test touching the real store.
+    """
+    monkeypatch.setattr(
+        "small_cap_stack.dashboard_backfill.get_settings", lambda: _settings(tmp_path)
+    )
+    monkeypatch.setattr("small_cap_stack.dashboard_backfill.configure_logging", lambda **kw: None)
+
+
+def test_all_without_force_is_refused(
+    monkeypatch: pytest.MonkeyPatch, _isolated_main: None
+) -> None:
+    """--all is the flag that OOM-killed the box (#264); it must not fire on a bare invocation."""
+    monkeypatch.setattr(sys, "argv", ["dashboard_backfill", "--all"])
+    ran: list[str] = []
+    monkeypatch.setattr(
+        "small_cap_stack.dashboard_backfill.regenerate_archive",
+        lambda *a, **k: ran.append("archive") or (0, 0),
+    )
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 2  # argparse usage error
+    assert ran == []  # and crucially: the archive rebuild never started
+
+
+def test_all_with_force_runs_the_archive(
+    monkeypatch: pytest.MonkeyPatch, _isolated_main: None
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["dashboard_backfill", "--all", "--force"])
+    ran: list[str] = []
+    monkeypatch.setattr(
+        "small_cap_stack.dashboard_backfill.regenerate_archive",
+        lambda *a, **k: (ran.append("archive"), (2, 5))[1],
+    )
+    main()
+    assert ran == ["archive"]
+
+
+def test_force_alone_does_not_imply_all(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _isolated_main: None
+) -> None:
+    """--force is a modifier on --all, not a mode: it must not trigger an archive rebuild."""
+    monkeypatch.setattr(sys, "argv", ["dashboard_backfill", "--date", "2026-07-01", "--force"])
+    ran: list[str] = []
+    monkeypatch.setattr(
+        "small_cap_stack.dashboard_backfill.regenerate_archive",
+        lambda *a, **k: (ran.append("archive"), (0, 0))[1],
+    )
+    monkeypatch.setattr(
+        "small_cap_stack.dashboard_backfill.regenerate",
+        lambda d, *a, **k: (ran.append(f"date:{d.isoformat()}"), (0, 0))[1],
+    )
+    main()
+    assert ran == ["date:2026-07-01"]
+
+
+# --- index memory shape (#261) -----------------------------------------------------------------
+
+
+def test_archive_index_does_not_retain_full_chart_payloads(tmp_path: Path) -> None:
+    """The archive index must be built from per-date rows, not a list of every charts payload.
+
+    Retaining every date's full charts (all bars, all opportunities, all dates) purely to build the
+    index is what made --all a memory bomb on the 4 GB box. Pin the row shape so the reduction
+    can't quietly regress back to holding payloads.
+    """
+    chart = {
+        "opportunity_id": "2026-07-01:AZI",
+        "symbol": "AZI",
+        "run": 1,
+        "run_count": 1,
+        "triggered": True,
+        "max_r": 2.5,
+        "bars": [{"t": 1, "o": 1.0, "h": 2.0, "low": 0.5, "c": 1.5}] * 200,  # the bulky part
+    }
+    entry = index_entry(date(2026, 7, 1), {"charts": [chart]})
+
+    assert set(entry) == {"date", "opportunities"}
+    assert entry["date"] == "2026-07-01"
+    # The row carries only navigation fields — the bars payload is left behind, not retained.
+    assert set(entry["opportunities"][0]) == {
+        "opportunity_id",
+        "symbol",
+        "run",
+        "run_count",
+        "triggered",
+        "max_r",
+    }
+
+    idx = index_from_entries(
+        [
+            index_entry(date(2026, 7, 1), {"charts": []}),
+            index_entry(date(2026, 7, 2), {"charts": []}),
+        ],
+        datetime(2026, 7, 3, tzinfo=UTC),
+    )
+    assert [d["date"] for d in idx["dates"]] == ["2026-07-02", "2026-07-01"]  # newest-first
