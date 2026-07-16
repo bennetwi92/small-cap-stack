@@ -556,9 +556,10 @@ def simulate_portfolio_adaptive(
 
     **Risk (kill-switch)** — the per-trade risk fraction walks the :func:`risk_ladder` (0 →
     ``portfolio_risk_fraction`` over ``portfolio_risk_rungs`` rungs). It starts at full risk (top
-    rung) and each night steps one rung by the sign of that day's aggregate realised R over its
-    qualifying setups (:func:`step_risk_rung`): net-positive up, net-negative down, flat holds. The
-    signal is *size-independent* — computed from the day's would-be setups, not its sized P&L — so a
+    rung) and steps ONE rung only after ``portfolio_risk_step_days`` net-positive days in a row (up)
+    or the same run of net-negative days (down) — see :func:`step_risk_rung`; the day's result is
+    its aggregate realised R over its qualifying setups, and a flat/no-setup day holds the streak.
+    The signal is *size-independent* — the day's would-be setups, not its sized P&L — so a
     book throttled to the 0 rung (which takes no trades) still re-arms once setups start working.
     Applying today's rung, then stepping from today's result, keeps it causal (no look-ahead).
 
@@ -568,6 +569,7 @@ def simulate_portfolio_adaptive(
     grid = list(s.portfolio_target_grid)
     ladder = risk_ladder(s)
     rung = len(ladder) - 1  # start at full risk — the kill-switch cuts DOWN from the top
+    streak = 0  # signed run of consecutive decisive days (see step_risk_rung)
     days = sorted(candidates_by_day, key=lambda dc: dc[0])
     equity = s.portfolio_start_equity_usd
     trades: list[PaperTrade] = []
@@ -600,7 +602,7 @@ def simulate_portfolio_adaptive(
         curve.append((day, equity))
         # Step the ladder for TOMORROW from today's setups (size-independent → re-arms at rung 0).
         signal = _day_signal_r(_select_day(cands, s), s, target, be)
-        rung = step_risk_rung(rung, signal, len(ladder))
+        rung, streak = step_risk_rung(rung, streak, signal, len(ladder), s.portfolio_risk_step_days)
     equity = round(equity - fees.close(), 4)
     if curve:  # the final month's fee lands on the last day
         curve[-1] = (curve[-1][0], equity)
@@ -672,17 +674,30 @@ def risk_ladder(s: Settings) -> tuple[float, ...]:
     return tuple(round(top * i / (n - 1), 6) for i in range(n))
 
 
-def step_risk_rung(rung: int, day_signal: float, n_rungs: int) -> int:
-    """Walk the ladder one rung: up on a net-positive day, down on a net-negative day, else hold.
+def step_risk_rung(
+    rung: int, streak: int, day_signal: float, n_rungs: int, step_days: int
+) -> tuple[int, int]:
+    """Advance the ``(rung, streak)`` kill-switch state by one day — one rung per ``step_days`` run.
 
-    ``day_signal`` is the day's aggregate realised R over its qualifying setups (see
-    :func:`_day_signal_r`) — size-independent, so a book throttled to the 0 rung still climbs when
-    setups start working again. The result is clamped to ``[0, n_rungs - 1]``."""
+    ``streak`` is a signed count of consecutive *decisive* days in the current direction (positive =
+    net-positive days, negative = net-negative days). A net-positive day extends or flips it up, a
+    net-negative day extends or flips it down, and a **flat / no-setup day holds both rung and
+    streak** — an information-less day carries no momentum, so "in a row" counts decisive days
+    across flat gaps. Once the streak reaches ``±step_days`` the rung steps one notch that way
+    (clamped to ``[0, n_rungs - 1]``) and the streak resets to 0, so each further move needs a fresh
+    run. ``step_days=1`` steps on every decisive day (eager). ``day_signal`` is size-independent
+    (see :func:`_day_signal_r`), so a book parked at rung 0 still climbs once setups work again."""
     if day_signal > 0:
-        return min(n_rungs - 1, rung + 1)
-    if day_signal < 0:
-        return max(0, rung - 1)
-    return rung
+        streak = streak + 1 if streak > 0 else 1  # extend or flip to a winning run
+    elif day_signal < 0:
+        streak = streak - 1 if streak < 0 else -1  # extend or flip to a losing run
+    else:
+        return rung, streak  # flat day: hold the rung AND the streak
+    if streak >= step_days:
+        return min(n_rungs - 1, rung + 1), 0
+    if streak <= -step_days:
+        return max(0, rung - 1), 0
+    return rung, streak
 
 
 def _day_signal_r(
@@ -799,6 +814,7 @@ def build_portfolio_payload(
             "adaptive_min_samples": s.portfolio_adaptive_min_samples,
             "risk_rungs": s.portfolio_risk_rungs,
             "risk_ladder": list(risk_ladder(s)),
+            "risk_step_days": s.portfolio_risk_step_days,
         },
         "targets": [f"{t:g}" for t in targets],
         "books": books,

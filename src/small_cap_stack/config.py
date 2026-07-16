@@ -181,13 +181,16 @@ class Settings(BaseSettings):
     portfolio_adaptive_min_samples: int = 8  # need this many trailing trades before re-fitting
     # Adaptive risk throttle / kill-switch (#239): the per-trade `risk_fraction` itself walks a
     # small ladder from 0 up to `portfolio_risk_fraction`, driven by recent daily results. The
-    # adaptive book starts at full risk (top rung); each net-positive day (by aggregate realised R
-    # of its qualifying setups) steps risk up one rung, each net-negative day steps it down one, and
-    # flat days hold. At the 0% rung no capital is committed, but the day's *would-be* setups are
-    # still scored (the signal is size-independent by design) so the switch re-arms when the tape
-    # turns. Few rungs = a fast wind-up back to full risk. `1` disables the throttle. Only the
+    # adaptive book starts at full risk (top rung) and steps ONE rung only after `risk_step_days`
+    # net-positive days *in a row* (up) or the same run of net-negative days (down); a day's result
+    # is the aggregate realised R over its qualifying setups, and a flat / no-setup day holds both
+    # the rung and the streak (an info-less day carries no momentum — "in a row" counts decisive
+    # days). At the 0% rung no capital is committed, but the day's *would-be* setups are still
+    # scored (the signal is size-independent by design) so the switch re-arms when the tape turns.
+    # Few rungs = a fast wind-up to full risk. `risk_rungs=1` disables the throttle. Only the
     # adaptive book throttles; fixed-target books stay at full `risk_fraction` as a baseline.
     portfolio_risk_rungs: int = 3  # rungs incl. the 0 floor → (0, 2.5%, 5%)
+    portfolio_risk_step_days: int = 2  # consecutive same-direction days to move a rung (1 = eager)
     # Costs, netted out of every trade so the equity curve is honest at ~$250 notional. Full IBKR
     # TIERED US-stock schedule per research/broker-costs.md (#232) — tiered UNBUNDLES the exchange /
     # regulatory pass-throughs, and at these share counts they roughly equal the commission itself,

@@ -323,13 +323,18 @@ loss-based kill-switch for now — 2 trades/day makes it moot"); this decision a
 - **Ladder (coarse on purpose).** Risk walks a small ladder of evenly-spaced rungs from **0 up to
   `portfolio_risk_fraction`** (the 5% cap), `portfolio_risk_rungs` rungs *including* the 0 floor —
   default **3 → (0%, 2.5%, 5%)**. Few rungs is deliberate: the user wants a **fast wind-up** back to
-  full risk (2 good days from cold), not a slow many-step climb. `1` disables the throttle.
-- **Signal = winning/losing *days*.** The ladder steps **one rung per day**: a net-positive day
-  steps risk **up** one rung, a net-negative day **down** one, a flat/no-setup day **holds**. The
-  day's result is its **aggregate realised R over its qualifying setups** — deliberately
-  **size-independent** (pure R, not sized P&L), so a book throttled to the **0 rung** (which takes
-  no trades) can still be scored on its *would-be* setups and **re-arm** when the tape turns.
-  Otherwise 0% would be an absorbing state (no trades → no P&L → stuck).
+  full risk, not a slow many-step climb. `1` disables the throttle.
+- **Signal = winning/losing *days*, with a streak requirement.** The ladder steps **one rung only
+  after `portfolio_risk_step_days` consecutive same-direction days** (default **2**; `1` = eager,
+  one rung per decisive day). A run of net-positive days steps risk **up** one rung, a run of
+  net-negative days **down** one. The day's result is its **aggregate realised R over its qualifying
+  setups** — deliberately **size-independent** (pure R, not sized P&L), so a book throttled to the
+  **0 rung** (which takes no trades) can still be scored on its *would-be* setups and **re-arm** when
+  the tape turns; otherwise 0% would be an absorbing state (no trades → no P&L → stuck). A
+  **flat / no-setup day holds both the rung and the streak** — an information-less day carries no
+  momentum, so "in a row" counts *decisive* days across flat gaps rather than resetting on them.
+  (Amended same day, #239: the first cut was one-rung-per-day, which the user found too twitchy — a
+  single green/red day shouldn't move risk — so the streak requirement was added.)
 - **Starts at full risk.** Kill-switch framing: the book begins live at the top rung and cuts *down*
   from there on a bad run, rather than earning in from 0. Stepping *today's* rung, then computing
   the step from *today's* resolved result for *tomorrow*, keeps it causal (no look-ahead) — the same

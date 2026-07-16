@@ -164,11 +164,13 @@ function adaptiveTargetNote(book) {
   if (risk.length) {
     const last = risk[risk.length - 1];
     const ladder = (c.risk_ladder || []).map(pct).join(" / ");
+    const d = c.risk_step_days || 1;
+    const days = d === 1 ? "day" : `${d} days`;
     out +=
       `<p class="muted pf-note">Risk throttle (kill-switch): position risk walks ${c.risk_rungs} rungs ` +
-      `(${ladder}), starting at full risk. Each net-positive day steps risk up a rung, each ` +
-      `net-negative day down one; at 0% the book sits out but still watches the tape to re-arm. ` +
-      `Latest risk: <strong>${pct(last.risk)}</strong> of equity per trade.</p>`;
+      `(${ladder}), starting at full risk. It takes ${days} in a row of net-positive results to step ` +
+      `risk up a rung (and ${days} of net-negative to step down); at 0% the book sits out but still ` +
+      `watches the tape to re-arm. Latest risk: <strong>${pct(last.risk)}</strong> of equity per trade.</p>`;
   }
   return out;
 }
