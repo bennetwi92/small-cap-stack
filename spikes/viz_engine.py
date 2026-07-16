@@ -19,7 +19,6 @@ Runs anywhere the store is reachable (the box's /data, or a local copy). Reads o
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -31,6 +30,13 @@ from small_cap_stack.bullflag import (
     score,
     tokenize,
     trailing_atr,
+)
+from small_cap_stack.bullflag.cycles import (
+    Cycle,
+    contiguous_prior_cycles,
+    prior_cycle_count,
+    segment_cycles,
+    significant_cycles,
 )
 from small_cap_stack.bullflag.detect import _is_big_green
 from small_cap_stack.bullflag.gates import passed as gates_passed
@@ -44,104 +50,13 @@ _V2 = {"max_pole": 4, "max_cons": 4, "min_pole_pct": 0.02}
 _EXHAUSTION_CAP = 2  # reject entry if this many complete pump/fade cycles already happened today
 
 
-@dataclass(frozen=True)
-class Cycle:
-    """One pump/fade cycle in the PURE H/E/L token walk — deliberately looser than segment_at_end:
-    no color/thrust rule, no dominant-peak search, no gates. A pole is any run of H; a consolidation
-    is any run of L/E after it (any length, need not contain a strict L); the first H after a
-    consolidation both ends it and starts the next cycle's pole. Used only to count how many times
-    a name has already pumped-and-faded today, for the exhaustion cap (#182 review: FWDI) — entirely
-    separate from the entry-detection pole (which does apply the color/thrust rule)."""
-
-    pole_start: int  # base bar (the bar before the first H of this cycle's pole)
-    peak: int  # last H bar of this cycle's pole
-    cons_start: int | None  # first consolidation bar, None if this cycle is still mid-pole
-    cons_end: int  # last consolidation bar so far (== peak if no consolidation has started yet)
-    breakout: int | None  # the bar that both ends this cycle and starts the next pole; None if open
-
-
-def segment_cycles(tokens: list[str]) -> list[Cycle]:
-    """Walk the WHOLE day's tokens once, left to right, segmenting into consecutive cycles. The
-    last cycle may be "open" (breakout is None) if the day ends mid-pole or mid-consolidation."""
-    cycles: list[Cycle] = []
-    state = "searching"  # searching -> pole -> cons -> pole (next cycle) -> ...
-    pole_start = peak = cons_start = None
-    for i, t in enumerate(tokens):
-        if state == "searching":
-            if t == "H":
-                pole_start, peak, state = i, i + 1, "pole"
-        elif state == "pole":
-            if t == "H":
-                peak = i + 1
-            else:
-                cons_start, state = i + 1, "cons"
-        elif t == "H":  # state == "cons": the first H ends this cycle and starts the next pole
-            assert pole_start is not None and peak is not None
-            cycles.append(Cycle(pole_start, peak, cons_start, i, i + 1))
-            pole_start, peak, cons_start, state = i, i + 1, None, "pole"
-    if pole_start is not None and state != "searching":
-        cycles.append(
-            Cycle(pole_start, peak, cons_start, cons_start - 1 if cons_start else peak, None)
-        )
-    return cycles
-
-
-def significant_cycles(bars: list[Bar], cycles: list[Cycle], min_volume: float) -> list[Cycle]:
-    """Keep only cycles that are a REAL pump — a green THRUST + real participation — dropping the
-    two kinds of noise that satisfy the loose H/E/L grammar but aren't cycles a trader would count:
-
-    - STRUCTURE: the pole span must carry a green thrust bar (``_is_big_green``: green, body >= half
-      range). This kills flat/doji churn even when it trades heavily — SNDQ's 04:00-08:20 oscillation
-      printed 200k-524k on bars that open and close within a cent, so a pure volume floor wrongly
-      counted it; the thrust test drops it because no bar has a real green body (#102 / #194 review).
-    - VOLUME: some bar in the pole span must clear ``min_volume``. This kills tiny green blips
-      (ARCT/FCEL/SDOT had sub-20k pre-market pumps with real bodies that structure alone counted).
-      The floor is deliberately LOWER than the scanner's (``scan_min_5m_volume // 2``): the old 100k
-      floor dropped WULF's genuine 84k pole+pullback (09:00-09:10) that the trader DOES count — the
-      mirror failure that proved volume alone is the wrong axis. Checking the whole span (not just
-      the peak bar) matters for front-loaded poles (FWDI: 09:30 breakout 265k, 09:45 peak only 55k).
-
-    Volume alone was simultaneously too high (dropped WULF's 84k real cycle) and too low (kept
-    SNDQ's high-volume doji churn); structure + a lower floor separates them (validated 17/17)."""
-    out = []
-    for c in cycles:
-        span = bars[c.pole_start + 1 : c.peak + 1]
-        if any(_is_big_green(b) for b in span) and max(b.volume for b in span) >= min_volume:
-            out.append(c)
-    return out
-
-
-def contiguous_prior_cycles(
-    bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int
-) -> list[Cycle]:
-    """The PRIOR cycles that count toward exhaustion, in chronological order.
-
-    Only a CONTIGUOUS run of real cycles leading straight into the pole counts (#196/#102): walking
-    back from the pole, a prior significant cycle counts only while it ABUTS the next counted one
-    (<= 1 bar gap — no quiet drift between them). The first gap ends the run. This drops slow
-    multi-hour drift separated from the move (CONL's 5.30->5.47 over 3.5h) and disconnected earlier
-    blips (MARA's 08:00 pump, 7 bars before the next), while keeping rapid pump-fade runs
-    (MSTZ/FWDI/TVRD) and — since exhaustion is about REPETITION regardless of direction — a FADING
-    sequence of ever-lower pumps (OPEN, a 3rd-cycle entry into a dying move). No ascending
-    requirement: an earlier draft added one to suppress SNDQ's flat churn, but structural
-    significance (green thrust, significant_cycles) now drops that churn directly, and the ascending
-    rule wrongly zeroed OPEN's descending exhaustion. The renderer draws EXACTLY these, so the chart
-    bands match the cycle badge — a gapped earlier cycle is not a counted prior. Validated 17/17."""
-    priors = [c for c in sig_cycles if c.peak < pole_base_idx]
-    counted: list[Cycle] = []
-    nxt_start = pole_base_idx
-    for c in reversed(priors):
-        if nxt_start - c.cons_end <= 1:
-            counted.append(c)
-            nxt_start = c.pole_start
-        else:
-            break  # a gap ends the contiguous run
-    return list(reversed(counted))
-
-
-def prior_cycle_count(bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int) -> int:
-    """How many PRIOR pump/fade cycles count toward exhaustion (see contiguous_prior_cycles)."""
-    return len(contiguous_prior_cycles(bars, sig_cycles, pole_base_idx))
+# Cycle / segment_cycles / significant_cycles / contiguous_prior_cycles / prior_cycle_count used
+# to be copied out into this file. They are now imported from the package (#258): this spike is the
+# visual-review ground truth for engine-v2, so a local fork silently drifting from the engine it is
+# meant to validate is the one divergence that actually costs something — and it had already
+# started (the package fixed the open cycle's cons_end, #253; this copy still had the old value).
+# Verified equivalent before swapping: identical output across all 9,841 H/L/E token sequences of
+# length 0-8, the only delta being that intended fix. review_regression.py already does this.
 
 
 def cycle_number_for(bars: list[Bar], sig_cycles: list[Cycle], pole_base_idx: int) -> int:
