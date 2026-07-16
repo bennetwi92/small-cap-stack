@@ -13,6 +13,11 @@ from datetime import date
 from ..config import Settings
 from .models import CashFlow, PaperTrade
 
+# All three follow the :class:`_DataFeeLedger` shape: settle at a period boundary and return a USD
+# debit the caller folds into ``equity`` *before* the next day is sized (sizing is capital-based, so
+# a charge that didn't compound would flatter the book). Each records a dated :class:`CashFlow` too.
+# FX: ``portfolio_gbpusd_rate`` is GBP/USD (1 GBP = rate USD) — USD→GBP divides, GBP→USD multiplies.
+
 
 def _next_month(m: tuple[int, int]) -> tuple[int, int]:
     """The calendar month after ``(year, month)``."""

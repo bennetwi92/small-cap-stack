@@ -47,11 +47,25 @@ changed such that ``position_fraction × max_trades_per_day > 1``.
 # grown to ~1400 lines bundling the exit simulator, sizing/costs, four period ledgers, the adaptive
 # optimiser + kill-switch, and the on-disk cache + JSON codec. Everything below is re-exported so
 # `from small_cap_stack.portfolio import X` keeps working for every caller and test — the split is
-# behaviour-preserving, verified against a golden fingerprint of the pre-split module.
+# behaviour-preserving.
 #
-# Private names (_take_day, _DataFeeLedger, ...) are re-exported too: the test suite reaches for
-# them by design (trading logic must be exhaustively unit-tested, per CLAUDE.md), so they are part
-# of this package's surface in practice.
+# How that was verified at split time (one-off, not a standing guard — the suite is that): every
+# top-level node was moved by an AST extraction and diffed against the pre-split module (49/49
+# present, zero modified bodies), and a fingerprint of the old module's output — exit sims, sizing
+# and cost grids, the ledgers, three fixed-target books, the adaptive book — was re-run against the
+# package and matched exactly.
+#
+# Private names (_take_day, _DataFeeLedger, ...) are re-exported too — but only the ones something
+# outside the package actually imports. The suite reaches for them by design (trading logic must be
+# exhaustively unit-tested, per CLAUDE.md), so those are part of this package's surface in practice;
+# re-exporting the rest would freeze internal helpers into an apparent contract nothing depends on.
+#
+# ⚠️ These are BINDINGS, not windows: `from .sim import _select_day` copies the reference, so
+# `monkeypatch.setattr(portfolio, "_select_day", ...)` is a SILENT NO-OP — sim.py resolves its own
+# global and never sees the patch, and a test written that way passes while asserting nothing.
+# Patch where the name is looked up (`portfolio.sim._select_day`, `portfolio.payload.
+# extract_day_trades`). This bit the suite during the split: the tests that did it failed loudly,
+# which is the only reason it was caught.
 
 # ruff: noqa: F401 — every import below is a deliberate re-export, not dead code.
 
@@ -70,7 +84,6 @@ from .exit import ExitOutcome, simulate_exit
 from .extract import _qualify, extract_day_trades
 from .ledgers import (
     _DataFeeLedger,
-    _next_month,
     _TaxLedger,
     _VpsLedger,
     _WithdrawalLedger,
@@ -83,25 +96,14 @@ from .models import (
     SkippedTrade,
 )
 from .payload import (
-    _book_json,
     _candidate_from_json,
     _candidate_to_json,
-    _day_fingerprint,
-    _extract_day_trades_cached,
-    _read_candidate_cache,
-    _settings_fingerprint,
-    _skipped_json,
-    _trade_json,
-    _write_candidate_cache,
     build_portfolio_payload,
     collected_dates,
     portfolio_candidate_cache_dir,
 )
 from .sim import (
-    _finalize,
-    _run_book,
     _select_day,
-    _skipped,
     _take_day,
     simulate_portfolio,
     simulate_portfolio_adaptive,

@@ -1005,7 +1005,16 @@ def test_cache_hit_skips_extraction(tmp_path: Path, monkeypatch: object) -> None
     def _boom(*a: object, **k: object) -> list[CandidateTrade]:
         raise AssertionError("extract_day_trades must not run on a cache hit")
 
-    monkeypatch.setattr(pf.payload, "extract_day_trades", _boom)  # patched where it's used
+    # Patched where it is LOOKED UP. `pf.extract_day_trades` is a re-export binding — payload.py
+    # resolves its own global, so patching the facade is a silent no-op and this test would pass
+    # while proving nothing (#259).
+    monkeypatch.setattr(pf.payload, "extract_day_trades", _boom)  # type: ignore[attr-defined]
+
+    # Positive control FIRST: a cache miss must reach the patched function. Without this, "the spy
+    # never fired" is satisfied both by a working cache and by a patch that never took hold.
+    with pytest.raises(AssertionError, match="must not run on a cache hit"):
+        pf.build_portfolio_payload(store, _s(), now, cache_dir=tmp_path / "empty-cache")
+
     # Same store + settings → matching fingerprint → served entirely from cache, no extraction.
     served = pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir)
     assert served["books"] == primed["books"]

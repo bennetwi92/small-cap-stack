@@ -126,6 +126,19 @@ def _book_json(
     return book
 
 
+# The portfolio book is *cross-day*, so :func:`build_portfolio_payload` needs every collected day's
+# qualifying trades. Extracting one day (segment + R-metrics per opportunity) costs about as much
+# as one EOD report, so rebuilding the whole book from scratch on *every single-date dashboard
+# backfill* silently did full-archive-scale work — the per-date backfill that should take seconds
+# took minutes as history grew (the very ``--all`` workload CLAUDE.md warns off the box). A day's
+# candidates are a pure function of that day's raw partitions + the settings that drive extraction,
+# and the raw store is append-only immutable, so we cache each day's extracted candidates on disk
+# keyed by a fingerprint of (those partition files, the whole settings model). A single-date
+# backfill then re-extracts only the day that changed and reads the rest back from cache; any
+# settings change or late-arriving/backfilled partition shifts the fingerprint and forces a correct
+# re-extract, so compute-on-read is preserved. The cache lives under ``<data_dir>/cache`` (NOT
+# ``dashboard/``, which publish-dashboard force-pushes wholesale to a public branch) and is fully
+# regenerable.
 _CANDIDATE_CACHE_SUBDIR = ("cache", "portfolio_candidates")
 
 _EXTRACT_DATASETS = ("opportunities", "bars", "scanner_hits")
