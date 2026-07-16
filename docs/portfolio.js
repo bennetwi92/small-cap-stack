@@ -199,11 +199,32 @@ function tradeRows(book) {
 
 // What the max-N/day cap cost us: qualifying setups we passed on, with the R they'd have made at
 // the day's target. Size-independent R only — we never *could* have held them (settled-cash cap).
+// Why a qualifying setup wasn't taken. Defaults to "cap" for payloads written before #251.
+const SKIP_LBL = {
+  cap: '<span class="muted">daily cap</span>',
+  unaffordable: '<span class="pf-neg">unaffordable</span>',
+};
+
+// Setups selected but impossible to size to even one share (#251). Kept apart from the cap
+// population: distinct cause, distinct fix (more capital, not a wider cap). Normally absent — it
+// takes a >90% drawdown at the default book — so it stays silent rather than adding noise.
+function unaffordableNote(book) {
+  const n = (book.stats || {}).unaffordable_count || 0;
+  if (!n) return "";
+  return (
+    ` A further ${n} setup${n === 1 ? " was" : "s were"} selected but <strong>unaffordable</strong> ` +
+    `— the book couldn't size even one share at this equity.`
+  );
+}
+
 function skippedNote(book) {
   const s = book.stats;
   const n = s.skipped_count || 0;
   if (!n) {
-    return `No setups were dropped — the ${PAYLOAD.config.max_trades_per_day}/day cap was never the binding constraint.`;
+    return (
+      `No setups were dropped — the ${PAYLOAD.config.max_trades_per_day}/day cap was never the binding constraint.` +
+      unaffordableNote(book)
+    );
   }
   const totR = s.skipped_total_r;
   const cls = totR > 0 ? "pf-pos" : totR < 0 ? "pf-neg" : "muted";
@@ -211,13 +232,14 @@ function skippedNote(book) {
     `${n} qualifying setup${n === 1 ? "" : "s"} passed strategy but weren't taken because the ` +
     `${PAYLOAD.config.max_trades_per_day}/day cap was already full. At this book's target they'd ` +
     `have returned <span class="${cls}">${fmtR(totR)}</span> in total (unsized — R only, since a ` +
-    `third concurrent position wouldn't fit the settled-cash limit).`
+    `third concurrent position wouldn't fit the settled-cash limit).` +
+    unaffordableNote(book)
   );
 }
 
 function skippedRows(book) {
   const skipped = book.skipped || [];
-  if (!skipped.length) return '<tr><td colspan="8" class="muted">None — the daily cap was never binding.</td></tr>';
+  if (!skipped.length) return '<tr><td colspan="9" class="muted">None — the daily cap was never binding.</td></tr>';
   return skipped
     .slice()
     .reverse() // newest first, matching the trade log
@@ -228,6 +250,7 @@ function skippedRows(book) {
         "<tr>" +
         `<td>${esc(t.date)}</td>` +
         `<td><a href="${rev}">${esc(t.symbol)}</a></td>` +
+        `<td>${SKIP_LBL[t.skip_reason] || SKIP_LBL.cap}</td>` +
         `<td>${etClock(t.trigger_at)}</td>` +
         `<td>${fmtUsd(t.entry)}</td>` +
         `<td>${fmtUsd(t.stop)}</td>` +

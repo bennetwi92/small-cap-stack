@@ -259,14 +259,22 @@ class PaperTrade:
 
 @dataclass(frozen=True)
 class SkippedTrade:
-    """A qualifying setup the book did **not** take because the day's ``max_trades_per_day`` cap was
-    already filled by earlier (lower trigger-time) trades — issue #230 follow-up.
+    """A qualifying setup the book did **not** take — issue #230 follow-up.
+
+    Two reasons, kept apart by ``skip_reason``:
+
+    - ``"cap"`` — the day's ``max_trades_per_day`` was already filled by earlier (lower
+      trigger-time) trades. This is the population the "what did the 2/day cap cost me?" R-log
+      answers, and the only one the headline ``skipped_total_r`` counts.
+    - ``"unaffordable"`` — it was selected, but ``size_position`` returned ``qty < 1``, so the book
+      couldn't buy a single share. These used to vanish into neither log (#251). Practically
+      unreachable at the default book (it needs equity ~$40, a >90% drawdown), but a silently
+      dropped setup is worse than a rare one.
 
     Carries what the trade *would* have returned at that day's (target, breakeven), simulated over
     the same bars with the same exit model as a taken trade. It is unsized on purpose: R is
     size-independent, and reporting a hypothetical dollar P&L would imply the position was actually
-    affordable/compliant, which the settled-cash cap exists to prevent. So the skipped log answers
-    exactly one question honestly — *what did the 2/day cap cost me in R?* — without pretending we
+    affordable/compliant, which the settled-cash cap exists to prevent — without pretending we
     could have held a third concurrent position."""
 
     trading_date: date
@@ -279,8 +287,9 @@ class SkippedTrade:
     target_r: float
     breakeven_r: float
     realized_r: float  # what it would have made/lost at the day's target (size-independent)
-    reason: str  # "target" | "stop" | "breakeven" | "close"
+    reason: str  # exit reason: "target" | "stop" | "breakeven" | "close"
     exit_price: float
+    skip_reason: str = "cap"  # why it wasn't taken: "cap" | "unaffordable"
 
 
 @dataclass(frozen=True)
@@ -323,9 +332,11 @@ class PortfolioResult:
     vps_costs_gbp: float
     net_take_home_gbp: float  # what actually reached your bank = sum of withdrawals in GBP
     cash_flows: tuple[CashFlow, ...]  # the dated withdrawal / tax / VPS schedule
-    # Setups the daily cap dropped — what a wider max_trades_per_day would have let us take (#230).
+    # Qualifying setups the book didn't take, each tagged with why (see SkippedTrade).
     skipped: tuple[SkippedTrade, ...]
-    skipped_total_r: float  # sum of what those skipped setups would have returned, in R
+    # Sum over the CAP-dropped ones only — what a wider max_trades_per_day would have let us take
+    # (#230). Deliberately excludes "unaffordable" skips so this stays the answer to one question.
+    skipped_total_r: float
 
 
 # --- --- Extraction (reads the store; reuses the report seams) ------------------------
@@ -419,6 +430,28 @@ def _select_day(cands: Sequence[CandidateTrade], s: Settings) -> list[CandidateT
     return sorted(cands, key=lambda c: c.trigger_at)[: s.portfolio_max_trades_per_day]
 
 
+def _skipped(
+    c: CandidateTrade, s: Settings, target_r: float, breakeven_r: float, skip_reason: str
+) -> SkippedTrade:
+    """A qualifying setup the book didn't take, with the outcome it would have had."""
+    o = c.exit_under(s, target_r, breakeven_r)
+    return SkippedTrade(
+        trading_date=c.trading_date,
+        symbol=c.symbol,
+        seg_id=c.seg_id,
+        run=c.run,
+        trigger_at=c.trigger_at,
+        entry_price=c.entry_price,
+        stop=c.stop,
+        target_r=target_r,
+        breakeven_r=breakeven_r,
+        realized_r=o.realized_r,
+        reason=o.reason,
+        exit_price=o.exit_price,
+        skip_reason=skip_reason,
+    )
+
+
 def _take_day(
     day: date,
     cands: Sequence[CandidateTrade],
@@ -443,25 +476,14 @@ def _take_day(
     rf = s.portfolio_risk_fraction if risk_fraction is None else risk_fraction
     opening_equity = equity
     ordered = sorted(cands, key=lambda c: c.trigger_at)
-    taken = ordered[: s.portfolio_max_trades_per_day]
-    dropped = ordered[s.portfolio_max_trades_per_day :]
-    skipped = [
-        SkippedTrade(
-            trading_date=c.trading_date,
-            symbol=c.symbol,
-            seg_id=c.seg_id,
-            run=c.run,
-            trigger_at=c.trigger_at,
-            entry_price=c.entry_price,
-            stop=c.stop,
-            target_r=target_r,
-            breakeven_r=breakeven_r,
-            realized_r=(o := c.exit_under(s, target_r, breakeven_r)).realized_r,
-            reason=o.reason,
-            exit_price=o.exit_price,
-        )
-        for c in dropped
-    ]
+    # Ask _select_day rather than re-slicing here (#256). It is documented as the single source of
+    # truth for which trades a day acts on, but only the throttle signal (_day_signal_r) actually
+    # called it — this function re-implemented the same slice inline. They agreed, so nothing had
+    # drifted yet; the point is that a future selection change (a tie-break, an affordability
+    # pre-filter) applied in one place would silently desync the throttle from the real trades.
+    taken = _select_day(cands, s)
+    dropped = ordered[len(taken) :]
+    skipped = [_skipped(c, s, target_r, breakeven_r, "cap") for c in dropped]
     out: list[PaperTrade] = []
     for c in taken:
         qty = size_position(
@@ -471,7 +493,13 @@ def _take_day(
             risk_fraction=rf,
             max_position_fraction=s.portfolio_position_fraction,
         )
-        if qty < 1:  # position too small to afford a share — skip
+        if qty < 1:
+            # Too small to afford a share. Record it rather than dropping it on the floor (#251) —
+            # but only when we were actually trying to size: the adaptive kill-switch's rung-0
+            # passes rf=0, which sizes every position to 0 on purpose. That is the throttle sitting
+            # the day out, not a setup we lost, and the skipped log is "what the cap cost me".
+            if rf > 0:
+                skipped.append(_skipped(c, s, target_r, breakeven_r, "unaffordable"))
             continue
         outcome = c.exit_under(s, target_r, breakeven_r)
         gross = round(qty * (outcome.exit_price - c.entry_price), 4)
@@ -505,6 +533,12 @@ def _take_day(
     return out, skipped
 
 
+def _next_month(m: tuple[int, int]) -> tuple[int, int]:
+    """The calendar month after ``(year, month)``."""
+    y, mo = m
+    return (y + 1, 1) if mo == 12 else (y, mo + 1)
+
+
 class _DataFeeLedger:
     """Accrues the monthly market-data subscription, waived above a commission threshold (#232 §4).
 
@@ -520,16 +554,26 @@ class _DataFeeLedger:
         self.total_charged = 0.0
 
     def roll(self, day: date) -> float:
-        """Fee due *before* trading ``day``, i.e. charged when ``day`` opens a new month."""
+        """Fee due *before* trading ``day``: one per calendar month since the anchor.
+
+        Walks month by month rather than settling once per *observed* rollover (#249). A month with
+        zero collected dates — a full data outage — never produces a rollover of its own, so the
+        old single-settle silently skipped it: June data, then September data, charged June and
+        anchored September, dropping July and August entirely. The subscription bills whether or not
+        you trade *and whether or not we collected*, which is the whole point of #232; the docstring
+        claim that "months with no trades are still charged" only held for months with some day in
+        them."""
         m = (day.year, day.month)
         if self._month is None:
             self._month = m
             return 0.0
-        if m == self._month:
+        if m <= self._month:  # same month, or an out-of-order day (days arrive ascending)
             return 0.0
-        fee = self._settle()
-        self._month = m
-        return fee
+        total = 0.0
+        while self._month != m:
+            total += self._settle()  # intervening months carry no commission -> no waiver
+            self._month = _next_month(self._month)
+        return round(total, 4)
 
     def observe(self, trades: Sequence[PaperTrade]) -> None:
         self._commission += sum(t.commission_usd for t in trades)
@@ -569,15 +613,23 @@ class _VpsLedger:
         self.events: list[CashFlow] = []
 
     def roll(self, day: date) -> float:
+        """One charge per calendar month since the anchor — including months with no data (#249).
+
+        The box bills regardless of whether we collected anything, so a data outage must not be a
+        free month. Each gap month's CashFlow is dated at the start of the month it rolls into; the
+        final transition keeps ``day`` itself, so a gapless run bills exactly as it did before."""
         m = (day.year, day.month)
         if self._month is None:
             self._month = m
             return 0.0
-        if m == self._month:
+        if m <= self._month:
             return 0.0
-        fee = self._settle(day)
-        self._month = m
-        return fee
+        total = 0.0
+        while self._month != m:
+            nxt = _next_month(self._month)
+            total += self._settle(day if nxt == m else date(nxt[0], nxt[1], 1))
+            self._month = nxt
+        return round(total, 4)
 
     def close(self, day: date) -> float:
         return self._settle(day) if self._month is not None else 0.0
@@ -768,7 +820,8 @@ def _finalize(
         net_take_home_gbp=round(wd.total_gbp, 4),
         cash_flows=cash_flows,
         skipped=tuple(skipped),
-        skipped_total_r=round(sum(sk.realized_r for sk in skipped), 4),
+        # Cap-dropped only — see PortfolioResult.skipped_total_r.
+        skipped_total_r=round(sum(sk.realized_r for sk in skipped if sk.skip_reason == "cap"), 4),
     )
 
 
@@ -1057,6 +1110,7 @@ def _skipped_json(sk: SkippedTrade) -> dict[str, object]:
         "realized_r": sk.realized_r,
         "reason": sk.reason,
         "exit_price": sk.exit_price,
+        "skip_reason": sk.skip_reason,
     }
 
 
@@ -1089,8 +1143,11 @@ def _book_json(
             "vps_costs_usd": res.vps_costs_usd,
             "vps_costs_gbp": res.vps_costs_gbp,
             "net_take_home_gbp": res.net_take_home_gbp,
-            "skipped_count": len(res.skipped),
+            # Cap-only: the page's note asks "what did the N/day cap cost me?", so mixing the
+            # unaffordable population into these would make it misattribute (#251).
+            "skipped_count": sum(1 for sk in res.skipped if sk.skip_reason == "cap"),
             "skipped_total_r": res.skipped_total_r,
+            "unaffordable_count": sum(1 for sk in res.skipped if sk.skip_reason == "unaffordable"),
         },
         "equity_curve": [{"date": d.isoformat(), "equity": e} for d, e in res.equity_curve],
         "trades": [_trade_json(t) for t in res.trades],

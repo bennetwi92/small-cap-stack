@@ -12,10 +12,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from small_cap_stack.portfolio import (
     CandidateTrade,
+    _DataFeeLedger,
+    _select_day,
+    _take_day,
     _TaxLedger,
     _VpsLedger,
     _WithdrawalLedger,
@@ -1093,3 +1098,147 @@ def test_force_dates_bypasses_cache(tmp_path: Path, monkeypatch: object) -> None
     # force_dates re-extracts even on a valid cache (the day whose raw data the caller just changed)
     pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir, force_dates={day})
     assert calls == [day]
+
+
+# --- gap-month billing (#249) ------------------------------------------------------------------
+
+
+def _trade_with_commission(usd: float) -> object:
+    """_DataFeeLedger.observe only reads commission_usd — no need for a whole PaperTrade."""
+    return SimpleNamespace(commission_usd=usd)
+
+
+def test_vps_ledger_charges_months_with_no_collected_data() -> None:
+    """A data outage is not a free month — the box bills regardless (#249).
+
+    June data, then September data: the old ledger settled once on the observed June->September
+    rollover and re-anchored, silently dropping July and August entirely.
+    """
+    led = _VpsLedger(_s(portfolio_vps_gbp_per_month=10.0, portfolio_gbpusd_rate=1.25))
+    assert led.roll(date(2026, 6, 10)) == 0.0  # anchor on June
+    charged = led.roll(date(2026, 9, 3))  # next data is September: Jun + Jul + Aug all due
+
+    assert charged == 37.5  # 3 x $12.50, not 1
+    assert led.total_gbp == 30.0 and led.total_usd == 37.5
+    # Each gap month gets its own dated cash flow, at the start of the month it rolls into; the
+    # final transition keeps the observed day, so a gapless run is billed exactly as before.
+    assert [(e.date, e.usd) for e in led.events] == [
+        (date(2026, 7, 1), 12.5),
+        (date(2026, 8, 1), 12.5),
+        (date(2026, 9, 3), 12.5),
+    ]
+
+
+def test_vps_ledger_walks_a_year_boundary() -> None:
+    led = _VpsLedger(_s(portfolio_vps_gbp_per_month=10.0, portfolio_gbpusd_rate=1.0))
+    assert led.roll(date(2026, 11, 20)) == 0.0
+    assert led.roll(date(2027, 2, 4)) == 30.0  # Nov, Dec, Jan
+    assert [e.date for e in led.events] == [date(2026, 12, 1), date(2027, 1, 1), date(2027, 2, 4)]
+
+
+def test_vps_ledger_gapless_months_unchanged() -> None:
+    """The no-gap path must bill exactly as it did before the walk was introduced."""
+    led = _VpsLedger(_s(portfolio_vps_gbp_per_month=10.0, portfolio_gbpusd_rate=1.25))
+    assert led.roll(date(2026, 1, 10)) == 0.0
+    assert led.roll(date(2026, 2, 5)) == 12.5
+    assert led.roll(date(2026, 2, 20)) == 0.0  # same month, no double charge
+    assert [e.date for e in led.events] == [date(2026, 2, 5)]
+
+
+def test_data_fee_ledger_charges_gap_months_unwaived() -> None:
+    """Gap months carry no commission, so no waiver can apply to them (#249)."""
+    s = _s(
+        portfolio_market_data_usd_per_month=10.0,
+        portfolio_market_data_waiver_usd=30.0,
+    )
+    led = _DataFeeLedger(s)
+    assert led.roll(date(2026, 6, 1)) == 0.0  # anchor June
+    led.observe([_trade_with_commission(50.0)])  # June clears the waiver
+
+    charged = led.roll(date(2026, 9, 2))
+
+    # June waived (commission >= 30), July + August charged (no data, no commission, no waiver).
+    assert charged == 20.0
+    assert led.total_charged == 20.0
+
+
+def test_data_fee_ledger_out_of_order_day_does_not_loop() -> None:
+    """Days arrive ascending; an earlier day must not walk backwards forever."""
+    led = _DataFeeLedger(_s(portfolio_market_data_usd_per_month=10.0))
+    assert led.roll(date(2026, 6, 5)) == 0.0
+    assert led.roll(date(2026, 5, 5)) == 0.0  # regression, ignored rather than hanging
+    assert led.total_charged == 0.0
+
+
+# --- unaffordable setups + selection source-of-truth (#251, #256) -------------------------------
+
+
+def test_unaffordable_setup_is_recorded_not_silently_dropped() -> None:
+    """A selected setup the book can't size to one share must not vanish from every log (#251).
+
+    It used to `continue` past both `trades` and `skipped`. Needs a tiny equity to reach — at the
+    default $500 book both cap_qty and risk_qty stay >= 1 unless equity falls to ~$40.
+    """
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    cands = [_cand("AAA", 5, 10.0, 9.0, win)]
+    s = _s(portfolio_start_equity_usd=5.0)  # can't afford a single $10 share
+
+    res = simulate_portfolio([(date(2026, 7, 14), cands)], s, target_r=2.0)
+
+    assert res.n_trades == 0  # not taken...
+    assert [(sk.symbol, sk.skip_reason) for sk in res.skipped] == [("AAA", "unaffordable")]
+    # ...and it does NOT pollute "what did the daily cap cost me?" — different question.
+    assert res.skipped_total_r == 0.0
+
+
+def test_cap_dropped_setups_are_tagged_cap() -> None:
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    loss = [_bar(10, 10.1, 8.9, 9.0)]
+    cands = [
+        _cand("AAA", 5, 10.0, 9.0, win),
+        _cand("BBB", 6, 10.0, 9.0, win),
+        _cand("CCC", 7, 10.0, 9.0, loss),  # 3rd by trigger time -> cap drops it
+    ]
+    res = simulate_portfolio([(date(2026, 7, 14), cands)], _s(), target_r=2.0)
+
+    assert [(sk.symbol, sk.skip_reason) for sk in res.skipped] == [("CCC", "cap")]
+    assert res.skipped_total_r == res.skipped[0].realized_r  # cap-only headline still counts it
+
+
+def test_throttled_sitout_is_not_logged_as_unaffordable() -> None:
+    """rung-0 (risk_fraction=0) sizes every position to 0 on purpose — that's the kill-switch
+    sitting the day out, not information we lost. It must not flood the skipped log (#251)."""
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
+
+    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
+
+    assert trades == []
+    assert skipped == []  # silence is correct here
+
+
+def test_take_day_selection_follows_select_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_take_day must derive its taken set FROM _select_day, not re-slice inline (#256).
+
+    Asserting the two agree proves nothing — they agree by construction, which is why the bug was
+    invisible. The invariant that matters is that they *cannot diverge*, so change what _select_day
+    returns and require the trades to follow. An inline slice ignores the patch and takes 2.
+    """
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    cands = [
+        _cand("AAA", 5, 10.0, 9.0, win),
+        _cand("BBB", 6, 10.0, 9.0, win),
+        _cand("CCC", 7, 10.0, 9.0, win),
+    ]
+    s = _s()
+    assert [c.symbol for c in _select_day(cands, s)] == ["AAA", "BBB"]  # earliest N by trigger
+
+    # A selection rule the inline slice would never produce: one trade, not max_trades_per_day.
+    monkeypatch.setattr(
+        "small_cap_stack.portfolio._select_day",
+        lambda cands, s: sorted(cands, key=lambda c: c.trigger_at)[:1],
+    )
+    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0)
+
+    assert [t.symbol for t in trades] == ["AAA"]  # followed the selector...
+    assert [sk.symbol for sk in skipped] == ["BBB", "CCC"]  # ...and the rest is the remainder

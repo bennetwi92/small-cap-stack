@@ -72,7 +72,7 @@
       <!-- Setups the 2/day cap dropped: qualifying trades we passed on because the day was full. -->
       <section class="pf-skipped">
         <h2 class="pf-subhead">
-          Skipped <span class="muted">— passed strategy, not taken (daily cap already full)</span>
+          Skipped <span class="muted">— passed strategy, not taken (daily cap full, or unaffordable)</span>
         </h2>
         <p id="pf-skipped-note" class="muted pf-note"></p>
         <div id="pf-skipped-wrap" class="scroll pf-table">
@@ -81,6 +81,7 @@
               <tr>
                 <th>Date</th>
                 <th>Sym</th>
+                <th>Why</th>
                 <th>Trigger</th>
                 <th>Entry</th>
                 <th>Stop</th>
