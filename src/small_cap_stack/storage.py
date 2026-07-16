@@ -38,12 +38,23 @@ class Store:
     ) -> Path | None:
         """Append records as one immutable Parquet file under the date partition.
 
-        The write is atomic (temp file + ``os.replace``, same pattern as ``dashboard.write_json``):
-        a crash / OOM-kill / disk-full mid-write would otherwise leave a truncated
-        ``part-<uuid>.parquet`` that is never overwritten (the uuid is never reused) and that
-        ``read`` / ``query`` then choke on — breaking *every* read of the dataset until someone
-        finds and deletes it by hand (#248). Readers glob ``*.parquet``, so a leftover ``.tmp`` from
-        a killed process is inert rather than poisonous.
+        Writing straight to the final name would let a mid-write failure strand a *truncated*
+        ``part-<uuid>.parquet``. It is never overwritten (the uuid is never reused) and ``read`` /
+        ``query`` glob the whole directory, so DuckDB then errors on it — breaking *every* read of
+        that dataset until someone finds and deletes it by hand (#248).
+
+        So: serialise to ``part-<uuid>.parquet.tmp``, fsync it, ``os.replace`` into place, then
+        fsync the partition dir. Both halves are load-bearing and cover different failures:
+
+        - ``os.replace`` is atomic, so readers only ever see a complete file, and a process death
+          (the OOM-kill CLAUDE.md warns is routine on the CX22) leaves an inert ``.tmp`` — readers
+          glob ``*.parquet``, which never matches it.
+        - the fsyncs add *durability*, which the rename alone does not give. Without them a
+          host-level crash — a kernel panic, or the hard reboot CLAUDE.md documents as the standard
+          recovery when the box OOM-thrashes past sshd — can replay the rename's metadata while the
+          data blocks are still dirty, committing a truncated file under the *final, globbed* name.
+          That is #248 again, and worse: indistinguishable from a legitimate part. Three months of
+          collected Parquet is the Phase-1 deliverable, so this is worth the ms.
         """
         rows = [dict(r) for r in records]
         if not rows:
@@ -54,7 +65,14 @@ class Store:
         tmp = path.with_name(path.name + ".tmp")
         try:
             pl.DataFrame(rows).write_parquet(tmp)
+            with open(tmp, "rb") as fh:  # flush the data blocks before the rename commits
+                os.fsync(fh.fileno())
             os.replace(tmp, path)  # atomic within the partition dir (same filesystem)
+            dir_fd = os.open(part_dir, os.O_RDONLY)  # ...and persist the rename itself
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
         except BaseException:
             tmp.unlink(missing_ok=True)  # don't leave partials behind on a recoverable failure
             raise
@@ -67,13 +85,19 @@ class Store:
         *,
         partition_date: date,
     ) -> Path | None:
-        """``append`` off the event loop, for callers on the loop that also services IBKR (#262).
+        """``append`` off the event loop. **The supported path for any caller on the loop** (#262).
 
-        Parquet serialisation is blocking I/O. Today's frames are small (1 row for scanner hits /
-        opportunities, ~100–200 for a symbol's bars) so this is hygiene rather than a fix for an
-        observed stall — but it keeps ingestion writes off the socket's loop as frame sizes grow.
-        Safe to run concurrently: every append lands on its own uuid path and ``Store`` holds no
-        mutable state.
+        Parquet serialisation (now plus an fsync) is blocking I/O, and the loop it would block also
+        services the IBKR socket. Today's frames are small — 1 row for scanner hits / opportunities,
+        ~100–200 for a symbol's bars — so this is hygiene rather than a fix for an observed stall;
+        it is here so that stays true as frames grow. Call this, not ``append``, from ``async def``:
+        every sync call site left on the loop is how the problem comes back.
+
+        No data race: each append lands on its own uuid path and ``Store`` holds no mutable state.
+        That is *not* a claim about capacity — this shares the loop's default executor (6 workers on
+        the 2-vCPU box) with the ``fundamentals`` fan-out and the ``monitoring`` heartbeat, so if
+        appends ever become slow enough to occupy workers, they can queue behind/ahead of those. At
+        ms-scale frames that is latent; a dedicated single-worker executor is the fix if it isn't.
         """
         return await asyncio.to_thread(self.append, dataset, records, partition_date=partition_date)
 

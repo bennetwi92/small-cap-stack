@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from datetime import date
 from pathlib import Path
+from typing import Any
 
+import polars as pl
 import pytest
 
 from small_cap_stack.storage import Store
@@ -123,16 +126,34 @@ def test_read_ignores_a_leftover_tmp_from_a_killed_write(tmp_path: Path) -> None
     assert store.query("SELECT count(*) AS n FROM candidates")["n"].to_list() == [2]
 
 
-def test_append_cleans_up_tmp_when_the_write_fails(tmp_path: Path) -> None:
-    """A failed write must not strand a ``.tmp`` (nor a half-written final part)."""
+class _WriteBoom(RuntimeError):
+    pass
+
+
+def test_append_cleans_up_tmp_when_the_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed write must strand neither a ``.tmp`` nor a half-written final part.
+
+    The failure is injected explicitly — writing the tmp and *then* raising — rather than relying
+    on polars rejecting a bad dtype. That kept the cleanup honest only by accident: if a polars
+    upgrade moved the rejection earlier (to DataFrame construction, before any tmp exists), the
+    test would still pass while exercising none of the cleanup.
+    """
+
+    def boom(self: pl.DataFrame, file: Any, **kwargs: Any) -> None:
+        Path(file).write_bytes(b"PAR1-partial")  # the tmp exists on disk...
+        raise _WriteBoom("disk full")  # ...and then the write dies, as OOM/ENOSPC would
+
+    monkeypatch.setattr(pl.DataFrame, "write_parquet", boom)
     store = Store(tmp_path)
-    # A column of un-serialisable objects makes write_parquet raise after the tmp path is chosen.
-    with pytest.raises(Exception):  # noqa: B017 — polars' concrete type is version-dependent
-        store.append("candidates", [{"bad": object()}], partition_date=date(2026, 6, 29))
+    with pytest.raises(_WriteBoom):
+        store.append("candidates", _rows(), partition_date=date(2026, 6, 29))
+
     part_dir = tmp_path / "candidates" / "dt=2026-06-29"
-    if part_dir.exists():
-        assert list(part_dir.glob("*.tmp")) == []
-        assert list(part_dir.glob("*.parquet")) == []
+    assert part_dir.exists()  # append mkdirs before it writes, so this is a real assertion
+    assert list(part_dir.glob("*.tmp")) == []
+    assert list(part_dir.glob("*.parquet")) == []
 
 
 # --- off-loop writes (#262) -------------------------------------------------------------------
@@ -152,24 +173,40 @@ def test_append_async_empty_is_noop(tmp_path: Path) -> None:
     )
 
 
-def test_append_async_does_not_block_the_event_loop(tmp_path: Path) -> None:
-    """The write must run off-loop, so other loop work interleaves with it (#262)."""
+def test_append_async_runs_the_write_off_the_event_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The loop must keep turning *while a write is in flight* (#262).
+
+    The obvious version of this test — gather(append_async(), ticker()) and assert the ticker ran
+    before "done" — is worthless: a blocking on-loop append simply runs to completion first, the
+    ticker then runs, and the ordering assertion holds anyway. It passes with `to_thread` removed.
+
+    So block the write on an Event that only the *loop* can set. Off-thread, the loop reaches
+    release.set() and the write finishes. On-loop, the write owns the loop while waiting for a set()
+    that can therefore never happen — a deadlock the timeout turns into a failure. The test can only
+    pass if the write genuinely left the loop.
+    """
+    started, release = threading.Event(), threading.Event()
+    real_append = Store.append
+
+    def blocking_append(self: Store, *args: Any, **kwargs: Any) -> Path | None:
+        started.set()
+        if not release.wait(timeout=5):  # only the event loop can release us
+            raise AssertionError("event loop never progressed while the write was in flight")
+        return real_append(self, *args, **kwargs)
+
+    monkeypatch.setattr(Store, "append", blocking_append)
     store = Store(tmp_path)
-    order: list[str] = []
 
-    async def scenario() -> None:
-        async def ticker() -> None:
-            for _ in range(3):
-                await asyncio.sleep(0)
-                order.append("loop")
-
-        await asyncio.gather(
-            store.append_async("candidates", _rows(), partition_date=date(2026, 6, 29)),
-            ticker(),
+    async def scenario() -> Path | None:
+        task = asyncio.create_task(
+            store.append_async("candidates", _rows(), partition_date=date(2026, 6, 29))
         )
-        order.append("done")
+        while not started.is_set():  # loop work that must interleave with the in-flight write
+            await asyncio.sleep(0.01)
+        release.set()
+        return await asyncio.wait_for(task, timeout=5)
 
-    asyncio.run(scenario())
-    # The loop kept running while the write was in flight rather than being stalled until "done".
-    assert order.count("loop") == 3
-    assert order.index("loop") < order.index("done")
+    path = asyncio.run(scenario())
+    assert path is not None and path.exists()
