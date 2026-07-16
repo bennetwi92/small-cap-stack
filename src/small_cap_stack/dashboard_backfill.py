@@ -21,21 +21,24 @@ import argparse
 from datetime import UTC, date, timedelta
 from typing import Any
 
-import polars as pl
-
 from .clock import now_et
 from .config import Settings, get_settings
 from .dashboard import (
     build_charts,
-    build_index,
     build_stats,
     charts_path,
+    index_entry,
+    index_from_entries,
     read_json,
     upsert_index_date,
     write_json,
 )
 from .logging import configure_logging, get_logger
-from .portfolio import build_portfolio_payload, portfolio_candidate_cache_dir
+from .portfolio import (
+    build_portfolio_payload,
+    collected_dates,
+    portfolio_candidate_cache_dir,
+)
 from .report import build_eod_report
 from .storage import Store
 
@@ -46,15 +49,6 @@ def _parse_date(raw: str | None) -> date:
     if raw is None:
         return (now_et() - timedelta(days=1)).date()
     return date.fromisoformat(raw)
-
-
-def _collected_dates(store: Store) -> list[date]:
-    """Every trading date with a captured opportunity, ascending (store-raw / compute-on-read)."""
-    opps = store.read("opportunities")
-    if opps.is_empty() or "trading_date" not in opps.columns:
-        return []
-    vals = opps.select(pl.col("trading_date")).unique().to_series().to_list()
-    return sorted(d for d in vals if d is not None)
 
 
 def regenerate(
@@ -123,16 +117,26 @@ def regenerate_archive(
     now_utc = now_et().astimezone(UTC)
     out = settings.data_dir / "dashboard"
 
-    dates = _collected_dates(store)
-    date_charts: list[tuple[date, dict[str, Any]]] = []
+    dates = collected_dates(store)
+    entries: list[dict[str, Any]] = []
     total_charts = 0
+    latest_charts: dict[str, Any] | None = None
     for d in dates:
         charts = build_charts(store, settings, d, now_utc)
         write_json(charts_path(out, d), charts)
-        date_charts.append((d, charts))
+        # `dates` is ascending, so the final iteration's payload is the newest session's — keep it
+        # for the legacy charts.json below rather than rebuilding the most expensive date twice.
+        latest_charts = charts
+        # Reduce the date to its index row and drop the payload: accumulating every date's full
+        # charts (all bars for all opportunities, all dates) purely to build the index retained the
+        # archive for no reason. This removes ONE O(archive) retention — it does not make --all
+        # cheap. build_portfolio_payload below still materialises every day's candidates (with
+        # their bars) at once, which is the dominant term and why even a --date run can OOM the box
+        # (#273). Don't read this loop as "--all is safe now".
+        entries.append(index_entry(d, charts))
         total_charts += len(charts["charts"])
 
-    write_json(out / "index.json", build_index(date_charts, now_utc))
+    write_json(out / "index.json", index_from_entries(entries, now_utc))
     # Full-archive rebuild: extract every date once and prime the candidate cache for later
     # single-date backfills (a day re-extracts only if its raw partitions or the settings change).
     write_json(
@@ -142,11 +146,10 @@ def regenerate_archive(
         ),
     )
 
-    if dates:  # keep the legacy single-day dashboard on the newest session
-        latest = dates[-1]
-        report = build_eod_report(store, settings, latest)
+    if dates and latest_charts is not None:  # keep the legacy dashboard on the newest session
+        report = build_eod_report(store, settings, dates[-1])
         write_json(out / "stats.json", build_stats(report, now_utc))
-        write_json(out / "charts.json", build_charts(store, settings, latest, now_utc))
+        write_json(out / "charts.json", latest_charts)
 
     log.info(
         "dashboard.archive_backfill_done",
@@ -172,9 +175,24 @@ def main() -> None:
     group.add_argument(
         "--all",
         action="store_true",
-        help="Full-archive backfill: dated charts + index for every collected date.",
+        help="Full-archive backfill: every collected date. Heavy — requires --force.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Required with --all: confirm you mean the full-archive rebuild.",
     )
     args = parser.parse_args()
+    if args.all and not args.force:
+        # --all rebuilds every collected date in one process; an OOM-killed backfill took the box's
+        # CI runner offline for 5h37m on 2026-07-16 (#264). The callers that dispatch --all (the
+        # phone workflows) require their own separate `force` toggle rather than supplying this
+        # automatically — a confirmation the caller auto-answers protects nobody.
+        parser.error(
+            "--all rebuilds every collected date in one process and has OOM-killed the box "
+            "(#264, CLAUDE.md). Prefer one date at a time: --date YYYY-MM-DD. "
+            "If you really mean the full archive, pass --force."
+        )
 
     settings = get_settings()
     configure_logging(level=settings.log_level, json_logs=settings.json_logs)

@@ -54,6 +54,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import polars as pl
+
 from .capture import Bar
 from .clock import ET
 from .config import Settings
@@ -1082,9 +1084,11 @@ def _day_signal_r(
 
 
 def collected_dates(store: Store) -> list[date]:
-    """Every trading date with a captured opportunity, ascending (compute-on-read)."""
-    import polars as pl
+    """Every trading date with a captured opportunity, ascending (compute-on-read).
 
+    The single source of truth — ``dashboard_backfill`` imports this rather than keeping its own
+    copy (#257), so a future change here (say, also requiring bars to be present) can't apply to
+    only one of them."""
     opps = store.read("opportunities")
     if opps.is_empty() or "trading_date" not in opps.columns:
         return []
