@@ -22,9 +22,12 @@ from small_cap_stack.portfolio import (
     best_target,
     commission,
     expectancy_curve,
+    risk_ladder,
     simulate_exit,
     simulate_portfolio,
+    simulate_portfolio_adaptive,
     size_position,
+    step_risk_rung,
     trade_costs,
 )
 
@@ -361,7 +364,7 @@ def test_adaptive_falls_back_before_enough_samples_then_refits() -> None:
     days = [(base + timedelta(days=i), [_cand(f"W{i}", 5, 10.0, 9.0, reach2)]) for i in range(6)]
     days.append((base + timedelta(days=6), [_cand("DEC", 5, 10.0, 9.0, reach2)]))
 
-    res, chosen = simulate_portfolio_adaptive(days, s)
+    res, chosen, _risk = simulate_portfolio_adaptive(days, s)
     per_day = dict(chosen)
     assert per_day[base] == s.portfolio_target_r  # day 0: no trailing samples -> fallback (2.0)
     assert per_day[base + timedelta(days=6)] == 3.0  # decision day: re-fit to the best trailing T
@@ -411,6 +414,93 @@ def test_best_target_none_when_no_expectancy() -> None:
     from small_cap_stack.portfolio import TargetStat
 
     assert best_target([TargetStat(2.0, 0.0, 0, None, None)]) is None
+
+
+# --- --- adaptive risk throttle / kill-switch (#239) ----------------------------------
+
+
+def test_risk_ladder_shape() -> None:
+    # 3 rungs incl. the 0 floor at the 5% default -> (0, 2.5%, 5%).
+    assert risk_ladder(_s()) == (0.0, 0.025, 0.05)
+    assert risk_ladder(_s(portfolio_risk_rungs=1)) == (0.05,)  # 1 rung -> throttle disabled
+    assert risk_ladder(_s(portfolio_risk_rungs=2)) == (0.0, 0.05)  # binary kill-switch
+    # honours a different max + rung count (evenly spaced).
+    assert risk_ladder(_s(portfolio_risk_fraction=0.06, portfolio_risk_rungs=4)) == (
+        0.0,
+        0.02,
+        0.04,
+        0.06,
+    )
+
+
+def test_step_risk_rung_up_down_hold_and_clamps() -> None:
+    assert step_risk_rung(0, 1.5, 3) == 1  # net-positive day -> up one
+    assert step_risk_rung(2, 1.5, 3) == 2  # already at the top -> clamped
+    assert step_risk_rung(2, -1.0, 3) == 1  # net-negative day -> down one
+    assert step_risk_rung(0, -1.0, 3) == 0  # already at 0 -> clamped
+    assert step_risk_rung(1, 0.0, 3) == 1  # flat day -> hold
+
+
+def test_day_signal_r_is_size_independent() -> None:
+    from small_cap_stack.portfolio import _day_signal_r, _select_day
+
+    s = _s(portfolio_exit_slippage_ticks=0)
+    win = _cand("AAA", 5, 10.0, 9.0, [_bar(10, 12.0, 9.95, 12.0)])  # +2R at target 2.0
+    loss = _cand("BBB", 6, 10.0, 9.0, [_bar(10, 10.3, 8.8, 9.0)])  # -1R
+    taken = _select_day([win, loss], s)
+    assert _day_signal_r(taken, s, 2.0, 0.0) == 1.0  # +2 + (-1)
+    assert _day_signal_r([], s, 2.0, 0.0) == 0.0  # no setups -> flat
+
+
+def _win_cand(sym: str) -> CandidateTrade:
+    return _cand(sym, 5, 10.0, 9.0, [_bar(10, 12.0, 9.95, 12.0)])  # +2R vs risk 1
+
+
+def _loss_cand(sym: str) -> CandidateTrade:
+    return _cand(sym, 5, 10.0, 9.0, [_bar(10, 10.3, 8.8, 9.0)])  # stops at -1R
+
+
+def test_adaptive_risk_throttles_down_then_rearms_from_zero() -> None:
+    # min_samples huge so the TARGET stays at the 2.0 fallback throughout — isolate the RISK ladder.
+    # Two losing days walk risk 5% -> 2.5% -> 0%; at 0% the book sits out (no trade), but the day's
+    # winning would-be setup still re-arms it 0% -> 2.5% -> 5%.
+    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    base = date(2026, 7, 1)
+    seq = [
+        _loss_cand("L0"),  # rung 2 (5%): take, lose -> down
+        _loss_cand("L1"),  # rung 1 (2.5%): take, lose -> down
+        _win_cand("W2"),  # rung 0 (0%): SIT OUT, but would-be win -> up
+        _win_cand("W3"),  # rung 1 (2.5%): take, win -> up
+        _win_cand("W4"),  # rung 2 (5%): take, win -> hold (clamped)
+    ]
+    days = [(base + timedelta(days=i), [c]) for i, c in enumerate(seq)]
+    res, _chosen, daily_risk = simulate_portfolio_adaptive(days, s)
+    assert [r for _d, r in daily_risk] == [0.05, 0.025, 0.0, 0.025, 0.05]
+    assert res.n_trades == 4  # the 0% day (W2) took nothing
+    assert {t.symbol for t in res.trades} == {"L0", "L1", "W3", "W4"}
+
+
+def test_adaptive_risk_stays_full_in_a_good_market() -> None:
+    # A green run never knocks risk off the top rung.
+    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    base = date(2026, 7, 1)
+    days = [(base + timedelta(days=i), [_win_cand(f"W{i}")]) for i in range(4)]
+    _res, _chosen, daily_risk = simulate_portfolio_adaptive(days, s)
+    assert [r for _d, r in daily_risk] == [0.05, 0.05, 0.05, 0.05]
+
+
+def test_single_rung_disables_the_throttle() -> None:
+    # portfolio_risk_rungs=1 -> always full risk even through a losing streak.
+    s = _s(
+        portfolio_risk_rungs=1,
+        portfolio_adaptive_min_samples=999,
+        portfolio_exit_slippage_ticks=0,
+    )
+    base = date(2026, 7, 1)
+    days = [(base + timedelta(days=i), [_loss_cand(f"L{i}")]) for i in range(3)]
+    res, _chosen, daily_risk = simulate_portfolio_adaptive(days, s)
+    assert [r for _d, r in daily_risk] == [0.05, 0.05, 0.05]
+    assert res.n_trades == 3  # every day still trades at full risk
 
 
 def test_qualify_rejects_in_session_and_out_of_band() -> None:
