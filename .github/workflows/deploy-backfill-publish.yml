@@ -1,0 +1,151 @@
+name: deploy-backfill-publish
+
+# One-click pipeline that runs the three phone-triggered box workflows in a single graph so you
+# don't have to dispatch deploy → backfill → publish-dashboard by hand every time:
+#
+#   deploy ──▶ backfill ──▶ publish
+#
+# Defaults cover the everyday case: deploy `main`, backfill *yesterday*, then publish the refreshed
+# dashboard JSON. Each job is the same logic as its standalone workflow (deploy.yml /
+# backfill-dashboard.yml / publish-dashboard.yml, which all still exist for one-off use). Jobs are
+# chained with `needs:`, so a failure in an earlier stage skips the rest.
+#
+# All three stages run on the SELF-HOSTED `vps` runner (they `docker exec` / `docker cp` the app
+# container and read the store directly). Trigger from the phone via the GitHub UI / MCP
+# "Run workflow" (workflow_dispatch).
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (branch/tag/SHA) to deploy"
+        required: false
+        default: main
+      restart_only:
+        description: "Restart the running service without pulling new code"
+        type: boolean
+        required: false
+        default: false
+      backfill_date:
+        description: "Dashboard date to rebuild (YYYY-MM-DD). Blank = yesterday (ET)."
+        required: false
+        default: ""
+      backfill_all:
+        description: "Full-archive backfill: EVERY collected date (#141). Overrides backfill_date. ⚠️ heavy on the box."
+        type: boolean
+        required: false
+        default: false
+      skip_backfill:
+        description: "Skip the backfill stage (deploy → publish only)."
+        type: boolean
+        required: false
+        default: false
+
+# Serialise against the standalone workflows' groups so a pipeline run never overlaps a lone
+# deploy/backfill/publish on the box.
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy to vps
+    runs-on: [self-hosted, vps]
+    steps:
+      - name: Update working tree
+        if: ${{ !inputs.restart_only }}
+        working-directory: /opt/small-cap-stack
+        run: |
+          set -euo pipefail
+          git fetch --all --prune
+          git checkout "${{ inputs.ref }}"
+          git pull --ff-only origin "${{ inputs.ref }}" || true
+
+      - name: Deploy
+        working-directory: /opt/small-cap-stack
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.restart_only }}" = "true" ]; then
+            # Full restart of both services (the "something's wedged" escape hatch).
+            systemctl restart small-cap-stack
+          else
+            # Fast path: rebuild + recreate ONLY the app container — the Gateway keeps its
+            # session (no re-login / healthcheck wait), and BuildKit's pip cache makes the
+            # rebuild quick. GIT_SHA is baked into DEPLOYED_COMMIT.
+            export GIT_SHA="$(git rev-parse --short HEAD)"
+            docker compose up -d --build app
+          fi
+
+      - name: Health gate
+        working-directory: /opt/small-cap-stack
+        run: |
+          set -euo pipefail
+          # Give compose a moment, then assert both services are up and metrics answer.
+          for i in $(seq 1 30); do
+            if curl -fsS localhost:9090/metrics | grep -q '^scs_'; then
+              echo "metrics healthy"; break
+            fi
+            echo "waiting for metrics ($i)…"; sleep 5
+          done
+          docker compose -f docker-compose.yml ps
+          curl -fsS localhost:9090/metrics | grep -q '^scs_' || { echo "metrics not healthy"; exit 1; }
+
+  backfill:
+    name: regenerate dashboard JSON
+    needs: deploy
+    if: ${{ !inputs.skip_backfill }}
+    runs-on: [self-hosted, vps]
+    steps:
+      - name: Regenerate dashboard JSON in the app container
+        run: |
+          set -euo pipefail
+          cid="$(docker ps --filter 'name=small-cap-stack-app' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then
+            echo "app container not running — cannot reach the store" >&2
+            exit 1
+          fi
+          args=""
+          if [ "${{ inputs.backfill_all }}" = "true" ]; then
+            args="--all"
+          elif [ -n "${{ inputs.backfill_date }}" ]; then
+            args="--date ${{ inputs.backfill_date }}"
+          fi
+          docker exec "$cid" python -m small_cap_stack.dashboard_backfill $args
+
+  publish:
+    name: publish dashboard data
+    # Run after backfill, but don't block on it being skipped — `always()` lets publish proceed
+    # when skip_backfill is set, while still gating on deploy having succeeded.
+    needs: [deploy, backfill]
+    if: ${{ always() && needs.deploy.result == 'success' && needs.backfill.result != 'failure' }}
+    runs-on: [self-hosted, vps]
+    permissions:
+      contents: write
+    steps:
+      - name: Extract dashboard JSON from the app container
+        run: |
+          set -euo pipefail
+          rm -rf out && mkdir out
+          cid="$(docker ps --filter 'name=small-cap-stack-app' --format '{{.ID}}' | head -1)"
+          if [ -n "$cid" ]; then
+            docker cp "$cid:/data/dashboard/." out/ 2>/dev/null || true
+          fi
+          # Guarantee the branch/URL always exists, even before the first tick / EOD.
+          [ -f out/status.json ] || echo '{"status":"no data yet"}' > out/status.json
+          printf '{"published_utc":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > out/published.json
+          ls -la out
+
+      - name: Force-update the dashboard-data branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd out
+          git init -q
+          git checkout -q -b dashboard-data
+          git config user.email "actions@github.com"
+          git config user.name "scs-dashboard-bot"
+          git add -A
+          git commit -qm "dashboard data $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" dashboard-data
