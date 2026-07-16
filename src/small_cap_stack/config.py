@@ -200,6 +200,30 @@ class Settings(BaseSettings):
     # waived when that month's IBKR commission clears the threshold.
     portfolio_market_data_usd_per_month: float = 10.0
     portfolio_market_data_waiver_usd: float = 30.0
+    # Withdrawals + UK tax + running cost: the "getting paid" layer on top of the paper book. The
+    # book is kept in USD (funded once from GBP, then permanently USD, broker-costs.md), so pounds
+    # are derived through one assumed rate, not a daily FX series. The rate is quoted GBP/USD the
+    # market way: 1 GBP = `gbpusd_rate` USD, so USD->GBP divides and GBP->USD multiplies. A single
+    # rate is an approximation; per-disposal daily rates would be the accurate, heavier alternative.
+    # Locked 2026-07-16, research/decisions.md.
+    portfolio_gbpusd_rate: float = 1.27
+    # Withdrawal policy: pay out a share of NEW profit above a high-water mark, every N months, but
+    # never below the viability floor and never distributing cash reserved for tax. The HWM ratchets
+    # to the post-withdrawal balance so each period only pays on genuinely new profit. At the $500
+    # start the floor makes the whole layer a no-op — it only begins paying once the account clears
+    # the floor, which is the honest state (broker-costs §9: $500 is plumbing validation).
+    portfolio_withdraw_fraction: float = 0.5  # share of profit above the HWM paid out each period
+    portfolio_withdraw_cadence_months: int = 3  # quarterly
+    portfolio_withdraw_floor_usd: float = 2000.0  # never withdraw below this settled-USD balance
+    # UK Capital Gains Tax on net realised gains. Higher-rate share CGT is 24% (post-30-Oct-2024) on
+    # gains above the £3,000 annual exempt amount, reserved per UK tax year (6 Apr–5 Apr). The rate
+    # is a knob so the income-tax "treated as a trade" scenario (~42–47% incl. NIC) can be modelled
+    # without code changes — see research/decisions.md for the CGT-vs-trading-income risk.
+    portfolio_cgt_rate: float = 0.24
+    portfolio_cgt_annual_exempt_gbp: float = 3000.0
+    # VPS running cost (~£10/mo). A real recurring GBP cost, charged at month rollover like the
+    # market-data fee but kept as its own line (different real-world expense).
+    portfolio_vps_gbp_per_month: float = 10.0
 
 
 @lru_cache

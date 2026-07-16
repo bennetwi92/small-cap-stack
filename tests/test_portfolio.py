@@ -9,12 +9,16 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from small_cap_stack.portfolio import (
     CandidateTrade,
+    _TaxLedger,
+    _VpsLedger,
+    _WithdrawalLedger,
     best_target,
     commission,
     expectancy_curve,
@@ -268,12 +272,12 @@ def test_portfolio_pnl_and_equity_bookkeeping() -> None:
     #   fees       = 2×25×(0.0030+0.0002) + min(25×0.000166, 8.30) + (25×12.0)×0.0000278
     #              = 0.16 + 0.00415 + 0.00834 = $0.1725
     # -> round trip $0.8725, matching research/broker-costs.md's $0.87 for 25 sh of a $10 stock.
-    # The market-data fee is zeroed here so this stays a test of *trade* bookkeeping; the
-    # subscription has its own tests below.
+    # The market-data + VPS fees are zeroed here so this stays a test of *trade* bookkeeping; the
+    # subscription and the getting-paid layer have their own tests below.
     win = [_bar(10, 12.5, 9.95, 12.3)]
     res = simulate_portfolio(
         [(date(2026, 7, 14), [_cand("AAA", 5, 10.0, 9.0, win)])],
-        _s(portfolio_market_data_usd_per_month=0.0),
+        _s(portfolio_market_data_usd_per_month=0.0, portfolio_vps_gbp_per_month=0.0),
         target_r=2.0,
     )
     t = res.trades[0]
@@ -513,12 +517,18 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     payload = build_portfolio_payload(store, _s(), datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC))
 
     assert payload["start_equity"] == 500.0
+    assert payload["gbpusd_rate"] == 1.27  # top-level FX rate for the take-home panel
     assert "adaptive" in payload["books"]
     assert set(payload["targets"]) >= {"1.5", "2", "3"}  # grid widened with extremes
     adaptive = payload["books"]["adaptive"]
     assert adaptive["stats"]["n_trades"] == 1
     assert "daily_targets" in adaptive  # only the adaptive book carries the per-day target
     assert "daily_targets" not in payload["books"]["2"]  # fixed books do not
+    # Getting-paid layer flows through the payload: stats, a cash-flow schedule, and config knobs.
+    assert "net_take_home_gbp" in adaptive["stats"]
+    assert "withdrawals_gbp" in adaptive["stats"] and "tax_paid_gbp" in adaptive["stats"]
+    assert "cash_flows" in adaptive
+    assert "withdraw_fraction" in payload["config"] and "cgt_rate" in payload["config"]
     trade = adaptive["trades"][0]
     assert trade["symbol"] == "AZI" and trade["reason"] == "target"
     # fully JSON-serialisable (dates/datetimes already stringified)
@@ -537,7 +547,8 @@ def test_data_fee_charged_at_month_rollover_when_under_waiver() -> None:
         (date(2026, 6, 29), [_cand("AAA", 5, 10.0, 9.0, win)]),
         (date(2026, 7, 14), [_cand("BBB", 5, 10.0, 9.0, win)]),  # new month -> June settles
     ]
-    res = simulate_portfolio(days, _s(), target_r=2.0)
+    # VPS zeroed so this isolates the *market-data* fee's effect on equity (VPS has its own tests).
+    res = simulate_portfolio(days, _s(portfolio_vps_gbp_per_month=0.0), target_r=2.0)
     # June's commission ($0.70) is nowhere near the $30 waiver, and so is July's -> both billed.
     assert res.data_fees_usd == 20.0
     gross_net = sum(t.net_pnl_usd for t in res.trades)
@@ -586,3 +597,189 @@ def test_settled_cash_invariant_holds_by_construction() -> None:
     res = simulate_portfolio([(date(2026, 7, 14), cands)], s, target_r=2.0)
     spent = sum(t.qty * t.entry_price for t in res.trades)
     assert spent <= s.portfolio_start_equity_usd  # 2 × 25sh × $10 = $500 exactly, never more
+
+
+# --- --- Getting-paid layer: VPS ledger ------------------------------------------------
+
+
+def _pay_settings(**overrides: object) -> Settings:
+    """Clean 1.25 FX rate with the noise fees off, for exact getting-paid arithmetic."""
+    base: dict[str, object] = {
+        "portfolio_gbpusd_rate": 1.25,
+        "portfolio_market_data_usd_per_month": 0.0,
+        "portfolio_vps_gbp_per_month": 0.0,
+    }
+    base.update(overrides)
+    return _s(**base)
+
+
+def test_vps_ledger_charges_every_month_in_gbp_and_usd() -> None:
+    """The box bills monthly whether or not it traded; £ is converted to $ at the assumed rate."""
+    led = _VpsLedger(_s(portfolio_vps_gbp_per_month=10.0, portfolio_gbpusd_rate=1.25))
+    assert led.roll(date(2026, 1, 10)) == 0.0  # first month just anchors
+    assert led.roll(date(2026, 1, 20)) == 0.0  # still January
+    assert led.roll(date(2026, 2, 5)) == 12.5  # February opens -> January's £10 settles at $12.50
+    assert led.close(date(2026, 2, 28)) == 12.5  # final (February) month settles at close
+    assert led.total_gbp == 20.0 and led.total_usd == 25.0
+    assert [(e.kind, e.usd, e.gbp) for e in led.events] == [
+        ("vps", 12.5, 10.0),
+        ("vps", 12.5, 10.0),
+    ]
+
+
+def test_vps_cost_folds_into_equity_and_is_separate_from_broker_costs() -> None:
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    days = [
+        (date(2026, 6, 29), [_cand("AAA", 5, 10.0, 9.0, win)]),
+        (date(2026, 7, 14), [_cand("BBB", 5, 10.0, 9.0, win)]),  # new month -> June's VPS settles
+    ]
+    s = _s(
+        portfolio_market_data_usd_per_month=0.0,
+        portfolio_vps_gbp_per_month=10.0,
+        portfolio_gbpusd_rate=1.25,
+    )
+    res = simulate_portfolio(days, s, target_r=2.0)
+    assert res.vps_costs_gbp == 20.0 and res.vps_costs_usd == 25.0  # June + July, £10 each at 1.25
+    gross_net = sum(t.net_pnl_usd for t in res.trades)
+    assert res.end_equity == round(500.0 + gross_net - 25.0, 4)  # VPS folded into the balance
+    assert res.total_costs_usd == round(
+        res.commission_usd + res.fees_usd, 4
+    )  # VPS is NOT a broker cost
+
+
+# --- --- Getting-paid layer: CGT ledger ------------------------------------------------
+
+
+def test_tax_ledger_zero_below_annual_allowance() -> None:
+    s = _pay_settings()  # 24% rate, £3,000 allowance, rate 1.25
+    led = _TaxLedger(s)
+    led.roll(date(2026, 1, 1))  # anchor the tax year
+    led.observe([SimpleNamespace(net_pnl_usd=1000.0)])  # £800 gain < £3,000 allowance
+    assert led.reserve_usd() == 0.0
+    assert led.close(date(2026, 3, 1)) == 0.0
+
+
+def test_tax_ledger_reserves_cgt_above_allowance() -> None:
+    s = _pay_settings()
+    led = _TaxLedger(s)
+    led.roll(date(2026, 1, 1))
+    led.observe([SimpleNamespace(net_pnl_usd=5000.0)])  # £4,000 gain; taxable £1,000
+    assert led.reserve_usd() == 300.0  # £1,000 × 24% = £240 -> $300 at 1.25
+    fee = led.close(date(2026, 3, 1))
+    assert fee == 300.0
+    assert led.total_gbp == 240.0 and led.total_usd == 300.0
+    assert [(e.kind, e.usd, e.gbp) for e in led.events] == [("tax", 300.0, 240.0)]
+
+
+def test_tax_ledger_losses_reduce_the_years_gain() -> None:
+    s = _pay_settings()
+    led = _TaxLedger(s)
+    led.roll(date(2026, 1, 1))
+    led.observe([SimpleNamespace(net_pnl_usd=5000.0)])  # +£4,000
+    led.observe([SimpleNamespace(net_pnl_usd=-2000.0)])  # -£1,600 -> net £2,400 < allowance
+    assert led.reserve_usd() == 0.0
+
+
+def test_tax_ledger_settles_and_resets_at_the_6_april_boundary() -> None:
+    s = _pay_settings()
+    led = _TaxLedger(s)
+    led.roll(date(2025, 5, 1))  # anchors tax year starting 2025-04-06
+    led.observe([SimpleNamespace(net_pnl_usd=5000.0)])  # £4,000 gain in year one
+    fee = led.roll(date(2026, 4, 10))  # crosses 2026-04-06 -> year one settles
+    assert round(fee, 4) == 300.0
+    assert led.reserve_usd() == 0.0  # the new year starts clean
+    led.observe([SimpleNamespace(net_pnl_usd=5000.0)])  # year two accrues independently
+    assert led.reserve_usd() == 300.0
+
+
+# --- --- Getting-paid layer: withdrawal ledger -----------------------------------------
+
+
+def test_withdrawal_pays_fraction_of_profit_above_hwm_then_ratchets() -> None:
+    s = _pay_settings(
+        portfolio_start_equity_usd=10000.0,
+        portfolio_withdraw_floor_usd=2000.0,
+        portfolio_withdraw_fraction=0.5,
+        portfolio_withdraw_cadence_months=3,
+    )
+    led = _WithdrawalLedger(s)
+    assert led.roll(date(2026, 1, 15), 10000.0, 0.0) == 0.0  # first eval just anchors the cadence
+    assert led.roll(date(2026, 2, 15), 12000.0, 0.0) == 0.0  # only 1 month elapsed (< 3)
+    paid = led.roll(date(2026, 4, 15), 12000.0, 0.0)  # 3 months -> pay 50% of the £2,000 profit
+    assert paid == 1000.0
+    assert led.total_usd == 1000.0 and led.total_gbp == 800.0  # $1,000 / 1.25
+    # HWM ratcheted to the post-withdrawal balance ($11,000): no new profit -> no further payout.
+    assert led.roll(date(2026, 7, 15), 11000.0, 0.0) == 0.0
+
+
+def test_withdrawal_is_noop_below_floor_or_underwater() -> None:
+    below = _WithdrawalLedger(
+        _pay_settings(portfolio_start_equity_usd=500.0, portfolio_withdraw_floor_usd=2000.0)
+    )
+    below.roll(date(2026, 1, 15), 500.0, 0.0)  # anchor
+    assert below.roll(date(2026, 4, 15), 1500.0, 0.0) == 0.0  # equity under the $2,000 floor
+
+    under = _WithdrawalLedger(
+        _pay_settings(portfolio_start_equity_usd=10000.0, portfolio_withdraw_floor_usd=2000.0)
+    )
+    under.roll(date(2026, 1, 15), 10000.0, 0.0)  # anchor, HWM = 10,000
+    assert under.roll(date(2026, 4, 15), 9000.0, 0.0) == 0.0  # below the high-water mark
+
+
+def test_withdrawal_holds_back_the_outstanding_tax_reserve() -> None:
+    s = _pay_settings(
+        portfolio_start_equity_usd=10000.0,
+        portfolio_withdraw_floor_usd=2000.0,
+        portfolio_withdraw_fraction=0.5,
+        portfolio_withdraw_cadence_months=3,
+    )
+    led = _WithdrawalLedger(s)
+    led.roll(date(2026, 1, 15), 10000.0, 0.0)  # anchor
+    # Profit $2,000 -> would pay $1,000, but available = 12,000 - 2,000 floor - 9,500 reserve = 500.
+    assert led.roll(date(2026, 4, 15), 12000.0, 9500.0) == 500.0
+
+
+# --- --- Getting-paid layer: end-to-end wiring + metrics -------------------------------
+
+
+def test_portfolio_quarterly_withdrawal_and_return_adds_it_back() -> None:
+    win = [_bar(10, 12.5, 9.95, 12.3)]  # +2R -> exit at $12
+    s = _pay_settings(
+        portfolio_start_equity_usd=10000.0,
+        portfolio_withdraw_floor_usd=2000.0,
+        portfolio_withdraw_fraction=0.5,
+        portfolio_withdraw_cadence_months=3,
+    )
+    days = [
+        (date(2026, 6, 15), [_cand("AAA", 5, 10.0, 9.0, win)]),  # books the quarter's profit
+        (date(2026, 9, 15), []),  # quarter boundary (no 6-Apr crossing) -> withdrawal fires
+    ]
+    res = simulate_portfolio(days, s, target_r=2.0)
+    profit = res.trades[0].net_pnl_usd  # equity climbs by this over the quarter
+    assert res.withdrawals_usd == round(0.5 * profit, 4)
+    assert res.net_take_home_gbp == round(res.withdrawals_usd / 1.25, 4)
+    assert res.withdrawals_gbp == res.net_take_home_gbp
+    assert [cf.kind for cf in res.cash_flows] == ["withdrawal"]
+    assert res.cash_flows[0].date == date(2026, 9, 15)
+    # Total-value return adds the withdrawn cash back, so paying yourself doesn't read as a loss.
+    assert res.return_pct == round(profit / 10000.0, 4)
+    assert res.end_equity == round(10000.0 + profit - res.withdrawals_usd, 4)
+    # The scheduled cash-out is not a trading drawdown — the P&L path only ever rose here.
+    assert res.max_drawdown_pct == 0.0
+
+
+def test_getting_paid_layer_is_noop_at_the_default_500_account() -> None:
+    """At $500 the floor gates withdrawals and gains sit far below the CGT allowance: pure no-op."""
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    days = [
+        (date(2026, 1, 15), [_cand("AAA", 5, 10.0, 9.0, win)]),
+        (date(2026, 4, 20), [_cand("BBB", 5, 10.0, 9.0, win)]),  # crosses a quarter and 6 April
+    ]
+    res = simulate_portfolio(
+        days,
+        _s(portfolio_market_data_usd_per_month=0.0, portfolio_vps_gbp_per_month=0.0),
+        target_r=2.0,
+    )
+    assert res.withdrawals_usd == 0.0  # equity never clears the $2,000 floor
+    assert res.tax_paid_usd == 0.0  # gains are a rounding error against the £3,000 allowance
+    assert res.cash_flows == ()
