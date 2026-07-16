@@ -257,6 +257,36 @@ def test_portfolio_caps_at_two_trades_per_day_by_trigger_time() -> None:
     assert {t.symbol for t in res.trades} == {"AAA", "BBB"}
 
 
+def test_portfolio_records_setups_dropped_by_the_daily_cap() -> None:
+    # Three qualifying setups, cap 2 -> the 3rd (by trigger time) is skipped, and the book records
+    # what it *would* have made at the day's target so the page can show what the cap cost.
+    win = [_bar(10, 12.5, 9.95, 12.3)]  # hits +2R
+    loss = [_bar(10, 10.3, 8.8, 9.0)]  # stops at 9.0 -> -1R
+    cands = [
+        _cand("AAA", 5, 10.0, 9.0, win),
+        _cand("BBB", 6, 10.0, 9.0, win),
+        _cand("CCC", 7, 10.0, 9.0, loss),  # 3rd by time -> skipped, would have been -1R
+    ]
+    res = simulate_portfolio([(date(2026, 7, 14), cands)], _s(), target_r=2.0)
+    assert res.n_trades == 2
+    assert [sk.symbol for sk in res.skipped] == ["CCC"]
+    sk = res.skipped[0]
+    # Simulated with the exact same exit model a taken trade would use (target + 2-tick stop slip).
+    would_be = cands[2].exit_under(_s(), 2.0, 0.0)
+    assert sk.reason == "stop" and sk.realized_r == would_be.realized_r < 0
+    assert sk.target_r == 2.0  # simulated at the same target the day was taken at
+    assert res.skipped_total_r == sk.realized_r
+    # A skipped setup never touches equity or the trade stats — it's an informational log only.
+    assert all(t.symbol != "CCC" for t in res.trades)
+
+
+def test_portfolio_no_skips_when_under_the_cap() -> None:
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
+    res = simulate_portfolio([(date(2026, 7, 14), cands)], _s(), target_r=2.0)
+    assert res.skipped == () and res.skipped_total_r == 0.0
+
+
 def test_portfolio_both_trades_size_off_opening_equity() -> None:
     # $500 open. Entry 10 / stop 9 -> risk/sh $1 -> 5% risk floor(25/1)=25; 50% cap floor(250/10)=25
     # (they coincide here) -> 25 shares each, regardless of the first trade's outcome.
@@ -531,6 +561,9 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     assert "withdraw_fraction" in payload["config"] and "cgt_rate" in payload["config"]
     trade = adaptive["trades"][0]
     assert trade["symbol"] == "AZI" and trade["reason"] == "target"
+    # Skipped log rides along in every book (empty here — a single seeded setup never hits the cap).
+    assert "skipped" in adaptive and adaptive["skipped"] == []
+    assert adaptive["stats"]["skipped_count"] == 0 and adaptive["stats"]["skipped_total_r"] == 0.0
     # fully JSON-serialisable (dates/datetimes already stringified)
     import json
 

@@ -257,6 +257,32 @@ class PaperTrade:
 
 
 @dataclass(frozen=True)
+class SkippedTrade:
+    """A qualifying setup the book did **not** take because the day's ``max_trades_per_day`` cap was
+    already filled by earlier (lower trigger-time) trades — issue #230 follow-up.
+
+    Carries what the trade *would* have returned at that day's (target, breakeven), simulated over
+    the same bars with the same exit model as a taken trade. It is unsized on purpose: R is
+    size-independent, and reporting a hypothetical dollar P&L would imply the position was actually
+    affordable/compliant, which the settled-cash cap exists to prevent. So the skipped log answers
+    exactly one question honestly — *what did the 2/day cap cost me in R?* — without pretending we
+    could have held a third concurrent position."""
+
+    trading_date: date
+    symbol: str
+    seg_id: str
+    run: int
+    trigger_at: datetime
+    entry_price: float
+    stop: float
+    target_r: float
+    breakeven_r: float
+    realized_r: float  # what it would have made/lost at the day's target (size-independent)
+    reason: str  # "target" | "stop" | "breakeven" | "close"
+    exit_price: float
+
+
+@dataclass(frozen=True)
 class CashFlow:
     """One dated money movement outside trading: a withdrawal (out to you), a CGT bill, or the VPS
     fee. ``usd`` is the amount debited from the book; ``gbp`` is the same amount in pounds."""
@@ -296,6 +322,9 @@ class PortfolioResult:
     vps_costs_gbp: float
     net_take_home_gbp: float  # what actually reached your bank = sum of withdrawals in GBP
     cash_flows: tuple[CashFlow, ...]  # the dated withdrawal / tax / VPS schedule
+    # Setups the daily cap dropped — what a wider max_trades_per_day would have let us take (#230).
+    skipped: tuple[SkippedTrade, ...]
+    skipped_total_r: float  # sum of what those skipped setups would have returned, in R
 
 
 # --- --- Extraction (reads the store; reuses the report seams) ------------------------
@@ -388,13 +417,36 @@ def _take_day(
     s: Settings,
     target_r: float,
     breakeven_r: float,
-) -> list[PaperTrade]:
+) -> tuple[list[PaperTrade], list[SkippedTrade]]:
     """Take a single day's ≤N trades (trigger-time order), all sized off the day's opening equity.
 
     Both concurrent positions size off ``equity`` (the day's open) since they're committed before
-    either resolves; equity accrues sequentially only for the running-balance bookkeeping."""
+    either resolves; equity accrues sequentially only for the running-balance bookkeeping.
+
+    Returns the taken trades *and* the qualifying setups the ``max_trades_per_day`` cap dropped
+    (everything past the first N by trigger time), each with the outcome it would have had at the
+    same (target, breakeven) — the "what did the cap cost me" log (#230)."""
     opening_equity = equity
-    taken = sorted(cands, key=lambda c: c.trigger_at)[: s.portfolio_max_trades_per_day]
+    ordered = sorted(cands, key=lambda c: c.trigger_at)
+    taken = ordered[: s.portfolio_max_trades_per_day]
+    dropped = ordered[s.portfolio_max_trades_per_day :]
+    skipped = [
+        SkippedTrade(
+            trading_date=c.trading_date,
+            symbol=c.symbol,
+            seg_id=c.seg_id,
+            run=c.run,
+            trigger_at=c.trigger_at,
+            entry_price=c.entry_price,
+            stop=c.stop,
+            target_r=target_r,
+            breakeven_r=breakeven_r,
+            realized_r=(o := c.exit_under(s, target_r, breakeven_r)).realized_r,
+            reason=o.reason,
+            exit_price=o.exit_price,
+        )
+        for c in dropped
+    ]
     out: list[PaperTrade] = []
     for c in taken:
         qty = size_position(
@@ -435,7 +487,7 @@ def _take_day(
                 equity_after=equity,
             )
         )
-    return out
+    return out, skipped
 
 
 class _DataFeeLedger:
@@ -640,6 +692,7 @@ _CASH_FLOW_ORDER = {"withdrawal": 0, "tax": 1, "vps": 2}
 
 def _finalize(
     trades: list[PaperTrade],
+    skipped: list[SkippedTrade],
     curve: list[tuple[date, float]],
     s: Settings,
     end_equity: float,
@@ -699,6 +752,8 @@ def _finalize(
         vps_costs_gbp=round(vps.total_gbp, 4),
         net_take_home_gbp=round(wd.total_gbp, 4),
         cash_flows=cash_flows,
+        skipped=tuple(skipped),
+        skipped_total_r=round(sum(sk.realized_r for sk in skipped), 4),
     )
 
 
@@ -717,6 +772,7 @@ def _run_book(
     taken and their realised P&L accrued into the tax ledger. Final charges settle at close."""
     equity = s.portfolio_start_equity_usd
     trades: list[PaperTrade] = []
+    skipped: list[SkippedTrade] = []
     curve: list[tuple[date, float]] = []
     data_fees = _DataFeeLedger(s)
     vps = _VpsLedger(s)
@@ -727,10 +783,13 @@ def _run_book(
         equity = round(equity - data_fees.roll(day), 4)
         equity = round(equity - tax.roll(day), 4)  # settle CGT before deciding the withdrawal
         equity = round(equity - wd.roll(day, equity, tax.reserve_usd()), 4)
-        day_trades = _take_day(day, cands, equity, s, target_for_day(i, day), breakeven_r)
+        day_trades, day_skipped = _take_day(
+            day, cands, equity, s, target_for_day(i, day), breakeven_r
+        )
         data_fees.observe(day_trades)
         tax.observe(day_trades)
         trades.extend(day_trades)
+        skipped.extend(day_skipped)
         equity = day_trades[-1].equity_after if day_trades else equity
         curve.append((day, equity))
     equity = round(equity - data_fees.close(), 4)
@@ -740,7 +799,7 @@ def _run_book(
         equity = round(equity - tax.close(last), 4)
     if curve:  # the final boundary charges land on the last day
         curve[-1] = (curve[-1][0], equity)
-    return _finalize(trades, curve, s, equity, data_fees.total_charged, vps, tax, wd)
+    return _finalize(trades, skipped, curve, s, equity, data_fees.total_charged, vps, tax, wd)
 
 
 def simulate_portfolio(
@@ -883,6 +942,22 @@ def _trade_json(t: PaperTrade) -> dict[str, object]:
     }
 
 
+def _skipped_json(sk: SkippedTrade) -> dict[str, object]:
+    return {
+        "date": sk.trading_date.isoformat(),
+        "symbol": sk.symbol,
+        "seg_id": sk.seg_id,
+        "run": sk.run,
+        "trigger_at": sk.trigger_at.astimezone(ET).isoformat(),
+        "entry": sk.entry_price,
+        "stop": sk.stop,
+        "target_r": sk.target_r,
+        "realized_r": sk.realized_r,
+        "reason": sk.reason,
+        "exit_price": sk.exit_price,
+    }
+
+
 def _book_json(
     res: PortfolioResult, daily_targets: list[tuple[date, float]] | None
 ) -> dict[str, object]:
@@ -910,9 +985,12 @@ def _book_json(
             "vps_costs_usd": res.vps_costs_usd,
             "vps_costs_gbp": res.vps_costs_gbp,
             "net_take_home_gbp": res.net_take_home_gbp,
+            "skipped_count": len(res.skipped),
+            "skipped_total_r": res.skipped_total_r,
         },
         "equity_curve": [{"date": d.isoformat(), "equity": e} for d, e in res.equity_curve],
         "trades": [_trade_json(t) for t in res.trades],
+        "skipped": [_skipped_json(sk) for sk in res.skipped],
         "cash_flows": [
             {"date": cf.date.isoformat(), "kind": cf.kind, "usd": cf.usd, "gbp": cf.gbp}
             for cf in res.cash_flows
