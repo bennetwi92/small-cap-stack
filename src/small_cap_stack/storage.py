@@ -11,6 +11,8 @@ No long-running daemon: DuckDB is embedded and opened per query.
 
 from __future__ import annotations
 
+import asyncio
+import os
 from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
@@ -34,15 +36,46 @@ class Store:
         *,
         partition_date: date,
     ) -> Path | None:
-        """Append records as one immutable Parquet file under the date partition."""
+        """Append records as one immutable Parquet file under the date partition.
+
+        The write is atomic (temp file + ``os.replace``, same pattern as ``dashboard.write_json``):
+        a crash / OOM-kill / disk-full mid-write would otherwise leave a truncated
+        ``part-<uuid>.parquet`` that is never overwritten (the uuid is never reused) and that
+        ``read`` / ``query`` then choke on — breaking *every* read of the dataset until someone
+        finds and deletes it by hand (#248). Readers glob ``*.parquet``, so a leftover ``.tmp`` from
+        a killed process is inert rather than poisonous.
+        """
         rows = [dict(r) for r in records]
         if not rows:
             return None
         part_dir = self.data_dir / dataset / f"dt={partition_date.isoformat()}"
         part_dir.mkdir(parents=True, exist_ok=True)
         path = part_dir / f"part-{uuid4().hex}.parquet"
-        pl.DataFrame(rows).write_parquet(path)
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            pl.DataFrame(rows).write_parquet(tmp)
+            os.replace(tmp, path)  # atomic within the partition dir (same filesystem)
+        except BaseException:
+            tmp.unlink(missing_ok=True)  # don't leave partials behind on a recoverable failure
+            raise
         return path
+
+    async def append_async(
+        self,
+        dataset: str,
+        records: Sequence[Mapping[str, Any]],
+        *,
+        partition_date: date,
+    ) -> Path | None:
+        """``append`` off the event loop, for callers on the loop that also services IBKR (#262).
+
+        Parquet serialisation is blocking I/O. Today's frames are small (1 row for scanner hits /
+        opportunities, ~100–200 for a symbol's bars) so this is hygiene rather than a fix for an
+        observed stall — but it keeps ingestion writes off the socket's loop as frame sizes grow.
+        Safe to run concurrently: every append lands on its own uuid path and ``Store`` holds no
+        mutable state.
+        """
+        return await asyncio.to_thread(self.append, dataset, records, partition_date=partition_date)
 
     def read(self, dataset: str, *, dt: date | None = None) -> pl.DataFrame:
         """Read a dataset (empty frame if it has no data yet).

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from pathlib import Path
+
+import pytest
 
 from small_cap_stack.storage import Store
 
@@ -97,3 +100,76 @@ def test_query_computes_on_read(tmp_path: Path) -> None:
     out = store.query("SELECT count(*) AS n, max(change_pct) AS top FROM candidates")
     assert out["n"].to_list() == [2]
     assert out["top"].to_list() == [56.7]
+
+
+# --- atomic writes (#248) ---------------------------------------------------------------------
+
+
+def test_append_leaves_no_tmp_file_behind(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    path = store.append("candidates", _rows(), partition_date=date(2026, 6, 29))
+    assert path is not None
+    assert list(path.parent.glob("*.tmp")) == []
+
+
+def test_read_ignores_a_leftover_tmp_from_a_killed_write(tmp_path: Path) -> None:
+    """A process killed mid-write leaves a truncated ``.tmp``; it must not poison reads (#248)."""
+    store = Store(tmp_path)
+    store.append("candidates", _rows(), partition_date=date(2026, 6, 29))
+    part_dir = tmp_path / "candidates" / "dt=2026-06-29"
+    (part_dir / "part-deadbeef.parquet.tmp").write_bytes(b"PAR1-truncated-garbage")
+
+    assert store.read("candidates").height == 2  # would raise if the .tmp were globbed
+    assert store.query("SELECT count(*) AS n FROM candidates")["n"].to_list() == [2]
+
+
+def test_append_cleans_up_tmp_when_the_write_fails(tmp_path: Path) -> None:
+    """A failed write must not strand a ``.tmp`` (nor a half-written final part)."""
+    store = Store(tmp_path)
+    # A column of un-serialisable objects makes write_parquet raise after the tmp path is chosen.
+    with pytest.raises(Exception):  # noqa: B017 — polars' concrete type is version-dependent
+        store.append("candidates", [{"bad": object()}], partition_date=date(2026, 6, 29))
+    part_dir = tmp_path / "candidates" / "dt=2026-06-29"
+    if part_dir.exists():
+        assert list(part_dir.glob("*.tmp")) == []
+        assert list(part_dir.glob("*.parquet")) == []
+
+
+# --- off-loop writes (#262) -------------------------------------------------------------------
+
+
+def test_append_async_matches_append(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    path = asyncio.run(store.append_async("candidates", _rows(), partition_date=date(2026, 6, 29)))
+    assert path is not None and path.exists()
+    assert store.read("candidates").height == 2
+
+
+def test_append_async_empty_is_noop(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    assert (
+        asyncio.run(store.append_async("candidates", [], partition_date=date(2026, 6, 29))) is None
+    )
+
+
+def test_append_async_does_not_block_the_event_loop(tmp_path: Path) -> None:
+    """The write must run off-loop, so other loop work interleaves with it (#262)."""
+    store = Store(tmp_path)
+    order: list[str] = []
+
+    async def scenario() -> None:
+        async def ticker() -> None:
+            for _ in range(3):
+                await asyncio.sleep(0)
+                order.append("loop")
+
+        await asyncio.gather(
+            store.append_async("candidates", _rows(), partition_date=date(2026, 6, 29)),
+            ticker(),
+        )
+        order.append("done")
+
+    asyncio.run(scenario())
+    # The loop kept running while the write was in flight rather than being stalled until "done".
+    assert order.count("loop") == 3
+    assert order.index("loop") < order.index("done")
