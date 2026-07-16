@@ -467,23 +467,33 @@ def _take_day(
     Both concurrent positions size off ``equity`` (the day's open) since they're committed before
     either resolves; equity accrues sequentially only for the running-balance bookkeeping.
 
-    Returns the taken trades *and* the qualifying setups the ``max_trades_per_day`` cap dropped
-    (everything past the first N by trigger time), each with the outcome it would have had at the
-    same (target, breakeven) — the "what did the cap cost me" log (#230).
+    Returns the taken trades *and* the qualifying setups the book didn't take, in trigger order,
+    each with the outcome it would have had at the same (target, breakeven) plus a ``skip_reason``
+    (#251): ``"cap"`` for everything past the first N by trigger time — the "what did the cap cost
+    me" log (#230) — and ``"unaffordable"`` for a selected setup that couldn't be sized to a single
+    share at full risk. Callers wanting only the cap population must filter; ``_finalize`` and
+    ``_book_json`` do.
 
     ``risk_fraction`` defaults to the configured value; the adaptive kill-switch passes the day's
     throttled fraction, and a 0 fraction sizes every position to 0 (the day takes no trades)."""
     rf = s.portfolio_risk_fraction if risk_fraction is None else risk_fraction
     opening_equity = equity
-    ordered = sorted(cands, key=lambda c: c.trigger_at)
     # Ask _select_day rather than re-slicing here (#256). It is documented as the single source of
     # truth for which trades a day acts on, but only the throttle signal (_day_signal_r) actually
     # called it — this function re-implemented the same slice inline. They agreed, so nothing had
     # drifted yet; the point is that a future selection change (a tie-break, an affordability
     # pre-filter) applied in one place would silently desync the throttle from the real trades.
     taken = _select_day(cands, s)
-    dropped = ordered[len(taken) :]
-    skipped = [_skipped(c, s, target_r, breakeven_r, "cap") for c in dropped]
+    # The dropped set is the complement BY IDENTITY, not `ordered[len(taken):]`. The positional
+    # form would quietly re-assume _select_day returns a trigger-time *prefix* — the very coupling
+    # this change removes. Under a non-prefix selector (a tie-break, an affordability pre-filter:
+    # the changes named above) it would log a taken trade as cap-dropped and lose the real one.
+    taken_ids = {id(c) for c in taken}
+    dropped = sorted((c for c in cands if id(c) not in taken_ids), key=lambda c: c.trigger_at)
+    # On a rung-0 day nothing is taken at all, so the cap was never the binding constraint — the
+    # throttle was. Logging these as "the cap cost me this" would inflate the page's headline with
+    # kill-switch days.
+    skipped = [_skipped(c, s, target_r, breakeven_r, "cap") for c in dropped] if rf > 0 else []
     out: list[PaperTrade] = []
     for c in taken:
         qty = size_position(
@@ -494,11 +504,13 @@ def _take_day(
             max_position_fraction=s.portfolio_position_fraction,
         )
         if qty < 1:
-            # Too small to afford a share. Record it rather than dropping it on the floor (#251) —
-            # but only when we were actually trying to size: the adaptive kill-switch's rung-0
-            # passes rf=0, which sizes every position to 0 on purpose. That is the throttle sitting
-            # the day out, not a setup we lost, and the skipped log is "what the cap cost me".
-            if rf > 0:
+            # Too small to afford a share — record it rather than dropping it on the floor (#251),
+            # but ONLY when sizing at full configured risk. Any throttled rung can produce qty=0 on
+            # a wide stop (rung 1's rf=0.025 is a $12.50 risk budget at $500 equity, so a
+            # $15/share-risk setup sizes to 0 while the book is perfectly healthy). Calling that
+            # "unaffordable" would tell the trader their equity was the constraint when the
+            # kill-switch was. Throttled sizing — rung 0 included — is the ladder doing its job.
+            if rf >= s.portfolio_risk_fraction:
                 skipped.append(_skipped(c, s, target_r, breakeven_r, "unaffordable"))
             continue
         outcome = c.exit_under(s, target_r, breakeven_r)
@@ -530,6 +542,10 @@ def _take_day(
                 equity_after=equity,
             )
         )
+    # Cap-skips come from the day's LAST triggers and unaffordable ones are appended from among its
+    # first, so the list would otherwise be out of trigger order — and the page reverses it for
+    # "newest first". Sort so that promise holds.
+    skipped.sort(key=lambda sk: sk.trigger_at)
     return out, skipped
 
 

@@ -1242,3 +1242,78 @@ def test_take_day_selection_follows_select_day(monkeypatch: pytest.MonkeyPatch) 
 
     assert [t.symbol for t in trades] == ["AAA"]  # followed the selector...
     assert [sk.symbol for sk in skipped] == ["BBB", "CCC"]  # ...and the rest is the remainder
+
+
+def test_throttled_rung_sizing_to_zero_is_not_called_unaffordable() -> None:
+    """Any throttled rung can size to 0 on a wide stop — that's the ladder, not the equity (#251).
+
+    Guarding on `rf > 0` only excluded rung 0. Rung 1 (rf=0.025) is a $12.50 risk budget at $500,
+    so a $15/share-risk setup sizes to 0 while the book is perfectly healthy — and telling the
+    trader it was "unaffordable" blames their equity for what the kill-switch did.
+    """
+    wide = [_bar(10, 21.0, 4.0, 20.0)]  # entry 20, stop 5 -> $15/share risk
+    cands = [_cand("AAA", 5, 20.0, 5.0, wide)]
+    s = _s()
+    assert size_position(500.0, 20.0, 5.0, risk_fraction=0.025, max_position_fraction=0.5) == 0
+
+    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0, risk_fraction=0.025)
+
+    assert trades == []
+    assert skipped == []  # throttled, not unaffordable — the book could afford it at full risk
+
+
+def test_unaffordable_still_recorded_at_full_risk() -> None:
+    """The genuine case — full configured risk and still not one share — is still logged."""
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    cands = [_cand("AAA", 5, 10.0, 9.0, win)]
+    s = _s()
+
+    trades, skipped = _take_day(date(2026, 7, 14), cands, 5.0, s, 2.0, 0.0)
+
+    assert trades == []
+    assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [("AAA", "unaffordable")]
+
+
+def test_rung_zero_day_does_not_blame_the_daily_cap() -> None:
+    """Nothing is taken on a rung-0 day, so the cap was never the binding constraint (#251)."""
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    cands = [_cand(x, i + 5, 10.0, 9.0, win) for i, x in enumerate(["AAA", "BBB", "CCC"])]
+
+    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
+
+    assert trades == []
+    # CCC would be past the 2/day cap — but nothing traded, so the cap cost us nothing.
+    assert skipped == []
+
+
+def test_take_day_tolerates_a_non_prefix_selector(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`dropped` must be the complement of `taken`, not `ordered[len(taken):]` (#256 review).
+
+    The positional form silently re-assumes _select_day returns a trigger-time prefix. Under a
+    selector that skips a middle candidate it would log a *taken* trade as cap-dropped (double
+    counting its R) and lose the genuinely dropped one from every log.
+    """
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    cands = [_cand(x, i + 5, 10.0, 9.0, win) for i, x in enumerate(["AAA", "BBB", "CCC"])]
+    monkeypatch.setattr(  # skip the middle one — a non-prefix selection
+        "small_cap_stack.portfolio._select_day",
+        lambda cs, st: [c for c in sorted(cs, key=lambda c: c.trigger_at) if c.symbol != "BBB"],
+    )
+
+    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0)
+
+    assert [t.symbol for t in trades] == ["AAA", "CCC"]
+    assert [sk.symbol for sk in skipped] == ["BBB"]  # the real drop, not CCC
+
+
+def test_skipped_is_returned_in_trigger_order() -> None:
+    """The page reverses this list for "newest first", so it must arrive in trigger order."""
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    # AAA (earliest) is unaffordable at full risk; DDD (latest) is dropped by the 2/day cap.
+    cands = [_cand(x, i + 5, 10.0, 9.0, win) for i, x in enumerate(["AAA", "BBB", "CCC"])]
+    s = _s(portfolio_max_trades_per_day=2, portfolio_start_equity_usd=20.0)
+
+    _, skipped = _take_day(date(2026, 7, 14), cands, 20.0, s, 2.0, 0.0)
+
+    triggers = [sk.trigger_at for sk in skipped]
+    assert triggers == sorted(triggers)

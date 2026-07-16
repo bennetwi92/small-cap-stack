@@ -212,8 +212,8 @@ function unaffordableNote(book) {
   const n = (book.stats || {}).unaffordable_count || 0;
   if (!n) return "";
   return (
-    ` A further ${n} setup${n === 1 ? " was" : "s were"} selected but <strong>unaffordable</strong> ` +
-    `— the book couldn't size even one share at this equity.`
+    ` ${n} setup${n === 1 ? " was" : "s were"} also selected but <strong>unaffordable</strong> — the ` +
+    `book couldn't size even one share at this equity (at full risk; throttled days aren't counted).`
   );
 }
 
@@ -221,10 +221,10 @@ function skippedNote(book) {
   const s = book.stats;
   const n = s.skipped_count || 0;
   if (!n) {
-    return (
-      `No setups were dropped — the ${PAYLOAD.config.max_trades_per_day}/day cap was never the binding constraint.` +
-      unaffordableNote(book)
-    );
+    // "No setups were dropped" would contradict the table below whenever unaffordable rows exist,
+    // since skipped_count is cap-only. Speak only for the cap here.
+    const capNote = `The ${PAYLOAD.config.max_trades_per_day}/day cap was never the binding constraint — it dropped nothing.`;
+    return capNote + unaffordableNote(book);
   }
   const totR = s.skipped_total_r;
   const cls = totR > 0 ? "pf-pos" : totR < 0 ? "pf-neg" : "muted";

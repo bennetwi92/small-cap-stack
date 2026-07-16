@@ -398,3 +398,37 @@ loss-based kill-switch for now — 2 trades/day makes it moot"); this decision a
   page as a `daily_risk` series + a note, and exhaustively unit-tested (per CLAUDE.md). The
   settled-cash invariant is untouched: the throttle only ever sizes ≤ the existing 5% target, and
   the 50% notional cap remains the binding upper bound.
+
+## Ledger gap-months + the skipped log's two populations (DECISION 2026-07-16, #249/#251 — refines #230/#232/#239)
+
+Three narrow amendments from the #249/#251/#256 audit fixes. All in `portfolio.py`; all
+mutation-tested.
+
+- **Recurring costs are billed per calendar month, not per *observed* month.** `_DataFeeLedger` and
+  `_VpsLedger` settled a fee only when a day from a *new* month arrived, so a month with **zero
+  collected dates** — a data outage — never triggered a rollover and was silently free (June data →
+  September data charged June once and re-anchored, dropping July and August). Both now walk month
+  by month between the first and last collected date. This is #232's own thesis: the subscription
+  and the box bill whether or not you trade **and whether or not we collected**. Gap months carry no
+  commission, so the market-data **waiver cannot apply** to them. A gapless run bills exactly as
+  before, and each gap month gets its own dated `CashFlow` at the start of the month it rolls into.
+- **`_WithdrawalLedger` is deliberately NOT part of this.** It is anchored the same way, so a data
+  gap still yields one withdrawal rather than one per missed cadence. That asymmetry is intentional:
+  a monthly *bill* accrues on the calendar regardless, but a *payout* is a fraction of profit above
+  the high-water mark, and during an outage that profit didn't change. Paying yourself twice out of
+  one unchanged profit pool is a modelling choice, not an obvious fix — tracked in **#274** rather
+  than settled by a drive-by. (Raised by review of #249.)
+- **The skipped log has two populations, and the headline counts only one.** `SkippedTrade` gains
+  `skip_reason`:
+  - `"cap"` — past the day's `max_trades_per_day` by trigger time. **This alone** feeds
+    `skipped_total_r` / `skipped_count`, because the page asks exactly one question — *what did the
+    N/day cap cost me?* — and mixing populations would make it misattribute.
+  - `"unaffordable"` — selected, but `size_position` returned `qty < 1` **at full configured risk**.
+    These previously vanished from every log (#251).
+
+  **Throttled sizing is never "unaffordable".** Any kill-switch rung can size to zero on a wide stop
+  (rung 1's 2.5% is a $12.50 risk budget at $500, so a $15/share-risk setup sizes to 0 while the
+  book is healthy), so the test is `rf >= portfolio_risk_fraction`, not `rf > 0`. Blaming equity for
+  what the ladder did would be a lie on the page. For the same reason a **rung-0 day logs no cap
+  skips**: nothing was taken, so the cap was never the binding constraint — counting those would
+  inflate the cap's cost with kill-switch days.
