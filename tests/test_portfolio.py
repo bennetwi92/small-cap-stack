@@ -1005,7 +1005,7 @@ def test_cache_hit_skips_extraction(tmp_path: Path, monkeypatch: object) -> None
     def _boom(*a: object, **k: object) -> list[CandidateTrade]:
         raise AssertionError("extract_day_trades must not run on a cache hit")
 
-    monkeypatch.setattr(pf, "extract_day_trades", _boom)  # type: ignore[attr-defined]
+    monkeypatch.setattr(pf.payload, "extract_day_trades", _boom)  # patched where it's used
     # Same store + settings → matching fingerprint → served entirely from cache, no extraction.
     served = pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir)
     assert served["books"] == primed["books"]
@@ -1028,7 +1028,7 @@ def test_cache_busted_by_settings_change(tmp_path: Path, monkeypatch: object) ->
         calls.append(d)
         return real(store, s, d)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(pf, "extract_day_trades", _spy)  # type: ignore[attr-defined]
+    monkeypatch.setattr(pf.payload, "extract_day_trades", _spy)  # patched where it's used
     # A settings change flips the fingerprint, so the cached day must be re-extracted (correctness).
     pf.build_portfolio_payload(
         store, _s(portfolio_exclude_symbols=("ZZZZ",)), now, cache_dir=cache_dir
@@ -1071,7 +1071,7 @@ def test_cache_busted_by_new_partition(tmp_path: Path, monkeypatch: object) -> N
         calls.append(d)
         return real(store, s, d)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(pf, "extract_day_trades", _spy)  # type: ignore[attr-defined]
+    monkeypatch.setattr(pf.payload, "extract_day_trades", _spy)  # patched where it's used
     pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir)
     assert day in calls  # stale cache detected via the changed partition file set
 
@@ -1094,7 +1094,7 @@ def test_force_dates_bypasses_cache(tmp_path: Path, monkeypatch: object) -> None
         calls.append(d)
         return real(store, s, d)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(pf, "extract_day_trades", _spy)  # type: ignore[attr-defined]
+    monkeypatch.setattr(pf.payload, "extract_day_trades", _spy)  # patched where it's used
     # force_dates re-extracts even on a valid cache (the day whose raw data the caller just changed)
     pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir, force_dates={day})
     assert calls == [day]
@@ -1235,7 +1235,7 @@ def test_take_day_selection_follows_select_day(monkeypatch: pytest.MonkeyPatch) 
 
     # A selection rule the inline slice would never produce: one trade, not max_trades_per_day.
     monkeypatch.setattr(
-        "small_cap_stack.portfolio._select_day",
+        "small_cap_stack.portfolio.sim._select_day",
         lambda cands, s: sorted(cands, key=lambda c: c.trigger_at)[:1],
     )
     trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0)
@@ -1296,7 +1296,7 @@ def test_take_day_tolerates_a_non_prefix_selector(monkeypatch: pytest.MonkeyPatc
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand(x, i + 5, 10.0, 9.0, win) for i, x in enumerate(["AAA", "BBB", "CCC"])]
     monkeypatch.setattr(  # skip the middle one — a non-prefix selection
-        "small_cap_stack.portfolio._select_day",
+        "small_cap_stack.portfolio.sim._select_day",
         lambda cs, st: [c for c in sorted(cs, key=lambda c: c.trigger_at) if c.symbol != "BBB"],
     )
 
