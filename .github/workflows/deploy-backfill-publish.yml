@@ -106,7 +106,7 @@ jobs:
           fi
           args=""
           if [ "${{ inputs.backfill_all }}" = "true" ]; then
-            args="--all"
+            args="--all --force"  # the workflow input is the confirmation (#261)
           elif [ -n "${{ inputs.backfill_date }}" ]; then
             args="--date ${{ inputs.backfill_date }}"
           fi

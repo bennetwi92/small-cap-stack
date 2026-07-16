@@ -47,7 +47,7 @@ jobs:
           fi
           args=""
           if [ "${{ inputs.all }}" = "true" ]; then
-            args="--all"
+            args="--all --force"  # the workflow input is the confirmation (#261)
           elif [ -n "${{ inputs.date }}" ]; then
             args="--date ${{ inputs.date }}"
           fi

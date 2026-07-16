@@ -230,17 +230,27 @@ def _index_opportunities(charts_payload: dict[str, Any]) -> list[dict[str, Any]]
     ]
 
 
+def index_entry(trading_date: date, charts_payload: dict[str, Any]) -> dict[str, Any]:
+    """One index row for a date — the *only* part of a charts payload the index needs.
+
+    Exposed so the archive backfill can reduce each date to its row and drop the payload, instead
+    of holding every date's full charts (all bars for all opportunities) in memory (#261)."""
+    return {"date": trading_date.isoformat(), "opportunities": _index_opportunities(charts_payload)}
+
+
+def index_from_entries(entries: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
+    """Assemble the index from per-date rows, newest-first (the date picker opens on the latest)."""
+    dates = sorted(entries, key=lambda e: str(e["date"]), reverse=True)
+    return {"generated_utc": now.isoformat(), "dates": dates}
+
+
 def build_index(date_charts: list[tuple[date, dict[str, Any]]], now: datetime) -> dict[str, Any]:
     """The review-workbench navigation index over every collected date (#141).
 
     ``date_charts`` pairs each trading date with its :func:`build_charts` payload. Dates are sorted
     newest-first so the date picker opens on the latest session; each date lists its opportunities
-    (mirroring the chart selection list). Used by the full-archive backfill."""
-    dates: list[dict[str, Any]] = [
-        {"date": d.isoformat(), "opportunities": _index_opportunities(cp)} for d, cp in date_charts
-    ]
-    dates.sort(key=lambda e: str(e["date"]), reverse=True)
-    return {"generated_utc": now.isoformat(), "dates": dates}
+    (mirroring the chart selection list)."""
+    return index_from_entries([index_entry(d, cp) for d, cp in date_charts], now)
 
 
 def upsert_index_date(
@@ -258,9 +268,7 @@ def upsert_index_date(
     kept: list[dict[str, Any]] = [
         e for e in prior if isinstance(e, dict) and e.get("date") != trading_date.isoformat()
     ]
-    kept.append(
-        {"date": trading_date.isoformat(), "opportunities": _index_opportunities(charts_payload)}
-    )
+    kept.append(index_entry(trading_date, charts_payload))
     kept.sort(key=lambda e: str(e["date"]), reverse=True)
     return {"generated_utc": now.isoformat(), "dates": kept}
 

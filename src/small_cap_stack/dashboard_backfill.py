@@ -21,21 +21,24 @@ import argparse
 from datetime import UTC, date, timedelta
 from typing import Any
 
-import polars as pl
-
 from .clock import now_et
 from .config import Settings, get_settings
 from .dashboard import (
     build_charts,
-    build_index,
     build_stats,
     charts_path,
+    index_entry,
+    index_from_entries,
     read_json,
     upsert_index_date,
     write_json,
 )
 from .logging import configure_logging, get_logger
-from .portfolio import build_portfolio_payload, portfolio_candidate_cache_dir
+from .portfolio import (
+    build_portfolio_payload,
+    collected_dates,
+    portfolio_candidate_cache_dir,
+)
 from .report import build_eod_report
 from .storage import Store
 
@@ -46,15 +49,6 @@ def _parse_date(raw: str | None) -> date:
     if raw is None:
         return (now_et() - timedelta(days=1)).date()
     return date.fromisoformat(raw)
-
-
-def _collected_dates(store: Store) -> list[date]:
-    """Every trading date with a captured opportunity, ascending (store-raw / compute-on-read)."""
-    opps = store.read("opportunities")
-    if opps.is_empty() or "trading_date" not in opps.columns:
-        return []
-    vals = opps.select(pl.col("trading_date")).unique().to_series().to_list()
-    return sorted(d for d in vals if d is not None)
 
 
 def regenerate(
@@ -123,16 +117,20 @@ def regenerate_archive(
     now_utc = now_et().astimezone(UTC)
     out = settings.data_dir / "dashboard"
 
-    dates = _collected_dates(store)
-    date_charts: list[tuple[date, dict[str, Any]]] = []
+    dates = collected_dates(store)
+    entries: list[dict[str, Any]] = []
     total_charts = 0
     for d in dates:
         charts = build_charts(store, settings, d, now_utc)
         write_json(charts_path(out, d), charts)
-        date_charts.append((d, charts))
+        # Reduce the date to its index row and drop the payload. Accumulating every date's full
+        # charts (all bars for all opportunities, all dates) just to build the index is what made
+        # --all a memory bomb on the 4 GB box — the per-date reads are already dt-scoped (#246).
+        entries.append(index_entry(d, charts))
         total_charts += len(charts["charts"])
+        del charts
 
-    write_json(out / "index.json", build_index(date_charts, now_utc))
+    write_json(out / "index.json", index_from_entries(entries, now_utc))
     # Full-archive rebuild: extract every date once and prime the candidate cache for later
     # single-date backfills (a day re-extracts only if its raw partitions or the settings change).
     write_json(
@@ -172,9 +170,24 @@ def main() -> None:
     group.add_argument(
         "--all",
         action="store_true",
-        help="Full-archive backfill: dated charts + index for every collected date.",
+        help="Full-archive backfill: every collected date. Heavy — requires --force.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Required with --all: confirm you mean the full-archive rebuild.",
     )
     args = parser.parse_args()
+    if args.all and not args.force:
+        # A speed bump, not a lock: --all rebuilds every collected date in one process, and on
+        # 2026-07-16 an OOM-killed backfill took the box's CI runner down for 5h37m (#264). It is
+        # now cheaper (per-date reads are dt-scoped, #246, and the index no longer retains every
+        # payload), but "cheaper" is not "safe on a 4 GB box", and it is trivially mistyped.
+        parser.error(
+            "--all rebuilds every collected date in one process and has OOM-killed the box "
+            "(#264, CLAUDE.md). Prefer one date at a time: --date YYYY-MM-DD. "
+            "If you really mean the full archive, pass --force."
+        )
 
     settings = get_settings()
     configure_logging(level=settings.log_level, json_logs=settings.json_logs)
