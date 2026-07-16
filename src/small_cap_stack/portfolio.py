@@ -44,9 +44,14 @@ changed such that ``position_fraction × max_trades_per_day > 1``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+import hashlib
+import json
+import os
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import Any
 
 from .capture import Bar
 from .clock import ET
@@ -918,15 +923,178 @@ def _book_json(
     return book
 
 
+# --- --- Per-day candidate cache (issue: backfill-dashboard-perf) ---------------------
+#
+# The portfolio book is *cross-day*, so :func:`build_portfolio_payload` needs every collected day's
+# qualifying trades. Extracting one day (segment + R-metrics per opportunity) costs about as much
+# as one EOD report, so rebuilding the whole book from scratch on *every single-date dashboard
+# backfill* silently did full-archive-scale work — the per-date backfill that should take seconds
+# took minutes as history grew (the very ``--all`` workload CLAUDE.md warns off the box). A day's
+# candidates are a pure function of that day's raw partitions + the settings that drive extraction,
+# and the raw store is append-only immutable, so we cache each day's extracted candidates on disk
+# keyed by a fingerprint of (those partition files, the whole settings model). A single-date
+# backfill then re-extracts only the day that changed and reads the rest back from cache; any
+# settings change or late-arriving/backfilled partition shifts the fingerprint and forces a correct
+# re-extract, so compute-on-read is preserved. The cache lives under ``<data_dir>/cache`` (NOT
+# ``dashboard/``, which publish-dashboard force-pushes wholesale to a public branch) and is fully
+# regenerable.
+_CANDIDATE_CACHE_SUBDIR = ("cache", "portfolio_candidates")
+_EXTRACT_DATASETS = ("opportunities", "bars", "scanner_hits")
+
+
+def portfolio_candidate_cache_dir(s: Settings) -> Path:
+    """Directory holding the per-day extracted-candidate cache — off the published dashboard dir."""
+    return s.data_dir.joinpath(*_CANDIDATE_CACHE_SUBDIR)
+
+
+def _settings_fingerprint(s: Settings) -> str:
+    """Hash the whole settings model: any change (price band, cutoff, excludes, tick size, or an
+    engine param feeding ``symbol_runs`` / ``compute_r_metrics``) may alter extraction, and hashing
+    everything can't miss one — a change just triggers one correct re-extract across all days."""
+    body = json.dumps(s.model_dump(mode="json"), sort_keys=True, default=str)
+    return hashlib.sha256(body.encode()).hexdigest()
+
+
+def _day_fingerprint(store: Store, s: Settings, trading_date: date, settings_fp: str) -> str:
+    """Fingerprint the day's extraction inputs: the raw partition files (name/size/mtime) that
+    ``extract_day_trades`` reads, plus the settings hash. Append-only immutable parts mean a stable
+    fingerprint until a new part lands for the date (a late backfill), which correctly busts it."""
+    parts: dict[str, list[tuple[str, int, int]]] = {}
+    for dataset in _EXTRACT_DATASETS:
+        root = store.data_dir / dataset / f"dt={trading_date.isoformat()}"
+        files = sorted(root.glob("**/*.parquet"))
+        parts[dataset] = [(p.name, (st := p.stat()).st_size, st.st_mtime_ns) for p in files]
+    body = json.dumps({"settings": settings_fp, "partitions": parts}, sort_keys=True)
+    return hashlib.sha256(body.encode()).hexdigest()
+
+
+def _bar_to_json(b: Bar) -> list[object]:
+    return [b.start.isoformat(), b.open, b.high, b.low, b.close, b.volume]
+
+
+def _bar_from_json(r: list[Any]) -> Bar:
+    return Bar(
+        start=datetime.fromisoformat(str(r[0])),
+        open=float(r[1]),
+        high=float(r[2]),
+        low=float(r[3]),
+        close=float(r[4]),
+        volume=float(r[5]),
+    )
+
+
+def _candidate_to_json(c: CandidateTrade) -> dict[str, Any]:
+    return {
+        "trading_date": c.trading_date.isoformat(),
+        "symbol": c.symbol,
+        "seg_id": c.seg_id,
+        "run": c.run,
+        "trigger_at": c.trigger_at.isoformat(),
+        "entry_price": c.entry_price,
+        "entry_fill": c.entry_fill,
+        "stop": c.stop,
+        "risk": c.risk,
+        "entry_index": c.entry_index,
+        "bars": [_bar_to_json(b) for b in c.bars],
+    }
+
+
+def _candidate_from_json(d: dict[str, Any]) -> CandidateTrade:
+    return CandidateTrade(
+        trading_date=date.fromisoformat(str(d["trading_date"])),
+        symbol=str(d["symbol"]),
+        seg_id=str(d["seg_id"]),
+        run=int(d["run"]),
+        trigger_at=datetime.fromisoformat(str(d["trigger_at"])),
+        entry_price=float(d["entry_price"]),
+        entry_fill=float(d["entry_fill"]),
+        stop=float(d["stop"]),
+        risk=float(d["risk"]),
+        entry_index=int(d["entry_index"]),
+        bars=tuple(_bar_from_json(b) for b in d["bars"]),
+    )
+
+
+def _read_candidate_cache(path: Path, fingerprint: str) -> list[CandidateTrade] | None:
+    """Return cached candidates iff the file parses and its fingerprint matches; else None."""
+    if not path.exists():
+        return None
+    try:
+        loaded = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(loaded, dict) or loaded.get("fingerprint") != fingerprint:
+        return None
+    cands = loaded.get("candidates")
+    if not isinstance(cands, list):
+        return None
+    try:
+        return [_candidate_from_json(c) for c in cands]
+    except (KeyError, ValueError, TypeError):  # a schema change in the cached shape → re-extract
+        return None
+
+
+def _write_candidate_cache(path: Path, fingerprint: str, cands: Sequence[CandidateTrade]) -> None:
+    """Atomically persist a day's candidates + fingerprint (tmp + os.replace, like write_json)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"fingerprint": fingerprint, "candidates": [_candidate_to_json(c) for c in cands]}
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload))
+    os.replace(tmp, path)
+
+
+def _extract_day_trades_cached(
+    store: Store,
+    s: Settings,
+    trading_date: date,
+    cache_dir: Path | None,
+    settings_fp: str,
+    *,
+    force: bool,
+) -> list[CandidateTrade]:
+    """:func:`extract_day_trades` with a fingerprinted on-disk cache (``cache_dir=None`` disables).
+
+    On a cache hit the day is not re-read/re-computed at all; ``force`` skips the read so a date the
+    caller knows just changed is always re-extracted (and its fingerprint refreshed)."""
+    if cache_dir is None:
+        return extract_day_trades(store, s, trading_date)
+    fingerprint = _day_fingerprint(store, s, trading_date, settings_fp)
+    path = cache_dir / f"{trading_date.isoformat()}.json"
+    if not force:
+        cached = _read_candidate_cache(path, fingerprint)
+        if cached is not None:
+            return cached
+    cands = extract_day_trades(store, s, trading_date)
+    _write_candidate_cache(path, fingerprint, cands)
+    return cands
+
+
 def build_portfolio_payload(
-    store: Store, s: Settings, generated_utc: datetime
+    store: Store,
+    s: Settings,
+    generated_utc: datetime,
+    *,
+    cache_dir: Path | None = None,
+    force_dates: Iterable[date] | None = None,
 ) -> dict[str, object]:
     """Build the ``portfolio.json`` the web page reads: the adaptive book plus a fixed-target sweep.
 
     Extracts every day's qualifying trades once, then simulates the adaptive (daily re-fit) book
     and one fixed-target book per selectable target — all server-side so the page needs no bars and
-    no duplicated logic. Written to ``/data/dashboard`` at EOD and shipped by publish-dashboard."""
-    by_day = [(d, extract_day_trades(store, s, d)) for d in collected_dates(store)]
+    no duplicated logic. Written to ``/data/dashboard`` at EOD and shipped by publish-dashboard.
+
+    ``cache_dir`` enables the per-day candidate cache (see :func:`portfolio_candidate_cache_dir`) so
+    a single-date backfill re-extracts only the day(s) in ``force_dates`` and reads the rest from
+    cache instead of re-doing the whole archive; leave it None to always extract fresh."""
+    settings_fp = _settings_fingerprint(s)
+    force = set(force_dates or ())
+    by_day = [
+        (
+            d,
+            _extract_day_trades_cached(store, s, d, cache_dir, settings_fp, force=d in force),
+        )
+        for d in collected_dates(store)
+    ]
     adaptive_res, daily_targets = simulate_portfolio_adaptive(by_day, s)
     # Selectable fixed targets: the adaptive grid widened with a couple of extremes for exploration.
     targets = sorted(set(s.portfolio_target_grid) | {1.0, 4.0, 5.0})

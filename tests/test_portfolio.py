@@ -783,3 +783,149 @@ def test_getting_paid_layer_is_noop_at_the_default_500_account() -> None:
     assert res.withdrawals_usd == 0.0  # equity never clears the $2,000 floor
     assert res.tax_paid_usd == 0.0  # gains are a rounding error against the £3,000 allowance
     assert res.cash_flows == ()
+
+
+# --- --- Per-day candidate cache (backfill-dashboard-perf) ----------------------------
+#
+# The cache exists so a single-date dashboard backfill re-extracts only the changed day instead of
+# re-doing the whole cross-day archive. These pin: serialisation fidelity, that a cache hit skips
+# extraction entirely, and that a settings change / new partition / force_dates all bust it.
+
+
+def test_candidate_json_round_trips_exactly(tmp_path: Path) -> None:
+    from small_cap_stack.portfolio import (
+        _candidate_from_json,
+        _candidate_to_json,
+        extract_day_trades,
+    )
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))  # 08:00 ET
+    [c] = extract_day_trades(store, _s(), day)
+    # Frozen-dataclass equality covers every field incl. the full bar tuple + tz-aware datetimes.
+    assert _candidate_from_json(_candidate_to_json(c)) == c
+
+
+def test_cache_matches_uncached_and_writes_file(tmp_path: Path) -> None:
+    from small_cap_stack.portfolio import build_portfolio_payload, portfolio_candidate_cache_dir
+    from small_cap_stack.storage import Store
+
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))
+    now = datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC)
+    cache_dir = portfolio_candidate_cache_dir(_s(data_dir=tmp_path))
+
+    plain = build_portfolio_payload(store, _s(), now)
+    cached = build_portfolio_payload(store, _s(), now, cache_dir=cache_dir)
+    assert cached["books"] == plain["books"]  # identical book, just cheaper
+    assert (cache_dir / "2026-06-29.json").exists()  # the day was persisted
+
+
+def test_cache_hit_skips_extraction(tmp_path: Path, monkeypatch: object) -> None:
+    import small_cap_stack.portfolio as pf
+    from small_cap_stack.storage import Store
+
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))
+    now = datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC)
+    cache_dir = pf.portfolio_candidate_cache_dir(_s(data_dir=tmp_path))
+    primed = pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir)
+
+    def _boom(*a: object, **k: object) -> list[CandidateTrade]:
+        raise AssertionError("extract_day_trades must not run on a cache hit")
+
+    monkeypatch.setattr(pf, "extract_day_trades", _boom)  # type: ignore[attr-defined]
+    # Same store + settings → matching fingerprint → served entirely from cache, no extraction.
+    served = pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir)
+    assert served["books"] == primed["books"]
+
+
+def test_cache_busted_by_settings_change(tmp_path: Path, monkeypatch: object) -> None:
+    import small_cap_stack.portfolio as pf
+    from small_cap_stack.storage import Store
+
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))
+    now = datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC)
+    cache_dir = pf.portfolio_candidate_cache_dir(_s(data_dir=tmp_path))
+    pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir)
+
+    calls: list[date] = []
+    real = pf.extract_day_trades
+
+    def _spy(store: object, s: object, d: date) -> list[CandidateTrade]:
+        calls.append(d)
+        return real(store, s, d)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pf, "extract_day_trades", _spy)  # type: ignore[attr-defined]
+    # A settings change flips the fingerprint, so the cached day must be re-extracted (correctness).
+    pf.build_portfolio_payload(
+        store, _s(portfolio_exclude_symbols=("ZZZZ",)), now, cache_dir=cache_dir
+    )
+    assert date(2026, 6, 29) in calls
+
+
+def test_cache_busted_by_new_partition(tmp_path: Path, monkeypatch: object) -> None:
+    import small_cap_stack.portfolio as pf
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))
+    now = datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC)
+    cache_dir = pf.portfolio_candidate_cache_dir(_s(data_dir=tmp_path))
+    pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir)
+
+    # A late backfill lands a new bars part file for the day → the fingerprint must change.
+    store.append(
+        "bars",
+        [
+            {
+                "opportunity_id": f"{day.isoformat()}:AZI",
+                "symbol": "AZI",
+                "bar_start_utc": datetime(2026, 6, 29, 12, 20, tzinfo=ET_UTC),
+                "open": 7.5,
+                "high": 7.6,
+                "low": 7.4,
+                "close": 7.5,
+                "volume": 1000.0,
+            }
+        ],
+        partition_date=day,
+    )
+    calls: list[date] = []
+    real = pf.extract_day_trades
+
+    def _spy(store: object, s: object, d: date) -> list[CandidateTrade]:
+        calls.append(d)
+        return real(store, s, d)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pf, "extract_day_trades", _spy)  # type: ignore[attr-defined]
+    pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir)
+    assert day in calls  # stale cache detected via the changed partition file set
+
+
+def test_force_dates_bypasses_cache(tmp_path: Path, monkeypatch: object) -> None:
+    import small_cap_stack.portfolio as pf
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))
+    now = datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC)
+    cache_dir = pf.portfolio_candidate_cache_dir(_s(data_dir=tmp_path))
+    pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir)  # prime a valid cache
+
+    calls: list[date] = []
+    real = pf.extract_day_trades
+
+    def _spy(store: object, s: object, d: date) -> list[CandidateTrade]:
+        calls.append(d)
+        return real(store, s, d)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pf, "extract_day_trades", _spy)  # type: ignore[attr-defined]
+    # force_dates re-extracts even on a valid cache (the day whose raw data the caller just changed)
+    pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir, force_dates={day})
+    assert calls == [day]
