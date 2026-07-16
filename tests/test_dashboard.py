@@ -192,6 +192,32 @@ def test_build_status_counts_are_distinct_aware(tmp_path: Path) -> None:
     assert data["fundamentals"] == {"today": 1, "total": 1}
 
 
+def test_build_status_total_is_cross_history_today_is_scoped(tmp_path: Path) -> None:
+    # The count query (#246) must keep `total` cross-history while `today` stays scoped to the
+    # trading-date prefix — scoping the whole read to one dt= partition would corrupt `total`.
+    store = Store(tmp_path)
+    _seed(store)  # a 2026-06-29 day
+    prior = date(2026, 6, 26)
+    store.append(
+        "bars",
+        [
+            {
+                "opportunity_id": "2026-06-26:OLD",
+                "symbol": "OLD",
+                "bar_start_utc": datetime(2026, 6, 26, 13, 0, tzinfo=UTC),
+                "open": 1.0,
+                "high": 2.0,
+                "low": 0.5,
+                "close": 1.5,
+                "volume": 1e3,
+            }
+        ],
+        partition_date=prior,
+    )
+    data = build_status(store, _inputs())["data"]  # trading_date is 2026-06-29
+    assert data["bars"] == {"today": 2, "total": 3}  # today's 2 distinct bars, 3 across history
+
+
 def test_build_status_empty_store(tmp_path: Path) -> None:
     st = build_status(Store(tmp_path), _inputs())
     assert st["scanner"]["latest_candidates"] == [] and st["scanner"]["last_scan_utc"] is None

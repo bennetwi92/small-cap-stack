@@ -257,14 +257,18 @@ class CaptureService:
         opps = self._day_opportunities(trading_date)
         if opps.is_empty():
             return
-        have = self._opportunities_with_bars()
+        have = self._opportunities_with_bars(trading_date)
         todo = opps.filter(~pl.col("opportunity_id").is_in(list(have)))
         if not todo.is_empty():
             await self._fetch_bars_for(todo, trading_date)
 
-    def _opportunities_with_bars(self) -> set[str]:
-        """opportunity_ids that already have at least one stored bar (ids encode the date)."""
-        bars = self.store.read("bars")
+    def _opportunities_with_bars(self, trading_date: date) -> set[str]:
+        """opportunity_ids that already have at least one stored bar (ids encode the date).
+
+        Only ``trading_date``'s opportunities are ever tested against this set (bar ids embed the
+        date), so scope the read to that day's partition instead of loading the whole ``bars``
+        history (~1.4 GB) into memory and OOMing the box (#246, mirrors report.py/portfolio.py)."""
+        bars = self.store.read("bars", dt=trading_date)
         if bars.is_empty():
             return set()
         return set(bars["opportunity_id"].unique().to_list())
@@ -280,7 +284,7 @@ class CaptureService:
         opps = self._day_opportunities(trading_date)
         if opps.is_empty():
             return False
-        have = self._opportunities_with_bars()
+        have = self._opportunities_with_bars(trading_date)
         missing = opps.filter(~pl.col("opportunity_id").is_in(list(have)))
         if missing.is_empty():
             return False

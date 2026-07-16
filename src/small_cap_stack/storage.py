@@ -79,7 +79,7 @@ class Store:
         con = duckdb.connect()
         try:
             con.execute("SET TimeZone='UTC'")  # deterministic, host-tz-independent
-            for dataset in self._datasets():
+            for dataset in self.datasets():
                 glob = str(self.data_dir / dataset / "**" / "*.parquet").replace("'", "''")
                 view = dataset.replace('"', '""')  # quote the identifier defensively
                 con.execute(
@@ -91,7 +91,8 @@ class Store:
         finally:
             con.close()
 
-    def _datasets(self) -> list[str]:
+    def datasets(self) -> list[str]:
+        """Names of datasets that currently hold at least one Parquet file."""
         if not self.data_dir.exists():
             return []
         return sorted(
