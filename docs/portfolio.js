@@ -195,6 +195,51 @@ function tradeRows(book) {
     .join("");
 }
 
+// --- Skipped setups (dropped by the daily cap) --------------------------------------------------
+
+// What the max-N/day cap cost us: qualifying setups we passed on, with the R they'd have made at
+// the day's target. Size-independent R only — we never *could* have held them (settled-cash cap).
+function skippedNote(book) {
+  const s = book.stats;
+  const n = s.skipped_count || 0;
+  if (!n) {
+    return `No setups were dropped — the ${PAYLOAD.config.max_trades_per_day}/day cap was never the binding constraint.`;
+  }
+  const totR = s.skipped_total_r;
+  const cls = totR > 0 ? "pf-pos" : totR < 0 ? "pf-neg" : "muted";
+  return (
+    `${n} qualifying setup${n === 1 ? "" : "s"} passed strategy but weren't taken because the ` +
+    `${PAYLOAD.config.max_trades_per_day}/day cap was already full. At this book's target they'd ` +
+    `have returned <span class="${cls}">${fmtR(totR)}</span> in total (unsized — R only, since a ` +
+    `third concurrent position wouldn't fit the settled-cash limit).`
+  );
+}
+
+function skippedRows(book) {
+  const skipped = book.skipped || [];
+  if (!skipped.length) return '<tr><td colspan="8" class="muted">None — the daily cap was never binding.</td></tr>';
+  return skipped
+    .slice()
+    .reverse() // newest first, matching the trade log
+    .map((t) => {
+      const rCls = t.realized_r > 0 ? "pf-pos" : t.realized_r < 0 ? "pf-neg" : "muted";
+      const rev = `review.html?date=${encodeURIComponent(t.date)}&sym=${encodeURIComponent(t.symbol)}`;
+      return (
+        "<tr>" +
+        `<td>${esc(t.date)}</td>` +
+        `<td><a href="${rev}">${esc(t.symbol)}</a></td>` +
+        `<td>${etClock(t.trigger_at)}</td>` +
+        `<td>${fmtUsd(t.entry)}</td>` +
+        `<td>${fmtUsd(t.stop)}</td>` +
+        `<td>${Number(t.target_r).toFixed(1)}R</td>` +
+        `<td><span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtUsd(t.exit_price)}</td>` +
+        `<td class="${rCls}">${fmtR(t.realized_r)}</td>` +
+        "</tr>"
+      );
+    })
+    .join("");
+}
+
 // --- Book selector + render ---------------------------------------------------------------------
 
 function bookSelector() {
@@ -231,6 +276,8 @@ function render() {
   el("pf-payout-tiles").innerHTML = payoutTiles(book);
   el("pf-cashflows").innerHTML = cashFlowRows(book, PAYLOAD.config);
   el("pf-trades").innerHTML = tradeRows(book);
+  el("pf-skipped-note").innerHTML = skippedNote(book);
+  el("pf-skipped").innerHTML = skippedRows(book);
   document.querySelectorAll(".pf-book").forEach((b) =>
     b.addEventListener("click", () => {
       BOOK = b.dataset.book;

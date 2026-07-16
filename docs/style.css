@@ -768,7 +768,8 @@ body.review {
   font-size: 0.78rem;
   margin: 0 0 0.9rem;
 }
-.pf-payout {
+.pf-payout,
+.pf-skipped {
   margin: 0.6rem 0 1rem;
   padding-top: 0.6rem;
   border-top: 1px solid var(--pico-muted-border-color);

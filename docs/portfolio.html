@@ -69,6 +69,33 @@
         </table>
       </div>
 
+      <!-- Setups the 2/day cap dropped: qualifying trades we passed on because the day was full. -->
+      <section class="pf-skipped">
+        <h2 class="pf-subhead">
+          Skipped <span class="muted">— passed strategy, not taken (daily cap already full)</span>
+        </h2>
+        <p id="pf-skipped-note" class="muted pf-note"></p>
+        <div id="pf-skipped-wrap" class="scroll pf-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Sym</th>
+                <th>Trigger</th>
+                <th>Entry</th>
+                <th>Stop</th>
+                <th>Tgt</th>
+                <th>Would-be exit</th>
+                <th>R</th>
+              </tr>
+            </thead>
+            <tbody id="pf-skipped">
+              <tr><td colspan="8" class="muted">loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <footer class="muted">
         <small>
           Not advice, not real orders — a paper book computed on-read from the tracker's own data
