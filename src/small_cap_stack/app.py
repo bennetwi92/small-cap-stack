@@ -43,7 +43,7 @@ from .monitoring import (
     metric_value,
     start_metrics_server,
 )
-from .portfolio import build_portfolio_payload
+from .portfolio import build_portfolio_payload, portfolio_candidate_cache_dir
 from .report import EodReport, analysis_records, build_eod_report
 from .scanner import Scanner
 from .scheduler import build_scheduler
@@ -312,7 +312,15 @@ class Application:
         if not self.settings.dashboard_enabled:
             return
         try:
-            payload = build_portfolio_payload(self.store, self.settings, now_utc)
+            # Re-extract only today (its bars just finished landing) and read prior days from the
+            # candidate cache, so the nightly rebuild stays O(1 day) as history grows.
+            payload = build_portfolio_payload(
+                self.store,
+                self.settings,
+                now_utc,
+                cache_dir=portfolio_candidate_cache_dir(self.settings),
+                force_dates={now_et().date()},
+            )
             write_json(self.settings.data_dir / "dashboard" / "portfolio.json", payload)
         except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
             log.warning("dashboard.portfolio_write_failed")

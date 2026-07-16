@@ -35,7 +35,7 @@ from .dashboard import (
     write_json,
 )
 from .logging import configure_logging, get_logger
-from .portfolio import build_portfolio_payload
+from .portfolio import build_portfolio_payload, portfolio_candidate_cache_dir
 from .report import build_eod_report
 from .storage import Store
 
@@ -83,7 +83,18 @@ def regenerate(
         upsert_index_date(read_json(out / "index.json"), trading_date, charts, now_utc),
     )
     # The virtual-portfolio book (#230) is cross-day; rebuild it whenever any date is regenerated.
-    write_json(out / "portfolio.json", build_portfolio_payload(store, settings, now_utc))
+    # The candidate cache makes this re-extract only `trading_date` (the day whose data changed) and
+    # read every other day from cache, so a single-date backfill stays O(1 day), not O(archive).
+    write_json(
+        out / "portfolio.json",
+        build_portfolio_payload(
+            store,
+            settings,
+            now_utc,
+            cache_dir=portfolio_candidate_cache_dir(settings),
+            force_dates={trading_date},
+        ),
+    )
 
     n_opps = len(report.analyses)
     n_charts = len(charts["charts"])
@@ -122,7 +133,14 @@ def regenerate_archive(
         total_charts += len(charts["charts"])
 
     write_json(out / "index.json", build_index(date_charts, now_utc))
-    write_json(out / "portfolio.json", build_portfolio_payload(store, settings, now_utc))
+    # Full-archive rebuild: extract every date once and prime the candidate cache for later
+    # single-date backfills (a day re-extracts only if its raw partitions or the settings change).
+    write_json(
+        out / "portfolio.json",
+        build_portfolio_payload(
+            store, settings, now_utc, cache_dir=portfolio_candidate_cache_dir(settings)
+        ),
+    )
 
     if dates:  # keep the legacy single-day dashboard on the newest session
         latest = dates[-1]
