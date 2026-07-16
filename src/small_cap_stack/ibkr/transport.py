@@ -9,15 +9,12 @@ than streaming, so there are no live market-data subscriptions to replay after a
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 
 from ib_async import IB
 
 from ..config import Settings
 from ..logging import get_logger
 from .errors import ConnAction, classify_connection_error
-from .retry import RetryPolicy
-from .supervisor import ConnectionSupervisor, Hook
 
 log = get_logger(__name__)
 
@@ -98,21 +95,3 @@ class IBKRTransport:
         elif action is ConnAction.DATA_OK:
             self._data_farm_ok = True  # 1102: link restored, subscriptions maintained
             log.info("ibkr.connectivity_restored", code=code)
-
-
-def build_supervisor(
-    settings: Settings,
-    *,
-    retry: RetryPolicy | None = None,
-    on_cold_disconnect: Hook | None = None,
-    is_expected_restart: Callable[[], bool] | None = None,
-) -> ConnectionSupervisor:
-    """Assemble a supervisor over a real IBKR transport, with resync wired as on_connect."""
-    transport = IBKRTransport(settings)
-    return ConnectionSupervisor(
-        transport,
-        retry=retry,
-        on_connect=transport.resync,
-        on_cold_disconnect=on_cold_disconnect,
-        is_expected_restart=is_expected_restart,
-    )
