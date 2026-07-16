@@ -167,14 +167,14 @@ class CaptureService:
             oid = opportunity_id(trading_date, c.symbol)
             if oid not in self._open:
                 await self._open_opportunity(oid, c, now, trading_date)
-            self.store.append(
+            await self.store.append_async(
                 "scanner_hits", [scanner_hit_record(oid, c, now)], partition_date=trading_date
             )
 
     async def _open_opportunity(
         self, oid: str, c: Candidate, now: datetime, trading_date: date
     ) -> None:
-        self.store.append(
+        await self.store.append_async(
             "opportunities",
             [opportunity_record(c, oid, now, trading_date)],
             partition_date=trading_date,
@@ -187,12 +187,12 @@ class CaptureService:
             log.warning("capture.news_fetch_failed", opportunity_id=oid)
             items = []
         if items:
-            self.store.append(
+            await self.store.append_async(
                 "news", [news_record(oid, c.symbol, n) for n in items], partition_date=trading_date
             )
         funds = await self.fundamentals.fetch_all(c)
         if funds:
-            self.store.append(
+            await self.store.append_async(
                 "fundamentals",
                 [fundamentals_record(oid, f, now) for f in funds],
                 partition_date=trading_date,
@@ -237,7 +237,7 @@ class CaptureService:
                 continue
             if not bars:
                 continue
-            self.store.append(
+            await self.store.append_async(
                 "bars",
                 [bar_record(oid, cand.symbol, b) for b in bars],
                 partition_date=trading_date,
@@ -332,7 +332,7 @@ class CaptureService:
                 log.warning("capture.day_news_failed", opportunity_id=oid)
                 continue
             if items:
-                self.store.append(
+                await self.store.append_async(
                     "news",
                     [news_record(oid, cand.symbol, n) for n in items],
                     partition_date=trading_date,

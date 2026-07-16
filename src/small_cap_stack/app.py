@@ -298,7 +298,7 @@ class Application:
         log.info("report.eod_start")
         report = build_eod_report(self.store, self.settings, now_et().date())
         if report.analyses:
-            self.store.append(
+            await self.store.append_async(
                 "analysis", analysis_records(report), partition_date=report.trading_date
             )
             self._write_report_markdown(report)
