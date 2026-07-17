@@ -39,6 +39,7 @@ function mount() {
     `<span class="sb-field" id="sb-mode" hidden></span>` +
     `<span class="sb-field" id="sb-window" hidden></span>` +
     `<span class="sb-field" id="sb-commit" hidden></span>` +
+    `<span class="sb-field" id="sb-tick" hidden></span>` +
     `<span class="sb-field" id="sb-data" hidden></span>` +
     `<span class="sb-field" id="sb-page" hidden></span>` +
     `<span class="sb-field"><a href="https://github.com/bennetwi92/small-cap-stack" title="Phase-1 = tracking only, no orders. Times in ET.">repo</a></span>`;
@@ -74,9 +75,25 @@ function renderStatus(s) {
   setField("#sb-mode", esc(svc.trading_mode || "—"));
   setField("#sb-window", svc.in_scan_window ? "in-window" : "off-window");
   setField("#sb-commit", "commit " + esc(svc.deployed_commit || "—"));
+  renderTick(s);
   const stale = s.generated_utc && Date.now() - new Date(s.generated_utc).getTime() > STALE_MS;
   setField("#sb-data", `data ${esc(etTime(s.generated_utc))} (${esc(ago(s.generated_utc))})`,
     stale ? "sb-warn" : "");
+}
+
+// Tick health (#321): the last completed tick's duration vs its interval budget, plus skipped
+// jobs. An over-budget tick means the scheduler will silently skip ticks (scanner gaps), so it
+// gets warn colour at half the budget and bad past the budget — visible here, no SSH needed.
+function renderTick(s) {
+  const t = s.timings || {};
+  const missed = (s.health || {}).jobs_missed_total || 0;
+  if (t.tick_seconds_last == null) return setField("#sb-tick", null);
+  const budget = t.tick_budget_sec || 60;
+  let cls = "";
+  if (t.tick_seconds_last > budget || missed > 0) cls = "sb-bad";
+  else if (t.tick_seconds_last > 0.5 * budget) cls = "sb-warn";
+  const txt = `tick ${t.tick_seconds_last.toFixed(1)}s` + (missed ? ` · ${missed} missed` : "");
+  setField("#sb-tick", esc(txt), cls);
 }
 
 async function poll() {

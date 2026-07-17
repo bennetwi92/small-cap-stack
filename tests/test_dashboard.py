@@ -188,11 +188,12 @@ def test_build_status_counts_are_distinct_aware(tmp_path: Path) -> None:
     _seed(store)
     data = build_status(store, _inputs())["data"]
 
-    assert data["opportunities"] == {"today": 2, "total": 2}  # dup AZI row collapsed
-    assert data["bars"] == {"today": 2, "total": 2}  # dup bar row collapsed
-    assert data["scanner_hits"] == {"today": 4, "total": 4}  # each hit is a real event
-    assert data["news"] == {"today": 1, "total": 1}
-    assert data["fundamentals"] == {"today": 1, "total": 1}
+    # files = Parquet file count (#321): _seed appends each dataset once -> one file each
+    assert data["opportunities"] == {"today": 2, "total": 2, "files": 1}  # dup AZI row collapsed
+    assert data["bars"] == {"today": 2, "total": 2, "files": 1}  # dup bar row collapsed
+    assert data["scanner_hits"] == {"today": 4, "total": 4, "files": 1}  # each hit is a real event
+    assert data["news"] == {"today": 1, "total": 1, "files": 1}
+    assert data["fundamentals"] == {"today": 1, "total": 1, "files": 1}
 
 
 def test_build_status_total_is_cross_history_today_is_scoped(tmp_path: Path) -> None:
@@ -218,14 +219,15 @@ def test_build_status_total_is_cross_history_today_is_scoped(tmp_path: Path) -> 
         partition_date=prior,
     )
     data = build_status(store, _inputs())["data"]  # trading_date is 2026-06-29
-    assert data["bars"] == {"today": 2, "total": 3}  # today's 2 distinct bars, 3 across history
+    # today's 2 distinct bars, 3 across history, 2 files (one append per date)
+    assert data["bars"] == {"today": 2, "total": 3, "files": 2}
 
 
 def test_build_status_empty_store(tmp_path: Path) -> None:
     st = build_status(Store(tmp_path), _inputs())
     assert st["scanner"]["latest_candidates"] == [] and st["scanner"]["last_scan_utc"] is None
     assert st["opportunities"] == {"open_today": 0, "symbols": []}
-    assert st["data"]["bars"] == {"today": 0, "total": 0}
+    assert st["data"]["bars"] == {"today": 0, "total": 0, "files": 0}
 
 
 def test_latest_candidates_scoped_to_requested_date(tmp_path: Path) -> None:

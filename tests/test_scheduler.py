@@ -38,3 +38,37 @@ def test_daily_jobs_have_generous_misfire_grace() -> None:
     for jid in ("scan_start", "scan_end", "eod_bars", "eod_report", "eod_backfill"):
         assert grace[jid] == expected
     assert grace["tick"] == 1  # interval tick keeps the tight default (a late tick is harmless)
+
+
+def test_missed_job_listener_counts_and_is_registered() -> None:
+    from apscheduler.events import EVENT_JOB_MISSED
+
+    from small_cap_stack.monitoring import metric_value
+    from small_cap_stack.scheduler import record_missed_job
+
+    # The listener itself: a missed job (max_instances=1 skipping an over-budget tick) must leave
+    # a countable trace (#321) — previously it was one unread APScheduler log line.
+    before = metric_value("scs_jobs_missed_total")
+
+    class _Event:
+        job_id = "tick"
+
+    record_missed_job(_Event())
+    assert metric_value("scs_jobs_missed_total") == before + 1
+
+    # And build_scheduler wires it to EVENT_JOB_MISSED.
+    async def check() -> bool:
+        sch = build_scheduler(
+            Settings(_env_file=None),  # type: ignore[call-arg]
+            on_tick=_noop,
+            on_scan_start=_noop,
+            on_scan_end=_noop,
+            on_eod_bars=_noop,
+            on_eod_report=_noop,
+            on_eod_backfill=_noop,
+        )
+        return any(
+            cb is record_missed_job and mask & EVENT_JOB_MISSED for cb, mask in sch._listeners
+        )
+
+    assert asyncio.run(check()) is True

@@ -4,15 +4,29 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import time
+from typing import Any
 
+from apscheduler.events import EVENT_JOB_MISSED
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from .clock import ET_NAME
 from .config import Settings
+from .logging import get_logger
+from .monitoring import JOBS_MISSED
+
+log = get_logger(__name__)
 
 Job = Callable[[], Awaitable[None]]
+
+
+def record_missed_job(event: Any) -> None:
+    """Surface a skipped job (#321): `tick` has max_instances=1, so an over-budget tick makes
+    APScheduler silently skip the next one — the exact failure mode of the 2026-07-17 scanner
+    gap, visible only as one log line nobody was reading. Count it and shout."""
+    JOBS_MISSED.inc()
+    log.warning("scheduler.job_missed", job_id=getattr(event, "job_id", None))
 
 
 def build_scheduler(
@@ -54,4 +68,5 @@ def build_scheduler(
     scheduler.add_job(
         on_eod_backfill, cron(settings.eod_backfill), id="eod_backfill", misfire_grace_time=grace
     )
+    scheduler.add_listener(record_missed_job, EVENT_JOB_MISSED)
     return scheduler

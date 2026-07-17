@@ -23,6 +23,23 @@ OPPORTUNITIES = Counter("scs_opportunities_total", "Opportunities opened")
 BARS_APPENDED = Counter("scs_bars_appended_total", "5-min bars appended")
 COLD_DISCONNECTS = Counter("scs_cold_disconnects_total", "Cold (unexpected) IBKR disconnects")
 IBKR_CONNECTED = Gauge("scs_ibkr_connected", "1 if connected to IBKR else 0")
+# Tick self-reporting (#321): three PRs missed a 36s/60s tick regression because nothing measured
+# the tick. These are also surfaced in status.json every tick, so they're readable on the
+# dashboard without SSH or a Prometheus scrape.
+TICK_SECONDS = Gauge("scs_tick_seconds", "Duration of the last completed tick")
+STATUS_BUILD_SECONDS = Gauge("scs_status_build_seconds", "Duration of the last status build")
+TICKS_OVER_BUDGET = Counter(
+    "scs_ticks_over_budget_total", "Ticks that ran longer than half the tick interval"
+)
+JOBS_MISSED = Counter(
+    "scs_jobs_missed_total",
+    "Scheduled jobs skipped entirely (max_instances/misfire) — previously invisible",
+)
+DATASET_FILES = Gauge(
+    "scs_dataset_files",
+    "Parquet files per dataset — for this store, read cost tracks file count, not rows",
+    ["dataset"],
+)
 
 
 def metric_value(name: str) -> float:
