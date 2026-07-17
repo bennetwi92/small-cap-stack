@@ -49,6 +49,30 @@ Toolchain lives in `.venv`. CI runs ruff + mypy + pytest on every PR.
 - Python **3.11**. mypy is `--strict` and only checks `src/small_cap_stack` (so `spikes/` is exempt).
 - Trading logic (gates, sizing, stats) must be exhaustively unit-tested — it is the product.
 
+## Throughput & estimation (calibration for "how long will this take")
+Use these as **estimation anchors**, not targets — they're what one focused agent day actually
+delivers on this repo's trunk-based, one-issue-per-PR flow. Baseline sample: **2026-07-17** —
+**40 merged PRs** in a ~9-hour window (~4–5 PRs/hr, one every ~13 min average), **110 files**
+touched, **+8.4k / −2.8k** lines (~5.6k net). Estimate a task by mapping each PR to a size tier:
+- **XS — one-liner / doc or config tweak** (≤50 lines, 1–5 files): ~5–10 min. e.g. a cost
+  correction (#277), a health-gate fix (#357), an `id-token` permission add (#370).
+- **S — one focused change** (50–250 lines, tests included): ~10–15 min. The bulk of a day.
+  e.g. dt-scoping a hot read (#324/#325), one guarded workflow (#362), a roadmap doc (#315).
+- **M — new module / non-trivial refactor / one dashboard screen** (250–850 lines + tests):
+  ~20–30 min. e.g. the calendar gate (#326), tick instrumentation (#327), a cockpit view (#293/#294).
+- **L — foundational / cross-cutting** (850–1300 lines, many files): ~30–45 min. e.g. the cockpit
+  foundation (#292), extracting shared bull-flag primitives + deleting the legacy detector (#301),
+  the infra watchdog (#358).
+**Rules of thumb:** median PR ≈ **110 lines / ~4 files**; whole *themes* (the cockpit rebuild
+#287–295, the automation layer #332–370) land in ~1.5–2 hrs each. Sizing caveats that keep
+estimates honest: (1) each PR carries fixed overhead — issue + board move + `make check` + CI's
+`lint-typecheck-test` + squash-merge — so **ten XS PRs cost more than one M PR of the same total
+diff**; prefer batching trivia. (2) Apparent cadence overstates serial speed: PRs are often built
+in parallel and **merged in bursts** (10 automation PRs merged in ~50 min on 2026-07-17 were
+authored beforehand), so don't promise 40/day as a linear rate. (3) Anything needing the **box, a
+live IBKR session, or a spike** is not estimable from this table — it's gated by runtime/market
+hours, not authoring speed (see the remote-work limits above).
+
 ## Issue & project hygiene (keep these current — every task)
 - **Every unit of work is a GitHub issue** with labels: `epic`, `phase-1`, `spike`, `infra`, `setup`, `ibkr`, `data`, `strategy`. Epic is **#1**.
 - **Project board:** `https://github.com/users/bennetwi92/projects/3` (project id `PVT_kwHOCGbB5M4Bb_HY`, Status field `PVTSSF_lAHOCGbB5M4Bb_HYzhWrRtM`; options Todo `f75ad846` / In Progress `47fc9ee4` / Done `98236657`).
