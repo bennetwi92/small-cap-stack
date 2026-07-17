@@ -122,8 +122,13 @@ Commenting `@claude …` as the repo owner on an issue or PR runs Claude Code on
 runner (`claude.yml`, Max-subscription OAuth token — never the API key, never the VPS runner).
 The action reacts 👀 the moment the command lands. Only OWNER/MEMBER/COLLABORATOR comments
 trigger it — public commenters get ignored (#343).
+- **`/spec`** on an issue (or adding the `needs-spec` label) — a research-only agent posts the
+  spec as an issue comment (ephemeral by design — no spec files to rot) and sets `spec-ready`
+  (#339). Re-spec with `/spec <requested changes>`. Sonnet; Opus for `strategy`-labelled work.
+  Before approving, sanity-check the spec's *files-touched* list against reality (#343).
 - **`@claude build`** on an issue — implement it and open a PR (`Closes #N`, this file's rules).
-  Engine/strategy-labelled work will additionally require an approved spec once #339 lands.
+  **Spec gate (engine/strategy only):** if the issue is labelled `strategy` and does NOT have
+  `spec-ready`, do not build — reply asking for `/spec` first. All other labels build directly.
 - **`@claude fix`** on a `trivial`-labelled issue — the fast path (#347): straight to a small PR,
   no ceremony.
 - **`@claude revise: <feedback>`** on an agent PR — amend **that PR's branch in place**; never
