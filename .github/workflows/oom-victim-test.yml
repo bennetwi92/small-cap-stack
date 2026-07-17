@@ -1,0 +1,96 @@
+# One-off deliberate OOM victim-selection test (#320, RUNBOOK §9) — scheduled for Saturday
+# 2026-07-18 (market closed, never inside the scan window). Runs on the box's own runner, so it
+# needs no Mac and no SSH. Proves the #320 memory limits do their job: a 3 GiB allocation inside
+# the app's cgroup must die a cgroup-scoped death (never a host-wide OOM hunt), the app must
+# stay up or self-recover with its IBKR connection, and the Gateway must be untouched.
+#
+# GitHub cron has no year field, so the schedule would repeat every Jul 18 — the date guard
+# makes any later scheduled firing a no-op. Delete this workflow after the test has run and its
+# results are on #320. workflow_dispatch stays for a manual (weekend-only) re-run.
+name: oom-victim-test
+
+on:
+  schedule:
+    - cron: "23 9 18 7 *" # 09:23 UTC Sat 2026-07-18 (10:23 BST / 05:23 ET)
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  oom-victim-test:
+    runs-on: [self-hosted, vps]
+    defaults:
+      run:
+        working-directory: /opt/small-cap-stack
+    steps:
+      - name: Decide whether to run (date guard for the yearly schedule)
+        id: guard
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$(date -u +%F)" = "2026-07-18" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "not 2026-07-18 — this one-off already ran; delete this workflow"
+          fi
+
+      - name: Pre-state
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          docker ps --format '{{.Names}}: {{.Status}}'
+          swapon --show
+          echo "app RestartCount: $(docker inspect small-cap-stack-app-1 --format '{{.RestartCount}}')"
+          docker inspect small-cap-stack-app-1 --format 'limits: Mem={{.HostConfig.Memory}} MemSwap={{.HostConfig.MemorySwap}} OomScoreAdj={{.HostConfig.OomScoreAdj}}'
+          date -u +%FT%TZ > /tmp/oom-test-start
+
+      - name: Trigger a 3 GiB allocation inside the app cgroup
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          # No -e: the allocation is EXPECTED to die (cgroup OOM kill or MemoryError). A zero
+          # exit would mean the cap did nothing — the verify step fails on that.
+          docker compose exec -T app python -c "x = bytearray(3 * 1024**3); print('allocated', len(x))"
+          echo "alloc_exit=$?" | tee /tmp/oom-test-alloc
+
+      - name: Verify containment and recovery
+        if: steps.guard.outputs.run == 'true'
+        id: verify
+        run: |
+          set -euo pipefail
+          sleep 30
+          echo "--- containers ---"
+          docker ps --format '{{.Names}}: {{.Status}}'
+          docker ps --format '{{.Names}}' | grep -q '^small-cap-stack-app-1$'
+          docker ps --format '{{.Names}} {{.Status}}' | grep '^small-cap-stack-ibgateway-1' | grep -qi healthy
+          echo "--- kernel log since test start ---"
+          journalctl -k --since "$(cat /tmp/oom-test-start)" | grep -iE 'oom|memory' | tail -20 | tee /tmp/oom-test-klog || true
+          if grep -q 'global_oom\|CONSTRAINT_NONE' /tmp/oom-test-klog; then
+            echo "FAIL: host-wide OOM — limits did not contain the kill"; exit 1
+          fi
+          if grep -q 'alloc_exit=0' /tmp/oom-test-alloc; then
+            echo "FAIL: 3 GiB allocation succeeded — cap not enforced"; exit 1
+          fi
+          echo "--- app recovery ---"
+          docker logs small-cap-stack-app-1 --tail 20 2>&1 | tail -5
+          echo "app RestartCount: $(docker inspect small-cap-stack-app-1 --format '{{.RestartCount}}')"
+
+      - name: Report results on issue 320
+        if: always() && steps.guard.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          verdict="${{ steps.verify.outcome }}"
+          {
+            echo "**Deliberate OOM victim-selection test** (\`oom-victim-test.yml\`, run ${{ github.run_id }}): **${verdict}**"
+            echo
+            echo '```'
+            echo "alloc: $(cat /tmp/oom-test-alloc 2>/dev/null || echo 'n/a')"
+            echo "--- kernel log ---"
+            cat /tmp/oom-test-klog 2>/dev/null || echo 'n/a'
+            echo "--- containers ---"
+            docker ps --format '{{.Names}}: {{.Status}}'
+            echo '```'
+            echo
+            echo "Pass = the allocation died a cgroup-scoped death, app up/self-recovered, Gateway healthy, no \`global_oom\`. This workflow can now be deleted."
+          } > /tmp/oom-test-report
+          gh issue comment 320 --repo "${{ github.repository }}" --body-file /tmp/oom-test-report
