@@ -1,6 +1,7 @@
 """Stage 4a of the engine-v2 pipeline (issue #179): the hard gates.
 
-See ``engine-v2.md §7`` and ``bull-flag.md §5``. Each ``[gate input]`` feature becomes one
+See ``research/engine-v2.md §7`` and ``research/bull-flag.md §5``. Each ``[gate input]``
+feature becomes one
 :class:`GateResult`; a setup is accepted iff every gate passes. Returning an *ordered* list of
 results (not just a bool) lets the review page show **which** gate rejected a shape and by how much.
 

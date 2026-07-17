@@ -15,7 +15,7 @@
 | 7 | Weekly 2FA | **Accepted for now** (one manual phone tap/week). User aware of a second-username / relaxed-2FA workaround to apply later himself. |
 | 8 | Branching | **Trunk-based: protected `main` + short-lived branches, all work via PRs**, required CI checks before merge. Chosen because much work happens in PRs / Claude Code on mobile. |
 | 9 | Stack | **Python + `ib_async`** (the maintained fork). Prior repos' raw-`ibapi` code is adapted, not lifted verbatim. |
-| 10 | Storage | ⚠️ **SUPERSEDED 2026-06-29 by [architecture-review.md](./architecture-review.md): use DuckDB-over-Parquet** (not Postgres/TimescaleDB) for Phase 1. ~~Self-hosted PostgreSQL (+ TimescaleDB) on the Oracle VM's 200 GB block volume.~~ Parquet-on-disk + growth-friendly intent unchanged; the embedded analytical engine changed. |
+| 10 | Storage | ⚠️ **SUPERSEDED 2026-06-29 by [architecture-review.md](./archive/architecture-review.md): use DuckDB-over-Parquet** (not Postgres/TimescaleDB) for Phase 1. ~~Self-hosted PostgreSQL (+ TimescaleDB) on the Oracle VM's 200 GB block volume.~~ Parquet-on-disk + growth-friendly intent unchanged; the embedded analytical engine changed. |
 | 11 | Phase-1 scope | **Tracker only — places no orders.** Records every scanner-flagged opportunity, which gates it passed, whether a notional entry would have triggered, and Max R achieved + other stats. **All stats computed on the fly from cached raw data** so methodology can change retroactively. |
 
 ## Core architectural principle (from Q11)
@@ -52,7 +52,7 @@
 - **C. IBKR news sufficiency** (#10): ✅ **GREEN to start** — account entitled to 8 providers incl. Dow Jones DJ-N (per-symbol headlines + retrievable bodies + halt notices). Start with included feed; measure timeliness in Phase 1 before paying.
 - **D. Tradability gate** (#25, new): ✅ **GREEN** — `whatIfOrder` + error 201 reliably flags symbols IBKR blocks for the account even while they trade. Confirmed CBRG BLOCKED (PRIIPs/KID). **Account is under EU/UK PRIIPs rules** → expect some US small-cap SPAC/warrant/ETP runners to be un-orderable. **Add a tradability gate to the gate engine (#15).** Re-validate on live in P3.
 
-## Architecture decisions (2026-06-29) — see [architecture-review.md](./architecture-review.md)
+## Architecture decisions (2026-06-29) — see [architecture-review.md](./archive/architecture-review.md)
 - **Trading core:** assemble on **`ib_async`** (no framework) for P1–P2; revisit NautilusTrader at P3 only if justified.
 - **Runtime (#12):** one long-lived **asyncio** process — `TaskGroup`/`anyio` for in-process task dependencies + **APScheduler 3.x** for time triggers. No external orchestrator (Airflow/Prefect/Dagster).
 - **Supervision/deploy:** **systemd** (`Restart=always`) runs the app; **Docker Compose** runs IB Gateway (gnzsnz image + IBC). No K8s/Terraform.
@@ -148,7 +148,7 @@ over already-collected raw bars):
 & entry-staleness (CLRO/TSDD/AHMA "entry an hour after the scan"); half-pole-stop research (IREZ).
 
 ## Engine v2 volume gate = peak-bar (DECISION 2026-07-10, #176 — reaffirms #127)
-The engine-v2 redefinition (`bull-flag.md`, umbrella #176) keeps the volume filter on the pole's
+The engine-v2 redefinition (`research/bull-flag.md`, umbrella #176) keeps the volume filter on the pole's
 **peak (thrust) bar** volume > consolidation volume — **not** the "max bar volume in the pole"
 wording from the v2 sketch. They diverge only for a multi-bar pole where a *non-peak* higher-high
 bar spikes in volume; peak-bar refuses to let an earlier bar's volume rescue a weak breakout bar.

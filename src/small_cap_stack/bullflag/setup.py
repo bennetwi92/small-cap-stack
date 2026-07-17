@@ -1,6 +1,6 @@
 """Stage 4 assembly (issue #179): the full engine-v2 detection result.
 
-See ``engine-v2.md §7,§8``. :func:`detect_setup` runs the whole pipeline
+See ``research/engine-v2.md §7,§8``. :func:`detect_setup` runs the whole pipeline
 (tokenise → segment → extract → gate → score) and returns a :class:`Setup` carrying the segment,
 feature vector, entry/stop levels, gate results, and quality score.
 

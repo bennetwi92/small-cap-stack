@@ -1,6 +1,7 @@
 """Engine-v2 exhaustion primitives (#102 / #176): count the prior pump/fade cycles before a pole.
 
-See ``engine-v2.md`` (full-day detector) and the visual-review record (#194). A "move" that has
+See ``research/engine-v2.md`` (full-day detector) and the visual-review record (#194).
+A "move" that has
 already pumped and faded several times is *exhausted* — a late entry into a worn-out name. These
 pure functions count how many real prior cycles lead into a target pole, so the day detector can
 reject the 3rd+ cycle.

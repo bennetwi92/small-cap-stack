@@ -1,6 +1,7 @@
 """Engine-v2 full-day detector (#211 stage 3) — the compute-on-read setup the trader would take.
 
-See ``engine-v2.md §13``. Unlike the end-anchored :func:`.setup.detect_setup` (does a flag end at
+See ``research/engine-v2.md §13``. Unlike the end-anchored :func:`.setup.detect_setup`
+(does a flag end at
 the LAST bar?), :func:`detect_day` scans a WHOLE day of bars at once and returns the one setup a
 trader would have taken, given the scanner-appearance time — matching "store raw, compute derived on
 read". It is the port of the visual-review prototype (``spikes/viz_engine.py::pick_setup`` + the

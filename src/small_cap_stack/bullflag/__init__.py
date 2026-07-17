@@ -1,6 +1,7 @@
 """Bull-flag detection package (issue #16; engine-v2 redefinition #176).
 
-Public surface. The **engine-v2** pipeline (``engine-v2.md``) is the live detector: raw bars are
+Public surface. The **engine-v2** pipeline (``research/engine-v2.md``) is the live detector:
+raw bars are
 tokenised (:mod:`.tokens`), segmented into a pole + consolidation (:mod:`.segment`), reduced to a
 feature vector (:mod:`.features`), then gated and scored (:mod:`.gates`, :mod:`.score`).
 :mod:`.setup` assembles the end-anchored result; :mod:`.day` runs the full-day detector that
