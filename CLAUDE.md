@@ -117,6 +117,24 @@ When running on the **Mac** (the primary working dir, not a cloud/web session), 
   job is a deploy, it can leave the app container **stopped** (compose has torn the old one down but
   not brought the new one up). Check `docker ps` and re-run `deploy.yml` before walking away.
 
+## The @claude dev loop (Claude-in-CI, #334)
+Commenting `@claude …` as the repo owner on an issue or PR runs Claude Code on a **hosted**
+runner (`claude.yml`, Max-subscription OAuth token — never the API key, never the VPS runner).
+The action reacts 👀 the moment the command lands. Only OWNER/MEMBER/COLLABORATOR comments
+trigger it — public commenters get ignored (#343).
+- **`@claude build`** on an issue — implement it and open a PR (`Closes #N`, this file's rules).
+  Engine/strategy-labelled work will additionally require an approved spec once #339 lands.
+- **`@claude fix`** on a `trivial`-labelled issue — the fast path (#347): straight to a small PR,
+  no ceremony.
+- **`@claude revise: <feedback>`** on an agent PR — amend **that PR's branch in place**; never
+  close-and-regenerate.
+- **Genuine one-liners** (typo, doc tweak): hand-edit in GitHub's web/mobile editor on a branch
+  and self-merge — do NOT summon an agent for a typo (#347).
+- ⚠️ **Agent PRs need one nudge to run CI:** PRs opened with the workflow token don't trigger
+  `pull_request` workflows, so `lint-typecheck-test` won't start on its own — **close and reopen
+  the PR** (two taps on mobile) to kick CI, then review/merge as usual. Token setup + details:
+  `deploy/RUNBOOK.md` §13.
+
 ## Working remotely (Claude Code on mobile / web)
 The cloud environment has GitHub access (issues, PRs, board, CI all work) and can run `make setup`/`make check`, but it does **NOT** have: the local `.venv`, the local `gh` keyring token, the `.env` file, or any **live IBKR connection**. Therefore:
 - ✅ Safe remotely: code, tests, docs, issues, PRs, reviewing CI.

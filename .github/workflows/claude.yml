@@ -1,0 +1,71 @@
+name: claude
+
+# The @claude dev loop (#334): Claude Code in CI on the Max subscription, so an issue/PR comment
+# from the OWNER drives research/build/revise from a phone (research/github-automation.md §3).
+# Commands (documented in CLAUDE.md): `@claude build` on an issue opens a PR; `@claude fix` is
+# the trivial fast-path (#347); `@claude revise: …` on an agent PR amends that PR's branch in
+# place. The action reacts (👀) the moment a command lands — the instant acknowledgment.
+#
+# Security posture (#343/#348, non-negotiable):
+# - HOSTED runner only — never the VPS. No `pull_request_target` anywhere in this repo.
+# - The trigger gates on author_association ∈ {OWNER, MEMBER, COLLABORATOR}: anyone can comment
+#   on a public repo, but only trusted authors can summon an agent that reads that text.
+# - The action is SHA-pinned; explicit least-privilege permissions block.
+# - Auth is the Max-subscription OAuth token ONLY. NEVER add ANTHROPIC_API_KEY alongside it —
+#   the API key would take precedence and bill the API instead of the subscription.
+#
+# Model policy (§4): builds/revisions run on Sonnet 5 via --model below. The Opus final-review
+# pass arrives with the pipeline stages in #339; Haiku triage is #335.
+#
+# Until the owner creates the CLAUDE_CODE_OAUTH_TOKEN repo secret (claude setup-token → repo
+# secret), the gate step below turns every invocation into a no-op warning instead of a failure.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions: {} # job-level below; nothing by default (#348 least-privilege)
+
+jobs:
+  claude:
+    name: claude dev loop
+    if: >-
+      github.repository == 'bennetwi92/small-cap-stack' &&
+      contains(github.event.comment.body, '@claude') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+                github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create branches/commits for the PR
+      pull-requests: write # open/update the PR, comment
+      issues: write # comment/label on the driving issue
+      actions: read # let the agent read CI results on its PR
+    steps:
+      # Secrets aren't readable in a job-level `if`, so gate here: without the token every
+      # @claude command is an inert warning, not a red X on every comment.
+      - name: Gate on the Max-subscription token
+        id: gate
+        env:
+          TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "$TOKEN" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLAUDE_CODE_OAUTH_TOKEN is not set — @claude is inert. Owner: run 'claude setup-token' locally and save the result as a repo secret (RUNBOOK §13)."
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.ok == 'true'
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        if: steps.gate.outputs.ok == 'true'
+        uses: anthropics/claude-code-action@700e7f8316990de46bed556429765647af760efc # v1 (#348 SHA-pinned)
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-sonnet-5" # §4: builds are Sonnet work

@@ -246,3 +246,23 @@ is fine — but if you use the pull-based image path, build **`linux/arm64`** an
 match. Caveats: free A1 capacity is heavily contended ("Out of host capacity" — upgrading to
 **Pay-As-You-Go**, still $0 within limits, plus a smaller shape / cycling Availability Domains usually
 clears it), and Oracle reclaims idle free VMs (add a weekly keep-alive cron).
+
+## 13. Claude-in-CI — the @claude dev loop (#334)
+- **[YOU] Token setup (one-time):** on the Mac run `claude setup-token`, then save the resulting
+  OAuth token as the repo secret **`CLAUDE_CODE_OAUTH_TOKEN`** (Settings → Secrets and variables →
+  Actions). This bills the **Max subscription**, not the API. ⚠️ **Never also set
+  `ANTHROPIC_API_KEY`** — if both exist the API key wins and every CI run bills the API. Until the
+  secret exists, every `@claude` command is an inert warning (by design, not a failure).
+- **Commands & rules** live in `CLAUDE.md` (“The @claude dev loop”): `@claude build` / `@claude
+  fix` / `@claude revise:`; owner-only trigger (#343); hosted runner only; Sonnet 5 per the model
+  policy (§4 of `research/github-automation.md`).
+- **Agent PRs and CI:** a PR opened by the workflow token does not trigger `pull_request`
+  workflows, so the required `lint-typecheck-test` check won't start on its own. **Close and
+  reopen the PR** to kick CI. (A dedicated GitHub App identity would remove this nudge — optional
+  future setup, more credential surface, see #348.)
+- **Quota is shared (#349):** CI agents draw the same Max quota as interactive Mac/mobile
+  sessions. If CI runs start failing with quota exhaustion, pause the loop (don't summon agents)
+  rather than switching to API billing.
+- **Rotation:** treat `CLAUDE_CODE_OAUTH_TOKEN` like a personal credential — rotate it
+  periodically (re-run `claude setup-token`, update the secret) and revoke it if a workflow log
+  ever looks compromised (#348).
