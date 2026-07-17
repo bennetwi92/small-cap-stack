@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from small_cap_stack.bullflag import BullFlag, detect_setup, detect_setup_with_settings
+from small_cap_stack.bullflag import detect_setup, detect_setup_with_settings
 from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 
@@ -59,10 +59,9 @@ def test_settings_driven_offsets_match_locked_ticks() -> None:
     assert setup.entry_fill == pytest.approx(setup.breakout_level + 3 * tick)
 
 
-def test_as_bullflag_projects_trigger_not_fill() -> None:
+def test_trigger_and_fill_are_distinct_levels() -> None:
+    """The 1-tick mechanical trigger and the 3-tick conservative R fill must not collapse (#182)."""
     setup = detect_setup(_BARS)
     assert setup is not None
-    bf = setup.as_bullflag()
-    assert isinstance(bf, BullFlag)
-    assert bf.entry_trigger == setup.entry_trigger
-    assert bf.entry_trigger != setup.entry_fill  # the conservative fill has no legacy slot
+    assert setup.entry_trigger != setup.entry_fill
+    assert setup.entry_fill > setup.entry_trigger

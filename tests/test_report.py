@@ -7,7 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
-from small_cap_stack.bullflag import detect_with_settings
+from small_cap_stack.bullflag import detect_setup_with_settings
 from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from small_cap_stack.report import (
@@ -368,7 +368,9 @@ def test_bull_flag_true_when_setup_forms_then_breaks_out_midwindow(tmp_path: Pat
         )
         for r in rows
     ]
-    assert detect_with_settings(obars, _settings()) is None
+    # (end-anchored v2 yields no *takeable* setup: either no shape at all, or one that fails a gate)
+    end_anchored = detect_setup_with_settings(obars, _settings())
+    assert end_anchored is None or not end_anchored.passed
     # ...but bull_flag is still True because the setup formed and triggered earlier in the window.
     mid = build_eod_report(store, _settings(), _DAY).analyses[0]
     assert mid.bull_flag is True and mid.triggered is True

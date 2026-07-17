@@ -38,8 +38,8 @@ from small_cap_stack.bullflag.cycles import (
     segment_cycles,
     significant_cycles,
 )
-from small_cap_stack.bullflag.detect import _is_big_green
 from small_cap_stack.bullflag.gates import passed as gates_passed
+from small_cap_stack.bullflag.primitives import is_big_green
 from small_cap_stack.capture import Bar, bar_interval
 from small_cap_stack.clock import ET
 from small_cap_stack.config import Settings
@@ -86,7 +86,7 @@ def _refine_pole(
     bars: list[Bar], tokens: list[str], peak: int, max_pole: int
 ) -> tuple[int, int] | None:
     """(base, pole_len): walk backward from a GIVEN peak through strict-H steps, extending only
-    through genuine thrust candles (green, body >= half range, reusing detect._is_big_green) —
+    through genuine thrust candles (green, body >= half range, reusing primitives.is_big_green) —
     the SAME color/thrust rule segment.py applies natively, but here anchored to whatever peak the
     GREEDY cycle walk found (see pick_setup) rather than a dominant-high search. Temporarily
     duplicated in the spike pending a core segment.py refactor to share this between the two
@@ -96,7 +96,7 @@ def _refine_pole(
     bar as the setup's peak and REJECTS it for the red candle, rather than the engine silently
     skipping it and wandering to a different, later pole. The "no red in the pole" rule is enforced
     downstream as the ``peak_green`` gate in pick_setup (identify-and-reject) — intermediate pole
-    bars are already green by the ``_is_big_green`` extension, so the peak is the only bar that can
+    bars are already green by the ``is_big_green`` extension, so the peak is the only bar that can
     be red. Only the H direction step is required here. None if there is no higher-high step."""
     if peak - 1 < 0 or tokens[peak - 1] != "H":
         return None
@@ -105,7 +105,7 @@ def _refine_pole(
         pole_len < max_pole
         and base - 1 >= 0
         and tokens[base - 1] == "H"
-        and _is_big_green(bars[base])
+        and is_big_green(bars[base])
     ):
         base -= 1
         pole_len += 1
