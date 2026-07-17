@@ -53,7 +53,7 @@ class Store:
         fsync the partition dir. Both halves are load-bearing and cover different failures:
 
         - ``os.replace`` is atomic, so readers only ever see a complete file, and a process death
-          (the OOM-kill CLAUDE.md warns is routine on the CX22) leaves an inert ``.tmp`` — readers
+          (the OOM-kill CLAUDE.md warns is routine on the CX23) leaves an inert ``.tmp`` — readers
           glob ``*.parquet``, which never matches it.
         - the fsyncs add *durability*, which the rename alone does not give. Without them a
           host-level crash — a kernel panic, or the hard reboot CLAUDE.md documents as the standard

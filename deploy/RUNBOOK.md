@@ -15,7 +15,7 @@ Cloud** (instant provisioning, no capacity queue). Oracle Ampere Always-Free is 
 ## 1. [YOU] Provision the VM (Hetzner Cloud → console.hetzner.cloud)
 - Add your SSH public key: Project → **Security → SSH Keys**.
 - **Create Server:** Location **Ashburn, VA (US-East)** · Image **Ubuntu 24.04** · Type
-  **Shared vCPU → x86 → CX22** (2 vCPU / 4 GB / 40 GB, ~€4/mo) · keep **Public IPv4** · select your
+  **Shared vCPU → x86 → CX23** (2 vCPU / 4 GB / 40 GB, ~€6.59/mo) · keep **Public IPv4** · select your
   SSH key · name `small-cap-stack`. Optional cloud **Firewall**: allow inbound SSH/22 only.
 - Hetzner Ubuntu logs in as **`root`**; there is no idle-reclamation (unlike Oracle).
 
