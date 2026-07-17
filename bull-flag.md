@@ -4,8 +4,13 @@
 > spotting*. It supersedes the sketch this file started as; the original intent bullets are
 > preserved verbatim under each area (marked _intent_).
 >
-> Grounding: current engine is `src/small_cap_stack/bullflag.py::detect` (a single anchored
-> detector). Raw input is a list of 5-min `Bar(start, open, high, low, close, volume)`
+> **Status (2026-07-17): shipped.** This spec is live — the engine is the
+> `src/small_cap_stack/bullflag/` package (tokenize → segment → extract → gate+score, driven by
+> `day.py::detect_day`). The single anchored detector this document was written against
+> (`bullflag.py::detect`) was deleted in #296. Read it as the record of *why* the engine is shaped
+> this way, not as a proposal.
+>
+> Raw input is a list of 5-min `Bar(start, open, high, low, close, volume)`
 > (`capture.py`). Core principle (CLAUDE.md): **store raw, compute derived on read** — every
 > feature below is a **pure function of the cached bars**, so the definition can change and be
 > recomputed retroactively over history.

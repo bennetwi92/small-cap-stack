@@ -66,8 +66,8 @@ def test_full_feature_vector() -> None:
     assert fv.bars_before_scan is None
 
 
-def test_retracement_matches_legacy_anchor() -> None:
-    # Same anchors as the legacy detector: (pole_high - flag_low) / (pole_high - pole_base).
+def test_retracement_uses_pole_base_and_peak_anchors() -> None:
+    # (pole_high - cons_low) / (pole_high - pole_base) — depth into the pole, as a fraction of it.
     fv = extract(_BARS, _seg_of(_BARS))
     assert fv.retracement == pytest.approx((6.5 - 5.6) / (6.5 - 4.6))
 

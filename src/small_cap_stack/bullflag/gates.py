@@ -4,9 +4,9 @@ See ``engine-v2.md §7`` and ``bull-flag.md §5``. Each ``[gate input]`` feature
 :class:`GateResult`; a setup is accepted iff every gate passes. Returning an *ordered* list of
 results (not just a bool) lets the review page show **which** gate rejected a shape and by how much.
 
-``loc_in_window`` is optional (``gate_window``): the legacy detector never gated on the trading
-window — that lives in the pipeline's appearance gate (``gates.py`` at the package root, #122) — so
-it is off by default to keep v2 behaviourally identical to legacy until the #180 cut-over decides.
+``loc_in_window`` is optional (``gate_window``) and **off by default**: the trading-window check
+lives in the pipeline's appearance gate (``gates.py`` at the package root, #122) instead, so gating
+it here too would double-gate the same rule.
 """
 
 from __future__ import annotations
