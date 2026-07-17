@@ -68,11 +68,13 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
 - **Dashboard data** (#68/#69): the app writes `status.json`/`stats.json` under `/data/dashboard`; the
   `publish-dashboard` workflow (self-hosted runner, every ~15 min + manual dispatch) force-pushes them
   to the orphan **`dashboard-data`** branch for the Pages frontend (#70) to poll via `raw.githubusercontent.com`.
-- **Infra watchdog** (#340): the `infra-watchdog` workflow (HOSTED runner — never the box; ~10 min
+- **Watchdogs** (#340/#341): the `watchdog` workflow (HOSTED runner — never the box; ~10 min
   during market hours, plus chained after each `publish-dashboard` run) reads the public
-  `dashboard-data` payloads and opens/auto-closes **`[watchdog] infra/<slug>`** issues (labels
-  `alert` + `infra`). Your open `alert` issues ARE the active-alerts board; a stale *publish* alert
-  usually means the self-hosted runner is down (§11), a stale *box* alert means the app/tick loop is.
+  `dashboard-data` payloads and opens/auto-closes **`[watchdog] <family>/<slug>`** issues — infra
+  checks are labelled `alert`+`infra`, strategy checks (scanner liveness, EOD completion,
+  opportunity-count anomalies) `alert`+`strategy`. Your open `alert` issues ARE the active-alerts
+  board; a stale *publish* alert usually means the self-hosted runner is down (§11), a stale *box*
+  alert means the app/tick loop is.
 - **Monitor-the-monitor** (#345): the watchdog pings a dedicated Healthchecks check as its LAST step
   each run — if the watchdog itself dies (workflow disabled, schedule dropped, script/state failing),
   that check goes silent and Healthchecks alerts out-of-band, independent of GitHub. **Setup:** create

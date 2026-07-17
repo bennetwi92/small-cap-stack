@@ -28,7 +28,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          for wf in infra-watchdog.yml publish-dashboard.yml workflow-keepalive.yml; do
+          for wf in watchdog.yml publish-dashboard.yml workflow-keepalive.yml; do
             gh workflow enable "$wf" --repo "$REPO"
             echo "kept alive: $wf"
           done
