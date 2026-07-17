@@ -9,6 +9,7 @@ from pathlib import Path
 from small_cap_stack.config import Settings
 from small_cap_stack.dashboard import (
     StatusInputs,
+    _latest_candidates,
     build_charts,
     build_stats,
     build_status,
@@ -224,6 +225,35 @@ def test_build_status_empty_store(tmp_path: Path) -> None:
     assert st["scanner"]["latest_candidates"] == [] and st["scanner"]["last_scan_utc"] is None
     assert st["opportunities"] == {"open_today": 0, "symbols": []}
     assert st["data"]["bars"] == {"today": 0, "total": 0}
+
+
+def test_latest_candidates_scoped_to_requested_date(tmp_path: Path) -> None:
+    # #318: the read must be dt=-scoped — an unscoped read walked all of scanner_hits history
+    # (18.5s / 1.8 GB on the box) on every 60s tick. Rows on other dates must never leak in.
+    store = Store(tmp_path)
+    other = date(2026, 6, 26)
+    other_ts = datetime(2026, 6, 26, 13, 0, tzinfo=UTC)
+    store.append(
+        "scanner_hits",
+        [{"opportunity_id": "2026-06-26:OLD", "symbol": "OLD", "ts_utc": other_ts, "rank": 0}],
+        partition_date=other,
+    )
+    store.append(
+        "scanner_hits",
+        [
+            {"opportunity_id": "2026-06-29:AZI", "symbol": "AZI", "ts_utc": _TS1, "rank": 0},
+            {"opportunity_id": "2026-06-29:BZI", "symbol": "BZI", "ts_utc": _TS2, "rank": 0},
+        ],
+        partition_date=_DAY,
+    )
+
+    cands, last_ts = _latest_candidates(store, _DAY)
+    assert cands == [{"symbol": "BZI", "rank": 0}]
+    assert last_ts == _TS2
+
+    # A date with no partition (weekend / new day before first scan): the scoped read returns a
+    # zero-column frame and the is_empty() guard must fire before any column is referenced.
+    assert _latest_candidates(store, date(2026, 6, 28)) == ([], None)
 
 
 def test_build_stats_from_report() -> None:
