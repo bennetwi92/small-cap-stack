@@ -18,6 +18,7 @@ from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from small_cap_stack.portfolio import (
     CandidateTrade,
+    SizedPosition,
     _DataFeeLedger,
     _select_day,
     _take_day,
@@ -191,23 +192,31 @@ def test_exit_requires_positive_risk() -> None:
 
 
 def _size(equity: float, entry: float, stop: float) -> int:
+    return size_position(equity, entry, stop, risk_fraction=0.05, max_position_fraction=0.50).qty
+
+
+def _sized(equity: float, entry: float, stop: float) -> SizedPosition:
     return size_position(equity, entry, stop, risk_fraction=0.05, max_position_fraction=0.50)
 
 
-def test_size_position_risk_target_binds_on_tight_stop() -> None:
+# NB the names of the next two were swapped until #286 — each asserted the opposite of what it
+# said, matching the inverted claim in the package docstring. The condition is
+# `risk_qty < cap_qty  <=>  (entry - stop) / entry > risk_fraction / max_position_fraction`, i.e.
+# the RISK target binds on a WIDE stop and the CAP binds on a TIGHT one.
+def test_size_position_notional_cap_binds_on_tight_stop() -> None:
     # $500 eq, 5% risk = $25. Entry 10 / stop 9.5 -> risk/sh $0.50 -> floor(25/0.5)=50 by risk,
     # but the 50% cap is floor(250/10)=25 -> the CAP binds (25 < 50).
     assert _size(500.0, 10.0, 9.5) == 25
+    # Entry 20 / stop 19 -> risk floor(25/1)=25; cap floor(250/20)=12 -> the CAP binds.
+    assert _size(500.0, 20.0, 19.0) == 12
+
+
+def test_size_position_risk_target_binds_on_wide_stop() -> None:
     # Entry 10 / stop 5 -> risk/sh $5 -> floor(25/5)=5 by risk; cap floor(250/10)=25 -> RISK binds.
     assert _size(500.0, 10.0, 5.0) == 5
-
-
-def test_size_position_notional_cap_binds_on_wide_stop() -> None:
     # Entry 3 / stop 2 -> risk/sh $1 -> floor(25/1)=25 by risk; cap floor(250/3)=83 -> RISK binds
     # (the cheap stock is risk-limited, not capital-limited, so it no longer buys 83 shares).
     assert _size(500.0, 3.0, 2.0) == 25
-    # Entry 20 / stop 19 -> risk floor(25/1)=25; cap floor(250/20)=12 -> the CAP binds.
-    assert _size(500.0, 20.0, 19.0) == 12
 
 
 def test_size_position_floors_to_whole_shares() -> None:
@@ -226,7 +235,50 @@ def test_size_position_zero_when_stop_too_wide_for_risk_budget() -> None:
 
 def test_size_position_nonpositive_risk_falls_back_to_cap() -> None:
     # Degenerate stop >= entry (caller guarantees this never happens) -> cap-bound defensively.
-    assert size_position(500.0, 10.0, 10.0, risk_fraction=0.05, max_position_fraction=0.50) == 25
+    assert _size(500.0, 10.0, 10.0) == 25
+
+
+# --- --- sizing: which constraint bound, and the risk actually taken (#286) -------------
+
+
+def test_sized_position_reports_cap_as_the_binding_constraint() -> None:
+    # The tight-stop case: risk wanted 50 shares, the cap allowed 25 -> the cap gave up 25 shares,
+    # and the position risks 25 x $0.50 = $12.50 = 2.5% of equity, HALF the configured 5% ceiling.
+    sp = _sized(500.0, 10.0, 9.5)
+    assert (sp.qty, sp.risk_qty, sp.cap_qty, sp.sized_by) == (25, 50, 25, "cap")
+    assert sp.risk_usd == 12.5
+    assert sp.risk_pct == 0.025
+
+
+def test_sized_position_reports_risk_as_the_binding_constraint() -> None:
+    # The wide-stop case: the risk budget is spent almost exactly, so risk_pct ~= risk_fraction.
+    sp = _sized(500.0, 10.0, 5.0)
+    assert (sp.qty, sp.risk_qty, sp.cap_qty, sp.sized_by) == (5, 5, 25, "risk")
+    assert sp.risk_usd == 25.0
+    assert sp.risk_pct == 0.05
+
+
+def test_sized_position_tie_reports_risk_not_cap() -> None:
+    # risk_qty == cap_qty == 83: the cap did not REDUCE the size, so nothing was given up to it.
+    # Calling this "cap" would report a constraint that cost the trade nothing.
+    sp = _sized(500.0, 3.0, 2.70)
+    assert (sp.risk_qty, sp.cap_qty, sp.sized_by) == (83, 83, "risk")
+
+
+def test_sized_position_risk_pct_never_exceeds_the_configured_fraction() -> None:
+    # The invariant the page's "up to N% risk / trade" claim rests on, over a wide sweep of stops.
+    for entry in (1.0, 3.0, 7.5, 20.0):
+        for stop_frac in (0.005, 0.02, 0.05, 0.1, 0.25, 0.5):
+            sp = _sized(500.0, entry, round(entry * (1 - stop_frac), 4))
+            assert sp.risk_pct <= 0.05 + 1e-9, (entry, stop_frac, sp)
+            # And the cap binds exactly when the stop is inside risk/position = 10% of entry.
+            if sp.qty > 0:
+                assert sp.sized_by == ("cap" if stop_frac < 0.10 else "risk"), (entry, stop_frac)
+
+
+def test_sized_position_unaffordable_is_reported_not_crashed() -> None:
+    sp = _sized(500.0, 300.0, 299.0)
+    assert (sp.qty, sp.risk_usd, sp.risk_pct) == (0, 0.0, 0.0)
 
 
 def test_commission_respects_minimum() -> None:
@@ -369,7 +421,8 @@ def test_adaptive_falls_back_before_enough_samples_then_refits() -> None:
     days = [(base + timedelta(days=i), [_cand(f"W{i}", 5, 10.0, 9.0, reach2)]) for i in range(6)]
     days.append((base + timedelta(days=6), [_cand("DEC", 5, 10.0, 9.0, reach2)]))
 
-    res, chosen, _risk = simulate_portfolio_adaptive(days, s)
+    book = simulate_portfolio_adaptive(days, s)
+    res, chosen = book.result, book.daily_targets
     per_day = dict(chosen)
     assert per_day[base] == s.portfolio_target_r  # day 0: no trailing samples -> fallback (2.0)
     assert per_day[base + timedelta(days=6)] == 3.0  # decision day: re-fit to the best trailing T
@@ -497,7 +550,8 @@ def test_adaptive_risk_eager_step_throttles_down_then_rearms_from_zero() -> None
         _win_cand("W4"),  # rung 2 (5%): take, win -> hold (clamped)
     ]
     days = [(base + timedelta(days=i), [c]) for i, c in enumerate(seq)]
-    res, _chosen, daily_risk = simulate_portfolio_adaptive(days, s)
+    book = simulate_portfolio_adaptive(days, s)
+    res, daily_risk = book.result, book.daily_risk
     assert [r for _d, r in daily_risk] == [0.05, 0.025, 0.0, 0.025, 0.05]
     assert res.n_trades == 4  # the 0% day (W2) took nothing
     assert {t.symbol for t in res.trades} == {"L0", "L1", "W3", "W4"}
@@ -510,7 +564,8 @@ def test_adaptive_risk_two_day_step_needs_a_streak() -> None:
     base = date(2026, 7, 1)
     seq = [_loss_cand(f"L{i}") for i in range(4)] + [_win_cand(f"W{i}") for i in range(5)]
     days = [(base + timedelta(days=i), [c]) for i, c in enumerate(seq)]
-    res, _chosen, daily_risk = simulate_portfolio_adaptive(days, s)
+    book = simulate_portfolio_adaptive(days, s)
+    res, daily_risk = book.result, book.daily_risk
     # L L  L L  W W  W W  W   (two days per rung move)
     assert [r for _d, r in daily_risk] == [
         0.05,
@@ -531,8 +586,116 @@ def test_adaptive_risk_stays_full_in_a_good_market() -> None:
     s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
     base = date(2026, 7, 1)
     days = [(base + timedelta(days=i), [_win_cand(f"W{i}")]) for i in range(4)]
-    _res, _chosen, daily_risk = simulate_portfolio_adaptive(days, s)
+    daily_risk = simulate_portfolio_adaptive(days, s).daily_risk
     assert [r for _d, r in daily_risk] == [0.05, 0.05, 0.05, 0.05]
+
+
+# --- --- per-trade risk attribution (#286) ---------------------------------------------
+
+
+def test_paper_trade_records_the_risk_it_actually_took() -> None:
+    # _win_cand: entry 10 / stop 9 -> risk/sh $1. At $500 open equity the 5% budget buys 25 shares
+    # and the 50% cap allows 25 -> a tie, so risk binds and the full $25 budget is spent.
+    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    trades, _sk = _take_day(date(2026, 7, 1), [_win_cand("W")], 500.0, s, 2.0, 0.0)
+    (t,) = trades
+    assert (t.qty, t.sized_by) == (25, "risk")
+    assert (t.risk_fraction, t.risk_usd, t.risk_pct) == (0.05, 25.0, 0.05)
+
+
+def test_paper_trade_records_cap_bound_risk_well_under_the_ceiling() -> None:
+    # The live case this issue opened on (SUNE): a stop 1.6% below entry. The risk budget would buy
+    # far more than the cap allows, so the trade risks a fraction of the advertised 5% — and the
+    # trade row has to say so rather than repeating the ceiling.
+    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    cand = _cand("SUNE", 5, 10.0, 9.84, [_bar(10, 10.5, 9.9, 10.4)])  # risk/sh $0.16
+    trades, _sk = _take_day(date(2026, 7, 1), [cand], 500.0, s, 2.0, 0.0)
+    (t,) = trades
+    assert t.sized_by == "cap"
+    assert t.qty == 25  # cap floor(250/10)=25, vs risk floor(25/0.16)=156
+    assert t.risk_usd == 4.0  # 25 x $0.16
+    assert t.risk_pct == 0.008  # 0.8% of equity, against a 5% risk_fraction
+    assert t.risk_fraction == 0.05  # the ceiling is still recorded, just not confused for the risk
+
+
+def test_paper_trade_risk_fraction_follows_the_throttled_rung() -> None:
+    # On a throttled day risk_fraction must be the RUNG, not the configured ceiling — otherwise the
+    # trade log would claim 5% on a day the kill-switch deliberately halved the size.
+    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    trades, _sk = _take_day(
+        date(2026, 7, 1), [_win_cand("W")], 500.0, s, 2.0, 0.0, risk_fraction=0.025
+    )
+    (t,) = trades
+    assert t.risk_fraction == 0.025
+    assert (t.qty, t.risk_usd, t.risk_pct) == (12, 12.0, 0.024)  # floor(12.50/1)=12 shares
+
+
+# --- --- the next-session state (#286) -------------------------------------------------
+
+
+def test_next_session_state_is_forward_looking_not_the_last_collected_day() -> None:
+    # The bug this exists to kill: the page rendered daily_risk[-1] as "Latest risk". After two
+    # losing days the LAST day still traded at 5% (the step applies from tomorrow), so "latest"
+    # said 5% while the book was in fact about to size the next setup at 2.5%.
+    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    base = date(2026, 7, 1)
+    days = [(base + timedelta(days=i), [_loss_cand(f"L{i}")]) for i in range(2)]
+    book = simulate_portfolio_adaptive(days, s)
+    assert [r for _d, r in book.daily_risk] == [0.05, 0.05]  # what the collected days DID
+    st = book.state
+    assert st is not None
+    assert st.risk_fraction == 0.025  # what the next session WILL do — the knocked-down rung
+    assert st.as_of == base + timedelta(days=2)  # the day after the last collected one
+    assert (st.rung, st.n_rungs) == (1, 3)
+
+
+def test_next_session_state_reports_streak_progress_toward_a_step() -> None:
+    # One decisive day at step_days=2: streak -1, so the rung has NOT moved yet and the page can
+    # honestly say "one more net-negative day steps risk down".
+    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    days = [(date(2026, 7, 1), [_loss_cand("L0")])]
+    st = simulate_portfolio_adaptive(days, s).state
+    assert st is not None
+    assert (st.streak, st.step_days, st.rung) == (-1, 2, 2)
+    assert st.risk_fraction == 0.05  # still full risk — a single day is not a streak
+
+
+def test_next_session_state_budgets_are_derived_from_the_end_equity() -> None:
+    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    book = simulate_portfolio_adaptive([(date(2026, 7, 1), [_win_cand("W0")])], s)
+    st = book.state
+    assert st is not None
+    eq = book.result.end_equity
+    assert st.risk_budget_usd == round(eq * st.risk_fraction, 4)
+    assert st.max_position_usd == round(eq * s.portfolio_position_fraction, 4)
+
+
+def test_next_session_state_target_uses_every_collected_day() -> None:
+    # The day-walk fits each day off STRICTLY-prior days, so the last day's target ignores itself.
+    # The next session's fit must include it — otherwise the page shows a target one day stale.
+    # 6 warm-up days of +2R wins with min_samples=6: no collected day has 6 strictly-prior samples,
+    # so every daily target is the fallback, while the next session finally has enough to re-fit.
+    s = _s(
+        portfolio_adaptive_min_samples=6,
+        portfolio_adaptive_window_days=60,
+        portfolio_target_grid=(1.5, 3.0),
+        portfolio_target_r=2.0,
+        portfolio_exit_slippage_ticks=0,
+    )
+    base = date(2026, 7, 1)
+    days = [(base + timedelta(days=i), [_win_cand(f"W{i}")]) for i in range(6)]
+    book = simulate_portfolio_adaptive(days, s)
+    assert {t for _d, t in book.daily_targets} == {2.0}  # every day fell back
+    st = book.state
+    assert st is not None
+    # _win_cand runs to +2R and CLOSES there: a 1.5R target banks 1.5R, a 3R target never fills and
+    # marks to close at 2R. So the fit picks 3.0 — and either way it is not the 2.0 fallback, which
+    # is the point: the next session re-fits off the 6th day that no collected day could see.
+    assert st.target_r == 3.0
+
+
+def test_next_session_state_is_none_for_an_empty_book() -> None:
+    assert simulate_portfolio_adaptive([], _s()).state is None
 
 
 def test_single_rung_disables_the_throttle() -> None:
@@ -544,7 +707,8 @@ def test_single_rung_disables_the_throttle() -> None:
     )
     base = date(2026, 7, 1)
     days = [(base + timedelta(days=i), [_loss_cand(f"L{i}")]) for i in range(3)]
-    res, _chosen, daily_risk = simulate_portfolio_adaptive(days, s)
+    book = simulate_portfolio_adaptive(days, s)
+    res, daily_risk = book.result, book.daily_risk
     assert [r for _d, r in daily_risk] == [0.05, 0.05, 0.05]
     assert res.n_trades == 3  # every day still trades at full risk
 
@@ -697,6 +861,20 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     assert "withdraw_fraction" in payload["config"] and "cgt_rate" in payload["config"]
     trade = adaptive["trades"][0]
     assert trade["symbol"] == "AZI" and trade["reason"] == "target"
+    # Per-trade risk attribution + the next-session state reach the page (#286).
+    assert {"risk_fraction", "risk_usd", "risk_pct", "sized_by"} <= set(trade)
+    assert trade["sized_by"] in {"risk", "cap"}
+    assert trade["risk_pct"] <= payload["config"]["risk_fraction"]
+    assert adaptive["stats"]["avg_risk_pct"] is not None
+    assert "cap_bound_count" in adaptive["stats"]
+    state = adaptive["next_session"]
+    assert state["as_of"] == "2026-06-30"  # the day after the last collected one
+    assert state["risk_fraction"] in payload["config"]["risk_ladder"]
+    assert state["risk_budget_usd"] == round(
+        adaptive["stats"]["end_equity"] * state["risk_fraction"], 4
+    )
+    # Only the adaptive book throttles risk / re-fits a target, so only it carries the state.
+    assert "next_session" not in payload["books"]["2"]
     # Skipped log rides along in every book (empty here — a single seeded setup never hits the cap).
     assert "skipped" in adaptive and adaptive["skipped"] == []
     assert adaptive["stats"]["skipped_count"] == 0 and adaptive["stats"]["skipped_total_r"] == 0.0
@@ -1263,7 +1441,7 @@ def test_throttled_rung_sizing_to_zero_is_not_called_unaffordable() -> None:
     wide = [_bar(10, 21.0, 4.0, 20.0)]  # entry 20, stop 5 -> $15/share risk
     cands = [_cand("AAA", 5, 20.0, 5.0, wide)]
     s = _s()
-    assert size_position(500.0, 20.0, 5.0, risk_fraction=0.025, max_position_fraction=0.5) == 0
+    assert size_position(500.0, 20.0, 5.0, risk_fraction=0.025, max_position_fraction=0.5).qty == 0
 
     trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0, risk_fraction=0.025)
 

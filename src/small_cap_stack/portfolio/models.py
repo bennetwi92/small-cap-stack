@@ -57,6 +57,14 @@ class PaperTrade:
     entry_price: float
     stop: float
     qty: int
+    # How the size was arrived at (#286). `risk_fraction` is the ceiling the day sized against (the
+    # configured value, or the kill-switch rung on an adaptive day); `risk_usd`/`risk_pct` are what
+    # the position ACTUALLY risked, which is strictly less whenever `sized_by == "cap"`. Reporting
+    # only the ceiling told the trader every trade risked 5% when the tight-stop ones risked ~1%.
+    risk_fraction: float
+    risk_usd: float
+    risk_pct: float
+    sized_by: str  # "risk" | "cap" — see costs.SizedPosition
     target_r: float
     breakeven_r: float
     realized_r: float
