@@ -9,12 +9,18 @@ name: infra-watchdog
 #
 # Cadence: every 10 min inside a UTC envelope around the ET monitor window; the script itself
 # gates precisely on the XNYS trading calendar + 04:00–17:00 ET and exits quietly outside it.
-# GitHub `schedule` is best-effort and auto-disables after ~60 days of repo inactivity — the
-# monitor-the-monitor heartbeat for that failure mode is #345.
+# GitHub `schedule` is best-effort and auto-disables after ~60 days of repo inactivity, so this
+# workflow is guarded three ways (#345): a redundant workflow_run trigger chained off each
+# publish-dashboard completion, the monthly workflow-keepalive re-enable, and a dedicated
+# Healthchecks dead-man ping as the last step — if the monitor dies anyway, THAT goes silent
+# and alerts out-of-band, independent of GitHub.
 
 on:
   schedule:
     - cron: "*/10 8-21 * * 1-5" # UTC envelope; exact ET/calendar gate is in the script
+  workflow_run:
+    workflows: [publish-dashboard] # redundant non-schedule trigger (#345): fresh data in, run
+    types: [completed]
   workflow_dispatch:
     inputs:
       force:
@@ -67,12 +73,17 @@ jobs:
             ${{ inputs.force && '--force' || '' }}
 
       # Same single-commit force-push pattern as publish-dashboard: the branch never grows.
+      # Skipped when nothing changed (e.g. runs outside the monitor window) — no commit churn.
       - name: Save monitor state
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          if git show FETCH_HEAD:infra_state.json 2>/dev/null | cmp -s - state.json; then
+            echo "state unchanged — skipping push"
+            exit 0
+          fi
           rm -rf stateout && mkdir stateout
           cp state.json stateout/infra_state.json
           cd stateout
@@ -83,3 +94,22 @@ jobs:
           git add -A
           git commit -qm "infra watchdog state $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push -f "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" monitor-state
+
+      # Monitor-the-monitor (#345): a dedicated Healthchecks dead-man ping, deliberately LAST —
+      # any failed step above (fetch, thresholds, state push) withholds it, so a broken monitor
+      # alerts out-of-band even though every GitHub-side signal looks quiet. Runs outside the
+      # market window / via the publish-dashboard chain ping too: the check asserts "the
+      # monitoring machinery is alive", not "checks were evaluated". No-op until the owner
+      # creates the Healthchecks check and the WATCHDOG_HEARTBEAT_URL secret (RUNBOOK §7);
+      # the URL is effectively a write credential, so it lives ONLY in a secret (#344).
+      - name: Monitor-ran heartbeat
+        env:
+          HC_URL: ${{ secrets.WATCHDOG_HEARTBEAT_URL }}
+        run: |
+          set -euo pipefail
+          if [ -n "$HC_URL" ]; then
+            curl -fsS -m 10 --retry 3 -o /dev/null "$HC_URL"
+            echo "heartbeat pinged"
+          else
+            echo "WATCHDOG_HEARTBEAT_URL secret not set — heartbeat skipped (#345)"
+          fi
