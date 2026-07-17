@@ -124,6 +124,59 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
 - **Go live (Phase 3, later):** set `IBKR_TRADING_MODE=live`, `IBKR_PORT=4003` (the live socat port;
   paper is `4004`), restart.
 
+### 9.1 Out-of-band control — the `hcloud` CLI (Mac only)
+When a job OOMs the box it can thrash hard enough that sshd never completes its banner, so the SSH
+recipes above and the `deploy` workflow are both unavailable — the runner is offline too. That is
+the case this section exists for: `hcloud` talks to the **Hetzner API**, not to the box, so it keeps
+working when the box itself does not. It replaces the "hard reboot from the Hetzner console" step
+with a command.
+
+**Mac only, by design.** It needs a long-lived API token on disk, which is exactly what the mobile
+control plane (§11) deliberately does not have. Do not wire this into a web session or a workflow.
+
+```bash
+brew install hcloud
+# [YOU] Console → project → Security → API Tokens → generate a Read/Write token
+hcloud context create small-cap-stack     # prompts for the token → ~/.config/hcloud/cli.toml
+```
+> The token is **project-scoped and Read/Write** — it can delete the server and its volume. Treat it
+> like `.env`: password manager, never in git. `hcloud context create` stores it **in plaintext**, so
+> it inherits your Mac's disk encryption and nothing more. A Read-only token covers
+> `list`/`describe`/`metrics` but **cannot** `reset` — which defeats the point of this section.
+
+```bash
+hcloud server list                              # is it running at all?
+hcloud server describe small-cap-stack          # status, IPs, type
+hcloud server ssh small-cap-stack               # SSH via the API's known IP (still needs sshd alive)
+hcloud server reboot small-cap-stack            # graceful ACPI — try this first
+hcloud server reset small-cap-stack             # hard power-cycle; the console button
+hcloud server request-console small-cap-stack   # VNC URL — works when sshd is dead
+```
+
+**OOM recovery order** (the #264 case — a backfill wedged the box for 5h37m):
+1. `hcloud server describe` — confirm it's `running`, not something dumber (a stopped server).
+2. `hcloud server reboot` — graceful. Give it a minute; the OOM-killer may reap the job first and
+   hand the box back on its own.
+3. `hcloud server reset` — only if the reboot doesn't take. This is a **power-cycle**: the app
+   container dies uncleanly. Parquet writes are per-partition, so the exposure is the in-flight
+   partition, not the dataset — but prefer the reboot.
+4. After **any** of these, re-check the runner and the app container — an interrupted deploy can
+   leave the app **stopped**. See §11 and `docker ps`; re-run `deploy.yml` if needed.
+
+**Caveats.**
+- `hcloud server metrics` is **`[ALPHA]`** and its `--type` is `cpu|disk|network` — there is **no
+  memory type**, so it will *not* show you the OOM directly. Sustained CPU on an unreachable box is
+  the proxy; `free -m` over SSH remains the only real memory read, and that's the thing you've lost.
+  ```bash
+  hcloud server metrics --type cpu --start 2026-07-16T13:00:00Z --end 2026-07-16T14:00:00Z small-cap-stack
+  ```
+  (`--start`/`--end` are required ISO 8601; `--type` is repeatable.)
+- **Hetzner Cloud only.** The CX22 lives there so our box is covered — but Robot (dedicated),
+  Storage Boxes, and DNS sit behind separate APIs `hcloud` does not touch. It is not one CLI for all
+  of Hetzner the way `gcloud` is for GCP.
+- This does not substitute for §8's backups: `reset` is a power button, not a recovery tool. The
+  data volume survives a reset — it does not survive a `delete`.
+
 ## 10. Reminders
 - Phase 1 places **no orders** — it only records opportunities for ~3 months.
 - Re-validate symbol tradability (#25) and any execution paths on a **live** account before Phase 3.
