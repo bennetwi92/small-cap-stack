@@ -21,6 +21,19 @@ quiet until a watchdog **opens a GitHub issue**; a new issue in your notificatio
 > makes injection-gating (#343), telemetry-scrubbing (#340/#341), and supply-chain hardening (#348)
 > *permanent* parts of the design rather than things a repo-flip would erase.
 
+> **IMPLEMENTED 2026-07-17 (PRs #358–#367).** The revised rollout (§10) is built end-to-end:
+> watchdogs + heartbeat + canary (#340/#345/#341/#346 → `watchdog.yml`, `workflow-keepalive.yml`,
+> `src/small_cap_stack/watchdog.py`, `canary.py`), the dev loop + fast path (#334/#347 →
+> `claude.yml`), spec gate (#339 → `spec.yml`), triage (#335 → `triage.yml`), self-heal (#336 →
+> `self-heal.yml`), overnight analyst (#337 → `overnight-analyst.yml`), control plane (#338 →
+> `commands.yml`). #350/#353 deliberately not started. Owner activation steps: RUNBOOK §7 + §13.
+> **Field finding that amends §5's cadence:** GitHub throttles this repo's `schedule` events to
+> an **effective ~90-minute cadence** (a `*/15` cron observed firing 11:51 → 13:25 → 14:57 →
+> 16:19 with the runner online and idle) — thresholds and the Healthchecks periods are sized to
+> that reality, not the nominal crons, and the watchdog is additionally chained off each
+> `publish-dashboard` completion via `workflow_run`. Detection latency for a genuinely dead
+> pipeline is correspondingly ~2.5 h + hysteresis — the honest cost of free-tier scheduling.
+
 ## 0. ⚠️ Blocker: public repo + self-hosted runner is a live security hole
 
 > "Self-hosted runners should almost never be used for public repositories, because any user can
