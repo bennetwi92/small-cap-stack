@@ -1,13 +1,16 @@
-// Dashboard SPA (#70): polls the box's published JSON (#68/#69) and renders it.
-// No build step, no framework — plain fetch + DOM. Data lives on the `dashboard-data`
-// branch; CORS on raw.githubusercontent.com allows the cross-origin fetch.
+// Dashboard (#70, cockpit #289): polls the box's published JSON (#68/#69) and
+// renders it. No build step, no framework — plain fetch + DOM on the shared
+// cockpit chrome. Box health renders in the shared status bar (js/status-bar.js),
+// not here; this page owns the live-day rail, the last completed session and
+// the trade chart.
 
-const REPO = "bennetwi92/small-cap-stack";
-const BRANCH = "dashboard-data";
+import "./js/nav.js";
+import { createOptionsBar } from "./js/options-bar.js";
+import { setStatusPage } from "./js/status-bar.js";
+import { fetchJson } from "./js/data.js";
+import { esc, fmtShares, rRampClass } from "./js/fmt.js";
+
 const POLL_MS = 60_000;
-
-const rawUrl = (file) =>
-  `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${file}?t=${Date.now()}`;
 
 const _etTime = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
@@ -16,22 +19,13 @@ const _etDateTime = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", month: "short", day: "2-digit",
   hour: "2-digit", minute: "2-digit", hour12: false,
 });
+// en-CA renders YYYY-MM-DD — the ET trading date for the options bar.
+const _etDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" });
 
 const el = (id) => document.getElementById(id);
-const esc = (s) =>
-  String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-
 const etTime = (iso) => (iso ? _etTime.format(new Date(iso)) + " ET" : "—");
 const etDateTime = (iso) => (iso ? _etDateTime.format(new Date(iso)) + " ET" : "—");
 const etFromEpoch = (sec) => _etTime.format(new Date(sec * 1000)); // candlestick axis (UNIX seconds)
-
-function ago(iso) {
-  if (!iso) return "";
-  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 90) return `${Math.round(s)}s ago`;
-  if (s < 5400) return `${Math.round(s / 60)}m ago`;
-  return `${Math.round(s / 3600)}h ago`;
-}
 
 function relIn(iso) {
   if (!iso) return "";
@@ -42,117 +36,131 @@ function relIn(iso) {
   return `in ${Math.round(s / 3600)}h`;
 }
 
-function shares(n) {
-  // Kept in step with review.js `fmtShares` (a shared module is pending, #163): same tiers, casing
-  // and boundary promotion, so the same float renders identically on the dashboard and workbench.
-  if (n == null || !isFinite(n)) return "—";
-  const a = Math.abs(n);
-  if (a >= 999.95e6) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
-  if (a >= 999.5e3) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
-  if (a >= 1e3) return Math.round(n / 1e3) + "k";
-  return String(Math.round(n));
-}
+/* ---------- options bar: ET date, chart stepper, refresh ---------- */
 
-async function fetchJson(file) {
-  const res = await fetch(rawUrl(file), { cache: "no-store" });
-  if (!res.ok) return null; // e.g. stats.json before the first EOD -> 404
-  return res.json();
-}
+createOptionsBar("optbar", {
+  primary: [
+    { type: "readout", id: "et-date", label: "ET DATE", value: _etDate.format(new Date()) },
+    { type: "btn", id: "chart-prev", label: "‹", title: "Previous symbol" },
+    { type: "select", id: "chart-select", label: "CHART", options: [] },
+    { type: "btn", id: "chart-next", label: "›", title: "Next symbol" },
+    { type: "btn", id: "refresh", label: "Refresh", title: "Refresh now" },
+  ],
+  extra: [
+    {
+      type: "note",
+      value:
+        "Auto-refreshes from the box (~15 min publish cadence, 60s poll). Times in ET. " +
+        "Last session persists until the next US close. Phase-1 = tracking only, no orders.",
+    },
+  ],
+  onChange: (id) => {
+    if (id === "refresh") refresh();
+    if (id === "chart-select") drawSelected();
+    if (id === "chart-prev") stepChart(-1);
+    if (id === "chart-next") stepChart(1);
+  },
+});
+
+/* ---------- live-day rail ---------- */
 
 function renderStatus(s) {
-  if (!s || !s.service) {
-    el("health").innerHTML = '<span class="muted">Waiting for the first tick…</span>';
-    return;
-  }
-  const svc = s.service;
-  const scn = s.scanner || {};
-  const opp = s.opportunities || {};
-  const data = s.data || {};
-  const stale = s.generated_utc && Date.now() - new Date(s.generated_utc).getTime() > 30 * 60 * 1000;
+  // Box health (connection / mode / window / commit / freshness) lives in the
+  // shared status bar now — this renders only the page-owned panels.
+  const scn = (s && s.scanner) || {};
+  const opp = (s && s.opportunities) || {};
+  const data = (s && s.data) || {};
 
-  el("health").innerHTML =
-    `<span class="badge ${svc.connected ? "ok" : "bad"}">${svc.connected ? "connected" : "disconnected"}</span>` +
-    `<span class="tag">${esc(svc.trading_mode)}</span>` +
-    `<span class="tag">${svc.in_scan_window ? "in-window" : "off-window"}</span>` +
-    `<span class="muted">commit ${esc(svc.deployed_commit || "—")}</span>` +
-    `<span class="muted ${stale ? "warn" : ""}">data ${etTime(s.generated_utc)} (${ago(s.generated_utc)})</span>`;
-
-  const cands =
-    (scn.latest_candidates || [])
-      .map((c) => `<tr><td>#${esc(c.rank)}</td><td><strong>${esc(c.symbol)}</strong></td></tr>`)
-      .join("") || '<tr><td colspan="2" class="muted">none</td></tr>';
+  const cands = (scn.latest_candidates || [])
+    .map((c) => `<strong>${esc(c.symbol)}</strong><span class="muted">#${esc(c.rank)}</span>`)
+    .join(" · ") || '<span class="muted">none</span>';
   el("scanner").innerHTML =
-    `<p class="muted">last scan ${etTime(scn.last_scan_utc)} · ticks ${scn.scan_ticks_total ?? 0}</p>` +
-    `<table><tbody>${cands}</tbody></table>`;
+    `<p class="dash-syms">${cands}</p>` +
+    `<p class="dash-agg muted">last scan ${esc(etTime(scn.last_scan_utc))} · ticks ${scn.scan_ticks_total ?? 0}</p>`;
 
-  const jobs = (svc.jobs || [])
+  const jobs = ((s && s.service && s.service.jobs) || [])
     .map(
       (j) =>
-        `<tr><td>${esc(j.id)}</td><td>${etDateTime(j.next_run_utc)}</td><td class="muted">${relIn(j.next_run_utc)}</td></tr>`,
+        `<tr><td>${esc(j.id)}</td><td>${esc(etDateTime(j.next_run_utc))}</td>` +
+        `<td class="muted">${esc(relIn(j.next_run_utc))}</td></tr>`,
     )
     .join("");
   el("tasks").innerHTML =
-    `<table><thead><tr><th>job</th><th>next run</th><th></th></tr></thead><tbody>${jobs}</tbody></table>`;
+    `<table class="tbl"><thead><tr><th>job</th><th>next run</th><th></th></tr></thead><tbody>${jobs}</tbody></table>`;
 
   const order = ["opportunities", "scanner_hits", "bars", "news", "fundamentals"];
   el("data").innerHTML = order
     .filter((k) => data[k])
     .map(
       (k) =>
-        `<div class="stat"><div class="k">${k}</div><div class="v">${data[k].today}</div><div class="muted">total ${data[k].total}</div></div>`,
+        `<div class="tile"><div class="tile-l">${esc(k)}</div>` +
+        `<div class="tile-v">${data[k].today}</div>` +
+        `<div class="tile-s">total ${data[k].total}</div></div>`,
     )
     .join("");
 
   el("opps-count").textContent = opp.open_today ?? 0;
-  el("opps-symbols").textContent = (opp.symbols || []).join(" · ") || "none";
+  el("opps-symbols").innerHTML =
+    (opp.symbols || []).map((x) => `<strong>${esc(x)}</strong>`).join(" · ") ||
+    '<span class="muted">none</span>';
 }
 
+/* ---------- last completed session ---------- */
+
+const check = (b) => (b ? '<span class="up">✓</span>' : '<span class="muted">—</span>');
+// MAE is an *adverse* excursion stored positive (1 = the full stop distance
+// against), so its ramp runs inverted: high MAE wears the loss colours.
+const rCell = (v, invert = false) =>
+  `<td class="r ${v == null ? "muted" : rRampClass(invert ? -v : v)}">${v ?? "—"}</td>`;
+
 function renderStats(st) {
-  // "Last completed session" header + opportunity summary. stats.json/charts.json are written
-  // only at EOD, so this is the last finished US session — it stays put all day (through the UK
-  // day) until the next close overwrites it. Mirrors the live "Opportunities today" card above.
+  // stats.json/charts.json are written only at EOD, so this is the last
+  // finished US session — it stays put all day until the next close.
   const opps = (st && st.opportunities) || [];
   const symbols = [...new Set(opps.map((o) => o.symbol))].sort();
   el("session-date").textContent = st && st.trading_date ? st.trading_date : "no completed session yet";
-  // Count opportunities (segmented runs), not distinct symbols, so this agrees with the aggregate
-  // line's "opps N" and the one-row-per-run table below — a symbol can run more than once (#163-C4).
+  // Count opportunities (segmented runs), not distinct symbols (#163-C4).
   el("session-opps-count").textContent = opps.length;
-  el("session-opps-symbols").textContent = symbols.join(" · ") || "none";
+  el("session-opps-symbols").innerHTML =
+    symbols.map((x) => `<strong>${esc(x)}</strong>`).join(" · ") || '<span class="muted">none</span>';
 
   if (!opps.length) {
+    el("session-agg").textContent = "";
     el("stats").innerHTML =
       '<p class="muted">No EOD statistics yet — generated after 16:30 ET.</p>';
     return;
   }
   const agg = st.aggregates || {};
+  el("session-agg").textContent =
+    `opps ${agg.opportunities ?? 0} · triggered ${agg.triggered ?? 0} · ` +
+    `≥1R ${agg.reached_1r ?? 0} · ≥2R ${agg.reached_2r ?? 0} · ≥3R ${agg.reached_3r ?? 0}`;
   const rows = st.opportunities
     .slice()
     .sort((a, b) => (b.max_r ?? -999) - (a.max_r ?? -999))
     .map(
       (o) =>
-        // Suffix the run (#2, #3, …) for a symbol that ran more than once, matching the EOD report,
-        // so repeat runs don't render as indistinguishable identical rows (#163-C4).
+        // Suffix the run (#2, #3, …) for a symbol that ran more than once (#163-C4).
         `<tr><td><strong>${esc(o.run_count > 1 ? `${o.symbol}#${o.run}` : o.symbol)}</strong></td>` +
-        `<td>${etTime(o.first_hit)}</td>` +
-        `<td>${o.bars}</td><td>${o.news_count}</td>` +
-        `<td>${shares(o.float_shares)}</td><td>${o.bull_flag ? "✓" : "—"}</td>` +
-        `<td>${o.triggered ? "✓" : "—"}</td><td>${o.max_r ?? "—"}</td><td>${o.mae_r ?? "—"}</td>` +
-        `<td>${o.stopped_out ? "✓" : "—"}</td></tr>`,
+        `<td>${esc(etTime(o.first_hit))}</td>` +
+        `<td class="r">${o.bars}</td><td class="r">${o.news_count}</td>` +
+        `<td class="r">${fmtShares(o.float_shares)}</td><td>${check(o.bull_flag)}</td>` +
+        `<td>${check(o.triggered)}</td>${rCell(o.max_r)}${rCell(o.mae_r, true)}` +
+        `<td>${o.stopped_out ? '<span class="down">✓</span>' : '<span class="muted">—</span>'}</td></tr>`,
     )
     .join("");
   el("stats").innerHTML =
-    `<p class="muted">as of ${esc(st.trading_date)} · opps ${agg.opportunities ?? 0} · ` +
-    `triggered ${agg.triggered ?? 0} · ≥1R ${agg.reached_1r ?? 0} · ≥2R ${agg.reached_2r ?? 0} · ≥3R ${agg.reached_3r ?? 0}</p>` +
-    `<div class="scroll"><table><thead><tr>` +
-    `<th>symbol</th><th>seen</th><th>bars</th><th>news</th><th>float</th><th>flag</th>` +
-    `<th>trig</th><th>MaxR</th><th>MAE</th><th>stop</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    `<table class="tbl"><thead><tr>` +
+    `<th>symbol</th><th>seen</th><th class="r">bars</th><th class="r">news</th><th class="r">float</th>` +
+    `<th>flag</th><th>trig</th><th class="r">max r</th><th class="r">mae</th><th>stop</th>` +
+    `</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-// --- Trade charts (#113): annotated 5-min candlesticks per opportunity ---------------------
+/* ---------- trade chart (#113): annotated 5-min candlesticks ---------- */
+
 const MK = {
-  up: "#1a7f37", down: "#c0362c",
-  entry: "#2f81f7", stop: "#c0362c", firstHit: "#8957e5", maxR: "#d4a72c",
-  volUp: "rgba(26,127,55,0.5)", volDown: "rgba(192,54,44,0.5)", // muted volume bars
+  up: "#3ec07e", down: "#f06673",
+  entry: "#4fe3ef", stop: "#f06673", firstHit: "#8957e5", maxR: "#e3b452",
+  volUp: "rgba(62,192,126,0.45)", volDown: "rgba(240,102,115,0.45)",
 };
 
 let chartsData = null; // last-fetched charts.json payload
@@ -166,7 +174,7 @@ function renderCharts(data) {
   chartsData = data;
   const card = el("charts-card");
   const list = (data && data.charts) || [];
-  // Hidden until the first EOD produces charts (charts.json 404s) or if the CDN lib didn't load.
+  // Hidden until the first EOD produces charts, or if the CDN lib didn't load.
   if (!window.LightweightCharts || !list.length) {
     card.hidden = true;
     return;
@@ -210,14 +218,19 @@ function buildChart(c) {
   if (chartApi) chartApi.remove();
   chartApi = LC.createChart(container, {
     autoSize: true,
-    layout: { background: { color: "transparent" }, textColor: "#9aa4b2", fontSize: 11 },
-    grid: {
-      vertLines: { color: "rgba(255,255,255,0.05)" },
-      horzLines: { color: "rgba(255,255,255,0.05)" },
+    layout: {
+      background: { color: "transparent" },
+      textColor: "#9aa0b5",
+      fontSize: 10,
+      fontFamily: "'IBM Plex Mono', ui-monospace, monospace",
     },
-    rightPriceScale: { borderColor: "rgba(255,255,255,0.15)" },
+    grid: {
+      vertLines: { color: "rgba(255,255,255,0.04)" },
+      horzLines: { color: "rgba(255,255,255,0.04)" },
+    },
+    rightPriceScale: { borderColor: "#2e2e42" },
     timeScale: {
-      borderColor: "rgba(255,255,255,0.15)",
+      borderColor: "#2e2e42",
       timeVisible: true,
       secondsVisible: false,
       tickMarkFormatter: (t) => etFromEpoch(t),
@@ -233,9 +246,7 @@ function buildChart(c) {
     c.bars.map((b) => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c })),
   );
 
-  // Volume histogram, overlaid on its own scale in the bottom ~20% so it never
-  // crowds price. `v` is captured per 5-min bar (charts.py); bars may predate it,
-  // so guard on presence. Coloured by the candle direction.
+  // Volume histogram in the bottom ~20%; bars may predate `v`, so guard on presence.
   const hasVolume = c.bars.some((b) => b.v != null);
   if (hasVolume) {
     volumeSeries = chartApi.addHistogramSeries({
@@ -270,8 +281,7 @@ function buildChart(c) {
       axisLabelVisible: true, title: "stop",
     });
 
-  // Markers carry epoch timestamps (#141) so they place correctly on the full-day series, whose
-  // indices differ from the run window's — use the time value directly.
+  // Markers carry epoch timestamps (#141) so they place correctly on the full-day series.
   const m = c.markers;
   const markers = [];
   if (m.first_hit != null)
@@ -290,14 +300,16 @@ function buildChart(c) {
   el("chart-legend").innerHTML =
     `<span class="mk" style="color:${MK.firstHit}">● scan</span>` +
     `<span class="mk" style="color:${MK.entry}">▲ entry</span>` +
-    `<span class="mk" style="color:${MK.maxR}">● Max R</span>` +
+    `<span class="mk" style="color:${MK.maxR}">● max r</span>` +
     `<span class="mk" style="color:${MK.stop}">▼ stop</span>` +
-    (hasVolume ? `<span class="mk" style="color:${MK.up}">▮ volume</span>` : "") +
+    (hasVolume ? `<span class="mk" style="color:${MK.up}">▮ vol</span>` : "") +
     `<span class="muted">entry ${c.levels.entry ?? "—"} · stop ${c.levels.stop ?? "—"}</span>`;
 }
 
+/* ---------- poll loop ---------- */
+
 async function refresh() {
-  el("updated").textContent = "updating…";
+  setStatusPage("updating…");
   try {
     const [status, stats, charts] = await Promise.all([
       fetchJson("status.json"),
@@ -308,20 +320,19 @@ async function refresh() {
     renderStats(stats);
     renderCharts(charts);
     el("error").hidden = true;
-    el("updated").textContent =
-      "updated " +
-      new Intl.DateTimeFormat("en-US", {
-        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-      }).format(new Date());
+    el("et-date").textContent = _etDate.format(new Date());
+    const now = new Intl.DateTimeFormat("en-US", {
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    }).format(new Date());
+    setStatusPage(`updated ${esc(now)}`);
   } catch (e) {
     el("error").hidden = false;
     el("error").textContent = "Failed to load dashboard data: " + e.message;
-    el("updated").textContent = "update failed";
+    setStatusPage("update failed");
   }
 }
 
-// Step the chart selection by ±1 with wrap-around, so prev/next cycle the
-// opportunities without ever getting stuck at an end (mirrors the dropdown).
+// Step the chart selection by ±1 with wrap-around (mirrors the dropdown).
 function stepChart(delta) {
   const sel = el("chart-select");
   const n = sel.options.length;
@@ -330,9 +341,5 @@ function stepChart(delta) {
   drawSelected();
 }
 
-el("refresh").addEventListener("click", refresh);
-el("chart-select").addEventListener("change", drawSelected);
-el("chart-prev").addEventListener("click", () => stepChart(-1));
-el("chart-next").addEventListener("click", () => stepChart(1));
 refresh();
 setInterval(refresh, POLL_MS);
