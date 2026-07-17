@@ -57,6 +57,7 @@ jobs:
       contents: write # a fix PR needs a branch
       pull-requests: write # ...and a PR
       issues: write # the diagnosis comment
+      id-token: write # OIDC exchange for the action's GitHub App token (fails without it)
     steps:
       - name: Resolve the alert issue number
         id: issue
