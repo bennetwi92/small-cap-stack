@@ -135,6 +135,10 @@ trigger it — public commenters get ignored (#343).
   close-and-regenerate.
 - **Genuine one-liners** (typo, doc tweak): hand-edit in GitHub's web/mobile editor on a branch
   and self-merge — do NOT summon an agent for a typo (#347).
+- **Box control commands (#338, OWNER-only, model-free):** `/backfill YYYY-MM-DD` (one PAST
+  date — the today/--all rules are enforced in code) · `/deploy [ref]` · `/restart` ·
+  `/export <dataset> [start] [end]` · `/status`. Deterministic bash relays to the existing
+  guarded workflows — no model, no quota.
 - ⚠️ **Agent PRs need one nudge to run CI:** PRs opened with the workflow token don't trigger
   `pull_request` workflows, so `lint-typecheck-test` won't start on its own — **close and reopen
   the PR** (two taps on mobile) to kick CI, then review/merge as usual. Token setup + details:
