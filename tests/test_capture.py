@@ -156,6 +156,43 @@ def test_hydration_prevents_reopen_after_restart(tmp_path: Path) -> None:
     assert store.read("scanner_hits").height == 2
 
 
+def test_hydration_and_day_opportunities_scoped_to_requested_date(tmp_path: Path) -> None:
+    # #322: both reads are dt=-scoped, leaning on partition == trading_date column (verified live).
+    store = Store(tmp_path)
+    other = date(2026, 6, 26)
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": "2026-06-26:OLD",
+                "symbol": "OLD",
+                "con_id": 9,
+                "trading_date": other,
+                "first_seen_utc": datetime(2026, 6, 26, 13, 0, tzinfo=UTC),
+                "first_rank": 0,
+            }
+        ],
+        partition_date=other,
+    )
+    svc = _svc(store, FakeBars([]), FakeNews([]))
+    now = datetime(2026, 6, 29, 9, 40, tzinfo=UTC)
+    asyncio.run(svc.on_scan_tick([_candidate()], now))
+
+    fresh = _svc(store, FakeBars([]), FakeNews([]))
+    fresh._ensure_hydrated(_TRADING_DATE)
+    assert fresh._open == {"2026-06-29:AZI"}  # the other date's row never leaks in
+
+    day = svc._day_opportunities(_TRADING_DATE)
+    assert day["opportunity_id"].to_list() == ["2026-06-29:AZI"]
+
+    # A date with no partition reads as a zero-column frame — the is_empty() guards must fire
+    # before any column is referenced.
+    empty = _svc(store, FakeBars([]), FakeNews([]))
+    empty._ensure_hydrated(date(2026, 6, 28))
+    assert empty._open == set()
+    assert svc._day_opportunities(date(2026, 6, 28)).is_empty()
+
+
 class BoomBars:
     """A bar source that raises for one symbol but works for the rest."""
 

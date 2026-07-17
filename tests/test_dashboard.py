@@ -10,6 +10,7 @@ from small_cap_stack.config import Settings
 from small_cap_stack.dashboard import (
     StatusInputs,
     _latest_candidates,
+    _open_opportunities,
     build_charts,
     build_stats,
     build_status,
@@ -254,6 +255,32 @@ def test_latest_candidates_scoped_to_requested_date(tmp_path: Path) -> None:
     # A date with no partition (weekend / new day before first scan): the scoped read returns a
     # zero-column frame and the is_empty() guard must fire before any column is referenced.
     assert _latest_candidates(store, date(2026, 6, 28)) == ([], None)
+
+
+def test_open_opportunities_scoped_to_requested_date(tmp_path: Path) -> None:
+    # #322: the read is dt=-scoped, leaning on partition == trading_date column (verified live).
+    store = Store(tmp_path)
+    other = date(2026, 6, 26)
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": "2026-06-26:OLD",
+                "symbol": "OLD",
+                "con_id": 9,
+                "trading_date": other,
+                "first_seen_utc": datetime(2026, 6, 26, 13, 0, tzinfo=UTC),
+                "first_rank": 0,
+            }
+        ],
+        partition_date=other,
+    )
+    _seed(store)  # a 2026-06-29 day (AZI + DUD, with a duplicate AZI row)
+
+    assert _open_opportunities(store, _DAY) == {"open_today": 2, "symbols": ["AZI", "DUD"]}
+    # A date with no partition: the scoped read yields a zero-column frame and the is_empty()
+    # guard must fire before any column is referenced.
+    assert _open_opportunities(store, date(2026, 6, 28)) == {"open_today": 0, "symbols": []}
 
 
 def test_build_stats_from_report() -> None:
