@@ -155,3 +155,18 @@ class Store:
         return sorted(
             p.name for p in self.data_dir.iterdir() if p.is_dir() and any(p.glob("**/*.parquet"))
         )
+
+    def file_counts(self) -> dict[str, int]:
+        """Parquet file count per dataset directory.
+
+        For this store the number that prices a read is the FILE count, not rows or bytes —
+        every read/query opens each file's footer, so 32k one-row files cost ~40x the same rows
+        in a few hundred files (#318/#319). Exposed as a metric/status field so the small-file
+        explosion is a number on a chart, not folklore (#321)."""
+        if not self.data_dir.exists():
+            return {}
+        return {
+            p.name: sum(1 for _ in p.glob("**/*.parquet"))
+            for p in sorted(self.data_dir.iterdir())
+            if p.is_dir()
+        }

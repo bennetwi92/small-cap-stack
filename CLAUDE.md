@@ -24,6 +24,11 @@ research record. This file documents **how we work** — follow it on every task
   `bull_flag_min_pole_pct`=0.02, trigger 1 tick / fill 3 ticks. A new knob must be wired through
   `detect_day_with_settings` or it does nothing; `tests/test_settings_wiring.py` fails if it isn't.
 - **Core principle:** *store raw, compute derived on read* — capture raw data at flag time; gate/stat logic is replayable pure functions so methodology can change retroactively.
+- **Parquet-store cost model:** for this store, **read cost tracks FILE count, not row count or
+  bytes on disk** — every read/query opens each file's footer, so 32k one-row files read ~40×
+  slower than the same rows in a few hundred files (#318/#319/#321; three PRs missed a 36s/60s
+  tick regression by sizing reads in rows/GB). Keep hot-path reads `dt=`-scoped and watch the
+  `files` counts in `status.json` / `scs_dataset_files`.
 
 ## Branching & PRs (trunk-based)
 - `main` is protected: **all changes go through a PR**; no direct pushes. Required check: `lint-typecheck-test`. Linear history (squash-merge), no force-push. Solo self-merge is allowed (0 approvals required).

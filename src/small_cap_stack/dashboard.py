@@ -103,8 +103,16 @@ def _data_counts(store: Store, prefix: str) -> dict[str, dict[str, int]]:
     box never pulls the full ~1.4 GB ``bars`` dataset into memory on every 60s status tick.
     ``today`` is the same count filtered to this trading date's ``opportunity_id`` prefix. Absent
     datasets (a fresh store) report zeros. All dataset/column names are code constants; only
-    ``prefix`` is derived (from the trading date) and is single-quote-escaped defensively."""
-    counts = {name: {"today": 0, "total": 0} for name, _ in _DATASET_COUNTS}
+    ``prefix`` is derived (from the trading date) and is single-quote-escaped defensively.
+
+    ``files`` (#321) is the Parquet file count — the number that actually prices a read of this
+    store (32k one-row files cost ~40x the same rows compacted; #318/#319). Publishing it every
+    tick makes a small-file explosion visible on the dashboard instead of being discovered by
+    OOM."""
+    files = store.file_counts()
+    counts = {
+        name: {"today": 0, "total": 0, "files": files.get(name, 0)} for name, _ in _DATASET_COUNTS
+    }
     available = set(store.datasets())
     present = [(name, distinct) for name, distinct in _DATASET_COUNTS if name in available]
     if not present:
@@ -118,7 +126,8 @@ def _data_counts(store: Store, prefix: str) -> dict[str, dict[str, int]]:
     ]
     result = store.query(" UNION ALL ".join(selects))
     for row in result.iter_rows(named=True):
-        counts[row["dataset"]] = {"today": int(row["today"]), "total": int(row["total"])}
+        counts[row["dataset"]]["today"] = int(row["today"])
+        counts[row["dataset"]]["total"] = int(row["total"])
     return counts
 
 

@@ -187,3 +187,75 @@ def test_eod_backfill_filters_to_trading_days(
     asyncio.run(app._on_eod_backfill())
     assert funds == [date(2026, 7, 6)]
     assert seen == [[date(2026, 7, 6)]]
+
+
+# --- tick instrumentation (#321) ----------------------------------------------------------------
+
+
+def test_status_json_carries_timings_health_and_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The acceptance test for "reachable without SSH": one tick must leave tick/status-build
+    # durations, the missed/over-budget counters, and per-dataset file counts in status.json.
+    monkeypatch.setattr(appmod, "now_et", lambda: datetime(2026, 7, 2, 10, 0, tzinfo=ET))
+    app = Application(_settings(data_dir=tmp_path))
+    monkeypatch.setattr(app.scheduler, "get_jobs", list)
+    _seed_day(app.store, _DAY)
+    asyncio.run(app._on_tick())  # disconnected -> no scan, but the status export runs
+
+    s = json.loads((tmp_path / "dashboard" / "status.json").read_text())
+    t = s["timings"]
+    assert t["status_build_seconds"] >= 0
+    assert t["tick_seconds_last"] >= 0  # the previous tick's gauge (0.0 on the first ever tick)
+    assert t["tick_budget_sec"] == app.settings.tick_interval_sec
+    assert set(s["health"]) == {"ticks_over_budget_total", "jobs_missed_total"}
+    # File counts: the number that would have caught #318 (scanner_hits at 32k files).
+    assert s["data"]["opportunities"]["files"] == 1
+    assert s["data"]["scanner_hits"]["files"] == 1
+
+
+def test_over_budget_tick_increments_counter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from small_cap_stack.monitoring import metric_value
+
+    monkeypatch.setattr(appmod, "now_et", lambda: datetime(2026, 7, 2, 10, 0, tzinfo=ET))
+    app = Application(_settings(data_dir=tmp_path, dashboard_enabled=False))
+    # Fake clock: the tick's start/end perf_counter reads land 45s apart (> half the 60s budget).
+    ticks = iter([0.0, 45.0, 90.0, 135.0])
+    monkeypatch.setattr(appmod.time, "perf_counter", lambda: next(ticks))
+    before = metric_value("scs_ticks_over_budget_total")
+    asyncio.run(app._on_tick())
+    assert metric_value("scs_ticks_over_budget_total") == before + 1
+    assert metric_value("scs_tick_seconds") == 45.0
+
+
+def test_heartbeat_pings_on_completion_not_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The ping moved to the END of the tick (#321): a tick that raises must NOT ping, so a
+    # persistently failing (or wedged) tick goes silent and Healthchecks alerts.
+    monkeypatch.setattr(appmod, "now_et", lambda: datetime(2026, 7, 2, 10, 0, tzinfo=ET))
+    app = Application(_settings(data_dir=tmp_path, dashboard_enabled=False))
+    monkeypatch.setattr(app.transport, "is_connected", lambda: True)
+    pings: list[bool] = []
+
+    async def fake_ping() -> None:
+        pings.append(True)
+
+    monkeypatch.setattr(app.heartbeat, "ping", fake_ping)
+
+    async def boom_scan(ib: object) -> list[object]:
+        raise RuntimeError("scanner down")
+
+    monkeypatch.setattr(app.scanner, "scan", boom_scan)
+    with pytest.raises(RuntimeError):
+        asyncio.run(app._on_tick())
+    assert pings == []  # no ping -> the dead-man's switch can actually fire
+
+    async def ok_scan(ib: object) -> list[object]:
+        return []
+
+    monkeypatch.setattr(app.scanner, "scan", ok_scan)
+    asyncio.run(app._on_tick())
+    assert pings == [True]  # a completed tick pings

@@ -210,3 +210,13 @@ def test_append_async_runs_the_write_off_the_event_loop(
 
     path = asyncio.run(scenario())
     assert path is not None and path.exists()
+
+
+def test_file_counts_per_dataset(tmp_path: Path) -> None:
+    # The number that prices a read is the FILE count (#321): each append is one file.
+    store = Store(tmp_path)
+    assert store.file_counts() == {}
+    store.append("candidates", _rows(), partition_date=date(2026, 6, 29))
+    store.append("candidates", _rows(), partition_date=date(2026, 6, 30))
+    store.append("bars", [{"symbol": "AZI", "open": 1.0}], partition_date=date(2026, 6, 29))
+    assert store.file_counts() == {"bars": 1, "candidates": 2}

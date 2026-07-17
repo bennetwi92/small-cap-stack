@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+import time
 from datetime import UTC, date, datetime, timedelta
 
 from .capture import CaptureService
@@ -38,8 +39,12 @@ from .market_calendar import is_trading_day
 from .marketdata import IBKRMarketData
 from .monitoring import (
     COLD_DISCONNECTS,
+    DATASET_FILES,
     IBKR_CONNECTED,
     SCAN_TICKS,
+    STATUS_BUILD_SECONDS,
+    TICK_SECONDS,
+    TICKS_OVER_BUDGET,
     Heartbeat,
     metric_value,
     start_metrics_server,
@@ -164,8 +169,8 @@ class Application:
 
     async def _on_tick(self) -> None:
         """Intraday discovery: scan for candidates during the scan window (bars come at EOD)."""
+        t0 = time.perf_counter()
         SCAN_TICKS.inc()
-        await self.heartbeat.ping()  # dead-man's switch: process is alive
         now = now_et()
         # Refresh the gauge every tick so it tracks warm disconnects too (the daily Gateway restart
         # and data-farm outages), not just the cold-disconnect path that alerts (#163-C2).
@@ -187,6 +192,20 @@ class Application:
             self._export_status(now)
             if trading:
                 self._refresh_stats_charts(now)
+        # Tick self-reporting (#321): `tick` runs with max_instances=1, so an over-budget tick makes
+        # the scheduler silently skip the next one — a scanner gap in the Phase-1 dataset. Measure
+        # every tick and shout while there's still headroom, instead of discovering it via OOM.
+        elapsed = time.perf_counter() - t0
+        TICK_SECONDS.set(elapsed)
+        budget = self.settings.tick_interval_sec
+        if elapsed > 0.5 * budget:
+            TICKS_OVER_BUDGET.inc()
+            log.warning("tick.over_budget", seconds=round(elapsed, 2), budget_sec=budget)
+        # Dead-man's switch, deliberately LAST (#321): pinging at the top said only "the process is
+        # alive", so a wedged or persistently-failing tick kept pinging happily through the exact
+        # failures this switch exists to catch. Pinging on completion makes Healthchecks alert when
+        # ticks hang or keep raising.
+        await self.heartbeat.ping()
 
     def _refresh_stats_charts(self, now: datetime) -> None:
         """Catch-up refresh of the EOD stats/charts on the tick (best-effort).
@@ -249,10 +268,24 @@ class Application:
                 scan_ticks_total=int(metric_value("scs_scan_ticks_total")),
                 jobs=[(j.id, j.next_run_time) for j in self.scheduler.get_jobs()],
             )
-            write_json(
-                self.settings.data_dir / "dashboard" / "status.json",
-                build_status(self.store, inputs),
-            )
+            t0 = time.perf_counter()
+            payload = build_status(self.store, inputs)
+            build_seconds = time.perf_counter() - t0
+            STATUS_BUILD_SECONDS.set(build_seconds)
+            for dataset, c in payload.get("data", {}).items():
+                DATASET_FILES.labels(dataset=dataset).set(c.get("files", 0))
+            # Tick health, readable on the dashboard without SSH (#321). tick_seconds_last is the
+            # PREVIOUS completed tick — this file is written mid-tick, before its own total exists.
+            payload["timings"] = {
+                "status_build_seconds": round(build_seconds, 3),
+                "tick_seconds_last": round(metric_value("scs_tick_seconds"), 3),
+                "tick_budget_sec": self.settings.tick_interval_sec,
+            }
+            payload["health"] = {
+                "ticks_over_budget_total": int(metric_value("scs_ticks_over_budget_total")),
+                "jobs_missed_total": int(metric_value("scs_jobs_missed_total")),
+            }
+            write_json(self.settings.data_dir / "dashboard" / "status.json", payload)
         except Exception:  # noqa: BLE001 — a dashboard write must never break the tick
             log.warning("dashboard.status_write_failed")
 
