@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, date, datetime, time
 from pathlib import Path
@@ -104,3 +105,85 @@ def test_refresh_stats_charts_disabled(tmp_path: Path) -> None:
     _seed_day(app.store, _DAY)
     app._refresh_stats_charts(datetime(2026, 7, 2, 16, 25, tzinfo=ET))
     assert not (tmp_path / "dashboard" / "stats.json").exists()
+
+
+# --- trading-calendar gate (#137) ---------------------------------------------------------------
+
+
+def test_on_tick_skips_scan_on_non_trading_day(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Saturday 2026-07-04, 10:00 ET — inside the scan window, but not a session. The scan block
+    # must not run; the status export still does (the dashboard stays live 24/7).
+    monkeypatch.setattr(appmod, "now_et", lambda: datetime(2026, 7, 4, 10, 0, tzinfo=ET))
+    app = Application(_settings(data_dir=tmp_path))
+    monkeypatch.setattr(app.transport, "is_connected", lambda: True)
+    # The scheduler is never started in tests, so its jobs have no next_run_time yet.
+    monkeypatch.setattr(app.scheduler, "get_jobs", list)
+
+    async def boom_scan(ib: object) -> list[object]:
+        raise AssertionError("scanner must not run on a non-trading day")
+
+    monkeypatch.setattr(app.scanner, "scan", boom_scan)
+    asyncio.run(app._on_tick())
+    assert (tmp_path / "dashboard" / "status.json").exists()
+
+
+def test_on_tick_scans_on_a_trading_day(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Thursday 2026-07-02, 10:00 ET — the same setup must reach the scanner.
+    monkeypatch.setattr(appmod, "now_et", lambda: datetime(2026, 7, 2, 10, 0, tzinfo=ET))
+    app = Application(_settings(data_dir=tmp_path))
+    monkeypatch.setattr(app.transport, "is_connected", lambda: True)
+    scanned = []
+
+    async def fake_scan(ib: object) -> list[object]:
+        scanned.append(True)
+        return []
+
+    monkeypatch.setattr(app.scanner, "scan", fake_scan)
+    asyncio.run(app._on_tick())
+    assert scanned == [True]
+
+
+def test_eod_jobs_noop_on_non_trading_day(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The 2026-07-03 incident day (Independence Day observed): both EOD jobs must return early.
+    monkeypatch.setattr(appmod, "now_et", lambda: datetime(2026, 7, 3, 16, 25, tzinfo=ET))
+    app = Application(_settings(data_dir=tmp_path))
+
+    async def boom_batch(trading_date: date) -> None:
+        raise AssertionError("EOD batch must not run on a non-trading day")
+
+    monkeypatch.setattr(app, "_eod_ibkr_batch", boom_batch)
+
+    def boom_report(*a: object, **k: object) -> object:
+        raise AssertionError("EOD report must not build on a non-trading day")
+
+    monkeypatch.setattr(appmod, "build_eod_report", boom_report)
+    asyncio.run(app._on_eod_bars())
+    asyncio.run(app._on_eod_report())
+
+
+def test_eod_backfill_filters_to_trading_days(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Monday 2026-07-06 03:45 ET with a 3-day lookback: Sun 07-05 and Sat 07-04 drop out, and the
+    # job still runs (gating the whole job on a weekend would strand a failed Friday EOD).
+    monkeypatch.setattr(appmod, "now_et", lambda: datetime(2026, 7, 6, 3, 45, tzinfo=ET))
+    app = Application(_settings(data_dir=tmp_path, backfill_days=3))
+    monkeypatch.setattr(app.transport, "is_connected", lambda: True)
+    funds: list[date] = []
+
+    async def fake_funds(d: date) -> None:
+        funds.append(d)
+
+    monkeypatch.setattr(app, "_backfill_fundamentals", fake_funds)
+    seen: list[list[date]] = []
+
+    async def fake_backfill(dates: list[date]) -> list[date]:
+        seen.append(list(dates))
+        return []
+
+    monkeypatch.setattr(app.capture, "backfill_recent", fake_backfill)
+    asyncio.run(app._on_eod_backfill())
+    assert funds == [date(2026, 7, 6)]
+    assert seen == [[date(2026, 7, 6)]]

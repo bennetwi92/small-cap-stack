@@ -34,6 +34,7 @@ from .fundamentals import (
 from .ibkr.supervisor import ConnectionSupervisor
 from .ibkr.transport import IBKRTransport
 from .logging import configure_logging, get_logger
+from .market_calendar import is_trading_day
 from .marketdata import IBKRMarketData
 from .monitoring import (
     COLD_DISCONNECTS,
@@ -157,6 +158,10 @@ class Application:
 
     # --- the periodic work loop ---------------------------------------------------------
 
+    def _is_trading_day(self, d: date) -> bool:
+        """The calendar gate (#137): XNYS sessions, minus the settings override list."""
+        return is_trading_day(d, extra_closed=self.settings.calendar_closed_dates)
+
     async def _on_tick(self) -> None:
         """Intraday discovery: scan for candidates during the scan window (bars come at EOD)."""
         SCAN_TICKS.inc()
@@ -166,7 +171,13 @@ class Application:
         # and data-farm outages), not just the cold-disconnect path that alerts (#163-C2).
         connected = self.transport.is_connected()
         IBKR_CONNECTED.set(1 if connected else 0)
-        if connected and within_window(now, self.settings.scan_start, self.settings.scan_end):
+        # The calendar gate (#137): on a weekend/holiday there is no session — scanning would only
+        # capture perennial liquid names (the 2026-07-03 SOXS junk session) and the stats/charts
+        # refresh would chew on an empty day. The status export still runs so the dashboard stays
+        # live 24/7.
+        trading = self._is_trading_day(now.date())
+        in_window = within_window(now, self.settings.scan_start, self.settings.scan_end)
+        if connected and trading and in_window:
             candidates = await self.scanner.scan(self.transport.ib)
             log.info(
                 "scan.candidates", count=len(candidates), symbols=[c.symbol for c in candidates]
@@ -174,7 +185,8 @@ class Application:
             await self.capture.on_scan_tick(candidates, now)
         if self.settings.dashboard_enabled:
             self._export_status(now)
-            self._refresh_stats_charts(now)
+            if trading:
+                self._refresh_stats_charts(now)
 
     def _refresh_stats_charts(self, now: datetime) -> None:
         """Catch-up refresh of the EOD stats/charts on the tick (best-effort).
@@ -260,8 +272,11 @@ class Application:
         The fundamentals back-fill runs afterwards and *outside* the IBKR retry — see
         ``_backfill_fundamentals``.
         """
-        log.info("bars.eod_start")
         trading_date = now_et().date()
+        if not self._is_trading_day(trading_date):
+            log.info("bars.eod_skipped_non_trading_day", date=trading_date.isoformat())
+            return
+        log.info("bars.eod_start")
         await self._eod_ibkr_batch(trading_date)
         await self._backfill_fundamentals(trading_date)
 
@@ -311,12 +326,17 @@ class Application:
         """
         log.info("backfill.start")
         today = now_et().date()
-        for i in range(self.settings.backfill_days):
-            await self._backfill_fundamentals(today - timedelta(days=i))
+        # The job itself runs every morning; the calendar gate (#137) filters the *dates* instead
+        # of skipping the job — gating the whole job on weekends would leave a failed Friday EOD
+        # unrecovered (Monday's lookback no longer reaches it).
+        recent = [today - timedelta(days=i) for i in range(self.settings.backfill_days)]
+        trading_days = [d for d in recent if self._is_trading_day(d)]
+        for d in trading_days:
+            await self._backfill_fundamentals(d)
         if not self.transport.is_connected():
             log.warning("backfill.skipped_disconnected")
             return
-        filled = await self.capture.backfill_recent(today, days=self.settings.backfill_days)
+        filled = await self.capture.backfill_recent(trading_days)
         for d in filled:
             report = build_eod_report(self.store, self.settings, d)
             if report.analyses:
@@ -324,8 +344,12 @@ class Application:
         log.info("backfill.done", days_filled=len(filled))
 
     async def _on_eod_report(self) -> None:
+        today = now_et().date()
+        if not self._is_trading_day(today):
+            log.info("report.eod_skipped_non_trading_day", date=today.isoformat())
+            return
         log.info("report.eod_start")
-        report = build_eod_report(self.store, self.settings, now_et().date())
+        report = build_eod_report(self.store, self.settings, today)
         if report.analyses:
             await self.store.append_async(
                 "analysis", analysis_records(report), partition_date=report.trading_date

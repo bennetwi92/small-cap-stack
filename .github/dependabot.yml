@@ -1,0 +1,15 @@
+# Automated dependency updates (#137): exchange_calendars is the trading calendar of record, and
+# staying current is how future holiday calendars arrive — see research/decisions.md (2026-07-17).
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: saturday  # never inside the scan window; CI runs on the PR like any other
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: saturday

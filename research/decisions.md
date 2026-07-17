@@ -450,3 +450,29 @@ mutation-tested.
   what the ladder did would be a lie on the page. For the same reason a **rung-0 day logs no cap
   skips**: nothing was taken, so the cap was never the binding constraint — counting those would
   inflate the cap's cost with kill-switch days.
+
+## Trading calendar of record: exchange_calendars XNYS (DECISION 2026-07-17, #137)
+
+Root cause of the 2026-07-03 junk session: nothing in the code knew the market was closed
+(Independence Day observed), so the app scanned all day, captured a perennial ETF (SOXS) as the
+day's only "opportunity", and clobbered the dashboard's last completed session. Weekends scanned
+too.
+
+- **Source of truth: `exchange_calendars` (PyPI, XNYS calendar)** — pure-Python, offline,
+  deterministic. Knows weekends, full holidays, historical ad-hoc closures, and **early closes**.
+  Fits the offline test + compute-on-read replay model (no live connection needed), and holidays
+  are published years ahead, so a dependency bot keeps it current with near-zero effort
+  (`.github/dependabot.yml` added alongside).
+- **Manual override:** `Settings.calendar_closed_dates` marks extra closed dates so an
+  *unscheduled* closure (e.g. a national day of mourning) is patchable via env without a release.
+- **Rejected:** a hardcoded holiday list (it *is* the keep-it-updated problem the incident
+  exposed). **Deferred:** the IBKR `tradingHours` runtime cross-check (authoritative and
+  self-updating, but needs a live connection; worth adding at connect time if an ad-hoc closure
+  ever slips through).
+- **Wiring:** `market_calendar.is_trading_day` / `early_close_et` (pure, cached). `_on_tick` skips
+  the scan block + stats refresh on non-trading days (status export still runs); `eod_bars` /
+  `eod_report` no-op; `eod_backfill` filters its *dates* rather than skipping the job — gating the
+  whole job on a weekend would strand a failed Friday EOD (Monday's 3-day lookback no longer
+  reaches Friday). Early closes never clip the 04:00–11:59 pre-market scan window and the 16:20+
+  EOD crons stay valid on a 13:00 close, so job times are unchanged; `early_close_et` exists for
+  any consumer that does care about the close.

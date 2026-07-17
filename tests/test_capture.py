@@ -297,7 +297,8 @@ def test_backfill_recent_scans_multiple_days(tmp_path: Path) -> None:
     # An opportunity on 2026-06-29 with no bars; back-fill scanning back from 2026-06-30 repairs it.
     asyncio.run(svc.on_scan_tick([_candidate("AAA")], datetime(2026, 6, 29, 9, 40, tzinfo=UTC)))
 
-    filled = asyncio.run(svc.backfill_recent(date(2026, 6, 30), days=3))
+    dates = [date(2026, 6, 30), date(2026, 6, 29), date(2026, 6, 28)]
+    filled = asyncio.run(svc.backfill_recent(dates))
     assert filled == [_TRADING_DATE]  # only the day that had a missing opportunity
     assert store.read("bars")["symbol"].to_list() == ["AAA"]
 
