@@ -4,123 +4,137 @@ Time-boxed, throwaway experiments that de-risk decisions before we build. Spike 
 production code and is exempt from the package's mypy strictness (it lives outside
 `src/small_cap_stack`), but it is still ruff-linted.
 
-## `api_scanner_vs_mosaic.py` — issue #8 (highest-priority unknown)
+**The agreement** (CLAUDE.md): every spike maps to a **GitHub issue**, and its findings are recorded
+as a comment on that issue — not just in chat. Outputs (CSV/JSON/XML) go to `data/spikes/`, which is
+gitignored. **Never commit data.**
 
-**Question:** Can the IBKR **API** scanner (`reqScannerData`) reproduce the small-cap gainer
-scan you run in the TWS **Mosaic** GUI? The headless system can only use the API, so if the
-API scan can't surface the same candidates, the whole approach needs rethinking.
+A spike whose question is answered is dead weight: retire it to *Answered* below, or delete it. Two
+were deleted for exactly this reason (#296) — the engine-v2 golden-parity test and
+`divergence_v1_v2.py`, whose v1-vs-v2 comparison silently became v2-vs-v2 once #180 repointed
+`compute_r_metrics`.
 
-### How to run
-1. Start TWS or IB Gateway and log in; enable API connections (Configure → API → Settings,
-   "Enable ActiveX and Socket Clients").
-2. In the project venv:
-   ```bash
-   pip install -e ".[dev]"
-   python spikes/api_scanner_vs_mosaic.py --port 4002 --quotes   # Gateway paper (7497 = TWS paper)
-   ```
-3. **Discover the right filters first** (one-off):
-   ```bash
-   python spikes/api_scanner_vs_mosaic.py --dump-params
-   ```
-   This writes `data/spikes/scanner_parameters.xml` — search it for the `scanCode` and
-   `<AbstractField>` tags that match the columns/filters you use in Mosaic.
+---
 
-### Volume: use the native short-term filter, not day volume
-The strategy wants **trailing 5-min volume > 100k**, NOT cumulative day volume. The scanner's
-`volumeAbove` filter and the snapshot `dayVol` are both day-cumulative. IBKR exposes the
-short-term window natively, so we filter on it directly (`--vol-window 5min` → `stVolume5minAbove`):
+## Active
 
-```bash
-# rank by % gain, require a 5-min volume spike (closest to the Mosaic "top gainers" view)
-python spikes/api_scanner_vs_mosaic.py --port 4002 --vol-window 5min --min-volume 100000
-# or rank by the 5-min spike itself
-python spikes/api_scanner_vs_mosaic.py --port 4002 --scan-code HIGH_STVOLUME_5MIN
-```
+| Spike | Issue | What it's for |
+|---|---|---|
+| [`viz_engine.py`](#viz_enginepy) | #140 / #176 / #182 | Per-opportunity visual review of the engine |
+| [`review_regression.py`](#review_regressionpy) | #194 | Re-pin the reviewed cases after a rule change |
+| [`review_metaanalysis.py`](#review_metaanalysispy) | #173 | One flat row per run: engine vs the trader's ground truth |
+| [`review_meta_sweep.py`](#review_meta_sweeppy) | #173 | Replay candidate gate/param changes over the reviewed day-set |
+| [`warrior_library.py`](#warrior_librarypy) | #304 | Warrior Trading transcript corpus for rule provenance |
 
-Related native codes worth trying: `stVolume3min/10minAbove`, `stVolumeVsAvg5minAbove`
-(relative-volume spike), `volumeRateAbove`, scan code `TOP_VOLUME_RATE`.
+### `viz_engine.py`
 
-### The actual experiment
-Run this **pre-market (≈07:00–09:00 ET)** on a few active mornings, and at the same moment
-screenshot your Mosaic scan. Then compare:
+Renders one opportunity's full trading day (04:00–16:00 ET) as an HTML candle chart, marking how the
+engine tokenises the day and picks the pole / consolidation / entry, the prior pump–fade **cycles**
+(the exhaustion rule), the scanner-appearance ("seen") line, entry/stop levels, and the gate table.
+This is the harness the trader drives one opportunity at a time to refine the rules.
 
-- Does the API scan return the **same tickers** Mosaic shows (ignoring float, which is a
-  post-filter)?
-- Does the API scan **update pre-market**, or only during regular hours? (Suspected weak spot.)
-- Does the **50-row cap** hide names Mosaic surfaces?
-- Which Mosaic filters have **no API equivalent** (→ must become post-filters)?
+Its rules have largely **graduated into the core package** (`bullflag/day.py::detect_day` is the port
+of `pick_setup` + the exhaustion wiring, validated against 25 reviewed opportunities, #194).
 
-Results are saved to `data/spikes/api_scan_<timestamp>_ET.{csv,json}` (gitignored).
+### `review_regression.py`
 
-### What to record on issue #8
-- Go / no-go: can the API scan stand in for Mosaic?
-- The achievable `ScannerSubscription` definition (scanCode, location, filters).
-- Which criteria must be post-filters (expected: float, short interest, news, bull-flag).
-- Any pre-market coverage gap and the fallback if the API scanner is inadequate.
-
-## `premarket_bar_completeness.py` — issue #9
-
-Are pre-market 5-min bars complete enough to detect a bull-flag and count ≤2 green / ≤2 red
-candles on thin names? Fetches today's `5 mins` TRADES bars (`useRTH=0`) and reports, per
-symbol, how many 5-min slots from 04:00 ET are filled and the largest contiguous gap.
-
-```bash
-python spikes/premarket_bar_completeness.py --port 4002 --symbols NNBR,AZI,SKYQ,PETS,CBRG
-```
-A leading absence (first bar after 04:00) just means the stock hadn't traded yet — fine.
-Internal gaps (`longest_gap > 0`) are what would distort candle counting → need a gap policy.
-
-## `ibkr_news_check.py` — issue #10
-
-Does IBKR deliver per-symbol breaking news before we pay for a feed? Lists entitled providers
-(`reqNewsProviders`), pulls recent per-symbol headlines (`reqHistoricalNews`), and optionally
-the article body (`reqNewsArticle`).
-
-```bash
-python spikes/ibkr_news_check.py --port 4002 --symbols NNBR,AZI --days 7 --body
-```
-Judge: are there headlines near the spike time, and are bodies retrievable? If the entitled
-providers only give stale commentary, scope a paid feed.
-
-## `ibkr_tradability_check.py` — issue #25
-
-Is a symbol actually **orderable on IBKR** (not just un-halted)? Some symbols trade actively
-yet IBKR blocks order entry for the account. Probes each symbol non-intrusively: contract
-qualification → live snapshot (proves it trades) → `whatIfOrder` margin preview (NO execution).
-A block surfaces as an order-rejection error (e.g. **201** "No Trading Permission / Customer
-Ineligible") which we map to a hard "not tradable" verdict, separate from the halted check.
-
-```bash
-python spikes/ibkr_tradability_check.py --port 4002 --symbols NNBR,AZI,SKYQ,PETS,CBRG
-```
-Confirmed live: a scanner hit (CBRG) came back **BLOCKED** (PRIIPs/KID restriction) while the
-rest were TRADABLE — so this gate is load-bearing. Re-validate verdicts on a **live** account
-in Phase 3 (paper may not perfectly mirror restrictions).
-
-## `viz_engine.py` — issues #140 / #176 / #182
-
-Per-opportunity **visual review** of the engine-v2 bull-flag detector: renders one opportunity's
-full trading day (04:00–16:00 ET) as an HTML candle chart, marking how the engine tokenises the
-day and picks the pole / consolidation / entry, the prior pump–fade **cycles** (for the
-exhaustion rule), the scanner-appearance ("seen") line, entry/stop levels, and the gate table.
-This is the harness the trader drives one opportunity at a time to refine the rules (greedy
-pole/peak walk, appearance-anchoring, cycle-exhaustion). Still spike-side; the validated rules
-graduate into the core `bullflag` package later.
-
-## `review_regression.py` — issue #194
-
-Regression net for the `viz_engine.py` review: every opportunity the trader has walked through
-and confirmed is pinned as a committed fixture under `review_fixtures/` — the day's bars **plus**
-the expected engine outcome (pole/cons/entry/stop, passed, failing gates, cycle number,
-exhausted). The checker re-runs the current engine over each fixture and asserts it still matches,
-so a rule change can't silently regress a signed-off case.
+Extracts the reviewed opportunities — the day's bars **plus** the expected engine outcome
+(pole/cons/entry/stop, passed, failing gates, cycle number, exhausted) — as committed fixtures.
 
 ```bash
 python spikes/review_regression.py              # CHECK: assert every fixture still matches
 python spikes/review_regression.py --extract    # re-pin fixtures from a live /data snapshot (Mac/VPS)
 ```
 
-Check mode reads only the committed fixtures (no `/data`/box needed → survives a reboot, runs
-anywhere). `--extract` is the deliberate "re-pin the golden value" step after the trader confirms
-a new outcome. The fixtures are ~160K of curated OHLCV **test inputs** (not runtime data, and
-outside the gitignored `data/`) — a documented, trader-approved exception to "never commit data".
+⚠️ **The fixtures graduated to `tests/fixtures/review_cases/`** and are now asserted by
+`tests/test_review_fixtures.py` **in CI** — so `--extract` is the live half of this spike (the
+deliberate "re-pin the golden value" step after the trader signs off a new outcome), while check
+mode merely duplicates what CI already runs on every PR.
+
+The fixtures are ~160K of curated OHLCV **test inputs** (not runtime data, and outside the gitignored
+`data/`) — a documented, trader-approved exception to "never commit data".
+
+### `review_metaanalysis.py`
+
+Cross-day meta-analysis of review-page feedback. Builds one flat row per run over a set of reviewed
+days, joining engine R-metrics, the trader's review annotation (and the **corrected** annotation Max
+R, anchored at `consolidation.t1` — *not* the buggy saved `annotations.max_r`), flag-time metadata
+(rank persistence, float/short%, news recency) and candidate features. Emits JSON on STDOUT; the
+human summary + verification assertions go to STDERR.
+
+**Runs on the VPS** (needs `/data`). Reviews are shipped in via `REVIEWS_B64`.
+
+### `review_meta_sweep.py`
+
+Stage E of the same spike: replay-backtest candidate gate/param changes over the reviewed day-set.
+Re-runs `compute_r_metrics` per run under each candidate `Settings` override and scores it against
+the trader's ground-truth labels (tradeable vs no_trigger). Pure replay — the engine is already
+backcastable over the cached bars.
+
+**Runs on the VPS.** Driven by the `review-analysis` skill; see also the `box-data` skill for
+pulling `/data` into a web session.
+
+### `warrior_library.py`
+
+Collects English auto-captions for Warrior Trading / Ross Cameron videos into a **gitignored**
+library under `data/warrior-library/` (captions only — no video/audio), so a rule's provenance can be
+checked against what is actually said rather than recollection. One code path serves both the
+backfill and the daily incremental job; videos already in `index.json` are skipped, so re-runs are
+cheap and idempotent.
+
+```bash
+python spikes/warrior_library.py --months 6       # backfill a rolling window
+python spikes/warrior_library.py --since 20260101 # backfill from a date
+python spikes/warrior_library.py --limit 5        # smoke test
+```
+
+YouTube requires a JS runtime to hand over caption URLs, so yt-dlp is pointed at the local `node`
+(`--js-runtimes node`).
+
+---
+
+## Answered
+
+These settled their question and are kept only as the record of *how* it was settled. The findings
+live on the issues; the decisions live in `research/decisions.md`. Don't run them casually — they all
+need a live IB Gateway.
+
+### `api_scanner_vs_mosaic.py` — issue #8
+
+**Q:** Can the IBKR **API** scanner (`reqScannerData`) reproduce the small-cap gainer scan the trader
+runs in the TWS **Mosaic** GUI? (The headless system can only use the API, so a "no" would have sunk
+the approach.)
+
+**A: yes** — and the volume finding is now a locked rule: the strategy wants **trailing 5-min
+volume**, not cumulative day volume. `volumeAbove` and snapshot `dayVol` are both day-cumulative;
+IBKR exposes the short-term window natively, so we filter on it directly
+(`stVolume5minAbove`) rather than deriving it from bars. Scanner breadth was later raised to the
+50-row API cap (#—, `decisions.md`).
+
+```bash
+python spikes/api_scanner_vs_mosaic.py --dump-params            # → data/spikes/scanner_parameters.xml
+python spikes/api_scanner_vs_mosaic.py --port 4002 --vol-window 5min --min-volume 100000
+```
+
+### `premarket_bar_completeness.py` — issue #9
+
+**Q:** Are pre-market 5-min bars complete enough to detect a bull-flag on thin names? Reports, per
+symbol, how many 5-min slots from 04:00 ET are filled and the largest contiguous gap.
+
+A leading absence (first bar after 04:00) just means the stock hadn't traded yet — fine. Internal
+gaps are what would distort candle counting.
+
+### `ibkr_news_check.py` — issue #10
+
+**Q:** Does IBKR deliver per-symbol breaking news before we pay for a feed? Lists entitled providers
+(`reqNewsProviders`), pulls recent headlines (`reqHistoricalNews`), optionally the body
+(`reqNewsArticle`).
+
+### `ibkr_tradability_check.py` — issue #25
+
+**Q:** Is a symbol actually **orderable on IBKR** (not merely un-halted)? Probes non-intrusively:
+contract qualification → live snapshot (proves it trades) → `whatIfOrder` margin preview (**no**
+execution).
+
+**A: this gate is load-bearing.** Confirmed live — a scanner hit (CBRG) came back **BLOCKED**
+(PRIIPs/KID restriction) while the rest were TRADABLE. Re-validate verdicts on a **live** account in
+Phase 3; paper may not perfectly mirror restrictions.

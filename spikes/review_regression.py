@@ -9,10 +9,13 @@ regress a case the trader already signed off on.
     python spikes/review_regression.py                 # CHECK: assert every fixture still matches
     python spikes/review_regression.py --extract       # REBUILD fixtures from a live /data snapshot
 
-Check mode reads only the committed fixtures (spikes/review_fixtures/*.json) — no box/`/data` needed,
-so it runs anywhere and survives a reboot. Extract mode needs the data snapshot (--data-dir) and is
-how you (re)generate a fixture: run it, eyeball the viz, and if the trader confirms the new outcome,
-commit the regenerated fixture (that's the intentional "update the golden value" step).
+The fixtures live in ``tests/fixtures/review_cases/*.json`` and are asserted by
+``tests/test_review_fixtures.py`` **in CI**, so check mode here duplicates what every PR already
+runs — it needs no box/``/data`` and survives a reboot, but it is not the safety net; CI is.
+
+Extract mode is the live half: it needs the data snapshot (--data-dir) and is how you (re)generate a
+fixture — run it, eyeball the viz, and if the trader confirms the new outcome, commit the
+regenerated fixture (the intentional "update the golden value" step).
 
 Spike-side for now (the greedy-walk / appearance / cycle / exhaustion rules it covers still live in
 viz_engine.py); graduates into tests/ with committed fixtures once those rules land in the core
