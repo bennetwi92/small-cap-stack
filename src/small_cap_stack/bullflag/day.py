@@ -180,11 +180,10 @@ def detect_day_with_settings(
 ) -> DaySetup | None:
     """Settings-driven :func:`detect_day` — **the live detection path** (``rmetrics``, ``charts``).
 
-    ⚠️ The v2 caps (``max_pole`` / ``max_cons`` 4, ``min_pole_pct`` 0.02) are **not read from
-    settings** — they come from :func:`detect_day`'s defaults, so they cannot be tuned via ``.env``
-    and ``config``'s ``bull_flag_max_pole`` (8) / ``bull_flag_max_flag`` (6) are stale leftovers no
-    live code reads. The #180 settings flip never landed; **#302** tracks making ``config`` the
-    single source of truth. Only the *shared* thresholds below are read from ``settings``.
+    Every rule this detector applies comes from ``settings``. Before #302 the caps
+    (``max_pole`` / ``max_cons`` / ``min_pole_pct``) were silently left to :func:`detect_day`'s
+    defaults, so ``config`` could — and did — disagree with the engine. Pass them explicitly: a new
+    knob must be wired here or it does nothing.
     """
     tick = settings.tick_size
     return detect_day(
@@ -192,6 +191,9 @@ def detect_day_with_settings(
         first_hit=first_hit,
         tick=tick,
         eps=token_eps(settings),
+        max_pole=settings.bull_flag_max_pole,
+        max_cons=settings.bull_flag_max_cons,
+        min_pole_pct=settings.bull_flag_min_pole_pct,
         max_retracement=settings.bull_flag_max_retracement,
         max_peak_wick=settings.bull_flag_max_peak_wick,
         trigger_offset=settings.bull_flag_trigger_offset_ticks * tick,
@@ -199,6 +201,7 @@ def detect_day_with_settings(
         staleness_min=settings.entry_staleness_min,
         cycle_min_volume=settings.scan_min_5m_volume // 2,
         exhaustion_cap=settings.bull_flag_exhaustion_cap,
+        atr_window=settings.bull_flag_atr_window,
         window_start=settings.scan_start,
         window_end=settings.scan_end,
     )
