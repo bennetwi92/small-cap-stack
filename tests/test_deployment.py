@@ -55,7 +55,8 @@ def test_both_deploy_workflows_use_the_shared_action() -> None:
         w = (ROOT / ".github" / "workflows" / name).read_text()
         assert "uses: ./.github/actions/deploy-app" in w, name
         # Composite actions resolve from the workspace, so the caller must check it out.
-        assert "actions/checkout@v4" in w, name
+        # Version-agnostic: the pin moves (#282), the requirement doesn't.
+        assert "actions/checkout@" in w, name
         assert "docker compose" not in w, f"{name} should delegate the deploy, not inline it"
 
 

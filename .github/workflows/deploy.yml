@@ -40,7 +40,7 @@ jobs:
       # Composite actions resolve from the workspace, so the action directory must exist locally.
       # Sparse: these jobs otherwise never check out — they operate on /opt/small-cap-stack.
       - name: Check out the deploy action
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           sparse-checkout: .github/actions
 
