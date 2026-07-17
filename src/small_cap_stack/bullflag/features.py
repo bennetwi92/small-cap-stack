@@ -5,14 +5,11 @@ compute a :class:`FeatureVector` covering the six areas (SHAPE / VOL / WICK / PO
 Pure over ``bars[base_idx .. cons_end_idx]`` plus (for the ATR baseline) the bars before the base —
 store-raw / compute-on-read, so features replay over history.
 
-Anchors match the legacy detector — ``pole_base = bars[base_idx].low``,
-``pole_high = bars[peak_idx].high``, ``cons_low = min(low over consolidation)`` — so retracement is
-numerically identical for shapes both engines segment the same way. The pole is a run of strict
-higher highs (no ``E``), so ``pole_span > 0`` always. Parity is scoped to poles whose steps clear
-the ``eps`` (1-tick) tolerance: a near-1-tick step is ``E`` in v2 (an intended noise filter) but a
-higher high to the legacy strict-``>`` walk. "Pole bars" span ``base_idx..peak_idx`` inclusive
-(same slice legacy ``detect`` uses for ``pole_has_big_green``); "consolidation bars" span
-``peak_idx+1..cons_end_idx``.
+Retracement anchors: ``pole_base = bars[base_idx].low``, ``pole_high = bars[peak_idx].high``,
+``cons_low = min(low over consolidation)``. The pole is a run of strict higher highs (no ``E``), so
+``pole_span > 0`` always. Steps must clear the ``eps`` (1-tick) tolerance — a near-1-tick step is
+``E``, a deliberate noise filter. "Pole bars" span ``base_idx..peak_idx`` inclusive;
+"consolidation bars" span ``peak_idx+1..cons_end_idx``.
 """
 
 from __future__ import annotations

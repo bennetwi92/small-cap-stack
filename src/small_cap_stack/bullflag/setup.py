@@ -99,20 +99,23 @@ def detect_setup(
 
 
 def detect_setup_with_settings(bars: Sequence[Bar], settings: Settings) -> Setup | None:
-    """Settings-driven detect_setup. Reads the CURRENT (legacy) settings for caps/gates — new
-    fields (``bull_flag_min_pole_pct`` / ``bull_flag_eps_ticks``) fall back to legacy-equivalent
-    values until #180 flips them, so pole/cons SHAPE reproduces the legacy detector **for shapes
-    whose highs are clearly separated (steps > eps) and every pole bar is a green thrust candle**
-    (segment.py's color/thrust rule, #182/#190, has no legacy equivalent). The ``eps`` flatness
-    tolerance (1 tick) is an intended v2 refinement: a move within 1 tick is ``E`` (flat), so a
-    1-tick-only pole/flag differs from legacy's strict ``>`` — a deliberate noise filter (such
-    poles fail ``min_pole_pct`` anyway), not a bug.
+    """Settings-driven :func:`detect_setup` — the END-anchored detector ("does a flag end at the
+    last bar?").
 
-    The entry TRIGGER always uses ``bull_flag_trigger_offset_ticks`` (1 tick, validated via visual
-    review, #182/#190) and the FILL (for R-measurement, #180) uses ``bull_flag_fill_offset_ticks``
-    (3 ticks, conservative slippage estimate, confirmed by the trader) regardless of the legacy/v2
-    settings flip — both are v2-only concepts with no legacy equivalent, unrelated to
-    ``entry_offset_ticks`` (legacy-only, unused here).
+    ⚠️ **Not the live path, and not aligned with it.** Production reads the full-day detector
+    (:func:`.day.detect_day_with_settings`, consumed by ``rmetrics`` / ``charts``). This function
+    has no production caller; it survives for tests and ad-hoc replay.
+
+    It also does **not** run the locked v2 params. It reads the stale legacy caps
+    (``bull_flag_max_pole`` 8 / ``bull_flag_max_flag`` 6) and its ``min_pole_pct`` /
+    ``atr_window`` ``getattr`` fallbacks name ``Settings`` fields that **do not exist** — so the
+    2% pole floor silently evaluates at ``0.0`` (off). Those fallbacks were placed for the #180
+    settings flip, which never landed (**#302**). Until #302 resolves, this and the live path
+    disagree about the caps.
+
+    The entry TRIGGER uses ``bull_flag_trigger_offset_ticks`` (1 tick, validated via visual review,
+    #182/#190); the FILL used for R uses ``bull_flag_fill_offset_ticks`` (3 ticks, conservative
+    slippage, confirmed by the trader). Both are v2-only concepts.
     """
     tick = settings.tick_size
     return detect_setup(

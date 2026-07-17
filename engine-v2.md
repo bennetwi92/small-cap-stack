@@ -5,6 +5,13 @@
 > migration that keeps `rmetrics` + the review workbench working. Locked decisions from
 > `bull-flag.md §6` are treated as fixed here (pole/cons ≤ 4/4, `E` token in the consolidation only, entry = last
 > cons high + 3 ticks).
+>
+> **Status (2026-07-17): shipped.** The pipeline is live and drives `rmetrics` + the review
+> workbench via `day.py::detect_day` (§13). The legacy detector it migrates away from was deleted in
+> #296, along with the §11 golden-parity test (which existed only to pin the #180 cut-over). Two
+> deviations from what's written below: the shared bar primitives live in `primitives.py` (#296),
+> and the §10 settings flip **never landed** — the v2 caps are `detect_day` defaults rather than
+> `config.py` values (**#302**). Read this as the record of the migration, not a live plan.
 
 ---
 

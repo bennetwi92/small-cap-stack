@@ -177,10 +177,14 @@ def detect_day(
 def detect_day_with_settings(
     bars: Sequence[Bar], settings: Settings, first_hit: datetime | None
 ) -> DaySetup | None:
-    """Settings-driven :func:`detect_day`. The v2 caps (``max_pole``/``max_cons`` 4, ``min_pole``
-    0.02, exhaustion cap 2 via ``bull_flag_exhaustion_cap``) come from ``detect_day`` defaults
-    — the legacy ``config`` values (8/6) and the legacy detector are untouched until the #180 flip;
-    only the *shared* thresholds are read from ``settings``."""
+    """Settings-driven :func:`detect_day` — **the live detection path** (``rmetrics``, ``charts``).
+
+    ⚠️ The v2 caps (``max_pole`` / ``max_cons`` 4, ``min_pole_pct`` 0.02) are **not read from
+    settings** — they come from :func:`detect_day`'s defaults, so they cannot be tuned via ``.env``
+    and ``config``'s ``bull_flag_max_pole`` (8) / ``bull_flag_max_flag`` (6) are stale leftovers no
+    live code reads. The #180 settings flip never landed; **#302** tracks making ``config`` the
+    single source of truth. Only the *shared* thresholds below are read from ``settings``.
+    """
     tick = settings.tick_size
     return detect_day(
         bars,

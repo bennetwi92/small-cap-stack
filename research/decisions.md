@@ -34,6 +34,9 @@
 - **Analysis window (CONFIRMED 2026-07-01, #93):** R-metrics (trigger / Max R / MAE) are measured only through the **regular close, `capture_end` = 16:00 ET** — after-hours bars are **excluded** so illiquid after-hours prints can't set Max R. Store-raw is preserved (all bars are kept in storage; the analysis window is bounded on read in `report.py`).
 
 ## Strategy notes captured 2026-06-29 (from `notes.md`)
+> `notes.md` was the trader's raw scratch capture. Every bullet in it became a locked decision —
+> the entry rule (above), exhaustion/re-entry and pre-market orders (below) — so the file was
+> **deleted in #297**. This section is the record; other docs citing "from `notes.md`" mean here.
 - **Opportunity exhaustion / re-entry (issue #36) — RULE CONFIRMED 2026-07-01:** a symbol can form >1 opportunity/day (runs, exhausts, extends again). **Rule (from the user):** once spotted, a symbol can't be re-spotted for **60 min** — a gap of ≥60 min with no scanner hits begins a *new* opportunity (e.g. pre-market pop → fade → market-open pop = the 2nd is new). Segmented **at analysis time** in `report.py` from the raw `scanner_hits` (not in live capture): each run gets its own bar window (extended back `reentry_lookback_min`=30 so the pole is captured), independent bull-flag/R-metrics, id `<date>:<symbol>#<run>`. Configurable via `Settings.reentry_gap_min`/`reentry_lookback_min`. Recomputes retroactively over already-collected data.
 - **Pre-market orders (issue #37):** pre-market is **limit-only**; stops/TP must be **app-monitored** pre-market (broker-native stops only in the regular session). Reuse tradepilot's app-side exit logic. Execution concern (P2/P3).
 

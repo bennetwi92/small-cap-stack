@@ -6,11 +6,22 @@ research record. This file documents **how we work** — follow it on every task
 
 ## Project shape
 - **Phases:** P1 = tracker only (no orders, 3 months data collection) · P2 = paper trading · P3 = live.
-- **Strategy (live, legacy engine, unchanged):** price $1–50 (widened from $2–10, #126) · float < 20M **shares** · breaking news · trailing 5-min volume > 100k · change > 10% · bull-flag: **pole = a run of higher highs** (1–8 bars — even a single higher-high bar; colour-agnostic) · **flag = a pullback** (≤6 candles) that makes **lower highs** and retraces **≤50%** of the pole · pole peak-bar volume **>** consolidation volume (redefined #127, 2026-07-03) · window 04:00–11:59 ET. Entry = 5 ticks above the high of the last complete consolidation candle; stop = low of the consolidation.
-  **Engine v2 in progress (`bull-flag.md`, umbrella #176, not yet live — lands with #180):** pole is
-  colour-gated (green thrust bars only) and entry splits into a 1-tick mechanical trigger + a
-  separate 3-tick conservative fill for R (#182/#190, `research/decisions.md`). Read `bull-flag.md`
-  for the full v2 spec.
+- **Strategy (live — engine v2):** price $1–50 (widened from $2–10, #126) · float < 20M **shares** ·
+  breaking news · trailing 5-min volume > 100k · change > 10% · window 04:00–11:59 ET.
+  Bull-flag: **pole = a run of higher highs**, colour-gated to green thrust bars (≤4, a red peak is
+  allowed) · **flag = a pullback** (≤4 candles) making **lower highs**, retracing **≤50%** of the
+  pole · pole must clear a **2% minimum move** · pole peak-bar volume **>** consolidation volume
+  (#127) · the peak must close strong (upper wick ≤50%).
+  **Entry splits in two (#182/#190):** a **1-tick** mechanical trigger above the last consolidation
+  candle's high decides *when* the setup fires; R is measured against a separate, deliberately
+  conservative **3-tick** fill. Stop = the consolidation low.
+  The live detector is the **full-day** `bullflag/day.py::detect_day` (compute-on-read over a whole
+  day, gated by scanner-appearance time + staleness, with exhaustion flagged on the 3rd+ cycle) —
+  consumed by `rmetrics.py` and `charts.py`. The superseded anchored detector was deleted in #296.
+  Read `bull-flag.md` (the *what*) and `engine-v2.md` (the *how*) for the full spec.
+  ⚠️ **The v2 caps live as `detect_day` defaults, not in `config.py`** — `config`'s
+  `bull_flag_max_pole=8` / `max_flag=6` / `entry_offset_ticks=5` are stale legacy leftovers that no
+  live code reads (the #180 settings flip never landed; **#302**). Trust `day.py`, not `config.py`.
 - **Core principle:** *store raw, compute derived on read* — capture raw data at flag time; gate/stat logic is replayable pure functions so methodology can change retroactively.
 
 ## Branching & PRs (trunk-based)
