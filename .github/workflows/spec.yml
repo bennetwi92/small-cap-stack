@@ -46,6 +46,7 @@ jobs:
     permissions:
       contents: read # read the repo/research docs; specs never touch code
       issues: write # post the spec comment, flip needs-spec -> spec-ready
+      id-token: write # OIDC exchange for the action's GitHub App token (fails without it)
     steps:
       - name: Gate on the Max-subscription token
         id: gate

@@ -41,6 +41,7 @@ jobs:
       contents: write # create branches/commits for the PR
       pull-requests: write # open/update the PR, comment
       issues: write # comment/label on the driving issue
+      id-token: write # OIDC exchange for the action's GitHub App token (fails without it)
       actions: read # let the agent read CI results on its PR
     steps:
       # Secrets aren't readable in a job-level `if`, so gate here: without the token every
