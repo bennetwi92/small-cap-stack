@@ -141,6 +141,35 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
   on any failure. **Expected follow-on cost:** compaction renames files, so every compacted day's
   portfolio-candidate-cache fingerprint busts and the next EOD `build_portfolio_payload`
   re-extracts those days (~2.5s each) — accepted, no pre-warm needed.
+- **Memory: swap + container limits (#320).** The box ran with **no swap and no container
+  limits**, so any spike was a host-wide OOM hunt with the kernel picking the victim — on
+  2026-07-17 a global OOM dropped the IBKR connection (~9 min scanner gap); #264 (runner offline
+  5h37m) and #180 were the same shape. The backstop is two-part, and both halves are committed
+  here — the box must not carry hand-edits:
+  - **Swap:** `deploy/setup-swap.sh` (idempotent, run as root) creates a 2 GB `/swapfile`,
+    persists it in `/etc/fstab`, and sets `vm.swappiness=10` via `/etc/sysctl.d/99-scs-swap.conf`
+    — an emergency cushion, not a hot path. This alone turns the 2026-07-17 incident from *kill*
+    into *slow*. Verify: `swapon --show` (active) and again after a reboot (persistent);
+    `sysctl vm.swappiness` → 10. `/var/run/reboot-required` has been pending anyway — do the
+    fstab-verify reboot and the kernel update in one quiet window (outside 04:00–11:59 ET), and
+    afterwards confirm both containers are up **and the CI runner is back** (§11 — a dead runner
+    queues CI silently).
+  - **Container limits (`docker-compose.yml`):** app `mem_limit: 2g` / `memswap_limit: 3g` /
+    `oom_score_adj: 500`; Gateway `mem_limit: 1500m` / `oom_score_adj: -500`. Basis: post-#318
+    app steady state is ~400 MB and the tick spike is gone; the biggest legitimate consumer left
+    is the EOD portfolio build (~1.5 GB observed at #264, grows with history until #273), so 2 GB
+    caps it with headroom while guaranteeing the Gateway (~570 MB steady) + host 1.8 GB of the
+    3.8 GB box. A breach now dies inside the app's own cgroup (after ~1 GB of slow swap), and
+    `restart: unless-stopped` recovers it; the Gateway and sshd outrank it everywhere. Revisit the
+    2 GB number when #273 lands or if `docker stats` shows the EOD build closing on it.
+  - **Applying:** limits take effect on container **recreate**. The app picks them up on the next
+    deploy; the Gateway needs a one-off `docker compose up -d ibgateway` in a quiet window (a
+    recreate restarts the Gateway session — have IBKR Mobile ready for a possible 2FA tap).
+  - **Verify the victim selection** (deliberately, on a quiet weekend, never in the scan window):
+    `docker compose exec app python -c "x = bytearray(3 * 1024**3)"` — the allocation must die
+    (cgroup kill or MemoryError), the app container must stay/come back up (`docker ps`,
+    `RestartCount`), and the Gateway + sshd must be untouched (`docker ps`, `journalctl -k | tail`
+    shows a cgroup-scoped kill, not `global_oom`).
 - **Logs:** `docker compose logs -f app` (JSON in prod).
 - **Daily Gateway restart:** handled by IBC (`AUTO_RESTART_TIME`); the app auto-reconnects + resyncs.
 - **Go live (Phase 3, later):** set `IBKR_TRADING_MODE=live`, `IBKR_PORT=4003` (the live socat port;
