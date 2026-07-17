@@ -1,6 +1,7 @@
 """Stage 3 of the engine-v2 pipeline (issue #178): extract the per-area feature vector.
 
-See ``engine-v2.md §3,§6`` and ``bull-flag.md §3``. Given the bars and a :class:`.segment.Segment`,
+See ``research/engine-v2.md §3,§6`` and ``research/bull-flag.md §3``. Given the bars and a
+:class:`.segment.Segment`,
 compute a :class:`FeatureVector` covering the six areas (SHAPE / VOL / WICK / POLE / CONS / LOC).
 Pure over ``bars[base_idx .. cons_end_idx]`` plus (for the ATR baseline) the bars before the base —
 store-raw / compute-on-read, so features replay over history.
@@ -35,7 +36,7 @@ _ATR_WINDOW = 14
 
 @dataclass(frozen=True)
 class FeatureVector:
-    """The six feature areas of ``bull-flag.md §3`` for a segmented shape (engine-v2.md §3)."""
+    """The six feature areas of ``research/bull-flag.md §3`` for a segmented shape."""
 
     # SHAPE
     pole_len: int
@@ -88,7 +89,7 @@ def trailing_atr(bars: Sequence[Bar], base_idx: int, *, window: int = _ATR_WINDO
     """Mean true range over the ``window`` bars immediately before ``base_idx`` (the pole base).
 
     Returns ``None`` when there aren't ``window`` bars before the base — then ``pole_extension_atr``
-    is ``None`` and simply doesn't contribute to the score (``bull-flag.md §3.4``).
+    is ``None`` and simply doesn't contribute to the score (``research/bull-flag.md §3.4``).
     """
     if window <= 0 or base_idx < window:
         return None
@@ -143,7 +144,8 @@ def extract(
         (cons_highs[-1] - cons_highs[0]) / (len(cons_highs) - 1) if len(cons_highs) > 1 else 0.0
     )
 
-    # trigger_in_window: the trigger (first H after the consolidation, bull-flag.md §4) lands on the
+    # trigger_in_window: the trigger (first H after the consolidation,
+    # research/bull-flag.md §4) lands on the
     # bar AFTER cons_end, so the earliest it can fire is the consolidation's close = the next bar's
     # open. Anchor there, not on cons_end's OPEN, else a flag completing at 11:55 reads in-window
     # when its 12:00 breakout is past the 11:59 close. Use the MODAL bar spacing (not the last gap),

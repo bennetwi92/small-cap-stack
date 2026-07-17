@@ -1,6 +1,6 @@
 """Stage 2 of the engine-v2 pipeline (issue #177): segment a bar series into a bull-flag shape.
 
-See ``engine-v2.md §5`` and ``bull-flag.md §2.2``. Given the bars and their tokens
+See ``research/engine-v2.md §5`` and ``research/bull-flag.md §2.2``. Given the bars and their tokens
 (:func:`.tokens.tokenize`), find the longest valid ``base → POLE → CONSOLIDATION`` ending at the
 **last** bar (end-anchored — no trigger ``H`` yet), or ``None`` if no valid shape ends there.
 
@@ -118,7 +118,8 @@ def refine_pole(
 ) -> tuple[int, int] | None:
     """``(base_idx, pole_len)`` for the pole ending at a GIVEN ``peak``, or ``None`` if none forms.
 
-    The full-day detector (``detect_day``, engine-v2.md §13) anchors the pole to whatever peak its
+    The full-day detector (``detect_day``, research/engine-v2.md §13) anchors the pole to
+    whatever peak its
     greedy cycle walk found — NOT the dominant-high search :func:`segment_at_end` uses — so this
     shares the colour/thrust extension rule without the end-anchoring or dominant-peak selection.
 

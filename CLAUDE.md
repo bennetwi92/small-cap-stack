@@ -18,7 +18,7 @@ research record. This file documents **how we work** — follow it on every task
   The live detector is the **full-day** `bullflag/day.py::detect_day` (compute-on-read over a whole
   day, gated by scanner-appearance time + staleness, with exhaustion flagged on the 3rd+ cycle) —
   consumed by `rmetrics.py` and `charts.py`. The superseded anchored detector was deleted in #296.
-  Read `bull-flag.md` (the *what*) and `engine-v2.md` (the *how*) for the full spec.
+  Read `research/bull-flag.md` (the *what*) and `research/engine-v2.md` (the *how*) for the full spec.
   ⚠️ **The v2 caps live as `detect_day` defaults, not in `config.py`** — `config`'s
   `bull_flag_max_pole=8` / `max_flag=6` / `entry_offset_ticks=5` are stale legacy leftovers that no
   live code reads (the #180 settings flip never landed; **#302**). Trust `day.py`, not `config.py`.
@@ -68,11 +68,19 @@ Toolchain lives in `.venv`. CI runs ruff + mypy + pytest on every PR.
 
 ## Repo layout
 - `src/small_cap_stack/` — the package (typed, tested).
-- `tests/` — pytest suite.
-- `spikes/` — de-risking experiments.
-- `research/` — research reports + `decisions.md` + `findings-index.md`.
+- `tests/` — pytest suite (incl. `fixtures/review_cases/` — 25 real-market regression cases).
+- `spikes/` — de-risking experiments (see `spikes/README.md`).
+- `research/` — the **documentation root**: `decisions.md` (locked decisions) + `findings-index.md`
+  (the research record) + the specs (`bull-flag.md` = the *what*, `engine-v2.md` = the *how*) and
+  the standing reports. `research/archive/` holds one-off reports that already did their job (the
+  2026-06-29 `arch-*` set) — kept as the record, not as live docs.
+- ⚠️ **`docs/` is NOT documentation** — it is the **GitHub Pages dashboard frontend** (HTML/CSS/JS;
+  `cockpit.css` + `docs/js/` modules). The name is forced: Pages is on `build_type: legacy`, whose
+  source path may only be `/` or `/docs`, so renaming it takes the live dashboard offline. Docs live
+  in `research/`; only root keeps `README`/`CLAUDE`/`CONTRIBUTING`/`DISCLAIMER` (#300).
 - `data/` — local runtime data (gitignored).
 - `scripts/` — repo helpers (e.g. `board.sh`).
+- `deploy/` — host runbook + systemd units.
 
 ## Quick commands
 `make help` lists everything. Common ones: `make setup` (venv + deps), `make check` (all CI gates), `make lint` / `make fmt` / `make typecheck` / `make test`. Run `make check` before every push.

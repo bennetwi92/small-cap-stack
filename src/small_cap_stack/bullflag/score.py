@@ -1,6 +1,7 @@
 """Stage 4b of the engine-v2 pipeline (issue #179): the 0–1 quality score.
 
-See ``engine-v2.md §7`` and ``bull-flag.md §5``. A straw-man weighted sum of the ``score`` features,
+See ``research/engine-v2.md §7`` and ``research/bull-flag.md §5``. A straw-man weighted sum
+of the ``score`` features,
 each normalised to ``[0, 1]``, used to **rank** setups that pass the gates (not to reject). The
 weights are hand-set intuition, to be **fit later** against the review workbench's corrected-outcome
 Max R. :func:`score` returns the total plus a ``contributions`` map (``weight * normalised`` per

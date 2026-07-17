@@ -1,6 +1,7 @@
 """Stage 1 of the engine-v2 pipeline (issue #177): tokenise a bar series into an H/L/E string.
 
-See ``engine-v2.md §4`` and ``bull-flag.md §2.1``. Each bar after the first emits one token by
+See ``research/engine-v2.md §4`` and ``research/bull-flag.md §2.1``. Each bar after the first
+emits one token by
 comparing its high to the previous bar's high within a flatness tolerance ``eps``:
 
 - ``H`` — higher high  (``high[i] > high[i-1] + eps``)
