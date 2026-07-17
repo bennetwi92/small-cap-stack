@@ -4,25 +4,22 @@
 // No build step, no framework — plain fetch + DOM, reusing app.js's `buildChart` idiom. Write-back
 // commits review JSON to the `review-data` branch: per-opportunity notes (#143) and tap-to-place
 // chart annotations (pole/consolidation/entry/stop) with an auto-computed Max R (#144).
+//
+// An ES module since #298, like every other page — so the shared helpers below are imported rather
+// than re-forked. This page deliberately keeps its own chrome: NO bottom status bar (the readout
+// strip is this page's status line) and a hand-driven control bar in options-bar clothing, because
+// navigation here is guarded by the unsaved-annotation check. See review.html.
 
-const REPO = "bennetwi92/small-cap-stack";
-const BRANCH = "dashboard-data";
+import "./js/nav.js";
+import { REPO, fetchJson, rawUrl } from "./js/data.js";
+import { esc, etClockSec, fmtShares } from "./js/fmt.js";
+
 const REVIEW_BRANCH = "review-data"; // write-back reviews live here (#143), off the force-pushed BRANCH
 const DEFAULT_BRANCH = "main"; // base the review-data branch off this on first save
 const API = "https://api.github.com";
 const PAT_KEY = "rv_pat"; // localStorage key for the phone-local GitHub token
 
-const rawUrl = (file) =>
-  `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${file}?t=${Date.now()}`;
-
 const el = (id) => document.getElementById(id);
-const esc = (s) =>
-  String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-
-const _etTime = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
-});
-const etFromEpoch = (sec) => _etTime.format(new Date(sec * 1000)); // candlestick axis (UNIX seconds)
 
 // Date-picker label: "2026-07-01" -> "2026-07-01 · Wed" so the day of week reads at a glance.
 // Parse the ISO parts directly (local Date from y/m/d, no UTC parse) so the weekday never tz-shifts.
@@ -33,12 +30,6 @@ const dateLabel = (iso) => {
   const dow = _DOW[new Date(+m[1], +m[2] - 1, +m[3]).getDay()];
   return `${iso} · ${dow}`;
 };
-
-async function fetchJson(file) {
-  const res = await fetch(rawUrl(file), { cache: "no-store" });
-  if (!res.ok) return null; // e.g. index.json before the first EOD -> 404
-  return res.json();
-}
 
 // --- Chart colours + state (mirrors docs/app.js) -------------------------------------------
 const MK = {
@@ -407,9 +398,9 @@ function buildChart(c) {
       borderColor: "rgba(255,255,255,0.15)",
       timeVisible: true,
       secondsVisible: false,
-      tickMarkFormatter: (t) => etFromEpoch(t),
+      tickMarkFormatter: (t) => etClockSec(t),
     },
-    localization: { timeFormatter: (t) => etFromEpoch(t) + " ET" },
+    localization: { timeFormatter: (t) => etClockSec(t) + " ET" },
   });
   candleSeries = chartApi.addCandlestickSeries({
     upColor: MK.up, downColor: MK.down,
@@ -496,17 +487,6 @@ function restoreEngineLevels(c) {
 
 // Bottom-strip readout: engine entry/stop/Max-R, or a collapsed "no trigger" when the reviewer has
 // marked the opportunity as not a tradeable setup (entry/stop then aren't applicable).
-// Compact share/volume formatter: 12,300,000 -> "12.3M", 980,000 -> "980k".
-function fmtShares(n) {
-  if (n == null || !isFinite(n)) return "—";
-  const a = Math.abs(n);
-  // Promote at the rounding boundary so a value that would render as "1000M"/"1000k" rolls up to
-  // the next unit ("1B"/"1M") instead (#163): B at >=999.95M, M at >=999.5k.
-  if (a >= 999.95e6) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
-  if (a >= 999.5e3) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
-  if (a >= 1e3) return Math.round(n / 1e3) + "k";
-  return String(Math.round(n));
-}
 const SRC_LABEL = { fmp: "fmp", yfinance: "yf" };
 const srcLabel = (s) => SRC_LABEL[s] || s;
 
@@ -1276,7 +1256,7 @@ function renderNews(c) {
   }
   list.innerHTML = items
     .map((n) => {
-      const when = n.ts != null ? `${etFromEpoch(n.ts)} ET` : "undated";
+      const when = n.ts != null ? `${etClockSec(n.ts)} ET` : "undated";
       const meta = [when, n.provider || ""].filter(Boolean).join(" · ");
       return (
         '<div class="rv-news-item">' +

@@ -119,8 +119,10 @@
       <div id="rv-engine-detail" class="rv-engine-detail"></div>
     </section>
 
-    <script type="module" src="js/nav.js"></script>
+    <!-- lightweight-charts is a classic script (sets window.LightweightCharts) and must execute
+         before the module below; module scripts are deferred, so this ordering holds. review.js
+         imports js/nav.js itself, as every other page's module does. -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="review.js"></script>
+    <script type="module" src="review.js"></script>
   </body>
 </html>
