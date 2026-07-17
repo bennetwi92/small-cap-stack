@@ -44,6 +44,10 @@ jobs:
     permissions:
       issues: write # open/reopen/close alert issues
       contents: write # force-push the single-commit monitor-state branch
+      # Dispatch self-heal for freshly-opened alerts (#336): GITHUB_TOKEN issue events can't
+      # trigger `on: issues` workflows (recursion prevention) — workflow_dispatch is the
+      # sanctioned path. This watchdog is deterministic reviewed code, not an agent.
+      actions: write
     steps:
       - uses: actions/checkout@v7
 
@@ -70,8 +74,21 @@ jobs:
           PYTHONPATH: src
         run: |
           set -euo pipefail
-          python -m small_cap_stack.watchdog --state state.json \
+          python -m small_cap_stack.watchdog --state state.json --opened-file opened.json \
             ${{ inputs.force && '--force' || '' }}
+
+      # Self-heal handoff (#336): dispatch one diagnosis run per alert opened THIS run. See the
+      # actions:write comment above for why this is a dispatch and not an `on: issues` trigger.
+      - name: Trigger self-heal for new alerts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [ -f opened.json ] || exit 0
+          for n in $(jq -r '.[]' opened.json); do
+            gh workflow run self-heal.yml --field issue="$n"
+            echo "self-heal dispatched for #$n"
+          done
 
       # Same single-commit force-push pattern as publish-dashboard: the branch never grows.
       # Skipped when nothing changed (e.g. runs outside the monitor window) — no commit churn.
