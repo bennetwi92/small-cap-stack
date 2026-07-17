@@ -4,6 +4,11 @@ services:
   ibgateway:
     image: ghcr.io/gnzsnz/ib-gateway:stable
     restart: unless-stopped
+    # #320: generous cap (observed steady ~570 MB) so only a pathological Java leak hits it, and a
+    # strongly negative OOM score so if a host-wide OOM ever happens anyway, the kernel prefers the
+    # recoverable app over the Gateway — killing the Gateway mid-session is the long outage.
+    mem_limit: 1500m
+    oom_score_adj: -500
     environment:
       TWS_USERID: ${TWS_USERID:?set in .env}
       TWS_PASSWORD: ${TWS_PASSWORD:?set in .env}
@@ -39,6 +44,16 @@ services:
       args:
         GIT_SHA: ${GIT_SHA:-}
     restart: unless-stopped
+    # #320: cap the app so a memory spike dies inside its own cgroup instead of triggering a
+    # host-wide OOM hunt (which took the IBKR connection down on 2026-07-17). Sequenced after #318:
+    # the tick's legit spike is gone (steady ~400 MB); the remaining big consumer is the EOD
+    # portfolio build (~1.5 GB observed at #264 and growing with history until #273), so 2 GB caps
+    # it with headroom while guaranteeing the Gateway + host 1.8 GB of the 3.8 GB box. memswap 3g
+    # lets a breach degrade into ~1 GB of slow swap before the kill; restart: unless-stopped brings
+    # the app back on its own, and +500 makes it the kernel's preferred victim host-wide.
+    mem_limit: 2g
+    memswap_limit: 3g
+    oom_score_adj: 500
     depends_on:
       ibgateway:
         condition: service_healthy
