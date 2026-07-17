@@ -5,29 +5,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>small-cap-stack · review workbench</title>
     <meta name="robots" content="noindex" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
     />
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="cockpit.css" />
   </head>
   <body class="review">
-    <div class="rv-wrap">
-      <!-- Shared page nav (#219): compact pill tabs, active tab marked per page (no JS). -->
-      <nav class="topnav" aria-label="Pages">
-        <a class="topnav-tab" href="index.html">Dashboard</a>
-        <a class="topnav-tab" href="review.html" aria-current="page">Review</a>
-        <a class="topnav-tab" href="results.html">Results</a>
-        <a class="topnav-tab" href="portfolio.html">Portfolio</a>
-      </nav>
+    <!-- Cockpit app bar (#291): rendered by the shared module. The page keeps
+         its single-screen 100dvh phone layout below it; there is deliberately
+         NO bottom status bar here — the readout strip IS this page's status
+         line, and the chart owns every spare pixel. -->
+    <header id="appbar" class="appbar"></header>
 
-      <!-- Top control bar: date + symbol dropdowns with prev/next arrows (#142) -->
-      <header class="rv-top">
-        <select id="rv-date" class="rv-select rv-date" title="Trading date"></select>
-        <select id="rv-symbol" class="rv-select rv-symbol" title="Opportunity"></select>
-        <button id="rv-prev" class="secondary outline rv-arrow" title="Previous opportunity">‹</button>
-        <button id="rv-next" class="secondary outline rv-arrow" title="Next opportunity">›</button>
-      </header>
+    <div class="rv-wrap">
+      <!-- Top control bar (#142) in options-bar clothing: same IDs, same
+           elements — review.js populates and drives them itself. -->
+      <div class="optbar rv-optbar">
+        <div class="optbar-row">
+          <label class="opt-field"><span class="opt-label">Date</span>
+            <select id="rv-date" class="opt-input rv-date" title="Trading date"></select>
+          </label>
+          <label class="opt-field rv-symbol-field"><span class="opt-label">Opp</span>
+            <select id="rv-symbol" class="opt-input rv-symbol" title="Opportunity"></select>
+          </label>
+          <div class="opt-field rv-step">
+            <button id="rv-prev" class="opt-btn rv-arrow" title="Previous opportunity">‹</button>
+            <button id="rv-next" class="opt-btn rv-arrow" title="Next opportunity">›</button>
+          </div>
+        </div>
+      </div>
 
       <!-- Chart fills the remaining height; keeps TradingView's native pan/zoom -->
       <div id="rv-chart" class="rv-chart"></div>
@@ -50,18 +59,19 @@
       <!-- Bottom strip: entry / stop / Max-R readout + save + notes toggle (#143, #156) -->
       <footer class="rv-bottom">
         <span id="rv-readout" class="rv-readout muted">loading…</span>
-        <button id="rv-news-toggle" class="secondary outline rv-news-btn" title="News headlines captured at scanner trigger" disabled>News 0</button>
-        <button id="rv-save-top" class="rv-save-btn" title="Save this review (verdict + levels + note)">Save</button>
-        <button id="rv-notes-toggle" class="secondary outline rv-notes-btn" title="Notes">Notes</button>
+        <button id="rv-news-toggle" class="rv-btn rv-news-btn" title="News headlines captured at scanner trigger" disabled>News 0</button>
+        <button id="rv-save-top" class="rv-btn rv-save-btn" title="Save this review (verdict + levels + note)">Save</button>
+        <button id="rv-notes-toggle" class="rv-btn rv-notes-btn" title="Notes">Notes</button>
       </footer>
     </div>
 
-    <!-- Slide-up notes sheet (#143): keeps the chart full-height while closed. -->
+    <!-- Slide-up notes sheet (#143): keeps the chart full-height while closed.
+         On desktop (≥900px) the sheets dock as a right-hand drawer instead. -->
     <div id="rv-scrim" class="rv-scrim" hidden></div>
     <section id="rv-sheet" class="rv-sheet" aria-hidden="true" aria-label="Opportunity notes">
       <div class="rv-sheet-head">
         <strong id="rv-sheet-title" class="rv-sheet-title">Notes</strong>
-        <button id="rv-sheet-close" class="secondary outline rv-sheet-close" title="Close">✕</button>
+        <button id="rv-sheet-close" class="rv-btn rv-sheet-close" title="Close">✕</button>
       </div>
       <!-- Fine-grained PAT (contents: read+write, this repo). Lives only in this phone's localStorage. -->
       <details id="rv-pat-details" class="rv-pat">
@@ -93,7 +103,7 @@
     <section id="rv-news-sheet" class="rv-sheet" aria-hidden="true" aria-label="News headlines">
       <div class="rv-sheet-head">
         <strong id="rv-news-title" class="rv-sheet-title">News</strong>
-        <button id="rv-news-close" class="secondary outline rv-sheet-close" title="Close">✕</button>
+        <button id="rv-news-close" class="rv-btn rv-sheet-close" title="Close">✕</button>
       </div>
       <div id="rv-news-list" class="rv-news-list"></div>
     </section>
@@ -104,11 +114,12 @@
     <section id="rv-engine-sheet" class="rv-sheet" aria-hidden="true" aria-label="Engine detection detail">
       <div class="rv-sheet-head">
         <strong id="rv-engine-title" class="rv-sheet-title">Engine</strong>
-        <button id="rv-engine-close" class="secondary outline rv-sheet-close" title="Close">✕</button>
+        <button id="rv-engine-close" class="rv-btn rv-sheet-close" title="Close">✕</button>
       </div>
       <div id="rv-engine-detail" class="rv-engine-detail"></div>
     </section>
 
+    <script type="module" src="js/nav.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
     <script src="review.js"></script>
   </body>
