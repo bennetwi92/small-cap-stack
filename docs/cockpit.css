@@ -1,0 +1,434 @@
+/* ============================================================
+   small-cap-stack — cockpit design system (#288)
+   Dense, monospace, terminal-flavoured UI for a small window.
+   Modelled on the macro-beans web/v2 cockpit, with this app's
+   twists: the 04:00–11:59 ET session window lives in the chrome
+   (gold = pre-market, cyan = the open), R is the native colour
+   unit (diverging ramp anchored at 0R, stop at −1R), and box
+   health sits in a bottom status bar instead of a card.
+   Replaces Pico.css on converted pages.
+   ============================================================ */
+
+:root{
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* palette — high-contrast but eased back from pure white-on-black */
+  --bg:     #0c0c13;
+  --panel:  #14141d;
+  --inset:  #0a0a10;
+  --ink:    #eef0f7;
+  --dim:    #9aa0b5;
+  --line:   #2e2e42;
+  --line-2: #40405a;
+  --cyan:   #4fe3ef;
+  --gold:   #e3b452;
+  --lime:   #9fcf5e;
+  --win:    #3ec07e;
+  --loss:   #f06673;
+
+  /* session accent: gold pre-market, cyan from the open (js/session.js
+     stamps data-session on <html>; chrome accents follow it) */
+  --acc: var(--cyan);
+
+  /* chrome heights (incl. hairlines): 27 appbar + 26 optbar + 23 statusbar */
+  --chrome-v: 76px;
+}
+:root[data-session="pre"]{ --acc: var(--gold); }
+:root[data-session="open"]{ --acc: var(--cyan); }
+
+/* ---------- reset ---------- */
+*{ box-sizing:border-box; }
+html,body{ margin:0; padding:0; }
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--mono);
+  font-size:12px;
+  line-height:1.45;
+  color-scheme:dark;
+}
+a{ color:var(--cyan); text-decoration:none; }
+a:hover{ text-decoration:underline; }
+button{ font-family:var(--mono); }
+.muted{ color:var(--dim); }
+.warn{ color:var(--gold); font-weight:600; }
+
+/* ---------- application bar (macOS-menu-bar style) ---------- */
+.appbar{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  height:26px;
+  padding:0 9px;
+  background:var(--panel);
+  border-bottom:1px solid var(--line);
+  position:sticky;
+  top:0;
+  z-index:50;
+  overflow-x:auto;          /* narrow screens swipe horizontally */
+  white-space:nowrap;
+}
+.appbar::-webkit-scrollbar{ height:0; }
+
+.appbar-logo{
+  flex:0 0 auto;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-weight:600;
+  font-size:12px;
+  letter-spacing:.4px;
+  text-decoration:none;
+}
+.appbar-logo .w1{ color:var(--ink); }
+.appbar-logo .w2{ color:var(--dim); }
+/* the wordmark dot is a live session light: gold pre-market, cyan after the open */
+.appbar-logo .dot{ width:7px; height:7px; background:var(--acc); display:inline-block; }
+.appbar-logo:hover{ text-decoration:none; }
+.appbar-logo:hover .w2{ color:var(--ink); }
+
+.appbar-menu{ display:flex; align-items:center; gap:12px; flex:0 0 auto; }
+.appbar-menu a{
+  font-size:11px;
+  line-height:1;
+  letter-spacing:.03em;
+  text-transform:uppercase;
+  color:var(--dim);
+  text-decoration:none;
+}
+.appbar-menu a:hover{ color:var(--ink); text-decoration:none; }
+.appbar-menu a.on{ color:var(--acc); }
+
+/* ---------- options bar (shared, expandable) ---------- */
+.optbar{
+  position:sticky;
+  top:26px;                 /* sits directly under the app bar */
+  z-index:49;
+  background:var(--inset);
+  border-bottom:1px solid var(--line);
+}
+.optbar-row{
+  display:flex;
+  align-items:stretch;
+  min-height:25px;
+  overflow-x:auto;
+  white-space:nowrap;
+}
+.optbar-row::-webkit-scrollbar{ height:0; }
+.optbar-row[hidden]{ display:none; }   /* display:flex would defeat the hidden attribute */
+.optbar-extra{ border-top:1px solid var(--line); }
+
+.opt-field{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:0 9px;
+  border-right:1px solid var(--line);
+}
+.opt-label{
+  font-size:10px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--dim);
+}
+.opt-input{
+  background:transparent;
+  border:0;
+  padding:0;
+  margin:0;
+  color:var(--ink);
+  font-family:var(--mono);
+  font-size:12px;
+  line-height:1;
+}
+.opt-input:focus{ outline:none; }
+.opt-input::-webkit-calendar-picker-indicator{ opacity:.55; cursor:pointer; }
+.opt-input::-webkit-calendar-picker-indicator:hover{ opacity:1; }
+select.opt-input{ cursor:pointer; }
+select.opt-input option{ background:var(--panel); color:var(--ink); }
+
+/* segmented control (enums; the active button carries the session accent) */
+.opt-seg{ display:inline-flex; align-items:center; }
+.opt-seg-btn{
+  background:transparent;
+  border:1px solid var(--line);
+  border-right-width:0;
+  color:var(--dim);
+  font-family:var(--mono);
+  font-size:11px;
+  line-height:1;
+  letter-spacing:.03em;
+  text-transform:uppercase;
+  padding:3px 9px;
+  cursor:pointer;
+}
+.opt-seg-btn:last-child{ border-right-width:1px; }
+.opt-seg-btn:hover{ color:var(--ink); }
+.opt-seg-btn.on{ color:var(--bg); background:var(--acc); border-color:var(--acc); }
+/* session-window segments keep their own meaning: pre-market gold, open cyan */
+.opt-seg-btn.on[data-value="premarket"]{ background:var(--gold); border-color:var(--gold); }
+.opt-seg-btn.on[data-value="market"]{ background:var(--cyan); border-color:var(--cyan); }
+
+.opt-search{ min-width:210px; }
+
+.opt-btn{
+  background:transparent;
+  border:1px solid var(--line);
+  color:var(--dim);
+  font-family:var(--mono);
+  font-size:11px;
+  line-height:1;
+  letter-spacing:.03em;
+  text-transform:uppercase;
+  padding:3px 9px;
+  cursor:pointer;
+}
+.opt-btn:hover{ color:var(--ink); border-color:var(--line-2); }
+
+.opt-readout{ font-size:11px; color:var(--dim); }
+.opt-note{ font-size:11px; color:var(--dim); white-space:normal; }
+
+.opt-expand{
+  margin-left:auto;
+  flex:0 0 auto;
+  background:transparent;
+  border:0;
+  border-left:1px solid var(--line);
+  padding:0 11px;
+  color:var(--dim);
+  font-family:var(--mono);
+  font-size:12px;
+  letter-spacing:.08em;
+  cursor:pointer;
+}
+.opt-expand:hover{ color:var(--ink); }
+.opt-expand.on{ color:var(--acc); }
+
+/* ---------- status bar (terminal status line, pinned bottom) ---------- */
+.statusbar{
+  position:fixed;
+  left:0; right:0; bottom:0;
+  z-index:48;
+  display:flex;
+  align-items:stretch;
+  height:23px;
+  background:var(--panel);
+  border-top:1px solid var(--line);
+  overflow-x:auto;
+  white-space:nowrap;
+  font-size:11px;
+}
+.statusbar::-webkit-scrollbar{ height:0; }
+.sb-field{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:0 9px;
+  border-right:1px solid var(--line);
+  color:var(--dim);
+}
+.sb-field:last-child{ border-right:0; margin-left:auto; }
+.sb-dot{ width:6px; height:6px; border-radius:50%; display:inline-block; background:var(--dim); }
+.sb-ok{ color:var(--win); }
+.sb-ok .sb-dot{ background:var(--win); }
+.sb-bad{ color:var(--loss); font-weight:600; }
+.sb-bad .sb-dot{ background:var(--loss); }
+.sb-warn{ color:var(--gold); font-weight:600; }
+/* session chip: the clock wears the session colour */
+.sb-sess{ font-weight:600; letter-spacing:.04em; }
+.sb-sess.pre{ color:var(--gold); }
+.sb-sess.pre .sb-dot{ background:var(--gold); }
+.sb-sess.open{ color:var(--cyan); }
+.sb-sess.open .sb-dot{ background:var(--cyan); }
+.sb-sess.closed{ color:var(--dim); }
+.statusbar a{ color:var(--dim); }
+.statusbar a:hover{ color:var(--ink); text-decoration:none; }
+
+/* ---------- page shell ---------- */
+.page{
+  margin:0;
+  padding:8px 10px calc(23px + 12px);   /* keep clear of the fixed status bar */
+}
+.page-h{
+  font-weight:600;
+  font-size:12px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  margin:0 0 3px;
+}
+.page-sub{ color:var(--dim); font-size:11px; }
+
+/* full-bleed grid: fill everything between the bars */
+.fill-grid{ height:calc(100vh - var(--chrome-v)); }
+
+/* ---------- panels & stat tiles (dense) ---------- */
+.panel{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:3px;
+  padding:6px 8px;
+}
+.panel-h{
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--dim);
+  margin:0 0 4px;
+}
+.tiles{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(88px, 1fr));
+  gap:1px;
+  background:var(--line);
+  border:1px solid var(--line);
+  border-radius:3px;
+  overflow:hidden;
+}
+.tile{ background:var(--panel); padding:4px 8px 5px; min-width:0; }
+.tile-l{
+  font-size:9px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--dim);
+  white-space:nowrap;
+}
+.tile-v{
+  font-size:14px;
+  font-weight:600;
+  line-height:1.25;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+.tile-v .muted{ font-size:11px; font-weight:400; }
+
+/* ---------- dense table primitive ---------- */
+.tbl-wrap{ overflow-x:auto; }          /* wide tables scroll inside, never the body */
+.tbl{
+  border-collapse:collapse;
+  font-size:12px;
+  font-variant-numeric:tabular-nums;
+}
+.tbl th{
+  text-align:left;
+  color:var(--dim);
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  padding:3px 7px;
+  border-bottom:1px solid var(--line);
+  white-space:nowrap;
+  position:sticky;
+  top:0;
+  background:var(--bg);
+}
+.tbl td{
+  height:22px;
+  padding:0 7px;
+  border-bottom:1px solid rgba(255,255,255,.04);
+  color:var(--ink);
+  white-space:nowrap;
+}
+.tbl tbody tr:hover td{ background:rgba(79,227,239,.06); }
+.tbl th.r, .tbl td.r{ text-align:right; }
+.tbl .up{ color:var(--win); }
+.tbl .down{ color:var(--loss); }
+
+/* ---------- badges (engine verdicts etc.) ---------- */
+.pill{
+  display:inline-block;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  line-height:1;
+  padding:2px 5px;
+  border-radius:2px;
+  border:1px solid var(--line-2);
+  color:var(--dim);
+}
+.pill-pass{ color:var(--win); border-color:var(--win); }
+.pill-reject{ color:var(--loss); border-color:var(--loss); }
+
+/* session-of-day markers: pre-market gold, regular session cyan */
+.sess-pre{ color:var(--gold); font-weight:600; }
+.sess-mkt{ color:var(--cyan); font-weight:600; }
+.sess-unk{ color:var(--dim); }
+
+/* ---------- R ramp ----------
+   Diverging, anchored at 0R with the stop at −1R. Applied to every R-valued
+   cell so a column reads as a distribution: full loss red only at/below the
+   stop, muted tones near zero, brightening green as R builds. Formatters must
+   toggle the whole set (see paintR in js/fmt.js) so recycled cells never keep
+   a stale colour. */
+.r-l2{ color:var(--loss); font-weight:600; }   /* ≤ −1R: stopped out */
+.r-l1{ color:#b25a66; }                        /* losing, above the stop */
+.r-flat{ color:var(--dim); }                   /* ~0R: noise */
+.r-w1{ color:#42926c; }                        /* small win < 1R */
+.r-w2{ color:var(--win); }                     /* 1–2R */
+.r-w3{ color:#7df0ae; font-weight:600; }       /* ≥ 2R: the ones that pay */
+
+/* ---------- error strip ---------- */
+.error{
+  background:rgba(240,102,115,.12);
+  border:1px solid var(--loss);
+  color:var(--loss);
+  padding:4px 9px;
+  font-size:11px;
+  margin:8px 10px;
+  border-radius:3px;
+}
+
+/* ---------- Tabulator (compact terminal theme) ---------- */
+.tabulator{
+  background:var(--bg);
+  border:0;
+  font-family:var(--mono);
+  font-size:12px;
+  color:var(--ink);
+}
+.tabulator .tabulator-header{
+  background:var(--panel);
+  border-bottom:1px solid var(--line);
+  color:var(--dim);
+}
+.tabulator .tabulator-header .tabulator-col{
+  background:var(--panel);
+  border-right:1px solid var(--line);
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content{ padding:3px 7px; }
+.tabulator .tabulator-header .tabulator-col .tabulator-col-title{
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+}
+.tabulator .tabulator-row{
+  background:var(--bg);
+  border-bottom:1px solid rgba(255,255,255,.04);
+  min-height:0;
+}
+.tabulator .tabulator-row:hover{ background:rgba(79,227,239,.07); }
+.tabulator .tabulator-cell{
+  height:22px;
+  padding:0 7px;
+  line-height:22px;
+  color:var(--ink);
+  border-right:1px solid rgba(255,255,255,.04);
+  white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.tabulator .tabulator-col.tabulator-frozen,
+.tabulator .tabulator-row .tabulator-cell.tabulator-frozen{ border-right:1px solid var(--line); }
+.tabulator .tabulator-row .tabulator-cell.tabulator-frozen{ background:var(--bg); }
+.tabulator .tabulator-row:hover .tabulator-cell.tabulator-frozen{ background:#13202a; }
+.tabulator .tabulator-col.tabulator-sortable[aria-sort="ascending"] .tabulator-col-content .tabulator-arrow{ border-bottom-color:var(--acc); }
+.tabulator .tabulator-col.tabulator-sortable[aria-sort="descending"] .tabulator-col-content .tabulator-arrow{ border-top-color:var(--acc); }
+.tabulator .tabulator-cell.up{ color:var(--win); }
+.tabulator .tabulator-cell.down{ color:var(--loss); }
+.tabulator .tabulator-cell.cell-dim{ color:var(--dim); }
+.tabulator .tabulator-placeholder .tabulator-placeholder-contents{
+  color:var(--dim);
+  font-size:12px;
+}
