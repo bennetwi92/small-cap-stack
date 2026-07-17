@@ -17,7 +17,7 @@ quiet until a watchdog **opens a GitHub issue**; a new issue in your notificatio
 
 > **DECIDED 2026-07-17 (#344, `decisions.md`): stay public, $0.** A hard $0 constraint rules out
 > going private (kills Pages on Free) and Pro. The self-hosted runner posture is **A1 now** (lock it
-> to owner-only triggers, #333) + **A2 later** (remove the runner, box goes pull-based, #351). This
+> to owner-only triggers, #333) + **A2 later** (remove the runner, box goes pull-based, #353). This
 > makes injection-gating (#343), telemetry-scrubbing (#340/#341), and supply-chain hardening (#348)
 > *permanent* parts of the design rather than things a repo-flip would erase.
 

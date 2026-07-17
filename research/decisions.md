@@ -501,7 +501,7 @@ P2/P3 (#340/#341), and (c) supply-chain hardening — SHA-pinned actions, least-
 - **A1 (do now, #333):** keep the runner but lock its jobs to `push`-to-`main` + `workflow_dispatch`
   only (owner-only triggers a fork PR cannot invoke) + "require approval for outside collaborators".
   Residual risk: never click "approve & run workflows" on an untrusted fork PR.
-- **A2 (tracked follow-up, #351):** remove the self-hosted runner from GitHub entirely and make the
+- **A2 (tracked follow-up, #353):** remove the self-hosted runner from GitHub entirely and make the
   box **pull-based** (systemd/cron `git pull` + `docker compose up`; box *pushes* the data-export
   branch on a schedule). Closes the §0 hole at its root — no runner to hijack — while staying public
   + $0 + keeping Pages. Cost: re-architecting deploy + data-export to box-initiated, losing the
