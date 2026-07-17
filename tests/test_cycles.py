@@ -23,7 +23,7 @@ _T0 = datetime(2026, 7, 1, 14, 0, tzinfo=UTC)
 
 def _bar(i: int, *, vol: float = 200_000.0, green: bool = True) -> Bar:
     """A bar whose only meaningful axes are volume and body strength (for significance). ``green``
-    True = a full-bodied green thrust (``_is_big_green``); False = a zero-body doji."""
+    True = a full-bodied green thrust (``is_big_green``); False = a zero-body doji."""
     high, low = 10.0, 9.0
     if green:
         o, c = low, high  # full green body -> body == range -> big green

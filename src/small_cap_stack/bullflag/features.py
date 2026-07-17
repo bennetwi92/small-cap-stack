@@ -23,7 +23,7 @@ from datetime import time
 
 from ..capture import Bar, bar_interval
 from ..clock import ET, within_window
-from .detect import _is_big_green, _non_increasing, _upper_wick_frac, classify
+from .primitives import classify, is_big_green, non_increasing, upper_wick_frac
 from .segment import Segment
 
 # A "doji"/small-bodied bar: body <= this fraction of its range. Used only by the
@@ -162,12 +162,12 @@ def extract(
         # VOL
         peak_gt_cons=peak_vol > cons_vmax,
         vol_ratio=vol_ratio,
-        cons_vol_reducing=_non_increasing([b.volume for b in cons]),
+        cons_vol_reducing=non_increasing([b.volume for b in cons]),
         pole_vol_concentration=peak_vol / thrust_vsum if thrust_vsum > 0 else 0.0,
         # WICK
-        peak_upper_wick=_upper_wick_frac(bars[peak_idx]),
+        peak_upper_wick=upper_wick_frac(bars[peak_idx]),
         peak_is_green=classify(bars[peak_idx]) == "green",
-        pole_has_big_green=any(_is_big_green(b) for b in pole),
+        pole_has_big_green=any(is_big_green(b) for b in pole),
         pole_avg_body=sum(_body_frac(b) for b in pole) / len(pole),
         cons_indecision=sum(_body_frac(b) <= _DOJI_MAX_BODY_FRAC for b in cons) / len(cons),
         # POLE

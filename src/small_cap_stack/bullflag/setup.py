@@ -1,19 +1,16 @@
-"""Stage 4 assembly + backward-compat shim (issue #179): the full engine-v2 detection result.
+"""Stage 4 assembly (issue #179): the full engine-v2 detection result.
 
 See ``engine-v2.md §7,§8``. :func:`detect_setup` runs the whole pipeline
 (tokenise → segment → extract → gate → score) and returns a :class:`Setup` carrying the segment,
-feature vector, entry/stop levels, gate results, and quality score. :meth:`Setup.as_bullflag`
-projects it back to the legacy :class:`~.detect.BullFlag` so ``rmetrics`` / the review workbench can
-consume v2 unchanged.
-
-**Not yet wired in.** #179 builds this alongside the legacy detector and pins their equivalence with
-a golden-parity test, but does **not** repoint ``detect_with_settings`` / ``rmetrics`` — the legacy
-path stays active, so reported metrics don't move. The atomic switch (repoint + settings flip 8/6→
-4/4, ``min_pole_pct`` 2%; ``rmetrics`` reading ``Setup.entry_fill`` for R rather than
-``entry_trigger``) lands in #180, quantified by the #181 divergence spike.
+feature vector, entry/stop levels, gate results, and quality score.
 
 A shape that segments but fails a gate is returned with ``passed=False`` (so the review page can
 explain the rejection); ``detect_setup`` returns ``None`` only when no valid *shape* exists.
+
+Consumers take a trade only when ``passed``: ``s = detect_setup(...); if s and s.passed: ...``,
+not a bare ``if s:``. R is measured against ``entry_fill`` (the conservative 3-tick fill), not
+``entry_trigger`` (the 1-tick mechanical trigger) — the trigger decides *when* a setup fires
+(#182/#190).
 """
 
 from __future__ import annotations
@@ -24,7 +21,6 @@ from datetime import time
 
 from ..capture import Bar
 from ..config import Settings
-from .detect import BullFlag
 from .features import FeatureVector, extract, trailing_atr
 from .gates import GateResult, evaluate, passed
 from .score import DEFAULT_WEIGHTS, score
@@ -40,37 +36,12 @@ class Setup:
     entry_fill: float  # breakout_level + fill_offset (rounded 4) — conservative R fill, 3 ticks,
     # #182/#190: the trigger decides WHEN a setup fires; R is measured against this worse, more
     # conservative fill ("often I fill at the trigger price anyway, 3 ticks is being conservative").
-    # No legacy BullFlag slot — not yet consumed anywhere; #180 wires it into rmetrics.
     breakout_level: float  # high of the last consolidation candle (rounded 4)
     stop: float  # consolidation (flag) low (rounded 4)
     gates: tuple[GateResult, ...]
     passed: bool  # all gates passed -> a takeable setup
     score: float  # 0..1 quality; ranks passing setups (also populated for rejects, for review)
     contributions: Mapping[str, float]  # per-feature score contribution (explainability)
-
-    def as_bullflag(self) -> BullFlag:
-        """Project to the legacy BullFlag (field-for-field, same rounding) for rmetrics/review.
-
-        Projects the levels regardless of ``passed`` (so the review page can show a rejected
-        shape's would-be entry/stop). **Only emit it as a trade when ``self.passed``** — legacy
-        ``detect()`` returns ``None`` on a gate failure, so the #180 wiring must use
-        ``s = detect_setup(...); if s and s.passed: ... s.as_bullflag()``, not a bare ``if s:``.
-
-        Projects ``entry_trigger`` (the 1-tick mechanical trigger) into ``BullFlag.entry_trigger`` —
-        ``entry_fill`` (the 3-tick conservative R fill, #182/#190) has no legacy slot and is
-        dropped here; #180's rmetrics wiring must read ``entry_fill`` directly off ``Setup`` for
-        R-measurement rather than relying on this projection.
-        """
-        return BullFlag(
-            pole_len=self.segment.pole_len,
-            flag_len=self.segment.cons_len,
-            breakout_level=self.breakout_level,
-            entry_trigger=self.entry_trigger,
-            stop=self.stop,
-            retracement=round(self.features.retracement, 4),
-            cons_vol_reducing=self.features.cons_vol_reducing,
-            pole_has_big_green=self.features.pole_has_big_green,
-        )
 
 
 def detect_setup(

@@ -7,9 +7,8 @@ See ``engine-v2.md §5`` and ``bull-flag.md §2.2``. Given the bars and their to
 Why the segmenter needs the bars, not just the tokens: the **peak** must be the *dominant* high of
 the trailing window (the top the pullback descends from), not the nearest local up-tick — this is
 the engine's #163 fix. Tokens drop magnitudes, so a mid-pullback up-tick would otherwise be
-mistaken for the peak; reusing the legacy ``_find_pole_peak`` for the dominant-high search prevents
-that (and keeps peak selection identical to the legacy detector). Tokens then drive the structural
-checks.
+mistaken for the peak; using the shared ``find_pole_peak`` primitive for the dominant-high search
+prevents that. Tokens then drive the structural checks.
 
 Grammar (``E`` = equal high is allowed **only in the consolidation**, never in the pole):
 
@@ -39,7 +38,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ..capture import Bar
-from .detect import _find_pole_peak, _is_big_green, classify
+from .primitives import classify, find_pole_peak, is_big_green
 from .tokens import Token
 
 
@@ -66,11 +65,8 @@ def segment_at_end(
     if n < 3 or len(tokens) != n - 1:
         return None  # need a base + >=1 pole bar + >=1 flag bar, and matching tokens
 
-    # Peak = dominant high of the trailing max_cons+1 bars (ties -> earliest); #163. Reuse the
-    # legacy detector's _find_pole_peak so the dominant-high rule stays byte-identical across both
-    # engines (this is what keeps the #179 parity test honest); when detect.py is retired the shared
-    # primitive moves into the package core.
-    peak = _find_pole_peak(list(bars), max_cons)
+    # Peak = dominant high of the trailing max_cons+1 bars (ties -> earliest); #163.
+    peak = find_pole_peak(list(bars), max_cons)
     if peak is None:
         return None  # a new high on the last bar -> still extending, no completed flag
 
@@ -99,7 +95,7 @@ def segment_at_end(
     # peak identified-and-rejected downstream, not skipped). refine_pole also covers the rest of
     # the old condition: `max_pole < 1` disables the pole, and `tokens[peak - 1] != "H"` means no
     # strict higher-high step into the peak. Its extra `peak - 1 < 0` guard is dead here
-    # (_find_pole_peak's window floor `lo = max(1, n-1-max_cons)` guarantees peak >= 1).
+    # (find_pole_peak's window floor `lo = max(1, n-1-max_cons)` guarantees peak >= 1).
     if classify(bars[peak]) != "green":
         return None  # a red/doji peak disqualifies this candidate (#182/#190: IRE's shooting star)
     refined = refine_pole(bars, tokens, peak, max_pole=max_pole)
@@ -127,7 +123,7 @@ def refine_pole(
     shares the colour/thrust extension rule without the end-anchoring or dominant-peak selection.
 
     Walk backward from the peak through strict higher-high **thrust** bars (green, body >= half its
-    range, :func:`._is_big_green`), capped at ``max_pole``; a doji-like/red bar stops the walk and
+    range, :func:`.is_big_green`), capped at ``max_pole``; a doji-like/red bar stops the walk and
     becomes the base (#182/#190: MUZ/CRCG/CONL). The peak itself is NOT colour-checked here — a
     red/flat peak still forms a pole and is rejected downstream by the ``peak_green`` gate
     (identify-and-reject, #196: OPEN/IRE), rather than being skipped so the greedy walk wanders to a
@@ -140,7 +136,7 @@ def refine_pole(
         pole_len < max_pole
         and base - 1 >= 0
         and tokens[base - 1] == "H"
-        and _is_big_green(bars[base])
+        and is_big_green(bars[base])
     ):
         base -= 1
         pole_len += 1
