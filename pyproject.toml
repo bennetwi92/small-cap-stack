@@ -19,6 +19,7 @@ dependencies = [
     "APScheduler>=3.10,<4",
     "structlog>=24.1",
     "duckdb>=1.1",
+    "exchange-calendars>=4.10",
     "polars>=1.0",
     "pyarrow>=17",
     "yfinance>=0.2.40",
@@ -57,7 +58,14 @@ strict = true
 warn_unused_configs = true
 
 [[tool.mypy.overrides]]
-module = ["apscheduler.*", "ib_async.*", "duckdb.*", "yfinance.*", "prometheus_client.*"]
+module = [
+    "apscheduler.*",
+    "ib_async.*",
+    "duckdb.*",
+    "yfinance.*",
+    "prometheus_client.*",
+    "exchange_calendars.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

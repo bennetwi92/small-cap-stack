@@ -343,13 +343,13 @@ class CaptureService:
         end = datetime.combine(trading_date, time(20, 0), tzinfo=ET)  # cover the extended session
         return await self._fetch_bars_for(missing, trading_date, end=end) > 0
 
-    async def backfill_recent(self, today: date, *, days: int) -> list[date]:
-        """Fill missing bars across the last ``days`` calendar days; returns the dates it filled.
+    async def backfill_recent(self, dates: Sequence[date]) -> list[date]:
+        """Fill missing bars for each of ``dates``; returns the dates it filled.
 
-        A no-op for days with no opportunities (weekends / already-complete days)."""
+        The caller picks the dates (the app passes recent *trading* days, #137). A no-op for
+        days with no opportunities (already-complete days)."""
         filled: list[date] = []
-        for i in range(days):
-            d = today - timedelta(days=i)
+        for d in dates:
             try:
                 if await self.capture_missing_bars(d):
                     filled.append(d)

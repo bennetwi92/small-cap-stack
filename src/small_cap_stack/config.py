@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import time
+from datetime import date, time
 from functools import lru_cache
 from pathlib import Path
 
@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     # (APScheduler's default is 1s — too tight for once-a-day critical jobs). Kept well inside the
     # 16:20 -> 16:30 eod_bars -> eod_report gap.
     cron_misfire_grace_sec: int = 300
+    # Trading-calendar override (#137): extra NON-trading dates on top of the XNYS calendar
+    # (market_calendar.py) — patches an unscheduled closure (e.g. a national day of mourning)
+    # without waiting for a library release. Env: CALENDAR_CLOSED_DATES='["2026-01-09"]'.
+    calendar_closed_dates: tuple[date, ...] = ()
 
     # IB Gateway daily auto-restart (IBC AUTO_RESTART_TIME). Disconnects in this window are
     # treated as expected, not cold failures.
