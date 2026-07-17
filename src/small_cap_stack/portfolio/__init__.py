@@ -17,9 +17,13 @@ Rules locked in ``research/decisions.md`` (#230, 2026-07-15):
   capped at ``position_fraction`` (50%) of opening equity in notional, i.e. ``min(risk_qty,
   cap_qty)``. Both of the day's trades size off the *day's opening equity* (they're concurrent
   positions committed before either resolves), so at the cap 50% × 2 fully deploys the account; the
-  risk target sizes smaller whenever the stop is tighter than ``risk_fraction / position_fraction``
-  of the entry. In the *adaptive* book ``risk_fraction`` is itself throttled day-by-day by a
-  kill-switch ladder (#239) — see :func:`simulate_portfolio_adaptive`.
+  risk target sizes smaller whenever the stop is **wider** than ``risk_fraction /
+  position_fraction`` (10%) of the entry, and the **cap** sizes smaller on anything tighter — which
+  at bull-flag stop distances is most setups, so a taken trade routinely risks well under the
+  configured 5%. That asymmetry was stated backwards here until #286 and is why the page could
+  advertise "5% risk / trade" over trades that risked 0.8%; :class:`SizedPosition` now reports the
+  binding constraint and the realised risk. In the *adaptive* book ``risk_fraction`` is itself
+  throttled day-by-day by a kill-switch ladder (#239) — see :func:`simulate_portfolio_adaptive`.
 - **Exit** — a fixed R target with an optional breakeven arm, simulated bar-by-bar with the same
   conservative stop-first / gap-through convention as :mod:`rmetrics`. Costs + exit slippage are
   netted out so the equity curve is honest at ~$250 notional.
@@ -79,7 +83,7 @@ from .adaptive import (
     risk_ladder,
     step_risk_rung,
 )
-from .costs import TradeCosts, commission, size_position, trade_costs
+from .costs import SizedPosition, TradeCosts, commission, size_position, trade_costs
 from .exit import ExitOutcome, simulate_exit
 from .extract import _qualify, extract_day_trades
 from .ledgers import (
@@ -103,6 +107,8 @@ from .payload import (
     portfolio_candidate_cache_dir,
 )
 from .sim import (
+    AdaptiveBook,
+    AdaptiveState,
     _select_day,
     _take_day,
     simulate_portfolio,
@@ -110,11 +116,14 @@ from .sim import (
 )
 
 __all__ = [
+    "AdaptiveBook",
+    "AdaptiveState",
     "CandidateTrade",
     "CashFlow",
     "ExitOutcome",
     "PaperTrade",
     "PortfolioResult",
+    "SizedPosition",
     "SkippedTrade",
     "TargetStat",
     "TradeCosts",

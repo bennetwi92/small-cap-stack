@@ -115,6 +115,80 @@ function statTiles(book, start) {
   );
 }
 
+// --- Next session: the knobs in force right now (#286) ------------------------------------------
+
+// How many more decisive days until the kill-switch moves a rung, phrased from the signed streak
+// (see step_risk_rung): +n = n net-positive days in a row, -n = n net-negative. A flat day holds.
+function streakNote(st) {
+  const need = st.step_days - Math.abs(st.streak);
+  const dayWord = (n) => `${n} ${n === 1 ? "day" : "days"}`;
+  if (st.streak === 0) {
+    return `No run either way — ${dayWord(st.step_days)} in a row moves risk a rung.`;
+  }
+  const dir = st.streak > 0 ? "net-positive" : "net-negative";
+  const moving = st.streak > 0 ? "up" : "down";
+  const atEnd = st.streak > 0 ? st.rung >= st.n_rungs - 1 : st.rung <= 0;
+  const wall = st.streak > 0 ? "already at full risk" : "already parked at 0%";
+  const tail = atEnd
+    ? ` — but the book is ${wall}, so it holds.`
+    : `; ${dayWord(need)} more steps risk ${moving} a rung.`;
+  return `${dayWord(Math.abs(st.streak))} of ${dir} results${tail}`;
+}
+
+// Note: `n_rungs - 1` because rung 0 is the 0% floor — a 3-rung ladder has 2 steps above sitting out.
+function todayTiles(st, c) {
+  const parked = st.risk_fraction === 0;
+  return (
+    tile("Target", `${st.target_r}R`, "", "The R multiple the next setup exits at — re-fit daily from the trailing window") +
+    tile(
+      "Risk / trade",
+      pct(st.risk_fraction) + ` <span class="muted">(rung ${st.rung}/${st.n_rungs - 1})</span>`,
+      parked ? "pf-neg" : "",
+      `The kill-switch rung in force. Ladder: ${(c.risk_ladder || []).map(pct).join(" / ")}`
+    ) +
+    tile(
+      "Risk budget",
+      parked ? "—" : fmtUsd(st.risk_budget_usd),
+      parked ? "pf-neg" : "",
+      "Dollars the next setup may risk = balance × risk/trade. A setup is sized so entry−stop × qty lands here, unless the position cap binds first."
+    ) +
+    tile(
+      "Max position",
+      fmtUsd(st.max_position_usd),
+      "",
+      `Notional ceiling per position = balance × ${pct(c.position_fraction)}. On a tight stop this — not the risk budget — sets the size.`
+    )
+  );
+}
+
+function renderToday(book) {
+  const st = book.next_session;
+  const wrap = el("pf-today-wrap");
+  // Only the adaptive book throttles risk or re-fits a target, so only it has a "next session".
+  if (!st) {
+    wrap.hidden = true;
+    return;
+  }
+  wrap.hidden = false;
+  el("pf-today-tiles").innerHTML = todayTiles(st, PAYLOAD.config);
+  const parked = st.risk_fraction === 0;
+  const sitting = parked
+    ? ` The book is <strong>sitting out</strong> — it still watches the tape and re-arms once setups work again.`
+    : "";
+  el("pf-today-note").innerHTML =
+    `Applies to the next session the book sizes (data through ${esc(prevDay(st.as_of))}). ` +
+    streakNote(st) +
+    sitting;
+}
+
+// The state is stamped with the session it governs; the day before it is the last collected one.
+function prevDay(iso) {
+  const d = new Date(iso + "T00:00:00Z");
+  if (isNaN(d)) return iso;
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
 // --- Getting paid: withdrawals + UK CGT + VPS, in GBP -------------------------------------------
 
 const CF_LBL = { withdrawal: "Withdrawal", tax: "CGT", vps: "VPS" };
@@ -167,8 +241,24 @@ function cashFlowRows(book, cfg) {
 
 const REASON_LBL = { target: "target", stop: "stop", breakeven: "b/e", close: "close" };
 
+// The risk a trade actually took, plus a badge when the notional cap — not the risk target — set
+// the size (#286). `risk_pct` is absent from books published before that; show "—" rather than
+// silently falling back to the configured ceiling, which is the very overstatement this fixes.
+function riskCell(t) {
+  if (t.risk_pct == null) return '<td class="muted" title="Not recorded for this trade">—</td>';
+  const capped = t.sized_by === "cap";
+  const tip =
+    `${fmtUsd(t.risk_usd)} at risk` +
+    (capped
+      ? ` — the ${pct(PAYLOAD.config.position_fraction)} position cap held this under the ` +
+        `${pct(t.risk_fraction)} risk target (stop is tight relative to entry)`
+      : ` — sized by the ${pct(t.risk_fraction)} risk target`);
+  const badge = capped ? ' <span class="pf-reason pf-reason-stop">cap</span>' : "";
+  return `<td title="${esc(tip)}"><span class="${capped ? "muted" : ""}">${pct(t.risk_pct)}</span>${badge}</td>`;
+}
+
 function tradeRows(book) {
-  if (!book.trades.length) return '<tr><td colspan="11" class="muted">No qualifying pre-market trades yet.</td></tr>';
+  if (!book.trades.length) return '<tr><td colspan="12" class="muted">No qualifying pre-market trades yet.</td></tr>';
   return book.trades
     .slice()
     .reverse() // newest first
@@ -184,6 +274,7 @@ function tradeRows(book) {
         `<td>${fmtUsd(t.entry)}</td>` +
         `<td>${fmtUsd(t.stop)}</td>` +
         `<td>${fmtInt(t.qty)}</td>` +
+        riskCell(t) +
         `<td>${Number(t.target_r).toFixed(1)}R</td>` +
         `<td><span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtUsd(t.exit_price)}</td>` +
         `<td class="${rCls}">${fmtR(t.realized_r)}</td>` +
@@ -292,23 +383,58 @@ function adaptiveTargetNote(book) {
   }
   const risk = book.daily_risk || [];
   if (risk.length) {
-    const last = risk[risk.length - 1];
     const ladder = (c.risk_ladder || []).map(pct).join(" / ");
     const d = c.risk_step_days || 1;
     const days = d === 1 ? "day" : `${d} days`;
+    // Deliberately no "Latest risk: N%" here any more (#286): that rendered daily_risk[-1], the
+    // last COLLECTED day — which is only today after an EOD rebuild, and yesterday every morning
+    // before the first capture. The forward-looking number now lives in the Next session panel.
     out +=
       `<p class="muted pf-note">Risk throttle (kill-switch): position risk walks ${c.risk_rungs} rungs ` +
       `(${ladder}), starting at full risk. It takes ${days} in a row of net-positive results to step ` +
       `risk up a rung (and ${days} of net-negative to step down); at 0% the book sits out but still ` +
-      `watches the tape to re-arm. Latest risk: <strong>${pct(last.risk)}</strong> of equity per trade.</p>`;
+      `watches the tape to re-arm.</p>`;
   }
   return out;
 }
 
+// The header used to promise a flat "up to 5% risk / trade", which read as a description of what
+// the book does. It is only a ceiling: the 50% notional cap binds on any stop tighter than
+// risk/position (10%) of entry — most bull-flag setups — so trades routinely risk a fraction of it
+// (#286). Lead with the ceiling, then the risk actually taken, so the gap is visible not implied.
+function riskMeta(book, c) {
+  const ceiling =
+    `≤ ${(c.risk_fraction * 100).toFixed(0)}% risk / trade (adaptive throttles), ` +
+    `max ${(c.position_fraction * 100).toFixed(0)}% size`;
+  const s = (book && book.stats) || {};
+  if (s.avg_risk_pct == null || !s.n_trades) return ceiling;
+  const capped = s.cap_bound_count
+    ? ` (${s.cap_bound_count} of ${s.n_trades} sized by the ${pct(c.position_fraction)} cap, not the risk target)`
+    : "";
+  return `${ceiling} · <strong>actually risked ${pct(s.avg_risk_pct)}/trade on average</strong>${capped}`;
+}
+
+// The header carries per-book numbers (the realised risk), so it re-renders with the book rather
+// than being written once at load.
+function metaLine(book) {
+  const c = PAYLOAD.config;
+  return (
+    `Start ${fmtUsd(PAYLOAD.start_equity)} · ${riskMeta(book, c)} · ` +
+    `max ${c.max_trades_per_day}/day · pre-market fills only (&lt; ${esc(c.premarket_cutoff_et.slice(0, 5))} ET) · ` +
+    `entry $${c.entry_price_min}–${c.entry_price_max} · ` +
+    `IBKR tiered costs + $${c.market_data_usd_per_month}/mo data (#232) · ` +
+    `withdraw ${(c.withdraw_fraction * 100).toFixed(0)}% of profit &gt; ${fmtUsd(c.withdraw_floor_usd)} every ` +
+    `${c.withdraw_cadence_months}mo · ${(c.cgt_rate * 100).toFixed(0)}% CGT &gt; £${c.cgt_annual_exempt_gbp} · ` +
+    `£/$ ${Number(PAYLOAD.gbpusd_rate).toFixed(2)}`
+  );
+}
+
 function render() {
   const book = PAYLOAD.books[BOOK];
+  el("pf-meta").innerHTML = metaLine(book);
   el("pf-books").innerHTML = bookSelector();
   el("pf-tiles").innerHTML = statTiles(book, PAYLOAD.start_equity);
+  renderToday(book);
   el("pf-chart-wrap").innerHTML = equitySvg(book.equity_curve, PAYLOAD.start_equity, book.cash_flows);
   el("pf-note").innerHTML = BOOK === "adaptive" ? adaptiveTargetNote(book) : "";
   el("pf-payout-tiles").innerHTML = payoutTiles(book);
@@ -335,16 +461,6 @@ async function load() {
   }
   PAYLOAD = data;
   if (!PAYLOAD.books[BOOK]) BOOK = "adaptive";
-  const c = PAYLOAD.config;
-  el("pf-meta").innerHTML =
-    `Start ${fmtUsd(PAYLOAD.start_equity)} · up to ${(c.risk_fraction * 100).toFixed(0)}% risk / trade (adaptive throttles), ` +
-    `max ${(c.position_fraction * 100).toFixed(0)}% size · ` +
-    `max ${c.max_trades_per_day}/day · pre-market fills only (&lt; ${esc(c.premarket_cutoff_et.slice(0, 5))} ET) · ` +
-    `entry $${c.entry_price_min}–${c.entry_price_max} · ` +
-    `IBKR tiered costs + $${c.market_data_usd_per_month}/mo data (#232) · ` +
-    `withdraw ${(c.withdraw_fraction * 100).toFixed(0)}% of profit &gt; ${fmtUsd(c.withdraw_floor_usd)} every ` +
-    `${c.withdraw_cadence_months}mo · ${(c.cgt_rate * 100).toFixed(0)}% CGT &gt; £${c.cgt_annual_exempt_gbp} · ` +
-    `£/$ ${Number(PAYLOAD.gbpusd_rate).toFixed(2)}`;
   render();
 }
 

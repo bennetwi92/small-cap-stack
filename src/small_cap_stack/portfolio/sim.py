@@ -7,6 +7,7 @@ The decision code real shadow/paper mode will use. Split out of the old single-f
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from ..config import Settings
@@ -90,13 +91,14 @@ def _take_day(
     skipped = [_skipped(c, s, target_r, breakeven_r, "cap") for c in dropped] if rf > 0 else []
     out: list[PaperTrade] = []
     for c in taken:
-        qty = size_position(
+        sized = size_position(
             opening_equity,
             c.entry_price,
             c.stop,
             risk_fraction=rf,
             max_position_fraction=s.portfolio_position_fraction,
         )
+        qty = sized.qty
         if qty < 1:
             # Too small to afford a share — record it rather than dropping it on the floor (#251),
             # but ONLY when sizing at full configured risk. Any throttled rung can produce qty=0 on
@@ -123,6 +125,10 @@ def _take_day(
                 entry_price=c.entry_price,
                 stop=c.stop,
                 qty=qty,
+                risk_fraction=rf,
+                risk_usd=sized.risk_usd,
+                risk_pct=sized.risk_pct,
+                sized_by=sized.sized_by,
                 target_r=target_r,
                 breakeven_r=breakeven_r,
                 realized_r=outcome.realized_r,
@@ -283,12 +289,59 @@ def simulate_portfolio(
     return _run_book(days, s, lambda i, day: tr, be)
 
 
+def _fit_target(
+    trailing: Sequence[CandidateTrade], s: Settings, grid: Sequence[float], breakeven_r: float
+) -> float:
+    """The highest-expectancy grid target over ``trailing``, or the configured fallback below
+    ``portfolio_adaptive_min_samples``. Shared by the day-walk and the next-session state (#286) so
+    the number the page promises for tomorrow is fit by the same code that will apply it."""
+    if len(trailing) < s.portfolio_adaptive_min_samples:
+        return s.portfolio_target_r
+    pick = best_target(expectancy_curve(trailing, s, target_grid=grid, breakeven_r=breakeven_r))
+    return s.portfolio_target_r if pick is None else pick.target_r
+
+
+@dataclass(frozen=True)
+class AdaptiveState:
+    """The knobs the adaptive book carries **into its next sized session** (#286).
+
+    The day-walk's ``daily_targets`` / ``daily_risk`` are a record of what the book *did*; they
+    answer "what was risked on 2026-07-15", not "what will be risked on the next setup". The page
+    used to render ``daily_risk[-1]`` as "Latest risk", which is the last **collected** day — only
+    today's number after an EOD rebuild, and yesterday's every morning before the first capture.
+    This is the forward-looking answer, defined whether or not today has data yet."""
+
+    as_of: date  # the session these apply to: the first one after the last collected day
+    target_r: float
+    risk_fraction: float
+    rung: int  # index into risk_ladder(s)
+    n_rungs: int
+    streak: int  # signed run of decisive days (see step_risk_rung); ± days from a rung move
+    step_days: int
+    risk_budget_usd: float  # end_equity × risk_fraction — the dollars a setup may risk
+    max_position_usd: float  # end_equity × position_fraction — the notional cap
+
+
+@dataclass(frozen=True)
+class AdaptiveBook:
+    """The adaptive book plus how its knobs drifted, and where they stand for the next session.
+
+    A dataclass rather than the old 3-tuple (#286): it was about to grow to five positional slots,
+    and ``res, _chosen, daily_risk, _state, _x = ...`` is how a caller silently reads the wrong one.
+    """
+
+    result: PortfolioResult
+    daily_targets: list[tuple[date, float]]
+    daily_risk: list[tuple[date, float]]
+    state: AdaptiveState | None  # None only for an empty book — no days, nothing to carry forward
+
+
 def simulate_portfolio_adaptive(
     candidates_by_day: Sequence[tuple[date, Sequence[CandidateTrade]]],
     s: Settings,
     *,
     breakeven_r: float | None = None,
-) -> tuple[PortfolioResult, list[tuple[date, float]], list[tuple[date, float]]]:
+) -> AdaptiveBook:
     """Walk days chronologically, re-fitting BOTH the R target and the risk fraction each day.
 
     **Target** — each day's target = the highest-expectancy grid target over the candidates from the
@@ -307,7 +360,8 @@ def simulate_portfolio_adaptive(
     Applying today's rung, then stepping from today's result, keeps it causal (no look-ahead).
 
     Returns the book plus the per-day ``(date, chosen_target)`` and ``(date, risk_fraction)`` lists
-    so the page can show how each knob drifted."""
+    so the page can show how each knob drifted, and an :class:`AdaptiveState` for the next session
+    (#286) — the same fit and the same ladder state, applied one day past the last collected one."""
     be = s.portfolio_breakeven_r if breakeven_r is None else breakeven_r
     grid = list(s.portfolio_target_grid)
     ladder = risk_ladder(s)
@@ -319,19 +373,13 @@ def simulate_portfolio_adaptive(
     rung_state = [rung]  # mutable so the risk closure can step it each day
     streak_state = [streak]  # signed run of decisive days, carried across the closure
 
-    def target_for_day(i: int, day: date) -> float:
+    def trailing_for(i: int, day: date) -> list[CandidateTrade]:
+        """The candidates the re-fit for ``day`` sees: the trailing window, strictly-prior days."""
         window_start = day - timedelta(days=s.portfolio_adaptive_window_days)
-        trailing = [
-            c
-            for d, cs in days[:i]
-            if d >= window_start
-            for c in cs  # strictly-prior days only
-        ]
-        target = s.portfolio_target_r
-        if len(trailing) >= s.portfolio_adaptive_min_samples:
-            pick = best_target(expectancy_curve(trailing, s, target_grid=grid, breakeven_r=be))
-            if pick is not None:
-                target = pick.target_r
+        return [c for d, cs in days[:i] if d >= window_start for c in cs]
+
+    def target_for_day(i: int, day: date) -> float:
+        target = _fit_target(trailing_for(i, day), s, grid, be)
         chosen.append((day, target))
         return target
 
@@ -347,4 +395,25 @@ def simulate_portfolio_adaptive(
         return risk_fraction
 
     res = _run_book(days, s, target_for_day, be, risk_for_day)
-    return res, chosen, daily_risk
+    state = None
+    if days:
+        # The next session's knobs, fit exactly as the day-walk would fit them (`trailing_for` with
+        # i = len(days) → every collected day is now "strictly prior"). The reference date is the
+        # day after the last collected one: the true next session may be a weekend away, but the
+        # window is a 20-day calendar lookback, so a couple of days of slack can only drop trades
+        # that are about to age out anyway — and guessing the exchange calendar here would be worse.
+        next_day = days[-1][0] + timedelta(days=1)
+        rung = rung_state[0]
+        rf = ladder[rung]
+        state = AdaptiveState(
+            as_of=next_day,
+            target_r=_fit_target(trailing_for(len(days), next_day), s, grid, be),
+            risk_fraction=rf,
+            rung=rung,
+            n_rungs=len(ladder),
+            streak=streak_state[0],
+            step_days=s.portfolio_risk_step_days,
+            risk_budget_usd=round(res.end_equity * rf, 4),
+            max_position_usd=round(res.end_equity * s.portfolio_position_fraction, 4),
+        )
+    return AdaptiveBook(res, chosen, daily_risk, state)

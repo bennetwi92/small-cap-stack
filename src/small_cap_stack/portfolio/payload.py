@@ -22,7 +22,7 @@ from ..storage import Store
 from .adaptive import risk_ladder
 from .extract import extract_day_trades
 from .models import CandidateTrade, PaperTrade, PortfolioResult, SkippedTrade
-from .sim import simulate_portfolio, simulate_portfolio_adaptive
+from .sim import AdaptiveState, simulate_portfolio, simulate_portfolio_adaptive
 
 
 def collected_dates(store: Store) -> list[date]:
@@ -48,6 +48,12 @@ def _trade_json(t: PaperTrade) -> dict[str, object]:
         "entry": t.entry_price,
         "stop": t.stop,
         "qty": t.qty,
+        # What the position actually risked vs the ceiling it was sized against (#286). `risk_pct`
+        # is the honest number; `sized_by` says whether the notional cap held it under the ceiling.
+        "risk_fraction": t.risk_fraction,
+        "risk_usd": t.risk_usd,
+        "risk_pct": t.risk_pct,
+        "sized_by": t.sized_by,
         "target_r": t.target_r,
         "realized_r": t.realized_r,
         "reason": t.reason,
@@ -76,11 +82,30 @@ def _skipped_json(sk: SkippedTrade) -> dict[str, object]:
     }
 
 
+def _state_json(st: AdaptiveState) -> dict[str, object]:
+    return {
+        "as_of": st.as_of.isoformat(),
+        "target_r": st.target_r,
+        "risk_fraction": st.risk_fraction,
+        "rung": st.rung,
+        "n_rungs": st.n_rungs,
+        "streak": st.streak,
+        "step_days": st.step_days,
+        "risk_budget_usd": st.risk_budget_usd,
+        "max_position_usd": st.max_position_usd,
+    }
+
+
 def _book_json(
     res: PortfolioResult,
     daily_targets: list[tuple[date, float]] | None,
     daily_risk: list[tuple[date, float]] | None = None,
+    state: AdaptiveState | None = None,
 ) -> dict[str, object]:
+    # The realised risk the book actually took, vs the ceiling the header advertises (#286). The
+    # mean is over taken trades only — a skipped setup risked nothing and would drag it toward 0.
+    trades = res.trades
+    avg_risk_pct = round(sum(t.risk_pct for t in trades) / len(trades), 6) if trades else None
     book: dict[str, object] = {
         "stats": {
             "n_trades": res.n_trades,
@@ -90,6 +115,10 @@ def _book_json(
             "total_r": res.total_r,
             "avg_r": res.avg_r,
             "expectancy_usd": res.expectancy_usd,
+            # Sizing reality-check (#286): what was risked on average, and how many trades the
+            # notional cap held below the configured ceiling.
+            "avg_risk_pct": avg_risk_pct,
+            "cap_bound_count": sum(1 for t in trades if t.sized_by == "cap"),
             "end_equity": res.end_equity,
             "return_pct": res.return_pct,
             "max_drawdown_pct": res.max_drawdown_pct,
@@ -123,6 +152,8 @@ def _book_json(
         book["daily_targets"] = [{"date": d.isoformat(), "target": t} for d, t in daily_targets]
     if daily_risk is not None:
         book["daily_risk"] = [{"date": d.isoformat(), "risk": r} for d, r in daily_risk]
+    if state is not None:
+        book["next_session"] = _state_json(state)
     return book
 
 
@@ -297,10 +328,14 @@ def build_portfolio_payload(
         )
         for d in collected_dates(store)
     ]
-    adaptive_res, daily_targets, daily_risk = simulate_portfolio_adaptive(by_day, s)
+    adaptive = simulate_portfolio_adaptive(by_day, s)
     # Selectable fixed targets: the adaptive grid widened with a couple of extremes for exploration.
     targets = sorted(set(s.portfolio_target_grid) | {1.0, 4.0, 5.0})
-    books: dict[str, object] = {"adaptive": _book_json(adaptive_res, daily_targets, daily_risk)}
+    books: dict[str, object] = {
+        "adaptive": _book_json(
+            adaptive.result, adaptive.daily_targets, adaptive.daily_risk, adaptive.state
+        )
+    }
     for t in targets:
         books[f"{t:g}"] = _book_json(simulate_portfolio(by_day, s, target_r=t), None)
     return {

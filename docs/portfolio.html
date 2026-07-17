@@ -34,6 +34,14 @@
       <!-- Exit-target selector: Adaptive (daily re-fit) + one book per fixed R target. -->
       <div id="pf-books" class="pf-books"></div>
 
+      <!-- What the book will do on its NEXT setup (#286) — the forward-looking knobs, not a
+           record of what the last collected day happened to use. Adaptive book only. -->
+      <section id="pf-today-wrap" class="pf-today" hidden>
+        <h2 class="pf-subhead">Next session <span class="muted">— the risk and target in force now</span></h2>
+        <div id="pf-today-tiles" class="pf-tiles"></div>
+        <p id="pf-today-note" class="muted pf-note"></p>
+      </section>
+
       <div id="pf-tiles" class="pf-tiles"></div>
 
       <div id="pf-chart-wrap" class="pf-chart-wrap"></div>
@@ -56,6 +64,7 @@
               <th>Entry</th>
               <th>Stop</th>
               <th>Qty</th>
+              <th title="What this position actually put at risk, as a % of that day's opening equity. 'cap' means the 50% position-notional limit held it below the risk target.">Risk</th>
               <th>Tgt</th>
               <th>Exit</th>
               <th>R</th>
@@ -64,7 +73,7 @@
             </tr>
           </thead>
           <tbody id="pf-trades">
-            <tr><td colspan="11" class="muted">loading…</td></tr>
+            <tr><td colspan="12" class="muted">loading…</td></tr>
           </tbody>
         </table>
       </div>
