@@ -77,8 +77,8 @@ class _DataFeeLedger:
 
 
 class _VpsLedger:
-    """The VPS running cost (~£5.70/mo — Hetzner's €6.59), charged at month rollover like the
-    market-data fee.
+    """The VPS running cost (~£5.70/mo — Hetzner's €6.59, an estimate not yet invoiced; see
+    :mod:`small_cap_stack.config` and #284), charged at month rollover like the market-data fee.
 
     Kept separate from :class:`_DataFeeLedger` — it's a different real-world expense (host infra,
     not IBKR data), has no waiver, and is denominated in GBP. Every month present in the data is
