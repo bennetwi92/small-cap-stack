@@ -81,18 +81,18 @@ function renderStatus(s) {
     stale ? "sb-warn" : "");
 }
 
-// Tick health (#321): the last completed tick's duration vs its interval budget, plus skipped
-// jobs. An over-budget tick means the scheduler will silently skip ticks (scanner gaps), so it
-// gets warn colour at half the budget and bad past the budget — visible here, no SSH needed.
+// Tick health (#321, coarsened by #340/#344): the payload is public, so the box publishes a
+// verdict — "ok" / "slow" (past half the interval budget) / "over_budget" — never raw seconds.
+// An over-budget tick means the scheduler will silently skip ticks (scanner gaps), so it gets
+// bad colour, as do skipped jobs; slow gets warn — visible here, no SSH needed.
 function renderTick(s) {
-  const t = s.timings || {};
-  const missed = (s.health || {}).jobs_missed_total || 0;
-  if (t.tick_seconds_last == null) return setField("#sb-tick", null);
-  const budget = t.tick_budget_sec || 60;
+  const h = s.health || {};
+  const missed = h.jobs_missed_total || 0;
+  if (h.tick == null) return setField("#sb-tick", null);
   let cls = "";
-  if (t.tick_seconds_last > budget || missed > 0) cls = "sb-bad";
-  else if (t.tick_seconds_last > 0.5 * budget) cls = "sb-warn";
-  const txt = `tick ${t.tick_seconds_last.toFixed(1)}s` + (missed ? ` · ${missed} missed` : "");
+  if (h.tick === "over_budget" || missed > 0) cls = "sb-bad";
+  else if (h.tick === "slow") cls = "sb-warn";
+  const txt = `tick ${h.tick}` + (missed ? ` · ${missed} missed` : "");
   setField("#sb-tick", esc(txt), cls);
 }
 

@@ -8,8 +8,10 @@ service alerts if the process dies or wedges; cold IBKR disconnects trigger a fa
 from __future__ import annotations
 
 import asyncio
+import shutil
 import urllib.request
 from collections.abc import Callable
+from pathlib import Path
 
 from prometheus_client import REGISTRY, Counter, Gauge, start_http_server
 
@@ -45,6 +47,31 @@ DATASET_FILES = Gauge(
 def metric_value(name: str) -> float:
     """Read a metric's current value from the default registry (0.0 if absent)."""
     return REGISTRY.get_sample_value(name) or 0.0
+
+
+def mem_available_mb(meminfo: Path = Path("/proc/meminfo")) -> float | None:
+    """Host MemAvailable in MB, or None where unreadable (macOS dev, sandboxes).
+
+    Read from /proc/meminfo, which under plain Docker reports the HOST, not the cgroup — exactly
+    right here: the OOM history (#264/#273) is host-level pressure, and the app cgroup's own limit
+    (#329) is the *containment* for it, not the signal.
+    """
+    try:
+        for line in meminfo.read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / 1024.0  # kB -> MB
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def disk_used_pct(path: Path) -> float | None:
+    """Percent of the filesystem holding ``path`` in use, or None where unreadable."""
+    try:
+        usage = shutil.disk_usage(path)
+    except OSError:
+        return None
+    return usage.used / usage.total * 100.0
 
 
 def start_metrics_server(port: int) -> None:

@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     healthchecks_ping_url: str = ""
     metrics_enabled: bool = True
     metrics_port: int = 9090
+    # Host-headroom floors behind status.json's mem_ok/disk_ok booleans (#340). The box compares
+    # locally and publishes only the verdict — raw headroom numbers never reach the public
+    # dashboard payload (#344 telemetry scrub).
+    health_min_mem_available_mb: float = 400.0
+    health_max_disk_used_pct: float = 90.0
 
     # Dashboard exporter (issue #68) — writes status.json/stats.json under data_dir/dashboard.
     dashboard_enabled: bool = True
