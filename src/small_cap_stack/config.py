@@ -233,9 +233,12 @@ class Settings(BaseSettings):
     # without code changes — see research/decisions.md for the CGT-vs-trading-income risk.
     portfolio_cgt_rate: float = 0.24
     portfolio_cgt_annual_exempt_gbp: float = 3000.0
-    # VPS running cost (~£10/mo). A real recurring GBP cost, charged at month rollover like the
-    # market-data fee but kept as its own line (different real-world expense).
-    portfolio_vps_gbp_per_month: float = 10.0
+    # VPS running cost, charged at month rollover like the market-data fee but kept as its own line
+    # (different real-world expense). The real bill is the Hetzner CX22 at €6.59/mo; it is held here
+    # in GBP (€6.59 × ~0.865 EUR/GBP) because the whole cost model is GBP-denominated and converts
+    # to USD through the single portfolio_gbpusd_rate. The EUR/GBP rate is baked into this figure
+    # rather than being its own knob — revisit if the euro moves materially.
+    portfolio_vps_gbp_per_month: float = 5.70
 
 
 @lru_cache
