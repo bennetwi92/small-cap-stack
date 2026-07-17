@@ -56,9 +56,15 @@ concurrency:
   group: deploy-vps
   cancel-in-progress: false
 
+# Least-privilege default; the publish job elevates to contents:write for its branch push (#333).
+permissions:
+  contents: read
+
 jobs:
   deploy:
     name: deploy to vps
+    # Repository guard: box jobs run only in THIS repo, never a fork (#333, A1 lockdown).
+    if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
     runs-on: [self-hosted, vps]
     steps:
       # Composite actions resolve from the workspace, so the action directory must exist locally.
@@ -78,10 +84,15 @@ jobs:
   backfill:
     name: regenerate dashboard JSON
     needs: deploy
-    if: ${{ !inputs.skip_backfill }}
+    if: ${{ github.repository == 'bennetwi92/small-cap-stack' && !inputs.skip_backfill }}
     runs-on: [self-hosted, vps]
     steps:
       - name: Regenerate dashboard JSON in the app container
+        # Dispatch inputs read as runtime env vars, never templated into the script (#333).
+        env:
+          IN_ALL: ${{ inputs.backfill_all }}
+          IN_FORCE: ${{ inputs.backfill_force }}
+          IN_DATE: ${{ inputs.backfill_date }}
         run: |
           set -euo pipefail
           cid="$(docker ps --filter 'name=small-cap-stack-app' --format '{{.ID}}' | head -1)"
@@ -90,20 +101,20 @@ jobs:
             exit 1
           fi
           args=""
-          if [ "${{ inputs.backfill_all }}" = "true" ]; then
+          if [ "$IN_ALL" = "true" ]; then
             # A second, separate confirmation — the `all` toggle alone is not enough. --all rebuilds
             # every collected date in one process and has OOM-killed the box (#264), and this
             # workflow is the phone path that would actually do it. Auto-supplying --force here
             # would make the CLI guard theatre.
-            if [ "${{ inputs.backfill_force }}" != "true" ]; then
+            if [ "$IN_FORCE" != "true" ]; then
               echo "Refusing --all without 'backfill_force'. It rebuilds every collected date in one" >&2
               echo "process and has OOM-killed the box (#264). Prefer a single 'backfill_date'." >&2
               echo "If you really mean the full archive, re-run with backfill_force: true." >&2
               exit 1
             fi
             args="--all --force"
-          elif [ -n "${{ inputs.backfill_date }}" ]; then
-            args="--date ${{ inputs.backfill_date }}"
+          elif [ -n "$IN_DATE" ]; then
+            args="--date $IN_DATE"
           fi
           docker exec "$cid" python -m small_cap_stack.dashboard_backfill $args
 
@@ -112,7 +123,7 @@ jobs:
     # Run after backfill, but don't block on it being skipped — `always()` lets publish proceed
     # when skip_backfill is set, while still gating on deploy having succeeded.
     needs: [deploy, backfill]
-    if: ${{ always() && needs.deploy.result == 'success' && needs.backfill.result != 'failure' }}
+    if: ${{ always() && github.repository == 'bennetwi92/small-cap-stack' && needs.deploy.result == 'success' && needs.backfill.result != 'failure' }}
     runs-on: [self-hosted, vps]
     permissions:
       contents: write

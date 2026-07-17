@@ -32,9 +32,17 @@ concurrency:
   group: deploy-vps
   cancel-in-progress: false
 
+# The GHCR image is public, so the deploy needs no packages token — only read for the sparse
+# checkout of .github/actions (#333).
+permissions:
+  contents: read
+
 jobs:
   deploy:
     name: deploy to vps
+    # Repository guard: this box job must only ever run in THIS repo, never in a fork that
+    # registered its own runner or re-used these files (#333, A1 lockdown).
+    if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
     runs-on: [self-hosted, vps]
     steps:
       # Composite actions resolve from the workspace, so the action directory must exist locally.

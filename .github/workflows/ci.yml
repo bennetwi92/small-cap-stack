@@ -9,6 +9,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege token: CI only reads the checkout. Fork PRs already get a read-only token, but
+# stating it explicitly caps the blast radius on same-repo pushes too (#333).
+permissions:
+  contents: read
+
 jobs:
   quality:
     name: lint-typecheck-test

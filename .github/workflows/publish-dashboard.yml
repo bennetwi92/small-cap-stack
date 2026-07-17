@@ -25,6 +25,8 @@ permissions:
 jobs:
   publish:
     name: publish dashboard data
+    # Repository guard: box job runs only in THIS repo, never a fork (#333, A1 lockdown).
+    if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
     runs-on: [self-hosted, vps]
     steps:
       - name: Extract dashboard JSON from the app container
