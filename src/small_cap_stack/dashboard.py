@@ -123,8 +123,10 @@ def _data_counts(store: Store, prefix: str) -> dict[str, dict[str, int]]:
 
 
 def _open_opportunities(store: Store, trading_date: date) -> dict[str, Any]:
-    opps = store.read("opportunities")
-    if opps.is_empty():
+    # dt= scoping leans on a row's partition matching its trading_date *column* — verified
+    # stray-free on the live store (#322). The filter below stays as a belt-and-braces no-op.
+    opps = store.read("opportunities", dt=trading_date)
+    if opps.is_empty():  # must precede pl.col(): a missing partition reads as a zero-column frame
         return {"open_today": 0, "symbols": []}
     today = opps.filter(pl.col("trading_date") == trading_date).unique(subset="opportunity_id")
     symbols = sorted(today["symbol"].to_list()) if not today.is_empty() else []

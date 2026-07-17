@@ -18,6 +18,7 @@ from small_cap_stack.report import (
     _segment_runs,
     _to_markdown,
     build_eod_report,
+    day_opportunities,
     float_sources_for,
     news_headlines_for,
 )
@@ -202,6 +203,33 @@ def test_analysis_excludes_after_hours_bars(tmp_path: Path) -> None:
     ah = build_eod_report(store, _settings(), _DAY).analyses[0]
     assert ah.bars == 4  # after-hours bar dropped from the analysis
     assert ah.triggered and ah.max_r is not None and ah.max_r < 1.0  # not the 9.9 spike (~6.8R)
+
+
+def test_day_opportunities_scoped_to_requested_date(tmp_path: Path) -> None:
+    # #322: the read is dt=-scoped, leaning on partition == trading_date column (verified live).
+    store = Store(tmp_path)
+    other = date(2026, 6, 26)
+    store.append(
+        "opportunities",
+        [
+            {
+                "opportunity_id": "2026-06-26:OLD",
+                "symbol": "OLD",
+                "con_id": 9,
+                "trading_date": other,
+                "first_seen_utc": datetime(2026, 6, 26, 13, 0, tzinfo=UTC),
+                "first_rank": 0,
+            }
+        ],
+        partition_date=other,
+    )
+    _seed(store)  # the 2026-06-29 day
+
+    day = day_opportunities(store, _DAY)
+    assert "2026-06-26:OLD" not in day["opportunity_id"].to_list()
+    assert day.height > 0
+    # A date with no partition reads as a zero-column frame; callers only ever check is_empty().
+    assert day_opportunities(store, date(2026, 6, 28)).is_empty()
 
 
 def test_eod_report_empty(tmp_path: Path) -> None:

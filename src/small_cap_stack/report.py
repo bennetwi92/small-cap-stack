@@ -429,7 +429,7 @@ def day_opportunities(store: Store, trading_date: date) -> pl.DataFrame:
 
     The raw dataset may hold duplicate rows (a mid-day restart re-opening a name); one base
     opportunity per symbol/day. Shared by the EOD report and the chart projection."""
-    opps = store.read("opportunities")
+    opps = store.read("opportunities", dt=trading_date)
     if opps.is_empty():
         return opps
     return opps.filter(pl.col("trading_date") == trading_date).unique(

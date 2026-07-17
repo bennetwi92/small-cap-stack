@@ -171,7 +171,9 @@ class CaptureService:
         if self._hydrated_date == trading_date:
             return
         self._open = set()
-        opps = self.store.read("opportunities")
+        # dt= scoping is safe: partition date and the trading_date column come from the same
+        # variable in _open_opportunity, verified stray-free on the live store (#322).
+        opps = self.store.read("opportunities", dt=trading_date)
         if not opps.is_empty():
             today = opps.filter(pl.col("trading_date") == trading_date)
             self._open = set(today["opportunity_id"].to_list())
@@ -258,7 +260,7 @@ class CaptureService:
 
     def _day_opportunities(self, trading_date: date) -> pl.DataFrame:
         """The day's opportunities, deduped by id (a mid-day restart may re-open a name)."""
-        opps = self.store.read("opportunities")
+        opps = self.store.read("opportunities", dt=trading_date)
         if opps.is_empty():
             return opps
         return opps.filter(pl.col("trading_date") == trading_date).unique(
@@ -363,7 +365,7 @@ class CaptureService:
         re-fetch closes that gap; duplicates (same article) are deduped on read by article_id. Reads
         opportunities from storage, so a mid-day restart doesn't matter.
         """
-        opps = self.store.read("opportunities")
+        opps = self.store.read("opportunities", dt=trading_date)
         if opps.is_empty():
             return
         opps = opps.filter(pl.col("trading_date") == trading_date).unique(
