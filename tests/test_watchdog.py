@@ -669,7 +669,13 @@ def test_main_opens_and_records_issue_number(
     )
     monkeypatch.setattr(wd, "open_alert", lambda check, th: 55)
     state = tmp_path / "state.json"
-    assert wd.main(["--state", str(state), "--force"]) == 0
-    assert wd.main(["--state", str(state), "--force"]) == 0
+    opened = tmp_path / "opened.json"
+    args = ["--state", str(state), "--force", "--opened-file", str(opened)]
+    assert wd.main(args) == 0
+    assert json.loads(opened.read_text()) == []  # run 1 only arms the streak
+    assert wd.main(args) == 0
+    # Run 2 opens the alert: recorded in state AND handed to the workflow for the
+    # self-heal dispatch (#336 — GITHUB_TOKEN issue events can't trigger workflows).
+    assert json.loads(opened.read_text()) == [55]
     saved = json.loads(state.read_text())
     assert saved["keys"]["infra/box-stale"]["issue"] == 55

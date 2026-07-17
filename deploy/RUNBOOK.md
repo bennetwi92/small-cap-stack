@@ -75,6 +75,13 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
   opportunity-count anomalies) `alert`+`strategy`. Your open `alert` issues ARE the active-alerts
   board; a stale *publish* alert usually means the self-hosted runner is down (§11), a stale *box*
   alert means the app/tick loop is.
+- **Self-heal** (#336): when the watchdog opens an alert it dispatches `self-heal`, a hosted
+  Sonnet diagnosis over the alert + the public payloads only — it has no `actions:write`, so it
+  structurally **cannot** touch the box, dispatch deploys, or trigger `data-export`. Code-level
+  causes become a `fix/alert-<n>` PR (close+reopen it to kick CI); ops-level causes become a
+  diagnosis comment proposing ONE allowlisted runbook action with its exact command — **you**
+  dispatch it. A 6-hour cooldown marker (`<!-- self-heal -->`) stops alert-flap from burning
+  Sonnet runs. Hand-labelling any issue `alert` also triggers it.
 - **Data-quality canary** (#346): the app writes `canary.json` (float coverage / news recency /
   bar sanity verdicts, ~5-min throttle) alongside `status.json`; the watchdog asserts the verdicts
   (`strategy/canary-*` issues, labels `alert`+`strategy`+`data`) and — once it has seen the file at

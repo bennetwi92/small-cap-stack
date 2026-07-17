@@ -762,6 +762,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Infra watchdog (#340) — see module docstring.")
     parser.add_argument("--state", type=Path, required=True, help="state JSON (read + rewritten)")
     parser.add_argument("--base-url", default=RAW_BASE)
+    parser.add_argument(
+        "--opened-file",
+        type=Path,
+        default=None,
+        help="write the issue numbers opened this run as JSON (the workflow dispatches "
+        "self-heal for each, #336 — GITHUB_TOKEN issue events can't trigger workflows)",
+    )
     parser.add_argument("--force", action="store_true", help="run even outside the window")
     parser.add_argument("--dry-run", action="store_true", help="print actions; don't call gh")
     args = parser.parse_args(argv)
@@ -788,6 +795,7 @@ def main(argv: list[str] | None = None) -> int:
     all_checks = ev.checks + strat_checks + canary_checks
     keys, actions = step(keys_from_state(state), all_checks, th)
 
+    opened: list[int] = []
     for act in actions:
         if args.dry_run:
             print(f"[dry-run] {act.kind}: {act.check.slug}")
@@ -795,6 +803,7 @@ def main(argv: list[str] | None = None) -> int:
         if act.kind == "open":
             num = open_alert(act.check, th)
             keys[act.check.slug].issue = num
+            opened.append(num)
             print(f"opened #{num}: {act.check.slug}")
         elif act.issue is not None:
             close_alert(act.issue, act.check, th)
@@ -807,6 +816,8 @@ def main(argv: list[str] | None = None) -> int:
 
     breaching = [c.slug for c in all_checks if c.breached]
     print(f"checks: {len(all_checks)} — breaching: {', '.join(breaching) if breaching else 'none'}")
+    if args.opened_file is not None:
+        args.opened_file.write_text(json.dumps(sorted(set(opened))))
     save_state(args.state, keys, ev.sample, strat_state, now)
     return 0
 
