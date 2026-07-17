@@ -33,15 +33,30 @@ def test_systemd_unit() -> None:
     assert "up -d --build" not in s
 
 
-def test_deploy_workflows_pull_and_never_build_on_box() -> None:
-    """The box must never build (#278). Guards both the standalone deploy and the pipeline."""
+def test_deploy_action_pulls_and_never_builds_on_box() -> None:
+    """The box must never build (#278). The deploy lives in one composite action (#280)."""
+    a = (ROOT / ".github" / "actions" / "deploy-app" / "action.yml").read_text()
+    assert "docker compose pull app" in a
+    assert "docker compose up -d --no-build app" in a
+    assert "docker compose up -d --build" not in a
+    # The image lands via a racing workflow — deploying without waiting 404s (#278).
+    assert "docker manifest inspect" in a
+    # Composite inputs are strings: negating one ("false") is truthy, so `!inputs.restart_only`
+    # would silently skip every guarded step. Guards must compare against 'true' (#280).
+    guards = [ln.strip() for ln in a.splitlines() if ln.strip().startswith("if:")]
+    assert guards, "the restart_only guards disappeared"
+    for g in guards:
+        assert g == "if: inputs.restart_only != 'true'", g
+
+
+def test_both_deploy_workflows_use_the_shared_action() -> None:
+    """Neither workflow may re-inline the deploy — that drift is what #280 removed."""
     for name in ("deploy.yml", "deploy-backfill-publish.yml"):
         w = (ROOT / ".github" / "workflows" / name).read_text()
-        assert "docker compose pull app" in w, name
-        assert "docker compose up -d --no-build app" in w, name
-        assert "docker compose up -d --build" not in w, name
-        # The image lands via a racing workflow — deploying without waiting 404s (#278).
-        assert "docker manifest inspect" in w, name
+        assert "uses: ./.github/actions/deploy-app" in w, name
+        # Composite actions resolve from the workspace, so the caller must check it out.
+        assert "actions/checkout@v4" in w, name
+        assert "docker compose" not in w, f"{name} should delegate the deploy, not inline it"
 
 
 def test_build_image_covers_every_main_commit() -> None:
