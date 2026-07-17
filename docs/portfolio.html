@@ -5,116 +5,105 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>small-cap-stack · virtual portfolio</title>
     <meta name="robots" content="noindex" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
     />
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="cockpit.css" />
   </head>
   <body>
-    <!-- Shared page nav (#219): compact pill tabs, active tab marked per page (no JS). -->
-    <nav class="topnav" aria-label="Pages">
-      <a class="topnav-tab" href="index.html">Dashboard</a>
-      <a class="topnav-tab" href="review.html">Review</a>
-      <a class="topnav-tab" href="results.html">Results</a>
-      <a class="topnav-tab" href="portfolio.html" aria-current="page">Portfolio</a>
-    </nav>
-    <main class="container">
-      <hgroup>
-        <h1>Virtual portfolio</h1>
-        <p class="muted">
-          Pre-shadow paper book — the trades I'd take, over the data already collected ·
-          <button id="pf-refresh" class="secondary outline" title="Refresh now">↻</button>
-        </p>
-        <p id="pf-meta" class="muted pf-meta">loading…</p>
-      </hgroup>
+    <!-- Cockpit chrome (#290): book selector + refresh live in the options bar;
+         the config/meta line and disclaimer sit under its ··· expander. -->
+    <header id="appbar" class="appbar"></header>
+    <div id="optbar"></div>
+    <p id="pf-error" class="error" hidden></p>
 
-      <p id="pf-error" class="error" hidden></p>
-
-      <!-- Exit-target selector: Adaptive (daily re-fit) + one book per fixed R target. -->
-      <div id="pf-books" class="pf-books"></div>
-
-      <!-- What the book will do on its NEXT setup (#286) — the forward-looking knobs, not a
-           record of what the last collected day happened to use. Adaptive book only. -->
-      <section id="pf-today-wrap" class="pf-today" hidden>
-        <h2 class="pf-subhead">Next session <span class="muted">— the risk and target in force now</span></h2>
-        <div id="pf-today-tiles" class="pf-tiles"></div>
-        <p id="pf-today-note" class="muted pf-note"></p>
-      </section>
-
-      <div id="pf-tiles" class="pf-tiles"></div>
-
-      <div id="pf-chart-wrap" class="pf-chart-wrap"></div>
-      <div id="pf-note"></div>
-
-      <!-- Getting paid: quarterly withdrawals, UK CGT reserve, VPS running cost — all in GBP. -->
-      <section class="pf-payout">
-        <h2 class="pf-subhead">Getting paid <span class="muted">— take-home in GBP, after tax &amp; costs</span></h2>
-        <div id="pf-payout-tiles" class="pf-tiles"></div>
-        <div id="pf-cashflows"></div>
-      </section>
-
-      <div id="pf-trades-wrap" class="scroll pf-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Sym</th>
-              <th>Trigger</th>
-              <th>Entry</th>
-              <th>Stop</th>
-              <th>Qty</th>
-              <th title="What this position actually put at risk, as a % of that day's opening equity. 'cap' means the 50% position-notional limit held it below the risk target.">Risk</th>
-              <th>Tgt</th>
-              <th>Exit</th>
-              <th>R</th>
-              <th>Net</th>
-              <th>Balance</th>
-            </tr>
-          </thead>
-          <tbody id="pf-trades">
-            <tr><td colspan="12" class="muted">loading…</td></tr>
-          </tbody>
-        </table>
+    <div class="pf">
+      <!-- Left rail: the book's state — stats, forward knobs, curve, payouts. -->
+      <div class="pf-left">
+        <section class="panel">
+          <h2 class="panel-h">Book stats</h2>
+          <div id="pf-tiles" class="tiles"></div>
+        </section>
+        <!-- What the book will do on its NEXT setup (#286) — forward-looking
+             knobs, not a record of the last collected day. Adaptive book only. -->
+        <section class="panel" id="pf-today-wrap" hidden>
+          <h2 class="panel-h">Next session — the risk and target in force now</h2>
+          <div id="pf-today-tiles" class="tiles"></div>
+          <p id="pf-today-note" class="muted pf-note"></p>
+        </section>
+        <section class="panel">
+          <h2 class="panel-h">Equity curve</h2>
+          <div id="pf-chart-wrap" class="pf-chart-wrap"></div>
+          <div id="pf-note"></div>
+        </section>
+        <!-- Getting paid: quarterly withdrawals, UK CGT reserve, VPS cost — GBP. -->
+        <section class="panel">
+          <h2 class="panel-h">Getting paid — take-home in GBP, after tax &amp; costs</h2>
+          <div id="pf-payout-tiles" class="tiles"></div>
+          <div id="pf-cashflows"></div>
+        </section>
       </div>
 
-      <!-- Setups the 2/day cap dropped: qualifying trades we passed on because the day was full. -->
-      <section class="pf-skipped">
-        <h2 class="pf-subhead">
-          Skipped <span class="muted">— passed strategy, not taken (daily cap full, or unaffordable)</span>
-        </h2>
-        <p id="pf-skipped-note" class="muted pf-note"></p>
-        <div id="pf-skipped-wrap" class="scroll pf-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Sym</th>
-                <th>Why</th>
-                <th>Trigger</th>
-                <th>Entry</th>
-                <th>Stop</th>
-                <th>Tgt</th>
-                <th>Would-be exit</th>
-                <th>R</th>
-              </tr>
-            </thead>
-            <tbody id="pf-skipped">
-              <tr><td colspan="9" class="muted">loading…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <!-- Right: the trades themselves; the log fills the column and scrolls
+           inside its panel, never the body. -->
+      <div class="pf-right">
+        <section class="panel pf-trades-panel">
+          <h2 class="panel-h">Trade log</h2>
+          <div id="pf-trades-wrap" class="tbl-wrap pf-fill">
+            <table class="tbl">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Sym</th>
+                  <th>Trigger</th>
+                  <th class="r">Entry</th>
+                  <th class="r">Stop</th>
+                  <th class="r">Qty</th>
+                  <th class="r" title="What this position actually put at risk, as a % of that day's opening equity. 'cap' means the 50% position-notional limit held it below the risk target.">Risk</th>
+                  <th class="r">Tgt</th>
+                  <th>Exit</th>
+                  <th class="r">R</th>
+                  <th class="r">Net</th>
+                  <th class="r">Balance</th>
+                </tr>
+              </thead>
+              <tbody id="pf-trades">
+                <tr><td colspan="12" class="muted">loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <!-- Setups the 2/day cap dropped, or that couldn't be sized at all. -->
+        <section class="panel pf-skipped-panel">
+          <h2 class="panel-h">Skipped — passed strategy, not taken</h2>
+          <p id="pf-skipped-note" class="muted pf-note"></p>
+          <div id="pf-skipped-wrap" class="tbl-wrap pf-skip-scroll">
+            <table class="tbl">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Sym</th>
+                  <th>Why</th>
+                  <th>Trigger</th>
+                  <th class="r">Entry</th>
+                  <th class="r">Stop</th>
+                  <th class="r">Tgt</th>
+                  <th>Would-be exit</th>
+                  <th class="r">R</th>
+                </tr>
+              </thead>
+              <tbody id="pf-skipped">
+                <tr><td colspan="9" class="muted">loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
 
-      <footer class="muted">
-        <small>
-          Not advice, not real orders — a paper book computed on-read from the tracker's own data
-          (engine-v2 takeable setups · strictly pre-market fills · entry $1–20 · 3-tick fill ·
-          costs netted). Small samples: treat as a wiring/sanity view, not an edge estimate.
-          · <a href="https://github.com/bennetwi92/small-cap-stack">repo</a>
-        </small>
-      </footer>
-    </main>
-    <script src="portfolio.js"></script>
+    <script type="module" src="portfolio.js"></script>
   </body>
 </html>

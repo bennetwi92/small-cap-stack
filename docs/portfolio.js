@@ -1,46 +1,54 @@
-// Virtual-portfolio tracker (#230): a *pre-shadow* paper book over the tracker's own data. Plain
-// fetch + DOM, mirroring results.js / review.js idioms — no framework, no build step.
-//
-// Reads a single published `portfolio.json` (dashboard-data branch) built server-side by the tested
-// `small_cap_stack.portfolio` module: the adaptive (daily re-fit) book plus one fixed-target book
-// per selectable R target. The page just picks a book and renders its equity curve / stats / trade
-// log — all the trading logic (select → size → simulate-exit) lives in the Python package.
+// Virtual-portfolio tracker (#230, cockpit #290): a *pre-shadow* paper book
+// over the tracker's own data, on the shared cockpit chrome. All the trading
+// logic (select → size → simulate-exit) lives in the tested Python package;
+// this page just picks a book from the published portfolio.json and renders
+// its equity curve / stats / trade log.
 
-const REPO = "bennetwi92/small-cap-stack";
-const BRANCH = "dashboard-data";
-const rawUrl = (file) => `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${file}?t=${Date.now()}`;
+import "./js/nav.js";
+import { createOptionsBar } from "./js/options-bar.js";
+import { setStatusPage } from "./js/status-bar.js";
+import { fetchJson } from "./js/data.js";
+import { esc, etClockIso, rRampClass } from "./js/fmt.js";
 
 const el = (id) => document.getElementById(id);
-const esc = (s) =>
-  String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const MK = { up: "#3fb950", down: "#f85149", flat: "#8b949e", line: "#2f81f7" };
+const MK = { up: "#3ec07e", down: "#f06673", flat: "#9aa0b5", line: "#4fe3ef" };
 
 const fmtUsd = (x) => (x == null || !isFinite(x) ? "—" : "$" + Number(x).toFixed(2));
 const fmtGbp = (x) => (x == null || !isFinite(x) ? "—" : "£" + Number(x).toFixed(2));
 const fmtR = (x) => (x == null || !isFinite(x) ? "—" : (x >= 0 ? "+" : "") + Number(x).toFixed(2) + "R");
 const fmtPct = (x) => (x == null || !isFinite(x) ? "—" : (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%");
 const fmtInt = (x) => (x == null || !isFinite(x) ? "—" : String(x));
-
-const _etHM = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
-});
-// The exported trigger_at is already an ET ISO string; show HH:MM.
-const etClock = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return isNaN(d) ? "—" : _etHM.format(d);
-};
+const pct = (r) => (r * 100).toFixed(2).replace(/\.?0+$/, "") + "%"; // 0.025 -> "2.5%"
 
 let PAYLOAD = null; // the whole portfolio.json
 let BOOK = "adaptive"; // selected book key
 
-async function fetchJson(file) {
-  const res = await fetch(rawUrl(file), { cache: "no-store" });
-  if (!res.ok) return null;
-  return res.json();
+/* ---------- options bar: book selector + refresh; meta line under ··· ---------- */
+
+function buildOptbar() {
+  const books = PAYLOAD
+    ? ["adaptive", ...PAYLOAD.targets].map((k) => ({
+        value: k,
+        label: k === "adaptive" ? "Adaptive" : `${k}R`,
+      }))
+    : [{ value: "adaptive", label: "Adaptive" }];
+  createOptionsBar("optbar", {
+    primary: [
+      { type: "seg", id: "pf-book", label: "BOOK", value: BOOK, options: books },
+      { type: "btn", id: "pf-refresh", label: "Refresh", title: "Refresh now" },
+    ],
+    extra: [{ type: "note", id: "pf-meta", value: "loading…" }],
+    onChange: (id, value) => {
+      if (id === "pf-refresh") return load();
+      if (id === "pf-book") {
+        BOOK = value;
+        render();
+      }
+    },
+  });
 }
 
-// --- Equity curve (inline SVG, theme-agnostic via currentColor + explicit marks) ----------------
+/* ---------- Equity curve (inline SVG) ---------- */
 
 function equitySvg(curve, start, cashFlows = []) {
   const pts = [{ date: null, equity: start }, ...curve]; // anchor at the opening balance
@@ -81,23 +89,26 @@ function equitySvg(curve, start, cashFlows = []) {
   );
 }
 
-// --- Stat tiles ---------------------------------------------------------------------------------
+/* ---------- Stat tiles ---------- */
 
 function tile(label, value, cls = "", title = "") {
   const t = title ? ` title="${esc(title)}"` : "";
-  return `<div class="pf-tile"${t}><div class="pf-tile-val ${cls}">${value}</div><div class="pf-tile-lbl">${esc(label)}</div></div>`;
+  return (
+    `<div class="tile"${t}><div class="tile-l">${esc(label)}</div>` +
+    `<div class="tile-v ${cls}">${value}</div></div>`
+  );
 }
 
 // Costs are first-order on a $500 book (research/broker-costs.md, #232) — show the drag as a share
 // of starting equity rather than burying it inside net P&L.
 function costTile(s, start) {
   if (s.total_costs_usd == null) return "";
-  const pct = start ? ` <span class="muted">(${((s.total_costs_usd / start) * 100).toFixed(1)}%)</span>` : "";
+  const pctOf = start ? ` <span class="muted">(${((s.total_costs_usd / start) * 100).toFixed(1)}%)</span>` : "";
   const breakdown =
     `IBKR commission ${fmtUsd(s.commission_usd)} · ` +
     `exchange/clearing/TAF/SEC ${fmtUsd(s.fees_usd)} · ` +
     `market data ${fmtUsd(s.data_fees_usd)}`;
-  return tile("Costs", fmtUsd(s.total_costs_usd) + pct, "pf-neg", breakdown);
+  return tile("Costs", fmtUsd(s.total_costs_usd) + pctOf, "pf-neg", breakdown);
 }
 
 function statTiles(book, start) {
@@ -107,15 +118,15 @@ function statTiles(book, start) {
     tile("Balance", fmtUsd(s.end_equity), grew ? "pf-pos" : "pf-neg") +
     tile("Return", fmtPct(s.return_pct), grew ? "pf-pos" : "pf-neg") +
     tile("Win rate", s.win_rate == null ? "—" : (s.win_rate * 100).toFixed(0) + "%") +
-    tile("Trades", `${fmtInt(s.n_trades)} <span class="muted">(${s.wins}W/${s.losses}L)</span>`) +
+    tile("Trades", `${fmtInt(s.n_trades)} <span class="muted">${s.wins}W/${s.losses}L</span>`) +
     tile("Avg R", fmtR(s.avg_r)) +
-    tile("Expectancy", fmtUsd(s.expectancy_usd) + "/trade") +
+    tile("Expectancy", `${fmtUsd(s.expectancy_usd)}<span class="muted">/trade</span>`) +
     tile("Max DD", s.max_drawdown_pct == null ? "—" : "-" + (s.max_drawdown_pct * 100).toFixed(1) + "%", "pf-neg") +
     costTile(s, start)
   );
 }
 
-// --- Next session: the knobs in force right now (#286) ------------------------------------------
+/* ---------- Next session: the knobs in force right now (#286) ---------- */
 
 // How many more decisive days until the kill-switch moves a rung, phrased from the signed streak
 // (see step_risk_rung): +n = n net-positive days in a row, -n = n net-negative. A flat day holds.
@@ -189,12 +200,10 @@ function prevDay(iso) {
   return d.toISOString().slice(0, 10);
 }
 
-// --- Getting paid: withdrawals + UK CGT + VPS, in GBP -------------------------------------------
+/* ---------- Getting paid: withdrawals + UK CGT + VPS, in GBP ---------- */
 
 const CF_LBL = { withdrawal: "Withdrawal", tax: "CGT", vps: "VPS" };
 
-// The take-home layer: what actually reaches your bank after tax + the box's running cost.
-// All in GBP (the book is USD, converted at the assumed rate the payload carries).
 function payoutTiles(book) {
   const s = book.stats;
   return (
@@ -224,20 +233,20 @@ function cashFlowRows(book, cfg) {
         "<tr>" +
         `<td>${esc(c.date)}</td>` +
         `<td><span class="pf-reason pf-reason-${c.kind === "withdrawal" ? "target" : "stop"}">${CF_LBL[c.kind] || c.kind}</span></td>` +
-        `<td class="${cls}">${fmtGbp(c.gbp)}</td>` +
-        `<td class="muted">${fmtUsd(c.usd)}</td>` +
+        `<td class="r ${cls}">${fmtGbp(c.gbp)}</td>` +
+        `<td class="r muted">${fmtUsd(c.usd)}</td>` +
         "</tr>"
       );
     })
     .join("");
   return (
-    '<div class="scroll pf-table"><table><thead><tr>' +
-    "<th>Date</th><th>Type</th><th>GBP</th><th>USD</th>" +
+    '<div class="tbl-wrap"><table class="tbl"><thead><tr>' +
+    '<th>Date</th><th>Type</th><th class="r">GBP</th><th class="r">USD</th>' +
     `</tr></thead><tbody>${rows}</tbody></table></div>`
   );
 }
 
-// --- Trade log ----------------------------------------------------------------------------------
+/* ---------- Trade log ---------- */
 
 const REASON_LBL = { target: "target", stop: "stop", breakeven: "b/e", close: "close" };
 
@@ -245,7 +254,7 @@ const REASON_LBL = { target: "target", stop: "stop", breakeven: "b/e", close: "c
 // the size (#286). `risk_pct` is absent from books published before that; show "—" rather than
 // silently falling back to the configured ceiling, which is the very overstatement this fixes.
 function riskCell(t) {
-  if (t.risk_pct == null) return '<td class="muted" title="Not recorded for this trade">—</td>';
+  if (t.risk_pct == null) return '<td class="r muted" title="Not recorded for this trade">—</td>';
   const capped = t.sized_by === "cap";
   const tip =
     `${fmtUsd(t.risk_usd)} at risk` +
@@ -254,8 +263,13 @@ function riskCell(t) {
         `${pct(t.risk_fraction)} risk target (stop is tight relative to entry)`
       : ` — sized by the ${pct(t.risk_fraction)} risk target`);
   const badge = capped ? ' <span class="pf-reason pf-reason-stop">cap</span>' : "";
-  return `<td title="${esc(tip)}"><span class="${capped ? "muted" : ""}">${pct(t.risk_pct)}</span>${badge}</td>`;
+  return `<td class="r" title="${esc(tip)}"><span class="${capped ? "muted" : ""}">${pct(t.risk_pct)}</span>${badge}</td>`;
 }
+
+// R cells wear the shared diverging ramp (0R anchor, stop at −1R) so the
+// column reads as a distribution; Net keeps simple win/loss colouring.
+const rRampCell = (v) =>
+  `<td class="r ${v == null ? "muted" : rRampClass(v)}">${fmtR(v)}</td>`;
 
 function tradeRows(book) {
   if (!book.trades.length) return '<tr><td colspan="12" class="muted">No qualifying pre-market trades yet.</td></tr>';
@@ -263,33 +277,30 @@ function tradeRows(book) {
     .slice()
     .reverse() // newest first
     .map((t) => {
-      const rCls = t.realized_r > 0 ? "pf-pos" : t.realized_r < 0 ? "pf-neg" : "muted";
       const nCls = t.net_pnl > 0 ? "pf-pos" : t.net_pnl < 0 ? "pf-neg" : "muted";
       const rev = `review.html?date=${encodeURIComponent(t.date)}&sym=${encodeURIComponent(t.symbol)}`;
       return (
         "<tr>" +
         `<td>${esc(t.date)}</td>` +
-        `<td><a href="${rev}">${esc(t.symbol)}</a></td>` +
-        `<td>${etClock(t.trigger_at)}</td>` +
-        `<td>${fmtUsd(t.entry)}</td>` +
-        `<td>${fmtUsd(t.stop)}</td>` +
-        `<td>${fmtInt(t.qty)}</td>` +
+        `<td><a href="${rev}"><strong>${esc(t.symbol)}</strong></a></td>` +
+        `<td>${etClockIso(t.trigger_at)}</td>` +
+        `<td class="r">${fmtUsd(t.entry)}</td>` +
+        `<td class="r">${fmtUsd(t.stop)}</td>` +
+        `<td class="r">${fmtInt(t.qty)}</td>` +
         riskCell(t) +
-        `<td>${Number(t.target_r).toFixed(1)}R</td>` +
+        `<td class="r">${Number(t.target_r).toFixed(1)}R</td>` +
         `<td><span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtUsd(t.exit_price)}</td>` +
-        `<td class="${rCls}">${fmtR(t.realized_r)}</td>` +
-        `<td class="${nCls}">${fmtUsd(t.net_pnl)}</td>` +
-        `<td>${fmtUsd(t.equity_after)}</td>` +
+        rRampCell(t.realized_r) +
+        `<td class="r ${nCls}">${fmtUsd(t.net_pnl)}</td>` +
+        `<td class="r">${fmtUsd(t.equity_after)}</td>` +
         "</tr>"
       );
     })
     .join("");
 }
 
-// --- Skipped setups (dropped by the daily cap) --------------------------------------------------
+/* ---------- Skipped setups (dropped by the daily cap) ---------- */
 
-// What the max-N/day cap cost us: qualifying setups we passed on, with the R they'd have made at
-// the day's target. Size-independent R only — we never *could* have held them (settled-cash cap).
 // Why a qualifying setup wasn't taken. Defaults to "cap" for payloads written before #251.
 const SKIP_LBL = {
   cap: '<span class="muted">daily cap</span>',
@@ -335,39 +346,25 @@ function skippedRows(book) {
     .slice()
     .reverse() // newest first, matching the trade log
     .map((t) => {
-      const rCls = t.realized_r > 0 ? "pf-pos" : t.realized_r < 0 ? "pf-neg" : "muted";
       const rev = `review.html?date=${encodeURIComponent(t.date)}&sym=${encodeURIComponent(t.symbol)}`;
       return (
         "<tr>" +
         `<td>${esc(t.date)}</td>` +
-        `<td><a href="${rev}">${esc(t.symbol)}</a></td>` +
+        `<td><a href="${rev}"><strong>${esc(t.symbol)}</strong></a></td>` +
         `<td>${SKIP_LBL[t.skip_reason] || SKIP_LBL.cap}</td>` +
-        `<td>${etClock(t.trigger_at)}</td>` +
-        `<td>${fmtUsd(t.entry)}</td>` +
-        `<td>${fmtUsd(t.stop)}</td>` +
-        `<td>${Number(t.target_r).toFixed(1)}R</td>` +
+        `<td>${etClockIso(t.trigger_at)}</td>` +
+        `<td class="r">${fmtUsd(t.entry)}</td>` +
+        `<td class="r">${fmtUsd(t.stop)}</td>` +
+        `<td class="r">${Number(t.target_r).toFixed(1)}R</td>` +
         `<td><span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtUsd(t.exit_price)}</td>` +
-        `<td class="${rCls}">${fmtR(t.realized_r)}</td>` +
+        rRampCell(t.realized_r) +
         "</tr>"
       );
     })
     .join("");
 }
 
-// --- Book selector + render ---------------------------------------------------------------------
-
-function bookSelector() {
-  const opts = ["adaptive", ...PAYLOAD.targets];
-  return opts
-    .map((k) => {
-      const lbl = k === "adaptive" ? "Adaptive" : `${k}R`;
-      const on = k === BOOK ? ' aria-current="true"' : "";
-      return `<button class="pf-book" data-book="${esc(k)}"${on}>${esc(lbl)}</button>`;
-    })
-    .join("");
-}
-
-const pct = (r) => (r * 100).toFixed(2).replace(/\.?0+$/, "") + "%"; // 0.025 -> "2.5%"
+/* ---------- Notes + meta line ---------- */
 
 function adaptiveTargetNote(book) {
   const c = PAYLOAD.config;
@@ -386,9 +383,8 @@ function adaptiveTargetNote(book) {
     const ladder = (c.risk_ladder || []).map(pct).join(" / ");
     const d = c.risk_step_days || 1;
     const days = d === 1 ? "day" : `${d} days`;
-    // Deliberately no "Latest risk: N%" here any more (#286): that rendered daily_risk[-1], the
-    // last COLLECTED day — which is only today after an EOD rebuild, and yesterday every morning
-    // before the first capture. The forward-looking number now lives in the Next session panel.
+    // Deliberately no "Latest risk: N%" here (#286): the forward-looking number
+    // lives in the Next session panel.
     out +=
       `<p class="muted pf-note">Risk throttle (kill-switch): position risk walks ${c.risk_rungs} rungs ` +
       `(${ladder}), starting at full risk. It takes ${days} in a row of net-positive results to step ` +
@@ -414,25 +410,28 @@ function riskMeta(book, c) {
   return `${ceiling} · <strong>actually risked ${pct(s.avg_risk_pct)}/trade on average</strong>${capped}`;
 }
 
-// The header carries per-book numbers (the realised risk), so it re-renders with the book rather
-// than being written once at load.
+// The per-book config/meta line, under the options bar's ··· expander.
 function metaLine(book) {
   const c = PAYLOAD.config;
   return (
+    `Pre-shadow paper book — the trades I'd take, over the data already collected. ` +
     `Start ${fmtUsd(PAYLOAD.start_equity)} · ${riskMeta(book, c)} · ` +
     `max ${c.max_trades_per_day}/day · pre-market fills only (&lt; ${esc(c.premarket_cutoff_et.slice(0, 5))} ET) · ` +
     `entry $${c.entry_price_min}–${c.entry_price_max} · ` +
     `IBKR tiered costs + $${c.market_data_usd_per_month}/mo data (#232) · ` +
     `withdraw ${(c.withdraw_fraction * 100).toFixed(0)}% of profit &gt; ${fmtUsd(c.withdraw_floor_usd)} every ` +
     `${c.withdraw_cadence_months}mo · ${(c.cgt_rate * 100).toFixed(0)}% CGT &gt; £${c.cgt_annual_exempt_gbp} · ` +
-    `£/$ ${Number(PAYLOAD.gbpusd_rate).toFixed(2)}`
+    `£/$ ${Number(PAYLOAD.gbpusd_rate).toFixed(2)} · ` +
+    `Not advice, not real orders — computed on-read from the tracker's own data. ` +
+    `Small samples: a wiring/sanity view, not an edge estimate.`
   );
 }
+
+/* ---------- render + load ---------- */
 
 function render() {
   const book = PAYLOAD.books[BOOK];
   el("pf-meta").innerHTML = metaLine(book);
-  el("pf-books").innerHTML = bookSelector();
   el("pf-tiles").innerHTML = statTiles(book, PAYLOAD.start_equity);
   renderToday(book);
   el("pf-chart-wrap").innerHTML = equitySvg(book.equity_curve, PAYLOAD.start_equity, book.cash_flows);
@@ -442,11 +441,10 @@ function render() {
   el("pf-trades").innerHTML = tradeRows(book);
   el("pf-skipped-note").innerHTML = skippedNote(book);
   el("pf-skipped").innerHTML = skippedRows(book);
-  document.querySelectorAll(".pf-book").forEach((b) =>
-    b.addEventListener("click", () => {
-      BOOK = b.dataset.book;
-      render();
-    })
+  const s = book.stats;
+  setStatusPage(
+    `book ${esc(BOOK === "adaptive" ? "adaptive" : BOOK + "R")} · ${s.n_trades ?? 0} trades · ` +
+      `${(book.skipped || []).length} skipped`,
   );
 }
 
@@ -456,15 +454,15 @@ async function load() {
   if (!data || !data.books) {
     el("pf-error").hidden = false;
     el("pf-error").textContent = "No portfolio data yet — it's built at the end-of-day report.";
-    el("pf-meta").textContent = "";
     return;
   }
   PAYLOAD = data;
   if (!PAYLOAD.books[BOOK]) BOOK = "adaptive";
+  buildOptbar(); // the book list comes from the payload
   render();
 }
 
-el("pf-refresh").addEventListener("click", load);
+buildOptbar();
 load().catch((e) => {
   el("pf-error").hidden = false;
   el("pf-error").textContent = `Failed to load portfolio: ${e && e.message ? e.message : e}`;
