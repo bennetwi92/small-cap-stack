@@ -119,6 +119,28 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
     have no image. Dispatch with `image_tag` set to a tag that exists (e.g. `latest`, or an older
     `sha-…`); browse tags at `https://github.com/bennetwi92/small-cap-stack/pkgs/container/small-cap-stack`.
   - `restart_only=true` does a full `systemctl restart` of both services (the wedged-Gateway case).
+- **Compacting a dataset (#319).** `compact.py` rewrites each **closed** (strictly pre-today ET)
+  `dt=` partition into a single Parquet file with verified-identical rows — the sanctioned
+  exception to the store's append-only layout, for the small-file explosion (`scanner_hits` hit
+  ~32k one-row files; for this store read cost tracks **file count**). **Sanctioned mode: app
+  stopped.** The swap is two directory renames, but `Store.read`/`query` glob paths *then* open
+  them, and `build_eod_report` in the EOD job is not error-wrapped — a racing reader can fail on a
+  vanished path. Procedure (quiet window, outside 04:00–11:59 ET):
+  ```bash
+  set -a && . /etc/scs-backup.env && set +a && restic snapshots --latest 1   # verify a fresh snapshot FIRST
+  cd /opt/small-cap-stack && docker compose stop app
+  docker compose run --rm --no-deps app \
+    python -m small_cap_stack.compact --dataset scanner_hits --data-dir /data \
+    --start 2026-07-01 --end <yesterday>
+  docker compose up -d --no-build app
+  find /var/lib/docker/volumes/small-cap-stack_scs-data/_data/scanner_hits -name '*.parquet' | wc -l
+  ```
+  Post-run: file count ≈ number of partitions; the tick's `status_build_seconds` (status bar /
+  status.json, #321) drops. The tool refuses today's partition and any range touching it, verifies
+  row-multiset + schema equality per partition before swapping, and leaves the originals untouched
+  on any failure. **Expected follow-on cost:** compaction renames files, so every compacted day's
+  portfolio-candidate-cache fingerprint busts and the next EOD `build_portfolio_payload`
+  re-extracts those days (~2.5s each) — accepted, no pre-warm needed.
 - **Logs:** `docker compose logs -f app` (JSON in prod).
 - **Daily Gateway restart:** handled by IBC (`AUTO_RESTART_TIME`); the app auto-reconnects + resyncs.
 - **Go live (Phase 3, later):** set `IBKR_TRADING_MODE=live`, `IBKR_PORT=4003` (the live socat port;
