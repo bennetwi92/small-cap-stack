@@ -1,0 +1,26 @@
+# Phone UI for spike/backtest requests (#338): a structured form beats thumb-typing markdown,
+# and the labels route it straight into triage (#335) and the spike process (CLAUDE.md).
+name: Spike / backtest request
+description: A time-boxed de-risking question against collected tracker data
+title: "spike: "
+labels: [spike, phase-1]
+body:
+  - type: input
+    id: question
+    attributes:
+      label: The question
+      description: One sentence — what should this spike answer?
+      placeholder: e.g. does a 3% min-pole gate improve R-capture on July data?
+    validations:
+      required: true
+  - type: input
+    id: data
+    attributes:
+      label: Data window
+      description: Dates / symbols the spike should run over (data lives on the box; use /export or the box-data flow)
+      placeholder: e.g. 2026-07-01..2026-07-15, all opportunities
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Go / no-go criteria
+      description: What result would change a decision, and which decisions.md entry does it touch?
