@@ -107,11 +107,15 @@ runs:
       run: |
         set -euo pipefail
         # Give compose a moment, then assert both services are up and metrics answer.
+        # Capture the body BEFORE grepping (#356): under pipefail, `curl | grep -q` fails on a
+        # healthy app once /metrics outgrows the pipe buffer — grep -q exits at the first match,
+        # curl dies writing the rest (23), and pipefail surfaces the 23.
+        probe() { local out; out=$(curl -fsS localhost:9090/metrics) && grep -q '^scs_' <<<"$out"; }
         for i in $(seq 1 30); do
-          if curl -fsS localhost:9090/metrics | grep -q '^scs_'; then
+          if probe; then
             echo "metrics healthy"; break
           fi
           echo "waiting for metrics ($i)…"; sleep 5
         done
         docker compose -f docker-compose.yml ps
-        curl -fsS localhost:9090/metrics | grep -q '^scs_' || { echo "metrics not healthy"; exit 1; }
+        probe || { echo "metrics not healthy"; exit 1; }
