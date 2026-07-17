@@ -137,12 +137,21 @@ control plane (§11) deliberately does not have. Do not wire this into a web ses
 ```bash
 brew install hcloud
 # [YOU] Console → project → Security → API Tokens → generate a Read/Write token
-hcloud context create small-cap-stack     # prompts for the token → ~/.config/hcloud/cli.toml
+hcloud context create small-cap-stack                      # interactive: prompts for the token
+HCLOUD_TOKEN=<token> hcloud context create scs --token-from-env   # non-interactive (scripts, agents)
+hcloud context list                                        # confirm it's active
 ```
-> The token is **project-scoped and Read/Write** — it can delete the server and its volume. Treat it
-> like `.env`: password manager, never in git. `hcloud context create` stores it **in plaintext**, so
-> it inherits your Mac's disk encryption and nothing more. A Read-only token covers
-> `list`/`describe`/`metrics` but **cannot** `reset` — which defeats the point of this section.
+Stored in `~/.config/hcloud/cli.toml`, which hcloud creates `0600`. The token env var is
+**`HCLOUD_TOKEN`** — there is no `--token` flag.
+
+> **Not in `.env`.** `.env` is the *app's* config, read into `Settings` by python-dotenv and
+> mirrored (from `.env.example`) onto the box in §3. An infra token that can **delete the server and
+> its data volume** does not belong in the file whose template ships boxward — and `docker-compose.yml`
+> passes only explicit `environment:` keys, so a var parked there reaches nothing anyway. Keep it in
+> `cli.toml`, in one place, and in your password manager.
+> Read/Write is required: a Read-only token covers `list`/`describe`/`metrics` but **cannot** `reset`,
+> which defeats the point of this section. `cli.toml` is plaintext — it inherits your Mac's disk
+> encryption and nothing more.
 
 ```bash
 hcloud server list                              # is it running at all?
@@ -171,9 +180,10 @@ hcloud server request-console small-cap-stack   # VNC URL — works when sshd is
   hcloud server metrics --type cpu --start 2026-07-16T13:00:00Z --end 2026-07-16T14:00:00Z small-cap-stack
   ```
   (`--start`/`--end` are required ISO 8601; `--type` is repeatable.)
-- **Hetzner Cloud only.** The CX22 lives there so our box is covered — but Robot (dedicated),
-  Storage Boxes, and DNS sit behind separate APIs `hcloud` does not touch. It is not one CLI for all
-  of Hetzner the way `gcloud` is for GCP.
+- **Scope:** as of **v1.66** `hcloud` also manages **Storage Boxes** (`hcloud storage-box`) and
+  **DNS zones** (`hcloud zone`) via a second endpoint (`--hetzner-endpoint`, `api.hetzner.com`) —
+  older write-ups saying it is cloud-only are out of date. **Robot** (dedicated servers) is still
+  not covered. None of that affects us: our box is plain Hetzner Cloud.
 - This does not substitute for §8's backups: `reset` is a power button, not a recovery tool. The
   data volume survives a reset — it does not survive a `delete`.
 
