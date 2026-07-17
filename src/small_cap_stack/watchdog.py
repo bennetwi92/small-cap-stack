@@ -44,6 +44,11 @@ of ``infra``:
   scanner-hit liveness is the observable proxy; the lag-drift check lands with P2 streaming
   (#350).
 
+The data-quality canary checks (#346, ``strategy/canary-*``, labels ``strategy``+``data``)
+assert the box-computed ``canary.json`` verdicts (float coverage, news recency, bar sanity —
+see ``canary.py``) with the presence inversion done safely: once the monitor has seen
+canary.json at all, its absence or staleness is itself a failure — silence never reads green.
+
 State (per-key streaks + the last counter sample + the opportunity distribution) lives in
 ``infra_state.json`` on the
 single-commit ``monitor-state`` branch; the workflow loads it before and force-pushes it after
@@ -84,7 +89,12 @@ EOD_DEADLINE = time(17, 0)
 
 @dataclass(frozen=True)
 class Thresholds:
-    publish_stale_min: float = 45.0  # publish cadence is 15 min; 3 misses = pipeline down
+    # The publish cron is */15 but GitHub throttles scheduled runs hard on this repo — the
+    # observed EFFECTIVE cadence is ~90 min (2026-07-17: runs at 11:51, 13:25, 14:57, 16:19).
+    # The threshold must clear the real cadence, not the nominal one, or quiet afternoons read
+    # as outages. Detection of a genuinely dead pipeline is correspondingly slower — that is the
+    # cost of free-tier scheduling, not a tunable here.
+    publish_stale_min: float = 150.0
     # Box staleness is judged AT COPY TIME (published_utc - generated_utc), so publish/schedule
     # lag can never be misread as a dead box: with a 60s tick a healthy box is seconds behind
     # its own publish, whatever the copy's age is by the time the monitor reads it.
@@ -99,6 +109,9 @@ class Thresholds:
     opp_high_floor: int = 10  # high-side band never tighter than this absolute count
     opp_high_factor: float = 3.0  # ...or this multiple of the trailing median
     opp_low_min_median: float = 8.0  # low side only fires when the median is at least this
+    # Canary thresholds (#346): the box rebuilds canary.json every ~5 min, so a copy-time gap
+    # this large means the canary writer is dead even though the tick/status loop is alive.
+    canary_stale_min: float = 30.0
 
 
 @dataclass(frozen=True)
@@ -148,6 +161,35 @@ def _counter(health: dict[str, Any], name: str) -> int | None:
     return val if isinstance(val, int) else None
 
 
+@dataclass(frozen=True)
+class Staleness:
+    """Shared staleness judgement: is the published copy usable, and how old is it?
+
+    ``copy_gap`` is the box's staleness AT COPY TIME (``generated_utc`` vs ``published_utc``) —
+    judging payload-internal ages against `now` would blame the box for mere publish/schedule
+    lag (observed live 2026-07-17: a 35-min-late publish made a healthy box look 36 min stale).
+    """
+
+    pub_age: float | None
+    pub_stale: bool
+    copy_gap: float | None
+    unusable: bool  # True when no check should judge the payload's contents
+
+
+def _staleness(
+    status: dict[str, Any] | None,
+    published: dict[str, Any] | None,
+    now: datetime,
+    th: Thresholds,
+) -> Staleness:
+    pub_age = _age_min((published or {}).get("published_utc"), now)
+    pub_stale = pub_age is None or pub_age > th.publish_stale_min
+    gen_age = _age_min((status or {}).get("generated_utc"), now)
+    copy_gap = None if gen_age is None or pub_age is None else gen_age - pub_age
+    unusable = pub_stale or copy_gap is None or copy_gap > th.box_stale_min
+    return Staleness(pub_age, pub_stale, copy_gap, unusable)
+
+
 def evaluate(
     status: dict[str, Any] | None,
     published: dict[str, Any] | None,
@@ -164,7 +206,8 @@ def evaluate(
         "`published.json` is missing or unreadable — the publish pipeline has produced nothing "
         "fetchable."
         if pub_age is None
-        else f"`published_utc` is {pub_age:.0f} min old (cadence: 15 min)."
+        else f"`published_utc` is {pub_age:.0f} min old (nominal cadence 15 min; GitHub's "
+        "schedule throttling makes ~90 min normal here)."
     )
     checks.append(
         Check(
@@ -337,18 +380,11 @@ def evaluate_strategy(
     local = now.astimezone(ET)
     today = local.date()
     trading = is_trading_day(today)
-    # Same staleness judgement as evaluate() — recomputed here so both stay independently pure.
-    # Like the box check, ages inside the payload are judged AT COPY TIME (minus the publish
-    # age), so publish/schedule lag never masquerades as a strategy failure.
-    pub_age = _age_min((published or {}).get("published_utc"), now)
-    gen_age = _age_min((status or {}).get("generated_utc"), now)
-    copy_gap = None if gen_age is None or pub_age is None else gen_age - pub_age
-    infra_bad = (
-        pub_age is None
-        or pub_age > th.publish_stale_min
-        or copy_gap is None
-        or copy_gap > th.box_stale_min
-    )
+    # Ages inside the payload are judged AT COPY TIME (minus the publish age), so
+    # publish/schedule lag never masquerades as a strategy failure.
+    stale = _staleness(status, published, now, th)
+    pub_age = stale.pub_age
+    infra_bad = stale.unusable
     checks: list[Check] = []
     next_state = dict(strat_state)
 
@@ -463,6 +499,87 @@ def evaluate_strategy(
     return checks, next_state
 
 
+def evaluate_canary(
+    canary: dict[str, Any] | None,
+    status: dict[str, Any] | None,
+    published: dict[str, Any] | None,
+    seen_before: bool,
+    now: datetime,
+    th: Thresholds,
+) -> tuple[list[Check], bool]:
+    """Evaluate the data-quality canary (#346) — pure; returns (checks, canary_seen).
+
+    Presence inversion, activated safely: before the monitor has EVER seen canary.json (i.e.
+    until the box deploys the writer) its absence is indeterminate; from first sighting onward,
+    absence or staleness is itself a failure — a silent canary can never read as green.
+    """
+    stale = _staleness(status, published, now, th)
+    present = isinstance(canary, dict) and isinstance(canary.get("assertions"), dict)
+    seen = seen_before or present
+    canary_age = _age_min((canary or {}).get("generated_utc"), now)
+    canary_gap = None if canary_age is None or stale.pub_age is None else canary_age - stale.pub_age
+
+    if stale.unusable or not seen:
+        canary_stale: bool | None = None  # infra owns the former; not yet deployed for the latter
+    else:
+        canary_stale = canary_gap is None or canary_gap > th.canary_stale_min
+    checks = [
+        Check(
+            "strategy/canary-stale",
+            canary_stale,
+            "data-quality canary silent",
+            (
+                "canary.json is missing or malformed"
+                if canary_gap is None
+                else f"canary.json was already {canary_gap:.0f} min old at the last publish "
+                f"(rebuild cadence ~5 min)"
+            )
+            + " — the canary writer is dead while the tick loop is alive, so the correctness "
+            "assertions (#346) are not being evaluated. Silence is a failure here by design: "
+            "check the app logs for `dashboard.canary_write_failed`.",
+        )
+    ]
+
+    assertions: dict[str, Any] = (canary or {}).get("assertions") or {}
+    usable = not stale.unusable and seen and canary_stale is False
+    for field, slug, title, hint in (
+        (
+            "float_coverage",
+            "strategy/canary-float",
+            "float coverage below floor",
+            "the float gate is the strategy's primary filter — with float unknown the engine "
+            "either passes everything or drops everything, both silently wrong. Check the "
+            "fundamentals sources (FMP key, yfinance) in the app logs; missing rows are "
+            "recoverable at EOD (#255) and on read once the source heals.",
+        ),
+        (
+            "news_recent",
+            "strategy/canary-news",
+            "news feed looks dead",
+            "a breaking-news strategy with opportunities but no fresh story across ALL of them "
+            "means the news feed died, not that the market went quiet. Check the IBKR news "
+            "entitlement / provider in the app logs.",
+        ),
+        (
+            "bars_sane",
+            "strategy/canary-bars",
+            "bar data failed sanity checks",
+            "glitched bars poison every compute-on-read metric downstream (R-metrics, review "
+            "charts). The day's raw captures are replayable — fix the source, re-fetch the "
+            "day's bars (#100 retry path), and the derived numbers heal on read.",
+        ),
+    ):
+        raw = assertions.get(field)
+        a: dict[str, Any] = raw if isinstance(raw, dict) else {}
+        ok = a.get("ok")
+        verdict = None if not usable or not isinstance(ok, bool) else not ok
+        summary = ", ".join(f"{k}={v}" for k, v in sorted(a.items()) if k != "ok") or "no detail"
+        checks.append(
+            Check(slug, verdict, title, f"canary reports `{field}` FAILED ({summary}) — " + hint)
+        )
+    return checks, seen
+
+
 def step(
     keys: dict[str, KeyState], checks: Iterable[Check], th: Thresholds
 ) -> tuple[dict[str, KeyState], list[Action]]:
@@ -501,7 +618,9 @@ def _gh(args: list[str]) -> str:
     return res.stdout.strip()
 
 
-def _labels_for(slug: str) -> tuple[str, str]:
+def _labels_for(slug: str) -> tuple[str, ...]:
+    if slug.startswith("strategy/canary-"):
+        return ("alert", "strategy", "data")
     return ("alert", "strategy") if slug.startswith("strategy/") else ("alert", "infra")
 
 
@@ -655,13 +774,18 @@ def main(argv: list[str] | None = None) -> int:
     status = fetch_json(f"{args.base_url}/status.json")
     published = fetch_json(f"{args.base_url}/published.json")
     stats = fetch_json(f"{args.base_url}/stats.json")
+    canary = fetch_json(f"{args.base_url}/canary.json")
     state = load_state(args.state)
     th = Thresholds()
     ev = evaluate(status, published, state.get("sample") or {}, now, th)
     strat_checks, strat_state = evaluate_strategy(
         status, stats, published, state.get("strategy") or {}, now, th
     )
-    all_checks = ev.checks + strat_checks
+    canary_checks, canary_seen = evaluate_canary(
+        canary, status, published, bool(strat_state.get("canary_seen")), now, th
+    )
+    strat_state["canary_seen"] = canary_seen
+    all_checks = ev.checks + strat_checks + canary_checks
     keys, actions = step(keys_from_state(state), all_checks, th)
 
     for act in actions:

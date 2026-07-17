@@ -12,6 +12,7 @@ import signal
 import time
 from datetime import UTC, date, datetime, timedelta
 
+from .canary import build_canary
 from .capture import CaptureService
 from .clock import ET_NAME, now_et, within_window
 from .config import Settings, get_settings
@@ -67,6 +68,7 @@ class Application:
         self.settings = settings
         self._shutdown = asyncio.Event()
         self._conn_task: asyncio.Task[None] | None = None
+        self._canary_next: datetime | None = None  # next canary rebuild (throttle, #346)
 
         self.transport = IBKRTransport(settings)
         self.scanner = Scanner(settings)
@@ -304,6 +306,16 @@ class Application:
             write_json(self.settings.data_dir / "dashboard" / "status.json", payload)
         except Exception:  # noqa: BLE001 — a dashboard write must never break the tick
             log.warning("dashboard.status_write_failed")
+        # Data-quality canary (#346), throttled: positive-confirmation assertions over today's
+        # partitions. Kept outside the status try-block so one failing never hides the other.
+        try:
+            now_utc = now.astimezone(UTC)
+            if self._canary_next is None or now_utc >= self._canary_next:
+                canary = build_canary(self.store, self.settings, now_utc, now.date())
+                write_json(self.settings.data_dir / "dashboard" / "canary.json", canary)
+                self._canary_next = now_utc + timedelta(minutes=self.settings.canary_interval_min)
+        except Exception:  # noqa: BLE001 — a canary failure must never break the tick
+            log.warning("dashboard.canary_write_failed")
 
     async def _on_scan_start(self) -> None:
         log.info("scan.window_open")

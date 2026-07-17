@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     health_min_mem_available_mb: float = 400.0
     health_max_disk_used_pct: float = 90.0
 
+    # Data-quality canary (#346) — positive-confirmation assertions over today's captures,
+    # written to data_dir/dashboard/canary.json on a throttle and asserted by the watchdog.
+    canary_interval_min: float = 5.0
+    canary_min_float_coverage: float = 0.8  # share of today's opps with a non-null float row
+    canary_news_max_age_h: float = 24.0  # newest news ts_utc must be at most this old
+    canary_min_bars: int = 24  # post-EOD per-symbol 5-min bar floor (2h of session)
+
     # Dashboard exporter (issue #68) — writes status.json/stats.json under data_dir/dashboard.
     dashboard_enabled: bool = True
     deployed_commit: str = ""  # optional; set via env DEPLOYED_COMMIT (baked at build, #72)
