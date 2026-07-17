@@ -476,3 +476,33 @@ too.
   reaches Friday). Early closes never clip the 04:00–11:59 pre-market scan window and the 16:20+
   EOD crons stay valid on a 13:00 close, so job times are unchanged; `early_close_et` exists for
   any consumer that does care about the close.
+
+## Repo stays PUBLIC; automation stays $0 (DECISION 2026-07-17, #344)
+
+Deciding how to host the GitHub-native automation layer (`research/github-automation.md`) under a
+**hard $0 constraint** (no paid plan). $0 is decisive and rules the topology:
+- **GitHub Pages on the Free plan works only from a *public* repo** — a private repo would take the
+  `docs/` cockpit dashboard offline (private-repo Pages needs Pro+).
+- **The self-hosted runner is reliably free only on a *public* repo** — the (postponed) $0.002/min
+  self-hosted charge applies to *private* repos, and the Free plan's $0 default spending limit makes
+  private-repo jobs *fail rather than bill*. So a "public-code / private-ops split" is **worse** at
+  $0, not better: the box runner is free on public, metered/failing on private.
+
+**Decision: stay public, harden in place.** Rejected: fully-private (kills the dashboard on Free),
+GitHub Pro (costs money), and the public/private split (worse at $0 + doubles ops).
+
+**Consequence accepted:** the risks a repo-flip would have erased are now **permanent design
+elements**, not removable — (a) prompt-injection gating on any agent that reads public issue/PR text
+(#343), (b) scrubbing public Pages telemetry to coarse liveness only, no ops-recon, no signals at
+P2/P3 (#340/#341), and (c) supply-chain hardening — SHA-pinned actions, least-privilege
+`GITHUB_TOKEN`, no fork-writable cache on deploy paths (#348).
+
+**Self-hosted runner posture — A1 now, A2 later:**
+- **A1 (do now, #333):** keep the runner but lock its jobs to `push`-to-`main` + `workflow_dispatch`
+  only (owner-only triggers a fork PR cannot invoke) + "require approval for outside collaborators".
+  Residual risk: never click "approve & run workflows" on an untrusted fork PR.
+- **A2 (tracked follow-up, #351):** remove the self-hosted runner from GitHub entirely and make the
+  box **pull-based** (systemd/cron `git pull` + `docker compose up`; box *pushes* the data-export
+  branch on a schedule). Closes the §0 hole at its root — no runner to hijack — while staying public
+  + $0 + keeping Pages. Cost: re-architecting deploy + data-export to box-initiated, losing the
+  "click deploy in Actions" UX.
