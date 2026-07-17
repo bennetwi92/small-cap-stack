@@ -37,82 +37,16 @@ jobs:
     name: deploy to vps
     runs-on: [self-hosted, vps]
     steps:
-      - name: Update working tree
-        if: ${{ !inputs.restart_only }}
-        working-directory: /opt/small-cap-stack
-        run: |
-          set -euo pipefail
-          git fetch --all --prune
-          git checkout "${{ inputs.ref }}"
-          git pull --ff-only origin "${{ inputs.ref }}" || true
-
-      - name: Resolve the image tag
-        if: ${{ !inputs.restart_only }}
-        id: image
-        working-directory: /opt/small-cap-stack
-        run: |
-          set -euo pipefail
-          TAG="${{ inputs.image_tag }}"
-          if [ -z "$TAG" ]; then
-            # Must match build-image.yml's metadata-action `type=sha` tag exactly. Cut to 7 rather
-            # than trusting `rev-parse --short`, whose length grows to stay unambiguous.
-            TAG="sha-$(git rev-parse HEAD | cut -c1-7)"
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "image=ghcr.io/${{ github.repository }}:$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Wait for the image in GHCR
-        if: ${{ !inputs.restart_only }}
-        run: |
-          set -euo pipefail
-          IMAGE="${{ steps.image.outputs.image }}"
-          # build-image.yml runs on the *push*, this deploy on a dispatch — so they race. On
-          # 2026-07-17 a deploy finished 15s BEFORE its own image was pushed; don't assume, wait.
-          # The package is public, so this needs no auth.
-          for i in $(seq 1 60); do
-            if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
-              echo "$IMAGE is available"
-              exit 0
-            fi
-            echo "waiting for $IMAGE ($i/60)…"
-            sleep 10
-          done
-          echo "::error::$IMAGE never appeared in GHCR after 10m. If this commit predates #278 it may have no image at all (main used to be path-filtered) — re-run with image_tag set to a tag that exists."
-          exit 1
+      # Composite actions resolve from the workspace, so the action directory must exist locally.
+      # Sparse: these jobs otherwise never check out — they operate on /opt/small-cap-stack.
+      - name: Check out the deploy action
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
 
       - name: Deploy
-        working-directory: /opt/small-cap-stack
-        run: |
-          set -euo pipefail
-          if [ "${{ inputs.restart_only }}" = "true" ]; then
-            # Full restart of both services (the "something's wedged" escape hatch).
-            systemctl restart small-cap-stack
-          else
-            # PULL the prebuilt image — never build on-box (#278). Recreates ONLY the app
-            # container, so the Gateway keeps its session (no re-login / healthcheck wait).
-            # DEPLOYED_COMMIT is baked into the image by build-image.yml.
-            TAG="${{ steps.image.outputs.tag }}"
-            # Pin in .env so the systemd unit (on reboot) and any manual `docker compose up`
-            # resolve this same image instead of drifting to :latest.
-            sed -i '/^IMAGE_TAG=/d' .env
-            echo "IMAGE_TAG=$TAG" >> .env
-            export IMAGE_TAG="$TAG"
-            docker compose pull app
-            docker compose up -d --no-build app
-            # Pulled images accumulate the way build cache used to; drop the now-dangling ones.
-            docker image prune -f
-          fi
-
-      - name: Health gate
-        working-directory: /opt/small-cap-stack
-        run: |
-          set -euo pipefail
-          # Give compose a moment, then assert both services are up and metrics answer.
-          for i in $(seq 1 30); do
-            if curl -fsS localhost:9090/metrics | grep -q '^scs_'; then
-              echo "metrics healthy"; break
-            fi
-            echo "waiting for metrics ($i)…"; sleep 5
-          done
-          docker compose -f docker-compose.yml ps
-          curl -fsS localhost:9090/metrics | grep -q '^scs_' || { echo "metrics not healthy"; exit 1; }
+        uses: ./.github/actions/deploy-app
+        with:
+          ref: ${{ inputs.ref }}
+          image_tag: ${{ inputs.image_tag }}
+          restart_only: ${{ inputs.restart_only }}
