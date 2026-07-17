@@ -1,0 +1,93 @@
+{
+  "updated_utc": "2026-07-17T20:54:24.470510+00:00",
+  "sample": {
+    "generated_utc": "2026-07-17T20:53:05.823352+00:00",
+    "counters": {
+      "ticks_over_budget_total": 0,
+      "jobs_missed_total": 1
+    }
+  },
+  "strategy": {
+    "opp_counts": {
+      "2026-07-17": 28
+    },
+    "canary_seen": false
+  },
+  "keys": {
+    "infra/publish-stale": {
+      "breach_streak": 0,
+      "ok_streak": 11,
+      "issue": null
+    },
+    "infra/box-stale": {
+      "breach_streak": 0,
+      "ok_streak": 11,
+      "issue": null
+    },
+    "infra/tick-over-budget": {
+      "breach_streak": 0,
+      "ok_streak": 5,
+      "issue": null
+    },
+    "infra/jobs-missed": {
+      "breach_streak": 1,
+      "ok_streak": 0,
+      "issue": null
+    },
+    "infra/dataset-files": {
+      "breach_streak": 0,
+      "ok_streak": 5,
+      "issue": null
+    },
+    "infra/mem": {
+      "breach_streak": 0,
+      "ok_streak": 0,
+      "issue": null
+    },
+    "infra/disk": {
+      "breach_streak": 0,
+      "ok_streak": 0,
+      "issue": null
+    },
+    "strategy/scanner-silent": {
+      "breach_streak": 0,
+      "ok_streak": 0,
+      "issue": null
+    },
+    "strategy/eod-missing": {
+      "breach_streak": 0,
+      "ok_streak": 10,
+      "issue": null
+    },
+    "strategy/opps-high": {
+      "breach_streak": 0,
+      "ok_streak": 0,
+      "issue": null
+    },
+    "strategy/opps-low": {
+      "breach_streak": 0,
+      "ok_streak": 0,
+      "issue": null
+    },
+    "strategy/canary-stale": {
+      "breach_streak": 0,
+      "ok_streak": 0,
+      "issue": null
+    },
+    "strategy/canary-float": {
+      "breach_streak": 0,
+      "ok_streak": 0,
+      "issue": null
+    },
+    "strategy/canary-news": {
+      "breach_streak": 0,
+      "ok_streak": 0,
+      "issue": null
+    },
+    "strategy/canary-bars": {
+      "breach_streak": 0,
+      "ok_streak": 0,
+      "issue": null
+    }
+  }
+}
