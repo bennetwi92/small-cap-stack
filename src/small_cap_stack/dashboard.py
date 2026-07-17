@@ -71,7 +71,11 @@ def _prefix(trading_date: date) -> str:
 def _latest_candidates(
     store: Store, trading_date: date
 ) -> tuple[list[dict[str, Any]], datetime | None]:
-    scans = store.read("scanner_hits")
+    # dt= scoping is safe here: capture.py derives the id prefix and the partition date from one
+    # trading_date variable, so a row's partition always matches its opportunity_id date (#318).
+    scans = store.read("scanner_hits", dt=trading_date)
+    # This guard must stay BEFORE the first pl.col(...) reference: a scoped read of a missing
+    # partition yields a zero-column frame, so filtering first would raise ColumnNotFound.
     if scans.is_empty():
         return [], None
     today = scans.filter(pl.col("opportunity_id").str.starts_with(_prefix(trading_date)))
