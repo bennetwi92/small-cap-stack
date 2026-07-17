@@ -19,6 +19,7 @@ from small_cap_stack.watchdog import (
     KeyState,
     Thresholds,
     evaluate,
+    evaluate_strategy,
     in_monitor_window,
     keys_from_state,
     load_state,
@@ -74,6 +75,13 @@ ALL_SLUGS = {
     "infra/disk",
 }
 
+STRATEGY_SLUGS = {
+    "strategy/scanner-silent",
+    "strategy/eod-missing",
+    "strategy/opps-high",
+    "strategy/opps-low",
+}
+
 
 # --- evaluate -----------------------------------------------------------------------------------
 
@@ -106,6 +114,17 @@ def test_stale_box_with_fresh_publish_is_box_down() -> None:
     checks = by_slug(ev.checks)
     assert checks["infra/publish-stale"].breached is False
     assert checks["infra/box-stale"].breached is True
+    assert "already 55 min old" in checks["infra/box-stale"].detail  # 60 behind now, publish 5
+
+
+def test_late_publish_is_never_blamed_on_the_box() -> None:
+    # Observed live 2026-07-17: publish 35 min late (under its own threshold), box healthy at
+    # copy time. `now - generated_utc` would read 36 min and false-open "box down" — staleness
+    # must be judged at COPY time, where the gap was 25 seconds.
+    ev = evaluate(payload(gen_min=36), published(minutes_ago=35), {}, NOW, TH)
+    checks = by_slug(ev.checks)
+    assert checks["infra/publish-stale"].breached is False
+    assert checks["infra/box-stale"].breached is False
 
 
 def test_no_status_payload_is_box_down() -> None:
@@ -173,6 +192,159 @@ def test_fresh_snapshot_advances_the_sample() -> None:
         "generated_utc": iso(5),
         "counters": {"ticks_over_budget_total": 2, "jobs_missed_total": 1},
     }
+
+
+# --- evaluate_strategy (#341) -------------------------------------------------------------------
+
+# NOW is Fri 2026-07-17 10:00 ET: a trading day, inside the 04:30-11:59 scan sub-window.
+# AFTERNOON is the same day at 13:30 ET: scan window closed, still inside the monitor window.
+AFTERNOON = datetime(2026, 7, 17, 17, 30, tzinfo=UTC)
+PREV_SESSION = "2026-07-16"  # Thursday — the most recent completed session before NOW
+
+
+def strat_payload(
+    now: datetime = NOW, scan_min: float | None = 5, opps: int | None = 3
+) -> dict[str, Any]:
+    p = payload()
+    p["generated_utc"] = (now - timedelta(minutes=5)).isoformat()
+    if scan_min is not None:
+        p["scanner"] = {"last_scan_utc": (now - timedelta(minutes=scan_min)).isoformat()}
+    if opps is not None:
+        p["opportunities"] = {"open_today": opps, "symbols": []}
+    return p
+
+
+def history(days: int = 15, count: int = 5) -> dict[str, Any]:
+    """A warmed opp-count distribution: `days` past dates each recording `count`."""
+    return {"opp_counts": {f"2026-06-{d:02d}": count for d in range(1, days + 1)}}
+
+
+def strat_by_slug(now: datetime = NOW, **kw: Any) -> dict[str, Check]:
+    status = kw.pop("status", None)
+    if status is None:
+        status = strat_payload(now=now)
+    stats = kw.pop("stats", {"trading_date": PREV_SESSION})
+    pub = kw.pop("published", None)
+    if pub is None:
+        pub = {"published_utc": (now - timedelta(minutes=5)).isoformat()}
+    state = kw.pop("state", history())
+    checks, _ = evaluate_strategy(status, stats, pub, state, now, TH)
+    return {c.slug: c for c in checks}
+
+
+def test_strategy_all_healthy() -> None:
+    checks = strat_by_slug()
+    assert set(checks) == STRATEGY_SLUGS
+    assert checks["strategy/scanner-silent"].breached is False
+    assert checks["strategy/eod-missing"].breached is False
+    assert checks["strategy/opps-high"].breached is False
+    assert checks["strategy/opps-low"].breached is None  # scan window still open at 10:00 ET
+
+
+def test_strategy_indeterminate_when_infra_stale() -> None:
+    # One problem, one alert: a stale payload is the infra checks' failure to own.
+    checks = strat_by_slug(published=published(minutes_ago=60))
+    assert all(checks[slug].breached is None for slug in STRATEGY_SLUGS)
+
+
+def test_scanner_silent_breaches_and_marks_the_day() -> None:
+    status = strat_payload(scan_min=45)
+    checks, state = evaluate_strategy(
+        status, {"trading_date": PREV_SESSION}, published(), history(), NOW, TH
+    )
+    by = {c.slug: c for c in checks}
+    assert by["strategy/scanner-silent"].breached is True
+    # 45 min behind now, publish 5 min old: 40 min stale at copy time — publish lag never counts.
+    assert "already 40 min old at the last publish" in by["strategy/scanner-silent"].detail
+    assert state["scanner_silent_date"] == "2026-07-17"
+
+
+def test_scanner_silent_when_no_hits_stored_today() -> None:
+    checks = strat_by_slug(status=strat_payload(scan_min=None))
+    assert checks["strategy/scanner-silent"].breached is True
+    assert "no scanner hit stored yet today" in checks["strategy/scanner-silent"].detail
+
+
+def test_scanner_check_sleeps_outside_the_subwindow() -> None:
+    # 13:30 ET: the scan window is closed — silence is expected, not a breach.
+    checks = strat_by_slug(now=AFTERNOON, status=strat_payload(now=AFTERNOON, scan_min=200))
+    assert checks["strategy/scanner-silent"].breached is None
+
+
+def test_eod_missing_breaches_on_old_or_absent_stats() -> None:
+    assert (
+        strat_by_slug(stats={"trading_date": "2026-07-14"})["strategy/eod-missing"].breached is True
+    )
+    assert strat_by_slug(stats=None)["strategy/eod-missing"].breached is True
+    assert (
+        strat_by_slug(stats={"trading_date": PREV_SESSION})["strategy/eod-missing"].breached
+        is False
+    )
+
+
+def test_opps_high_breaches_above_band() -> None:
+    # Median 5 -> band is max(10, 3x5) = 15; 40 today is anomalous.
+    c = strat_by_slug(status=strat_payload(opps=40))["strategy/opps-high"]
+    assert c.breached is True
+    assert "40 opportunities" in c.detail and "> 15" in c.detail
+
+
+def test_opps_checks_hold_fire_during_warmup() -> None:
+    checks = strat_by_slug(
+        now=AFTERNOON, state=history(days=5), status=strat_payload(now=AFTERNOON, opps=40)
+    )
+    assert checks["strategy/opps-high"].breached is None
+    assert checks["strategy/opps-low"].breached is None
+
+
+def test_opps_low_fires_only_after_window_with_live_scanner_and_big_median() -> None:
+    zero_pm = strat_payload(now=AFTERNOON, opps=0)
+    # After the window, median 10, scanner alive all morning: 0 is unusual enough to flag.
+    assert (
+        strat_by_slug(now=AFTERNOON, state=history(count=10), status=zero_pm)[
+            "strategy/opps-low"
+        ].breached
+        is True
+    )
+    # Same picture during the morning: window still open, no verdict yet.
+    assert (
+        strat_by_slug(state=history(count=10), status=strat_payload(opps=0))[
+            "strategy/opps-low"
+        ].breached
+        is None
+    )
+    # Modest median: 0 opportunities is a perfectly healthy day — never floored > 0.
+    assert (
+        strat_by_slug(now=AFTERNOON, state=history(count=5), status=zero_pm)[
+            "strategy/opps-low"
+        ].breached
+        is None
+    )
+
+
+def test_opps_low_suppressed_after_a_scanner_outage() -> None:
+    state = history(count=10)
+    state["scanner_silent_date"] = "2026-07-17"
+    checks = strat_by_slug(now=AFTERNOON, state=state, status=strat_payload(now=AFTERNOON, opps=0))
+    assert checks["strategy/opps-low"].breached is None
+
+
+def test_opp_counts_accumulate_daily_max() -> None:
+    state = history()
+    state["opp_counts"]["2026-07-17"] = 2
+    _, out = evaluate_strategy(
+        strat_payload(opps=5), {"trading_date": PREV_SESSION}, published(), state, NOW, TH
+    )
+    assert out["opp_counts"]["2026-07-17"] == 5
+    _, out2 = evaluate_strategy(
+        strat_payload(opps=4), {"trading_date": PREV_SESSION}, published(), out, NOW, TH
+    )
+    assert out2["opp_counts"]["2026-07-17"] == 5  # a later, smaller reading never shrinks the day
+
+
+def test_strategy_labels_route_to_strategy() -> None:
+    assert wd._labels_for("strategy/opps-high") == ("alert", "strategy")
+    assert wd._labels_for("infra/box-stale") == ("alert", "infra")
 
 
 # --- step (hysteresis) --------------------------------------------------------------------------
@@ -269,9 +441,11 @@ def test_state_round_trip(tmp_path: Path) -> None:
     path = tmp_path / "state.json"
     keys = {"infra/mem": KeyState(breach_streak=2, ok_streak=0, issue=17)}
     sample = {"generated_utc": iso(5), "counters": {"jobs_missed_total": 1}}
-    save_state(path, keys, sample, NOW)
+    strategy = {"opp_counts": {"2026-07-16": 4}, "scanner_silent_date": "2026-07-10"}
+    save_state(path, keys, sample, strategy, NOW)
     state = load_state(path)
     assert state["sample"] == sample
+    assert state["strategy"] == strategy
     assert keys_from_state(state) == keys
 
 
@@ -363,14 +537,17 @@ def test_main_dry_run_end_to_end(
         "published.json": {"published_utc": real_now.isoformat()},
     }
     monkeypatch.setattr(
-        wd, "fetch_json", lambda url, timeout=20.0: responses[url.rsplit("/", 1)[-1]]
+        wd, "fetch_json", lambda url, timeout=20.0: responses.get(url.rsplit("/", 1)[-1])
     )
     state = tmp_path / "state.json"
     assert wd.main(["--state", str(state), "--force", "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "breaching: none" in out
+    # Strategy checks may or may not have a verdict depending on when the test runs (the CLI
+    # clocks off the real now) — but no infra check can breach, and eod-missing is the only
+    # possibly-breaching strategy check here (stats.json deliberately absent).
+    assert "infra/" not in out.split("breaching:")[-1]
     saved = json.loads(state.read_text())
-    assert set(saved["keys"]) == ALL_SLUGS
+    assert set(saved["keys"]) == ALL_SLUGS | STRATEGY_SLUGS
 
 
 def test_main_skips_quietly_outside_window(
@@ -396,7 +573,7 @@ def test_main_opens_and_records_issue_number(
         "published.json": {"published_utc": real_now.isoformat()},
     }
     monkeypatch.setattr(
-        wd, "fetch_json", lambda url, timeout=20.0: responses[url.rsplit("/", 1)[-1]]
+        wd, "fetch_json", lambda url, timeout=20.0: responses.get(url.rsplit("/", 1)[-1])
     )
     monkeypatch.setattr(wd, "open_alert", lambda check, th: 55)
     state = tmp_path / "state.json"

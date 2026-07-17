@@ -1,6 +1,6 @@
-"""Infra watchdog (#340): plain-Python threshold checks over the public dashboard payload.
+"""Infra + strategy watchdogs (#340/#341): plain-Python thresholds over the public payloads.
 
-Runs on a GitHub-HOSTED runner on a schedule (``.github/workflows/infra-watchdog.yml``) — never
+Runs on a GitHub-HOSTED runner on a schedule (``.github/workflows/watchdog.yml``) — never
 on the box and never against it: it reads only what the publish pipeline already made public
 (``status.json`` / ``published.json`` on the ``dashboard-data`` branch), so a monitor run adds
 zero box load and needs zero secrets beyond the workflow's own ``GITHUB_TOKEN``. **No model is
@@ -25,7 +25,27 @@ Review-driven design (#340 comments, ``research/github-automation.md`` §10):
 - **Reset-aware counters.** A cumulative counter that went *down* means the app restarted — new
   baseline, not a breach.
 
-State (per-key streaks + the last counter sample) lives in ``infra_state.json`` on the
+Strategy checks (#341) ride the same run and machinery but answer a different question — "is the
+tracker doing its *job*", not "is the box alive" — and open issues labelled ``strategy`` instead
+of ``infra``:
+
+- **Scanner liveness ≠ opportunity count.** The liveness proxy is scanner-hit throughput inside
+  the scan sub-window (pre-market 04:30–11:59 ET is where the setups fire); **0 opportunities is
+  a valid, healthy outcome** and is never floored > 0.
+- **EOD completion** is judged from ``stats.json``'s ``trading_date`` against the most recent
+  session whose EOD deadline passed — calendar/half-day aware (EOD crons stay at 16:20/16:30 ET
+  on a 13:00 close).
+- **Opportunity-count anomaly, both directions,** against a trailing per-day distribution the
+  monitor accumulates in its own state (warm-up guard + wide bands while P1 data is thin). The
+  low side only fires when the scan window has closed, the trailing median is substantial, AND
+  the scanner was alive all morning.
+- **Feed staleness:** at P1 there is nothing intraday to measure lag-minus-15-min-baseline
+  against (bars are an EOD batch by design; scanner rows carry no exchange timestamps), so
+  scanner-hit liveness is the observable proxy; the lag-drift check lands with P2 streaming
+  (#350).
+
+State (per-key streaks + the last counter sample + the opportunity distribution) lives in
+``infra_state.json`` on the
 single-commit ``monitor-state`` branch; the workflow loads it before and force-pushes it after
 each run — the same keep-the-repo-small pattern as ``dashboard-data``.
 """
@@ -38,7 +58,7 @@ import subprocess
 import urllib.request
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -47,22 +67,38 @@ from .market_calendar import is_trading_day
 
 RAW_BASE = "https://raw.githubusercontent.com/bennetwi92/small-cap-stack/dashboard-data"
 TITLE_PREFIX = "[watchdog] "
-ALERT_LABELS = ("alert", "infra")
 
 # Trading days only, but the FULL day incl. the EOD jobs. Early closes are deliberately not
 # clipped: the box's EOD crons stay at 16:20/16:30 ET even on a 13:00 close (decisions.md), so
 # infra coverage stays full-window on half days too.
 MONITOR_START = time(4, 0)
 MONITOR_END = time(17, 0)
+# The scan sub-window (#341): the app scans 04:00–11:59 ET; liveness judgement starts at 04:30
+# so the first ticks of a slow pre-market never false-alarm.
+SCAN_SUB_START = time(4, 30)
+SCAN_SUB_END = time(11, 59)
+# A session's EOD (bars 16:20 / report 16:30 ET) is "due" once this passes. Monitor runs end at
+# 17:00 ET, so in practice a missed EOD is caught from the next run onward (e.g. 04:00 next day).
+EOD_DEADLINE = time(17, 0)
 
 
 @dataclass(frozen=True)
 class Thresholds:
     publish_stale_min: float = 45.0  # publish cadence is 15 min; 3 misses = pipeline down
-    box_stale_min: float = 35.0  # 60s tick + up to ~20 min publish/schedule lag when healthy
+    # Box staleness is judged AT COPY TIME (published_utc - generated_utc), so publish/schedule
+    # lag can never be misread as a dead box: with a 60s tick a healthy box is seconds behind
+    # its own publish, whatever the copy's age is by the time the monitor reads it.
+    box_stale_min: float = 10.0
     dataset_files_max: int = 2000  # read cost tracks FILE count (#318/#319); compaction is #328
     open_after: int = 2  # consecutive breaching runs before an issue opens (M)
     close_after: int = 3  # consecutive clean runs before it auto-closes (K)
+    # Strategy thresholds (#341). Band tuning is an open question (spec §9) — start wide.
+    scanner_silent_min: float = 30.0  # no stored scanner hit for this long in-window = broken
+    opp_warmup_days: int = 10  # no distribution alerting until this many days are recorded
+    opp_history_days: int = 20  # trailing window for the opportunity-count distribution
+    opp_high_floor: int = 10  # high-side band never tighter than this absolute count
+    opp_high_factor: float = 3.0  # ...or this multiple of the trailing median
+    opp_low_min_median: float = 8.0  # low side only fires when the median is at least this
 
 
 @dataclass(frozen=True)
@@ -145,17 +181,21 @@ def evaluate(
 
     gen = (status or {}).get("generated_utc")
     gen_age = _age_min(gen, now)
+    # Staleness AT COPY TIME: how far behind was the box when the publish snapshotted it? Using
+    # `now - generated_utc` here would blame the box for mere publish/schedule lag (observed
+    # live on 2026-07-17: a 35-min-late publish made a healthy box look 36 min stale).
+    copy_gap = None if gen_age is None or pub_age is None else gen_age - pub_age
     if pub_stale:
         box_stale: bool | None = None  # payload is old news — can't tell anything about the box
     else:
-        box_stale = gen_age is None or gen_age > th.box_stale_min
+        box_stale = copy_gap is None or copy_gap > th.box_stale_min
     box_detail = (
         "status.json carries no readable `generated_utc` — the box has never written a status "
         "snapshot, or wrote a malformed one."
-        if gen_age is None
-        else f"`generated_utc` is {gen_age:.0f} min old while the publish pipeline is fresh"
-        + (f" ({pub_age:.0f} min)" if pub_age is not None else "")
-        + " — the app/tick loop on the box looks dead."
+        if copy_gap is None
+        else f"at the last publish the box's `generated_utc` was already {copy_gap:.0f} min "
+        "old (a healthy 60s tick is seconds behind its own publish) — the app/tick loop on the "
+        "box looks dead."
     )
     checks.append(
         Check(
@@ -263,6 +303,166 @@ def evaluate(
     return Evaluation(checks, sample)
 
 
+def _prev_session(d: date) -> date | None:
+    for back in range(1, 11):
+        candidate = d - timedelta(days=back)
+        if is_trading_day(candidate):
+            return candidate
+    return None
+
+
+def _median(values: list[int]) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return float(ordered[mid])
+    return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+
+def evaluate_strategy(
+    status: dict[str, Any] | None,
+    stats: dict[str, Any] | None,
+    published: dict[str, Any] | None,
+    strat_state: dict[str, Any],
+    now: datetime,
+    th: Thresholds,
+) -> tuple[list[Check], dict[str, Any]]:
+    """Evaluate the strategy checks (#341) — pure; returns (checks, next strategy state).
+
+    Every check goes indeterminate whenever the infra side says the payload is unusable (publish
+    or box stale) — one problem, one alert: the infra checks own that failure.
+    """
+    local = now.astimezone(ET)
+    today = local.date()
+    trading = is_trading_day(today)
+    # Same staleness judgement as evaluate() — recomputed here so both stay independently pure.
+    # Like the box check, ages inside the payload are judged AT COPY TIME (minus the publish
+    # age), so publish/schedule lag never masquerades as a strategy failure.
+    pub_age = _age_min((published or {}).get("published_utc"), now)
+    gen_age = _age_min((status or {}).get("generated_utc"), now)
+    copy_gap = None if gen_age is None or pub_age is None else gen_age - pub_age
+    infra_bad = (
+        pub_age is None
+        or pub_age > th.publish_stale_min
+        or copy_gap is None
+        or copy_gap > th.box_stale_min
+    )
+    checks: list[Check] = []
+    next_state = dict(strat_state)
+
+    # Scanner liveness (#341): candidate throughput inside the scan sub-window is the proxy —
+    # deliberately decoupled from opportunity count, which may be 0 on a healthy day.
+    in_sub = trading and SCAN_SUB_START <= local.time() <= SCAN_SUB_END
+    scan_age = _age_min(((status or {}).get("scanner") or {}).get("last_scan_utc"), now)
+    scan_gap = None if scan_age is None or pub_age is None else scan_age - pub_age
+    if infra_bad or not in_sub:
+        scanner_silent: bool | None = None
+    else:
+        scanner_silent = scan_gap is None or scan_gap > th.scanner_silent_min
+        if scanner_silent:
+            next_state["scanner_silent_date"] = today.isoformat()
+    checks.append(
+        Check(
+            "strategy/scanner-silent",
+            scanner_silent,
+            "scanner silent during the scan window",
+            (
+                "no scanner hit stored yet today"
+                if scan_gap is None
+                else f"the newest stored scanner hit was already {scan_gap:.0f} min old at the "
+                "last publish"
+            )
+            + f" inside the 04:30–11:59 ET scan window (threshold {th.scanner_silent_min:.0f} "
+            "min). A Warrior-style gapper scan virtually always returns rows on a live feed, so "
+            "this reads as a broken feed/scanner subscription, not a quiet market. Check "
+            "`scs_ibkr_connected`, the Gateway, and the data-farm status in the app logs.",
+        )
+    )
+
+    # EOD completion (#341): stats.json is rewritten by the 16:30 ET report job, so its
+    # trading_date must equal the most recent session whose EOD deadline has passed.
+    due = today if (trading and local.time() >= EOD_DEADLINE) else _prev_session(today)
+    stats_raw = (stats or {}).get("trading_date")
+    try:
+        stats_date = date.fromisoformat(stats_raw) if isinstance(stats_raw, str) else None
+    except ValueError:
+        stats_date = None
+    if infra_bad or due is None:
+        eod_missing: bool | None = None
+    else:
+        eod_missing = stats_date is None or stats_date < due
+    checks.append(
+        Check(
+            "strategy/eod-missing",
+            eod_missing,
+            "EOD batch did not complete",
+            f"stats.json reports trading_date `{stats_raw}` but the most recent completed "
+            f"session is `{due}` — the EOD batch (bars 16:20 / report 16:30 ET) did not finish. "
+            "The retry path (#100) may be exhausted; check the app logs, then re-run the EOD "
+            "jobs. Do NOT run a backfill while any infra alert is open (OOM history, "
+            "#264/#273).",
+        )
+    )
+
+    # Opportunity-count distribution (#341): accumulate max-per-day in monitor state, then watch
+    # both tails. Never floored > 0 — 0 opportunities with a live scanner is healthy.
+    opp_raw = ((status or {}).get("opportunities") or {}).get("open_today")
+    opp_today = opp_raw if isinstance(opp_raw, int) else None
+    counts: dict[str, int] = {
+        k: int(v)
+        for k, v in (strat_state.get("opp_counts") or {}).items()
+        if isinstance(v, int | float)
+    }
+    if not infra_bad and trading and opp_today is not None:
+        key = today.isoformat()
+        counts[key] = max(counts.get(key, 0), opp_today)
+        counts = dict(sorted(counts.items())[-2 * th.opp_history_days :])
+    next_state["opp_counts"] = counts
+    trailing = [v for k, v in sorted(counts.items()) if k < today.isoformat()]
+    trailing = trailing[-th.opp_history_days :]
+    warmed = len(trailing) >= th.opp_warmup_days
+    med = _median(trailing)
+    high_limit = max(float(th.opp_high_floor), th.opp_high_factor * med)
+
+    base_indeterminate = infra_bad or not trading or not warmed
+    high = None if opp_today is None or base_indeterminate else opp_today > high_limit
+    checks.append(
+        Check(
+            "strategy/opps-high",
+            high,
+            "opportunity count anomalously high",
+            f"{opp_today} opportunities today vs a trailing median of {med:.0f} "
+            f"(band: > {high_limit:.0f}). A count this far above the distribution usually means "
+            "a gate regression (float source down → everything passes) or a scanner/config "
+            "change — check the most recent deploy and the fundamentals source before trusting "
+            "today's dataset.",
+        )
+    )
+
+    # Low side: only meaningful once the scan window is over, the scanner was alive all morning,
+    # and history says a blank day would be genuinely unusual.
+    after_window = trading and local.time() > SCAN_SUB_END
+    scanner_dead_today = next_state.get("scanner_silent_date") == today.isoformat()
+    low_indeterminate = (
+        base_indeterminate or not after_window or scanner_dead_today or med < th.opp_low_min_median
+    )
+    low = None if opp_today is None or low_indeterminate else opp_today == 0
+    checks.append(
+        Check(
+            "strategy/opps-low",
+            low,
+            "zero opportunities on a live scanner",
+            f"0 opportunities today against a trailing median of {med:.0f}, with the scanner "
+            "alive all morning. 0 is a valid outcome, but at this median it is unusual enough "
+            "to check the gates: float source coverage, news matching, and the change/volume "
+            "thresholds (compute-on-read makes today's raw data replayable once fixed).",
+        )
+    )
+    return checks, next_state
+
+
 def step(
     keys: dict[str, KeyState], checks: Iterable[Check], th: Thresholds
 ) -> tuple[dict[str, KeyState], list[Action]]:
@@ -301,14 +501,18 @@ def _gh(args: list[str]) -> str:
     return res.stdout.strip()
 
 
+def _labels_for(slug: str) -> tuple[str, str]:
+    return ("alert", "strategy") if slug.startswith("strategy/") else ("alert", "infra")
+
+
 def _issue_title(c: Check) -> str:
     return f"{TITLE_PREFIX}{c.slug} — {c.title}"
 
 
 def _issue_body(c: Check, th: Thresholds) -> str:
     return (
-        f"{c.detail}\n\n---\nOpened by the infra watchdog (#340) — plain-Python thresholds on "
-        f"the public dashboard payload, no model, no box access. Auto-closes after "
+        f"{c.detail}\n\n---\nOpened by the watchdog (#340/#341) — plain-Python thresholds on "
+        f"the public dashboard payloads, no model, no box access. Auto-closes after "
         f"{th.close_after} consecutive clean runs."
     )
 
@@ -359,7 +563,7 @@ def open_alert(c: Check, th: Thresholds) -> int:
             _issue_title(c),
             "--body",
             _issue_body(c, th),
-            *[arg for label in ALERT_LABELS for arg in ("--label", label)],
+            *[arg for label in _labels_for(c.slug) for arg in ("--label", label)],
         ]
     )
     return int(url.rstrip("/").rsplit("/", 1)[-1])
@@ -412,11 +616,16 @@ def keys_from_state(state: dict[str, Any]) -> dict[str, KeyState]:
 
 
 def save_state(
-    path: Path, keys: dict[str, KeyState], sample: dict[str, Any], now: datetime
+    path: Path,
+    keys: dict[str, KeyState],
+    sample: dict[str, Any],
+    strategy: dict[str, Any],
+    now: datetime,
 ) -> None:
     payload = {
         "updated_utc": now.isoformat(),
         "sample": sample,
+        "strategy": strategy,
         "keys": {
             slug: {"breach_streak": k.breach_streak, "ok_streak": k.ok_streak, "issue": k.issue}
             for slug, k in keys.items()
@@ -445,10 +654,15 @@ def main(argv: list[str] | None = None) -> int:
 
     status = fetch_json(f"{args.base_url}/status.json")
     published = fetch_json(f"{args.base_url}/published.json")
+    stats = fetch_json(f"{args.base_url}/stats.json")
     state = load_state(args.state)
     th = Thresholds()
     ev = evaluate(status, published, state.get("sample") or {}, now, th)
-    keys, actions = step(keys_from_state(state), ev.checks, th)
+    strat_checks, strat_state = evaluate_strategy(
+        status, stats, published, state.get("strategy") or {}, now, th
+    )
+    all_checks = ev.checks + strat_checks
+    keys, actions = step(keys_from_state(state), all_checks, th)
 
     for act in actions:
         if args.dry_run:
@@ -467,9 +681,9 @@ def main(argv: list[str] | None = None) -> int:
                 close_alert(found[0], act.check, th)
                 print(f"closed orphan #{found[0]}: {act.check.slug}")
 
-    breaching = [c.slug for c in ev.checks if c.breached]
-    print(f"checks: {len(ev.checks)} — breaching: {', '.join(breaching) if breaching else 'none'}")
-    save_state(args.state, keys, ev.sample, now)
+    breaching = [c.slug for c in all_checks if c.breached]
+    print(f"checks: {len(all_checks)} — breaching: {', '.join(breaching) if breaching else 'none'}")
+    save_state(args.state, keys, ev.sample, strat_state, now)
     return 0
 
 

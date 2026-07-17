@@ -1,11 +1,12 @@
-name: infra-watchdog
+name: watchdog
 
-# Infra watchdog (#340): scheduled HOSTED-runner monitor over the public dashboard payload
-# (status.json / published.json on the dashboard-data branch). Plain-Python thresholds — no
-# model, no secrets beyond GITHUB_TOKEN, zero box load (it never touches the VPS or its runner).
-# Breaches open deterministic `[watchdog] infra/<slug>` issues (labels: alert, infra) with
-# open/close hysteresis and reopen-not-recreate anti-flap; recovery auto-closes them. All logic
-# lives in src/small_cap_stack/watchdog.py (typed + unit-tested); this file only wires it up.
+# Infra + strategy watchdogs (#340/#341): scheduled HOSTED-runner monitor over the public
+# dashboard payloads (status.json / published.json / stats.json on the dashboard-data branch).
+# Plain-Python thresholds — no model, no secrets beyond GITHUB_TOKEN, zero box load (it never
+# touches the VPS or its runner). Breaches open deterministic `[watchdog] <family>/<slug>`
+# issues (labels: alert + infra|strategy) with open/close hysteresis and reopen-not-recreate
+# anti-flap; recovery auto-closes them. All logic lives in src/small_cap_stack/watchdog.py
+# (typed + unit-tested); this file only wires it up.
 #
 # Cadence: every 10 min inside a UTC envelope around the ET monitor window; the script itself
 # gates precisely on the XNYS trading calendar + 04:00–17:00 ET and exits quietly outside it.
@@ -29,14 +30,14 @@ on:
         default: false
 
 concurrency:
-  group: infra-watchdog
+  group: watchdog
   cancel-in-progress: false
 
 permissions: {} # job-level below; nothing by default (#348 least-privilege)
 
 jobs:
   watch:
-    name: infra watchdog
+    name: watchdog
     # Never run from a fork (#333 A1 pattern) — and this job must NEVER move to the vps runner.
     if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
     runs-on: ubuntu-latest
@@ -63,7 +64,7 @@ jobs:
           git fetch -q origin monitor-state || true
           git show FETCH_HEAD:infra_state.json > state.json 2>/dev/null || echo '{}' > state.json
 
-      - name: Run infra watchdog
+      - name: Run watchdog checks
         env:
           GH_TOKEN: ${{ github.token }}
           PYTHONPATH: src
@@ -92,7 +93,7 @@ jobs:
           git config user.email "actions@github.com"
           git config user.name "scs-watchdog-bot"
           git add -A
-          git commit -qm "infra watchdog state $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git commit -qm "watchdog state $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push -f "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" monitor-state
 
       # Monitor-the-monitor (#345): a dedicated Healthchecks dead-man ping, deliberately LAST —
