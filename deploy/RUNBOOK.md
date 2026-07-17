@@ -104,11 +104,21 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
   metrics also show disk usage on the box.
 
 ## 9. Operations
-- **Update:** use the phone-triggered `deploy` workflow (§11) — it recreates **only the app**
-  container (`GIT_SHA=$(git rev-parse --short HEAD) docker compose up -d --build app`), so the
-  Gateway keeps its session (no re-login) and the BuildKit pip cache keeps the rebuild quick (#72).
-  `restart_only=true` does a full `systemctl restart` of both services (the wedged-Gateway case).
-  The deployed short-SHA is baked into `DEPLOYED_COMMIT` and shown on the dashboard.
+- **Update:** use the phone-triggered `deploy` workflow (§11) — it **pulls** the prebuilt image
+  `ghcr.io/bennetwi92/small-cap-stack:sha-<short>` that `build-image.yml` pushed for that commit and
+  recreates **only the app** container (`docker compose pull app && docker compose up -d --no-build
+  app`), so the Gateway keeps its session (no re-login). The box **never builds** (#278): a build
+  competed with the live tracker for its 2 vCPU / 4 GB and left ~10 GB of BuildKit cache behind.
+  The deployed short-SHA is baked into `DEPLOYED_COMMIT` at build time and shown on the dashboard.
+  - The deploy **waits** (≤10 min) for the image to appear — `build-image.yml` runs on the push and
+    can still be building when the deploy starts.
+  - It pins `IMAGE_TAG=sha-<short>` in `/opt/small-cap-stack/.env`, so a reboot (the systemd unit
+    runs `docker compose up -d --no-build --pull missing`) brings back the **same** image rather
+    than drifting to `:latest`.
+  - **Rollback / a commit with no image:** commits merged before #278 were path-filtered and may
+    have no image. Dispatch with `image_tag` set to a tag that exists (e.g. `latest`, or an older
+    `sha-…`); browse tags at `https://github.com/bennetwi92/small-cap-stack/pkgs/container/small-cap-stack`.
+  - `restart_only=true` does a full `systemctl restart` of both services (the wedged-Gateway case).
 - **Logs:** `docker compose logs -f app` (JSON in prod).
 - **Daily Gateway restart:** handled by IBC (`AUTO_RESTART_TIME`); the app auto-reconnects + resyncs.
 - **Go live (Phase 3, later):** set `IBKR_TRADING_MODE=live`, `IBKR_PORT=4003` (the live socat port;

@@ -2,18 +2,18 @@ name: build-image
 
 # Build the app image for amd64 (Hetzner CX / x86 VPS) so the VM can deploy by *pulling* a versioned
 # image instead of building on-box. PRs build-only (validate the Dockerfile); main + tags push to GHCR.
-# Pairs with deploy.yml (the self-hosted runner / a pull-based updater consumes the pushed tag).
+# Pairs with deploy.yml, which pulls the `sha-<short>` tag this pushes (#278).
+#
+# NOTE: main/tags are deliberately NOT path-filtered. deploy.yml resolves the image by the deployed
+# commit's SHA, so *every* commit on main needs an image — a filtered build leaves commits that
+# touched only e.g. deploy/ with no image to deploy (that was #265's SHA: on main, never built).
+# The repo is public, so the extra runs cost no Actions minutes, and `cache-from: type=gha` makes a
+# no-op rebuild cheap.
 
 on:
   push:
     branches: [main]
     tags: ["v*"]
-    paths:
-      - "Dockerfile"
-      - "src/**"
-      - "pyproject.toml"
-      - "README.md"
-      - ".github/workflows/build-image.yml"
   pull_request:
     paths:
       - "Dockerfile"
@@ -51,6 +51,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Must match BOTH metadata-action's `type=sha` tag (sha-<7>) and the short SHA the dashboard
+      # shows as DEPLOYED_COMMIT (RUNBOOK §11) — deploy.yml resolves the image by this exact tag.
+      - name: Short SHA
+        id: sha
+        run: echo "short=$(echo "${{ github.sha }}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
       - name: Image metadata (tags + labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -70,6 +76,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            GIT_SHA=${{ github.sha }}
+            GIT_SHA=${{ steps.sha.outputs.short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

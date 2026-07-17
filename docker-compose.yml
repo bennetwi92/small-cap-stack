@@ -27,10 +27,17 @@ services:
       start_period: 120s
 
   app:
+    # Deploys PULL this prebuilt image rather than building on-box (#278): a build on the 2 vCPU /
+    # 4 GB box competed with the live tracker mid-collection and left ~10 GB of BuildKit cache.
+    # build-image.yml pushes `sha-<short>` for every commit on main; deploy.yml sets IMAGE_TAG to
+    # the deployed commit's. `latest` is the fallback for a plain `docker compose up` by hand.
+    image: ghcr.io/bennetwi92/small-cap-stack:${IMAGE_TAG:-latest}
+    # Kept for LOCAL dev only (`docker compose build app`) — deploys pass --no-build so this is
+    # never the source on the box. GIT_SHA is baked into DEPLOYED_COMMIT by CI (#72).
     build:
       context: .
       args:
-        GIT_SHA: ${GIT_SHA:-}  # baked into DEPLOYED_COMMIT by the deploy (#72)
+        GIT_SHA: ${GIT_SHA:-}
     restart: unless-stopped
     depends_on:
       ibgateway:
