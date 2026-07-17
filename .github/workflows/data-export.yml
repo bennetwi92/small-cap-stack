@@ -70,6 +70,8 @@ permissions:
 jobs:
   export:
     name: export /data slice
+    # Repository guard: box job runs only in THIS repo, never a fork (#333, A1 lockdown).
+    if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
     runs-on: [self-hosted, vps]
     steps:
       - name: Check out the exporter at the requested ref
