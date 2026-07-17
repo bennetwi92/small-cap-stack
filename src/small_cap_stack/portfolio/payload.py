@@ -163,8 +163,10 @@ def _book_json(
 # backfill* silently did full-archive-scale work — the per-date backfill that should take seconds
 # took minutes as history grew (the very ``--all`` workload CLAUDE.md warns off the box). A day's
 # candidates are a pure function of that day's raw partitions + the settings that drive extraction,
-# and the raw store is append-only immutable, so we cache each day's extracted candidates on disk
-# keyed by a fingerprint of (those partition files, the whole settings model). A single-date
+# and the raw store is append-only immutable (with one sanctioned exception: `compact.py` may
+# rewrite a closed partition's file layout with identical contents, #319 — which correctly busts
+# that day's fingerprint and costs one re-extract), so we cache each day's extracted candidates on
+# disk keyed by a fingerprint of (those partition files, the whole settings model). A single-date
 # backfill then re-extracts only the day that changed and reads the rest back from cache; any
 # settings change or late-arriving/backfilled partition shifts the fingerprint and forces a correct
 # re-extract, so compute-on-read is preserved. The cache lives under ``<data_dir>/cache`` (NOT

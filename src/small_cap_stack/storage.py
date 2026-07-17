@@ -6,6 +6,12 @@ Implements the "store raw, compute derived on read" principle. Each logical data
 immutable; all stats/gates are recomputed by querying the raw Parquet with DuckDB, so
 methodology can change retroactively without re-collecting data.
 
+**Sanctioned exception (#319):** ``compact.py`` may rewrite a *closed* (strictly pre-today)
+partition's files into one file with verified-identical contents — the row set stays immutable,
+only the file layout changes (for this store, read cost tracks file count). Everything reasoning
+from immutability (e.g. the portfolio candidate cache's file fingerprint) must tolerate a
+compaction as "the partition changed, recompute".
+
 No long-running daemon: DuckDB is embedded and opened per query.
 """
 
