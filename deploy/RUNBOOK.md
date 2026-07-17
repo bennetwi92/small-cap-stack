@@ -68,6 +68,22 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
 - **Dashboard data** (#68/#69): the app writes `status.json`/`stats.json` under `/data/dashboard`; the
   `publish-dashboard` workflow (self-hosted runner, every ~15 min + manual dispatch) force-pushes them
   to the orphan **`dashboard-data`** branch for the Pages frontend (#70) to poll via `raw.githubusercontent.com`.
+- **Infra watchdog** (#340): the `infra-watchdog` workflow (HOSTED runner — never the box; ~10 min
+  during market hours, plus chained after each `publish-dashboard` run) reads the public
+  `dashboard-data` payloads and opens/auto-closes **`[watchdog] infra/<slug>`** issues (labels
+  `alert` + `infra`). Your open `alert` issues ARE the active-alerts board; a stale *publish* alert
+  usually means the self-hosted runner is down (§11), a stale *box* alert means the app/tick loop is.
+- **Monitor-the-monitor** (#345): the watchdog pings a dedicated Healthchecks check as its LAST step
+  each run — if the watchdog itself dies (workflow disabled, schedule dropped, script/state failing),
+  that check goes silent and Healthchecks alerts out-of-band, independent of GitHub. **Setup:** create
+  a second Healthchecks check (period ~1 h, grace ~30 min — pings arrive every ≤15 min around the
+  clock via the publish-dashboard chain) and save its ping URL as the **`WATCHDOG_HEARTBEAT_URL`**
+  repo secret (Settings → Secrets and variables → Actions). Until the secret exists the step no-ops.
+  Keep the URL out of the repo and dashboard — a ping URL is effectively a write credential (#344).
+- ⚠️ **GitHub auto-disables `schedule` workflows after ~60 days of repo inactivity** (public repos).
+  The monthly `workflow-keepalive` workflow re-enables every schedule-bearing workflow (idempotent —
+  resets the timer without running anything). If the heartbeat alert fires, check each workflow's
+  page under Actions for a "disabled" banner first — re-enable and dispatch a manual run.
 - (Oracle only) it reclaims idle Always-Free VMs after ~30 days — add a weekly keep-alive cron.
   Hetzner has no such reclamation.
 
