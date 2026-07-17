@@ -75,11 +75,17 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
   opportunity-count anomalies) `alert`+`strategy`. Your open `alert` issues ARE the active-alerts
   board; a stale *publish* alert usually means the self-hosted runner is down (§11), a stale *box*
   alert means the app/tick loop is.
+- **Data-quality canary** (#346): the app writes `canary.json` (float coverage / news recency /
+  bar sanity verdicts, ~5-min throttle) alongside `status.json`; the watchdog asserts the verdicts
+  (`strategy/canary-*` issues, labels `alert`+`strategy`+`data`) and — once it has seen the file at
+  all — treats its absence or staleness as a failure in its own right: a silent canary never reads
+  as green.
 - **Monitor-the-monitor** (#345): the watchdog pings a dedicated Healthchecks check as its LAST step
   each run — if the watchdog itself dies (workflow disabled, schedule dropped, script/state failing),
   that check goes silent and Healthchecks alerts out-of-band, independent of GitHub. **Setup:** create
-  a second Healthchecks check (period ~1 h, grace ~30 min — pings arrive every ≤15 min around the
-  clock via the publish-dashboard chain) and save its ping URL as the **`WATCHDOG_HEARTBEAT_URL`**
+  a second Healthchecks check — **period 2 h, grace 1 h**: GitHub throttles scheduled runs hard on
+  this repo (the */15 publish cron effectively fires ~every 90 min, observed 2026-07-17), and the
+  watchdog inherits that cadence — and save its ping URL as the **`WATCHDOG_HEARTBEAT_URL`**
   repo secret (Settings → Secrets and variables → Actions). Until the secret exists the step no-ops.
   Keep the URL out of the repo and dashboard — a ping URL is effectively a write credential (#344).
 - ⚠️ **GitHub auto-disables `schedule` workflows after ~60 days of repo inactivity** (public repos).

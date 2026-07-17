@@ -19,6 +19,7 @@ from small_cap_stack.watchdog import (
     KeyState,
     Thresholds,
     evaluate,
+    evaluate_canary,
     evaluate_strategy,
     in_monitor_window,
     keys_from_state,
@@ -82,6 +83,13 @@ STRATEGY_SLUGS = {
     "strategy/opps-low",
 }
 
+CANARY_SLUGS = {
+    "strategy/canary-stale",
+    "strategy/canary-float",
+    "strategy/canary-news",
+    "strategy/canary-bars",
+}
+
 
 # --- evaluate -----------------------------------------------------------------------------------
 
@@ -95,7 +103,7 @@ def test_all_healthy_is_all_clean() -> None:
 def test_stale_publish_breaches_and_suspends_box_checks() -> None:
     # 'Box down' vs 'publish pipeline down' must never be conflated: an old payload says nothing
     # about the box, so every box-derived check goes indeterminate rather than clean or breaching.
-    ev = evaluate(payload(), published(minutes_ago=60), {}, NOW, TH)
+    ev = evaluate(payload(), published(minutes_ago=200), {}, NOW, TH)
     checks = by_slug(ev.checks)
     assert checks["infra/publish-stale"].breached is True
     for slug in ALL_SLUGS - {"infra/publish-stale"}:
@@ -243,7 +251,7 @@ def test_strategy_all_healthy() -> None:
 
 def test_strategy_indeterminate_when_infra_stale() -> None:
     # One problem, one alert: a stale payload is the infra checks' failure to own.
-    checks = strat_by_slug(published=published(minutes_ago=60))
+    checks = strat_by_slug(published=published(minutes_ago=200))
     assert all(checks[slug].breached is None for slug in STRATEGY_SLUGS)
 
 
@@ -345,6 +353,89 @@ def test_opp_counts_accumulate_daily_max() -> None:
 def test_strategy_labels_route_to_strategy() -> None:
     assert wd._labels_for("strategy/opps-high") == ("alert", "strategy")
     assert wd._labels_for("infra/box-stale") == ("alert", "infra")
+    assert wd._labels_for("strategy/canary-float") == ("alert", "strategy", "data")
+
+
+# --- evaluate_canary (#346) ---------------------------------------------------------------------
+
+
+def canary_payload(
+    now: datetime = NOW,
+    age_min: float = 5,
+    ok_float: bool = True,
+    ok_news: bool = True,
+    ok_bars: bool | None = True,
+) -> dict[str, Any]:
+    return {
+        "generated_utc": (now - timedelta(minutes=age_min)).isoformat(),
+        "trading_date": "2026-07-17",
+        "assertions": {
+            "float_coverage": {"ok": ok_float, "covered": 27, "total": 28, "pct": 0.964},
+            "news_recent": {"ok": ok_news, "rows": 200, "newest_age_h": 0.5},
+            "bars_sane": {"ok": ok_bars, "symbols": 28, "offenders": []},
+        },
+    }
+
+
+def canary_by_slug(
+    canary: dict[str, Any] | None,
+    seen: bool = True,
+    now: datetime = NOW,
+    published_min: float = 5,
+) -> tuple[dict[str, Check], bool]:
+    pub = {"published_utc": (now - timedelta(minutes=published_min)).isoformat()}
+    checks, seen_out = evaluate_canary(canary, strat_payload(now=now), pub, seen, now, TH)
+    return {c.slug: c for c in checks}, seen_out
+
+
+def test_canary_all_healthy() -> None:
+    checks, seen = canary_by_slug(canary_payload(), seen=False)
+    assert set(checks) == CANARY_SLUGS
+    assert all(c.breached is False for c in checks.values())
+    assert seen is True  # first sighting arms the presence inversion
+
+
+def test_canary_absence_is_indeterminate_until_first_sighting() -> None:
+    # Until the box deploys the canary writer, its absence proves nothing.
+    checks, seen = canary_by_slug(None, seen=False)
+    assert all(c.breached is None for c in checks.values())
+    assert seen is False
+
+
+def test_canary_absence_fails_once_seen() -> None:
+    # The presence inversion (#346): after first sighting, silence IS a failure.
+    checks, _ = canary_by_slug(None, seen=True)
+    assert checks["strategy/canary-stale"].breached is True
+    assert "missing or malformed" in checks["strategy/canary-stale"].detail
+    for slug in CANARY_SLUGS - {"strategy/canary-stale"}:
+        assert checks[slug].breached is None, slug
+
+
+def test_stale_canary_fails_and_suspends_assertions() -> None:
+    # Canary 60 min behind now with a 5-min-old publish: 55 min stale at copy time.
+    checks, _ = canary_by_slug(canary_payload(age_min=60))
+    assert checks["strategy/canary-stale"].breached is True
+    assert checks["strategy/canary-float"].breached is None
+
+
+def test_failed_assertion_breaches_its_check() -> None:
+    checks, _ = canary_by_slug(canary_payload(ok_float=False, ok_news=False))
+    assert checks["strategy/canary-float"].breached is True
+    assert "float_coverage` FAILED" in checks["strategy/canary-float"].detail
+    assert "covered=27" in checks["strategy/canary-float"].detail
+    assert checks["strategy/canary-news"].breached is True
+    assert checks["strategy/canary-bars"].breached is False
+
+
+def test_pre_eod_bars_verdict_is_indeterminate() -> None:
+    checks, _ = canary_by_slug(canary_payload(ok_bars=None))
+    assert checks["strategy/canary-bars"].breached is None
+
+
+def test_canary_checks_suspend_when_infra_is_stale() -> None:
+    checks, seen = canary_by_slug(canary_payload(), published_min=200)
+    assert all(c.breached is None for c in checks.values())
+    assert seen is True  # the copy is old but it exists — the writer is deployed
 
 
 # --- step (hysteresis) --------------------------------------------------------------------------
@@ -547,7 +638,8 @@ def test_main_dry_run_end_to_end(
     # possibly-breaching strategy check here (stats.json deliberately absent).
     assert "infra/" not in out.split("breaching:")[-1]
     saved = json.loads(state.read_text())
-    assert set(saved["keys"]) == ALL_SLUGS | STRATEGY_SLUGS
+    assert set(saved["keys"]) == ALL_SLUGS | STRATEGY_SLUGS | CANARY_SLUGS
+    assert saved["strategy"]["canary_seen"] is False  # canary.json not in the fake responses
 
 
 def test_main_skips_quietly_outside_window(

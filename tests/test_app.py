@@ -217,6 +217,25 @@ def test_status_json_carries_coarse_health_and_files(
     assert s["data"]["scanner_hits"]["files"] == 1
 
 
+def test_canary_written_and_throttled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The canary (#346) rides the tick's status export but on its own throttle: with the clock
+    # frozen, a second tick inside the interval must not recompute it.
+    calls: list[int] = []
+
+    def fake_canary(*args: object, **kwargs: object) -> dict[str, int]:
+        calls.append(1)
+        return {"built": len(calls)}
+
+    monkeypatch.setattr(appmod, "build_canary", fake_canary)
+    monkeypatch.setattr(appmod, "now_et", lambda: datetime(2026, 7, 2, 10, 0, tzinfo=ET))
+    app = Application(_settings(data_dir=tmp_path))
+    monkeypatch.setattr(app.scheduler, "get_jobs", list)
+    asyncio.run(app._on_tick())
+    asyncio.run(app._on_tick())
+    assert calls == [1]
+    assert json.loads((tmp_path / "dashboard" / "canary.json").read_text()) == {"built": 1}
+
+
 def test_over_budget_tick_increments_counter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
