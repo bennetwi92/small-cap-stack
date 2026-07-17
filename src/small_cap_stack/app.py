@@ -46,6 +46,8 @@ from .monitoring import (
     TICK_SECONDS,
     TICKS_OVER_BUDGET,
     Heartbeat,
+    disk_used_pct,
+    mem_available_mb,
     metric_value,
     start_metrics_server,
 )
@@ -274,16 +276,30 @@ class Application:
             STATUS_BUILD_SECONDS.set(build_seconds)
             for dataset, c in payload.get("data", {}).items():
                 DATASET_FILES.labels(dataset=dataset).set(c.get("files", 0))
-            # Tick health, readable on the dashboard without SSH (#321). tick_seconds_last is the
-            # PREVIOUS completed tick — this file is written mid-tick, before its own total exists.
-            payload["timings"] = {
-                "status_build_seconds": round(build_seconds, 3),
-                "tick_seconds_last": round(metric_value("scs_tick_seconds"), 3),
-                "tick_budget_sec": self.settings.tick_interval_sec,
-            }
+            # Tick health, readable on the dashboard without SSH (#321) — but COARSE (#340/#344):
+            # this payload is public, so publish verdicts, never raw seconds or headroom numbers
+            # (those stay in Prometheus/SSH). tick reflects the PREVIOUS completed tick — this
+            # file is written mid-tick, before its own total exists.
+            budget = self.settings.tick_interval_sec
+            tick_last = metric_value("scs_tick_seconds")
+            mem_mb = mem_available_mb()
+            disk_pct = disk_used_pct(self.settings.data_dir)
             payload["health"] = {
+                "tick": (
+                    "over_budget"
+                    if tick_last > budget
+                    else "slow"
+                    if tick_last > 0.5 * budget
+                    else "ok"
+                ),
                 "ticks_over_budget_total": int(metric_value("scs_ticks_over_budget_total")),
                 "jobs_missed_total": int(metric_value("scs_jobs_missed_total")),
+                "mem_ok": (
+                    None if mem_mb is None else mem_mb >= self.settings.health_min_mem_available_mb
+                ),
+                "disk_ok": (
+                    None if disk_pct is None else disk_pct <= self.settings.health_max_disk_used_pct
+                ),
             }
             write_json(self.settings.data_dir / "dashboard" / "status.json", payload)
         except Exception:  # noqa: BLE001 — a dashboard write must never break the tick

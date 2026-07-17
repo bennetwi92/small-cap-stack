@@ -192,11 +192,12 @@ def test_eod_backfill_filters_to_trading_days(
 # --- tick instrumentation (#321) ----------------------------------------------------------------
 
 
-def test_status_json_carries_timings_health_and_files(
+def test_status_json_carries_coarse_health_and_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The acceptance test for "reachable without SSH": one tick must leave tick/status-build
-    # durations, the missed/over-budget counters, and per-dataset file counts in status.json.
+    # The acceptance test for "reachable without SSH" (#321), scrubbed by #340/#344: the payload
+    # is public, so it carries coarse verdicts and counters — never raw seconds or headroom
+    # numbers (those stay in Prometheus/SSH).
     monkeypatch.setattr(appmod, "now_et", lambda: datetime(2026, 7, 2, 10, 0, tzinfo=ET))
     app = Application(_settings(data_dir=tmp_path))
     monkeypatch.setattr(app.scheduler, "get_jobs", list)
@@ -204,11 +205,13 @@ def test_status_json_carries_timings_health_and_files(
     asyncio.run(app._on_tick())  # disconnected -> no scan, but the status export runs
 
     s = json.loads((tmp_path / "dashboard" / "status.json").read_text())
-    t = s["timings"]
-    assert t["status_build_seconds"] >= 0
-    assert t["tick_seconds_last"] >= 0  # the previous tick's gauge (0.0 on the first ever tick)
-    assert t["tick_budget_sec"] == app.settings.tick_interval_sec
-    assert set(s["health"]) == {"ticks_over_budget_total", "jobs_missed_total"}
+    assert "timings" not in s  # the #344 scrub: no timing numbers on the public surface
+    h = s["health"]
+    assert set(h) == {"tick", "ticks_over_budget_total", "jobs_missed_total", "mem_ok", "disk_ok"}
+    assert h["tick"] in {"ok", "slow", "over_budget"}
+    assert h["ticks_over_budget_total"] >= 0
+    assert h["mem_ok"] in {True, False, None}  # None where /proc/meminfo is absent (macOS dev)
+    assert h["disk_ok"] in {True, False}
     # File counts: the number that would have caught #318 (scanner_hits at 32k files).
     assert s["data"]["opportunities"]["files"] == 1
     assert s["data"]["scanner_hits"]["files"] == 1
