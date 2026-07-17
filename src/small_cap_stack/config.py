@@ -252,7 +252,7 @@ class Settings(BaseSettings):
     portfolio_cgt_rate: float = 0.24
     portfolio_cgt_annual_exempt_gbp: float = 3000.0
     # VPS running cost, charged at month rollover like the market-data fee but kept as its own line
-    # (different real-world expense). The Hetzner CX22 is €6.59/mo per the console's price estimate
+    # (different real-world expense). The Hetzner CX23 is €6.59/mo per the console's price estimate
     # — not an invoice; none exists yet (box created 2026-07-01). Held here in GBP (€6.59 × ~0.865
     # EUR/GBP) because the whole cost model is GBP-denominated and converts to USD through the
     # single portfolio_gbpusd_rate. The EUR/GBP rate is baked into this figure rather than being its
