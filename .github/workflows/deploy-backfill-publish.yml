@@ -21,6 +21,10 @@ on:
         description: "Git ref (branch/tag/SHA) to deploy"
         required: false
         default: main
+      image_tag:
+        description: "Image tag to deploy (default: sha-<short> of ref). Rollback escape hatch for a commit with no image."
+        required: false
+        default: ""
       restart_only:
         description: "Restart the running service without pulling new code"
         type: boolean
@@ -66,6 +70,41 @@ jobs:
           git checkout "${{ inputs.ref }}"
           git pull --ff-only origin "${{ inputs.ref }}" || true
 
+      # Kept in lockstep with deploy.yml's equivalent steps (#278).
+      - name: Resolve the image tag
+        if: ${{ !inputs.restart_only }}
+        id: image
+        working-directory: /opt/small-cap-stack
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.image_tag }}"
+          if [ -z "$TAG" ]; then
+            # Must match build-image.yml's metadata-action `type=sha` tag exactly. Cut to 7 rather
+            # than trusting `rev-parse --short`, whose length grows to stay unambiguous.
+            TAG="sha-$(git rev-parse HEAD | cut -c1-7)"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${{ github.repository }}:$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the image in GHCR
+        if: ${{ !inputs.restart_only }}
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.image.outputs.image }}"
+          # build-image.yml runs on the *push*, this deploy on a dispatch — so they race. On
+          # 2026-07-17 a deploy finished 15s BEFORE its own image was pushed; don't assume, wait.
+          # The package is public, so this needs no auth.
+          for i in $(seq 1 60); do
+            if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+              echo "$IMAGE is available"
+              exit 0
+            fi
+            echo "waiting for $IMAGE ($i/60)…"
+            sleep 10
+          done
+          echo "::error::$IMAGE never appeared in GHCR after 10m. If this commit predates #278 it may have no image at all (main used to be path-filtered) — re-run with image_tag set to a tag that exists."
+          exit 1
+
       - name: Deploy
         working-directory: /opt/small-cap-stack
         run: |
@@ -74,11 +113,19 @@ jobs:
             # Full restart of both services (the "something's wedged" escape hatch).
             systemctl restart small-cap-stack
           else
-            # Fast path: rebuild + recreate ONLY the app container — the Gateway keeps its
-            # session (no re-login / healthcheck wait), and BuildKit's pip cache makes the
-            # rebuild quick. GIT_SHA is baked into DEPLOYED_COMMIT.
-            export GIT_SHA="$(git rev-parse --short HEAD)"
-            docker compose up -d --build app
+            # PULL the prebuilt image — never build on-box (#278). Recreates ONLY the app
+            # container, so the Gateway keeps its session (no re-login / healthcheck wait).
+            # DEPLOYED_COMMIT is baked into the image by build-image.yml.
+            TAG="${{ steps.image.outputs.tag }}"
+            # Pin in .env so the systemd unit (on reboot) and any manual `docker compose up`
+            # resolve this same image instead of drifting to :latest.
+            sed -i '/^IMAGE_TAG=/d' .env
+            echo "IMAGE_TAG=$TAG" >> .env
+            export IMAGE_TAG="$TAG"
+            docker compose pull app
+            docker compose up -d --no-build app
+            # Pulled images accumulate the way build cache used to; drop the now-dangling ones.
+            docker image prune -f
           fi
 
       - name: Health gate

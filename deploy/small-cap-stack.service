@@ -8,7 +8,11 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/small-cap-stack
-ExecStart=/usr/bin/docker compose up -d --build
+# Never build on-box (#278): a build here competes with the live tracker for the box's 2 vCPU / 4 GB
+# and leaves BuildKit cache behind. --pull missing fetches the image only if it isn't local yet (a
+# fresh box / first boot); deploy.yml pins IMAGE_TAG in .env, which compose reads, so a reboot
+# brings back the SAME image that was deployed rather than drifting to :latest.
+ExecStart=/usr/bin/docker compose up -d --no-build --pull missing
 ExecStop=/usr/bin/docker compose down
 Restart=on-failure
 RestartSec=30
