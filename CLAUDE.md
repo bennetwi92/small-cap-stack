@@ -19,9 +19,10 @@ research record. This file documents **how we work** — follow it on every task
   day, gated by scanner-appearance time + staleness, with exhaustion flagged on the 3rd+ cycle) —
   consumed by `rmetrics.py` and `charts.py`. The superseded anchored detector was deleted in #296.
   Read `research/bull-flag.md` (the *what*) and `research/engine-v2.md` (the *how*) for the full spec.
-  ⚠️ **The v2 caps live as `detect_day` defaults, not in `config.py`** — `config`'s
-  `bull_flag_max_pole=8` / `max_flag=6` / `entry_offset_ticks=5` are stale legacy leftovers that no
-  live code reads (the #180 settings flip never landed; **#302**). Trust `day.py`, not `config.py`.
+  **`config.py` is the single source of truth for the rules** (#302): both detectors read every cap
+  and gate from `Settings` — `bull_flag_max_pole`=4, `bull_flag_max_cons`=4,
+  `bull_flag_min_pole_pct`=0.02, trigger 1 tick / fill 3 ticks. A new knob must be wired through
+  `detect_day_with_settings` or it does nothing; `tests/test_settings_wiring.py` fails if it isn't.
 - **Core principle:** *store raw, compute derived on read* — capture raw data at flag time; gate/stat logic is replayable pure functions so methodology can change retroactively.
 
 ## Branching & PRs (trunk-based)

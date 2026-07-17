@@ -27,9 +27,11 @@
 - **Entry trigger (CONFIRMED 2026-07-01, ⚠️ SUPERSEDED for engine v2 2026-07-10 by #182/#190 — see
   below):** ~~5 ticks above the high of the last _complete_ consolidation candle (i.e.
   `breakout_high + 5 × tick_size`; for $2–10 names tick = $0.01, so +$0.05). Revised from the
-  earlier "1 tick above" (`notes.md`) after the user confirmed the real entry.~~ Configurable via
-  `Settings.entry_offset_ticks` / `tick_size` — **legacy engine only**, still live and unchanged
-  until #180's cut-over.
+  earlier "1 tick above" (`notes.md`) after the user confirmed the real entry.~~ **Superseded — the
+  5-tick entry is gone.** v2 splits it: a **1-tick** trigger decides *when* the setup fires and R is
+  measured at a conservative **3-tick** fill (#182/#190,
+  `Settings.bull_flag_trigger_offset_ticks` / `bull_flag_fill_offset_ticks`). `entry_offset_ticks`
+  was deleted in #302 once the legacy detector went (#296).
 - **Stop (CONFIRMED 2026-06-29):** the **low of the consolidation candle(s)** (the flag low). This is the R denominator; `R = entry − stop`.
 - **Analysis window (CONFIRMED 2026-07-01, #93):** R-metrics (trigger / Max R / MAE) are measured only through the **regular close, `capture_end` = 16:00 ET** — after-hours bars are **excluded** so illiquid after-hours prints can't set Max R. Store-raw is preserved (all bars are kept in storage; the analysis window is bounded on read in `report.py`).
 
@@ -123,16 +125,18 @@ to the analysis dataset, **not** gated.
 Reviewing the annotated charts against the engine, the trader's model of a setup differs materially
 from the earlier "≤2 green candles" pole. Redefined `bullflag.detect` (backcastable — recomputes
 over already-collected raw bars):
-- **Pole = a run of higher highs**, from a **single higher-high bar** up to `bull_flag_max_pole`(8);
-  `bull_flag_min_pole`=1. ~~**Not** colour-gated — a non-green bar is allowed as long as the high
-  still makes a higher high (SNDQ counted a 7-bar pole; SOXS/OKLL/DJT "characterised by higher
-  highs").~~ ⚠️ **SUPERSEDED for engine v2 2026-07-10 by #182/#190** (colour-gated: no red/doji bar
-  in the pole) — **legacy `bullflag/detect.py` is unchanged and stays colour-agnostic**, live until
-  #180's cut-over. `pole_len` counts the higher highs; the ascending run's launch bar sets the pole
+- **Pole = a run of higher highs**, from a **single higher-high bar** up to `bull_flag_max_pole`
+  (**4** since #302 — was 8 under the legacy detector); `bull_flag_min_pole`=1. ~~**Not**
+  colour-gated — a non-green bar is allowed as long as the high still makes a higher high (SNDQ
+  counted a 7-bar pole; SOXS/OKLL/DJT "characterised by higher highs").~~ ⚠️ **SUPERSEDED for
+  engine v2 2026-07-10 by #182/#190** (colour-gated: no red/doji bar in the pole; a red *peak* is
+  allowed and rejected by the `peak_green` gate). The colour-agnostic legacy detector was **deleted
+  in #296** — v2 is the only engine. `pole_len` counts the higher highs; the ascending run's launch bar sets the pole
   base for the retracement. The peak must be a higher high than its predecessor, so a *descending* flag isn't
   mistaken for the peak. *Preferable* (soft, not yet quantified — deferred like the wick filter):
   the pole contains ≥1 big green candle.
-- **Flag = a genuine pullback** of `1..bull_flag_max_flag`(6) bars that stays below the pole peak and
+- **Flag = a genuine pullback** of `1..bull_flag_max_cons` (**4** since #302 — was `max_flag`=6)
+  bars that stays below the pole peak and
   **makes lower highs** — the trader tracks *highs*, not lows (correction 2026-07-03). Multi-bar:
   non-increasing highs with a net lower high; single-bar: any candle below the peak. Rejects
   consolidations that tick back up (ETHT/NBIZ).
@@ -192,8 +196,9 @@ being conservative."** So the two concepts are split, not just re-numbered:
   itself. Captured on `Setup.entry_fill`; no legacy `BullFlag` slot yet — #180 must wire `rmetrics`
   to read it for R-measurement instead of reusing `entry_trigger`.
 
-**The legacy detector's `entry_offset_ticks` (5) is UNCHANGED and unused by v2** — this is a v2-only
-concept with no legacy equivalent, live only once #180 flips the settings/repoint.
+**`entry_offset_ticks` (the legacy 5-tick entry) was deleted in #302**, along with the legacy
+detector itself (#296). The trigger/fill split is the only entry model: both are live, read from
+`Settings`, and pinned by `tests/test_settings_wiring.py`.
 
 ## Fundamentals source (2026-06-29, issue #17)
 - IBKR (Reuters) fundamentals are **unentitled** on the account (error 10358: "Fundamentals data is not allowed"). Phase-1 sources **float / shares outstanding / short% via yfinance** (free, no key; tradepilot precedent). Captured raw at flag time with a `source` column, so a hardened source (FMP float / FINRA short interest, **issue #41**) can be swapped in later and recomputed.

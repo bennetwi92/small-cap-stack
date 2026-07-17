@@ -272,10 +272,18 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
 
 ## 9. Settings changes (`config.py`)
 
+> **Landed in #302 — but not in #180 as planned.** #180 repointed `rmetrics` at v2 and stopped
+> there: the caps below were never moved into `config.py`, so for weeks the live engine ran them as
+> `detect_day` *defaults* while `config` still declared the legacy 8/6 that nothing read. #302
+> wired every row through and deleted `entry_offset_ticks`. `tests/test_settings_wiring.py` now
+> fails if a knob is added without being wired. No alias was kept for the `max_flag` → `max_cons`
+> rename: the setting was verified unset in the repo, in `.env`, and in the live container, so
+> nothing could depend on the old name.
+
 | Setting | Old | v2 | Note |
 |---------|-----|----|------|
 | `bull_flag_max_pole` | 8 | **4** | locked |
-| `bull_flag_max_flag` → `bull_flag_max_cons` | 6 | **4** | locked (rename for grammar parity; keep old name as alias one release) |
+| `bull_flag_max_flag` → `bull_flag_max_cons` | 6 | **4** | locked (renamed in #302, no alias — see above) |
 | `bull_flag_trigger_offset_ticks` | — | **1** | **added in #182/#190** (v2-only; supersedes the earlier `entry_offset_ticks=3` lock — that setting is legacy-only and unused by v2) |
 | `bull_flag_fill_offset_ticks` | — | **3** | **added in #182/#190**: conservative slippage-modeled FILL price for R (confirmed by the trader — the "+3 ticks" idea survives, but downstream of the trigger, not as the trigger). `Setup.entry_fill`, no legacy slot; #180 must wire `rmetrics` to read it |
 | `bull_flag_min_pole_pct` | — | **0.02** | new gate (2% pole height) |

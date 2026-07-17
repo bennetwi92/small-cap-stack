@@ -89,10 +89,10 @@ A candidate shape is `base → POLE → CONSOLIDATION → (trigger)`:
 
 **Length bounds** (segment lengths, from the sketch):
 
-| Bound          | v2 value (locked) | Current engine default        | Note |
+| Bound          | v2 value (locked) | Setting (live since #302)     | Note |
 |----------------|-------------------|-------------------------------|------|
-| max pole `H`   | **4**             | `bull_flag_max_pole = 8`      | reduced |
-| max cons `L`   | **4**             | `bull_flag_max_flag = 6`      | reduced |
+| max pole `H`   | **4**             | `bull_flag_max_pole = 4`      | reduced from the legacy 8 |
+| max cons `L`   | **4**             | `bull_flag_max_cons = 4`      | reduced from the legacy `max_flag` 6 |
 | min pole `H`   | **1**             | `bull_flag_min_pole = 1`      | single higher-high bar allowed |
 
 **Decision (locked 2026-07-10) — max pole/consolidation length = 4 / 4.** Both segments are hard-

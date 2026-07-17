@@ -102,16 +102,15 @@ def detect_setup_with_settings(bars: Sequence[Bar], settings: Settings) -> Setup
     """Settings-driven :func:`detect_setup` — the END-anchored detector ("does a flag end at the
     last bar?").
 
-    ⚠️ **Not the live path, and not aligned with it.** Production reads the full-day detector
-    (:func:`.day.detect_day_with_settings`, consumed by ``rmetrics`` / ``charts``). This function
-    has no production caller; it survives for tests and ad-hoc replay.
+    ℹ️ **Not the live path.** Production reads the full-day detector
+    (:func:`.day.detect_day_with_settings`, consumed by ``rmetrics`` / ``charts``), which asks a
+    different question: "what setup would the trader have taken across this whole day?". This one
+    survives for tests and ad-hoc replay.
 
-    It also does **not** run the locked v2 params. It reads the stale legacy caps
-    (``bull_flag_max_pole`` 8 / ``bull_flag_max_flag`` 6) and its ``min_pole_pct`` /
-    ``atr_window`` ``getattr`` fallbacks name ``Settings`` fields that **do not exist** — so the
-    2% pole floor silently evaluates at ``0.0`` (off). Those fallbacks were placed for the #180
-    settings flip, which never landed (**#302**). Until #302 resolves, this and the live path
-    disagree about the caps.
+    It does, however, apply the **same rules** — both read every cap and gate from ``settings``.
+    Before #302 this read the stale legacy caps and its ``min_pole_pct`` / ``atr_window``
+    ``getattr`` fallbacks named ``Settings`` fields that did not exist, so the 2% pole floor
+    silently evaluated at ``0.0`` (off) and the two detectors disagreed.
 
     The entry TRIGGER uses ``bull_flag_trigger_offset_ticks`` (1 tick, validated via visual review,
     #182/#190); the FILL used for R uses ``bull_flag_fill_offset_ticks`` (3 ticks, conservative
@@ -122,11 +121,11 @@ def detect_setup_with_settings(bars: Sequence[Bar], settings: Settings) -> Setup
         bars,
         min_pole=settings.bull_flag_min_pole,
         max_pole=settings.bull_flag_max_pole,
-        max_cons=settings.bull_flag_max_flag,
+        max_cons=settings.bull_flag_max_cons,
         max_retracement=settings.bull_flag_max_retracement,
         max_peak_wick=settings.bull_flag_max_peak_wick,
-        min_pole_pct=getattr(settings, "bull_flag_min_pole_pct", 0.0),
-        atr_window=getattr(settings, "bull_flag_atr_window", 14),
+        min_pole_pct=settings.bull_flag_min_pole_pct,
+        atr_window=settings.bull_flag_atr_window,
         entry_offset=settings.bull_flag_trigger_offset_ticks * tick,  # v2-only, no legacy fallback
         fill_offset=settings.bull_flag_fill_offset_ticks * tick,  # v2-only, no legacy fallback
         eps=getattr(settings, "bull_flag_eps_ticks", 1) * tick,

@@ -82,27 +82,41 @@ class Settings(BaseSettings):
     # Gate thresholds (issue #15) — most reuse the scan_* values above.
     float_max_shares: int = 20_000_000  # float < 20M shares
 
-    # Bull-flag detection (issue #16; redefined #127 from notes.md 2026-07-03). The pole is a run of
-    # HIGHER HIGHS (not just "green candles"): even a SINGLE higher-high bar is a pole, up to a run
-    # of many (SNDQ = 7); pole_len counts the higher highs. The flag is a pullback that makes LOWER
+    # Bull-flag detection — engine v2 (#176/#182; see `research/bull-flag.md` + `engine-v2.md`).
+    # The pole is a run of HIGHER HIGHS, colour-gated to green thrust bars (a red PEAK is allowed
+    # and rejected by the peak_green gate, not by the walk); even a SINGLE higher-high bar is a
+    # pole, and pole_len counts the higher highs. The consolidation is a pullback that makes LOWER
     # HIGHS (the trader tracks highs, not lows) and holds within max_retracement of the pole (a
     # deeper pullback retraces "back through the pole"). Volume: the pole's peak bar volume must
     # exceed the consolidation's (hard); the consolidation volume ideally reduces (soft, recorded).
+    #
+    # These are read by BOTH detectors: `day.detect_day_with_settings` (the live path — rmetrics /
+    # charts) and `setup.detect_setup_with_settings` (end-anchored, tests / ad-hoc replay). Since
+    # #302 there is no second set of caps hiding in function defaults.
     bull_flag_min_pole: int = 1  # a pole can be a single higher-high bar
-    bull_flag_max_pole: int = 8  # cap on the higher highs counted as the pole
-    bull_flag_max_flag: int = 6  # max consolidation (flag) candles
+    # Caps locked by the engine-v2 review (#176/#182): 4 and 4, NOT the legacy 8/6. Until #302
+    # these lived only as `detect_day` defaults and the values here were stale fiction — the live
+    # detector never read them. They are now the single source of truth for both detectors.
+    bull_flag_max_pole: int = 4  # cap on the higher highs counted as the pole
+    bull_flag_max_cons: int = 4  # max consolidation candles
+    # Minimum meaningful pole move (#176, `research/bull-flag.md §3.4`): a "pole" that rises less
+    # than this fraction of its base is noise, not a thrust. A loose floor — the abnormality signal
+    # is the ATR ratio, this just drops the flat stuff.
+    bull_flag_min_pole_pct: float = 0.02
+    # Lookback for the trailing ATR baseline the pole's abnormality is measured against.
+    bull_flag_atr_window: int = 14
     bull_flag_max_retracement: float = 0.50  # reject flags retracing > this fraction of the pole
     # Pole wick quality (#132): reject a pole whose peak (highest-high) bar closed weakly — upper
     # wick > this fraction of the bar's range. A clean thrust closes near its high; a wicky one
     # (AHMA/VRXA) is a no-trade. Whether the pole holds a big green candle is recorded, not gated.
     bull_flag_max_peak_wick: float = 0.50
     tick_size: float = 0.01  # min US price increment for names ≥ $1 (penny tick)
-    entry_offset_ticks: int = 5  # LEGACY entry = last complete consolidation high + 5 ticks
     # Engine-v2 entry trigger (#182/#190, validated via per-opportunity visual review): the
     # breakout is confirmed 1 tick above the last consolidation candle's high — a lower high, per
-    # the trader's rule. Distinct from entry_offset_ticks (legacy, unused by v2). Often the fill is
-    # this exact price; bull_flag_fill_offset_ticks below is a separate, deliberately conservative
-    # slippage estimate used only for R-measurement, not for deciding whether/when triggered.
+    # the trader's rule. Often the fill is this exact price; bull_flag_fill_offset_ticks below is a
+    # separate, deliberately conservative slippage estimate used only for R-measurement, not for
+    # deciding whether/when triggered. (The legacy 5-tick `entry_offset_ticks` went with the legacy
+    # detector in #296/#302 — v2 has no use for it.)
     bull_flag_trigger_offset_ticks: int = 1
     # Conservative slippage-modeled FILL price for R-measurement (#182/#190; confirmed by the
     # trader): the trigger (above) decides WHEN a setup fires; once fired, R is measured against a
