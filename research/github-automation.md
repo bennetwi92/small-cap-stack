@@ -190,9 +190,80 @@ box" monitoring. Every new job runs on `ubuntu-latest`, never the VPS.
 
 - **Deploy approval gates.** Environment + required reviewer for live deploys — confirmed direction; ok?
 - **Token blast radius.** `CLAUDE_CODE_OAUTH_TOKEN` is a long-lived personal credential in repo
-  secrets — set a rotation cadence + runbook note.
-- **OIDC / short-lived creds.** Can VPS-touching workflows move off long-lived secrets to OIDC?
+  secrets — set a rotation cadence + runbook note. (Now owned by #348.)
+- **OIDC / short-lived creds.** Can VPS-touching workflows move off long-lived secrets to OIDC? (#348)
 - **Alert tuning.** What N-minute / band thresholds avoid false alarms without missing real breakage?
+- **Public repo at all?** A public-code / private-ops split would close §0, telemetry leakage, and
+  cache-poisoning together — the only free benefit of public is Actions minutes (#344).
+
+---
+
+## 10. Independent review — synthesis & revised plan (2026-07-17)
+
+Four blind reviews — **security**, **SRE/reliability/cost**, **developer-experience**, and
+**trading-domain** — stress-tested §§0–9. Convergent findings, grouped by priority. New issues were
+filed (#343–#350) and the existing ones (#333–#341) annotated with the amendments.
+
+**Must precede any automation (blockers, alongside §0):**
+- **Prompt injection is the systemic hole (#343).** On a public repo anyone can open issues/comments,
+  and triage/spec/build/self-heal/control-plane agents all *read* that text. Gate every trigger on
+  `author_association ∈ {OWNER,MEMBER,COLLABORATOR}`, never wire `pull_request_target`+secrets against
+  fork code, and separate "read-untrusted → propose" from "act-with-privilege."
+- **Telemetry privacy / repo split (#344).** Publishing `status.json`/`strategy_health.json` to
+  *public* Pages leaks operational recon today (box-stress/OOM window, runner state) and live signal/
+  position data an observer could front-run at P2/P3. Publish only a coarse liveness boolean, or move
+  telemetry private — and seriously weigh a **public-code / private-ops repo split**, which closes
+  most of §0 at once.
+- **Token & supply-chain hardening (#348).** `CLAUDE_CODE_OAUTH_TOKEN` is a long-lived, unscoped
+  *personal* credential. SHA-pin all actions + Dependabot, least-privilege `permissions:` per
+  workflow, forbid fork-writable cache restore on the deploy path, rotate, pursue OIDC.
+
+**Make the monitoring headline actually safe:**
+- **Watch the watcher (#345).** `schedule` is best-effort and GitHub auto-disables scheduled
+  workflows after ~60 days of inactivity — the quieter the repo, the likelier the only watchdog
+  silently dies, and "silence = healthy" then means "alerting is dead." Needs a dedicated "monitor
+  ran" Healthchecks heartbeat + a redundant non-`schedule` trigger + anti-disable keep-alive.
+- **Silence ≠ correctness (#346).** Absence-based watchdogs can't catch plausible-but-wrong output —
+  the primary failure of a store-raw/compute-on-read system (stale float, dead news, glitched bars →
+  confident wrong opportunities, all with green `status.json`). Add a positive-confirmation
+  **data-quality canary** that *asserts* float coverage / news recency / bar sanity.
+- **0 opportunities is valid and healthy (#341).** Decouple *scanner-candidate liveness* from
+  *opportunity count* (a distribution, never floored > 0); calendar/half-day-aware bands; feed
+  monitoring tracks lag *minus the known ~15-min baseline*, not raw freshness.
+- **Deterministic alerts (#340).** Dedup titles are Python-generated stable keys (model writes body
+  only); hysteresis + cooldown to kill flapping; separate tick-counter vs last-publish timestamps so
+  "box down" ≠ "publish pipeline down."
+- **Box-safe self-heal (#336).** No box-touching `data-export` reads while an infra/OOM alert is
+  active (the read can finish the OOM); hosted-only diagnosis fallback for when the runner is offline
+  post-OOM; ops actions from a fixed allowlist, never agent-authored shell.
+
+**Right-size the pipeline for a solo dev:**
+- **Add a fast-path (#347).** The 6-stage pipeline is far too heavy for the 80% case (typo/threshold/
+  doc). A `trivial`/`@claude fix` lane skips triage+spec; hand-edit-in-mobile-web + self-merge is
+  blessed for one-liners. The **spec gate is opt-in for engine/strategy work only** (#339).
+- **Reprioritise:** the watchdogs deliver the headline "don't check the box" value and outrank the
+  spec pipeline in rollout.
+- **Correction UX (#334/#339):** `@claude revise:` amends the existing PR branch (never regenerate);
+  instant bot acknowledgment; specs kept ephemeral to avoid doc-rot.
+- **Quota is shared (#349).** Claude-in-CI draws the same Max quota as interactive Mac work — add a
+  concurrency cap + loud exhausted-quota behavior, and calendar-gate the overnight analyst (#337).
+
+**Forward-looking, P2/P3 (#350):** a live-vs-replay (prefix-stability) divergence monitor becomes
+mandatory when live detection lands (Gate 5 / #312), plus a full execution-observability track
+(fills/no-fills, position reconciliation, risk-limit invariants, orphaned-order-with-dead-app,
+slippage) with a **paging tier** — because issue-latency and "silence = healthy" are both *dangerous*
+once real positions exist. A silent app holding an open position is the worst case, not a quiet one.
+
+**Revised rollout order:**
+**(0)** runner lockdown (#333) + injection gating (#343) + token hardening (#348) + telemetry/repo-split
+decision (#344) → **(1)** infra + strategy watchdogs (#340/#341) *incl.* monitor-heartbeat (#345) +
+data-quality canary (#346) → **(2)** `@claude build` (#334) + fast-path (#347) → **(3)** engine-only
+spec gate (#339) → **(4)** auto-triage (#335) → **(5)** self-heal (#336) → **(6)** overnight analyst
+(#337) → **(7)** control-plane (#338). Steps 0–1 are the safety-critical core; the monitoring half is
+higher-leverage than the feature-pipeline half and comes first.
+
+*Doc nit to reconcile separately: `free-tier-services.md` still describes the box as Oracle/GCP; it
+is a Hetzner CX23 — the OOM/thresholds here assume 2 vCPU / 4 GB.*
 
 ---
 
