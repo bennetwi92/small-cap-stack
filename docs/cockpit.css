@@ -500,6 +500,12 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
 @media (max-width:860px){
   .pf{ flex-direction:column; height:auto; }
   .pf-left{ flex:0 0 auto; overflow:visible; }
+  /* .pf-trades-panel normally uses flex:1 1 0 to fill the leftover height of
+     a definite-height row layout; once .pf turns into a column with
+     height:auto there's no definite height to fill, and flex:1 1 0 +
+     min-height:0 collapses the panel to zero height instead (#373) — pin it
+     to content size, same as .dash-chart-panel above. */
+  .pf-trades-panel{ flex:0 0 auto; }
   .pf-fill{ max-height:52vh; }
 }
 
