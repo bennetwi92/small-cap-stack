@@ -17,6 +17,18 @@ name: claude
 # Model policy (§4): builds/revisions run on Sonnet 5 via --model below. The Opus final-review
 # pass arrives with the pipeline stages in #339; Haiku triage is #335.
 #
+# Self-opening PRs + auto-merge (this change): in tag mode the action pushes a claude/ branch and
+# posts a compare link but never opens a PR, so CI never runs and the fix strands (RUNBOOK §13).
+# We fix that here: the action exposes `branch_name`, so a deterministic step opens the PR itself
+# with `gh pr create`. The PR MUST be opened with a **GitHub App installation token**, not the
+# default GITHUB_TOKEN — a PR opened by GITHUB_TOKEN does not trigger `pull_request` workflows, so
+# `lint-typecheck-test` would never start (the old close-and-reopen nudge). Token sourcing, in
+# order: a dedicated PR-opener App (PR_OPENER_APP_ID / PR_OPENER_APP_PRIVATE_KEY secrets —
+# recommended, guarantees CI triggers) else the Claude App token the action already emits.
+# A fail-closed policy (scripts/agent_pr_risk.py) then auto-merges ONLY genuinely trivial PRs;
+# everything else waits for a one-tap human merge. Box deploys stay behind their Environment gate
+# (all box workflows are workflow_dispatch-only), so a merge can never deploy without approval.
+#
 # Until the owner creates the CLAUDE_CODE_OAUTH_TOKEN repo secret (claude setup-token → repo
 # secret), the gate step below turns every invocation into a no-op warning instead of a failure.
 
@@ -59,14 +71,89 @@ jobs:
             echo "::warning::CLAUDE_CODE_OAUTH_TOKEN is not set — @claude is inert. Owner: run 'claude setup-token' locally and save the result as a repo secret (RUNBOOK §13)."
           fi
 
+      # A dedicated GitHub App installation token so the PR we open triggers `pull_request` CI
+      # (GITHUB_TOKEN would not). Optional: if the PR_OPENER_APP_* secrets are absent this step
+      # fails softly and we fall back to the Claude App token the action emits.
+      - name: Mint a PR-opener App token
+        id: app-token
+        if: steps.gate.outputs.ok == 'true'
+        continue-on-error: true
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.PR_OPENER_APP_ID }}
+          private-key: ${{ secrets.PR_OPENER_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v7
         if: steps.gate.outputs.ok == 'true'
         with:
           fetch-depth: 1
 
       - name: Run Claude Code
+        id: claude
         if: steps.gate.outputs.ok == 'true'
         uses: anthropics/claude-code-action@700e7f8316990de46bed556429765647af760efc # v1 (#348 SHA-pinned)
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Empty when the dedicated App isn't configured → the action uses its own Claude App
+          # token for git ops, which the next step reuses to open the PR.
+          github_token: ${{ steps.app-token.outputs.token }}
           claude_args: "--model claude-sonnet-5" # §4: builds are Sonnet work
+
+      # Deterministic self-opening PR + fail-closed auto-merge. Runs only for a build/fix on an
+      # ISSUE (not `@claude revise:` on a PR, and not a review comment — those already have a PR),
+      # and only when the action actually pushed a branch.
+      - name: Open PR and apply auto-merge policy
+        if: >-
+          steps.gate.outputs.ok == 'true' &&
+          steps.claude.outputs.branch_name != '' &&
+          github.event.issue.number &&
+          !github.event.issue.pull_request
+        env:
+          # Prefer the dedicated App token; else the Claude App token the action emitted. Both are
+          # App installation tokens, so the opened PR triggers `pull_request` CI — no close/reopen.
+          GH_TOKEN: ${{ steps.app-token.outputs.token != '' && steps.app-token.outputs.token || steps.claude.outputs.github_token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ steps.claude.outputs.branch_name }}
+          ISSUE: ${{ github.event.issue.number }}
+          TITLE: ${{ github.event.issue.title }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::No App token available to open the PR — the branch \`$BRANCH\` is pushed but no PR was created. Configure PR_OPENER_APP_ID/PR_OPENER_APP_PRIVATE_KEY (RUNBOOK §13)."
+            exit 0
+          fi
+
+          # 1. Open the PR if one doesn't already exist for the branch.
+          pr="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$pr" ]; then
+            gh pr create --repo "$REPO" --head "$BRANCH" --base main \
+              --title "$TITLE" --body "Closes #${ISSUE}"$'\n\n'"Automated build for #${ISSUE} via the @claude dev loop."
+            pr="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number')"
+            echo "Opened PR #$pr for $BRANCH."
+          else
+            echo "PR #$pr already exists for $BRANCH — reusing it."
+          fi
+
+          # 2. Gather the risk inputs from the PR + the source issue.
+          files="$(gh pr view "$pr" --repo "$REPO" --json files --jq '[.files[].path] | join("\n")')"
+          read -r add del < <(gh pr view "$pr" --repo "$REPO" --json additions,deletions \
+            --jq '"\(.additions) \(.deletions)"')
+          lines=$(( add + del ))
+          labels="$(gh issue view "$ISSUE" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")')"
+
+          # 3. Deterministic, fail-closed policy — the single source of the auto-merge rule.
+          decision="$(python3 scripts/agent_pr_risk.py \
+            --changed-files "$files" --changed-lines "$lines" --issue-labels "$labels")"
+          echo "policy: $decision"
+          automerge="$(printf '%s' "$decision" | jq -r .automerge)"
+          reason="$(printf '%s' "$decision" | jq -r .reason)"
+
+          # 4. Act. Auto-merge waits for the required `lint-typecheck-test` check to go green.
+          if [ "$automerge" = "true" ]; then
+            gh pr merge "$pr" --repo "$REPO" --auto --squash
+            gh pr comment "$pr" --repo "$REPO" --body \
+              "🤖 Auto-merge enabled (squash) — ${reason}. Merges once \`lint-typecheck-test\` is green; no taps needed."
+          else
+            gh pr comment "$pr" --repo "$REPO" --body \
+              "🖐️ Held for your review — ${reason}. One-tap squash-merge when CI is green."
+          fi

@@ -78,7 +78,8 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
 - **Self-heal** (#336): when the watchdog opens an alert it dispatches `self-heal`, a hosted
   Sonnet diagnosis over the alert + the public payloads only — it has no `actions:write`, so it
   structurally **cannot** touch the box, dispatch deploys, or trigger `data-export`. Code-level
-  causes become a `fix/alert-<n>` PR (close+reopen it to kick CI); ops-level causes become a
+  causes become a `fix/alert-<n>` PR (opened via the App token, so CI starts on its own — §13);
+  ops-level causes become a
   diagnosis comment proposing ONE allowlisted runbook action with its exact command — **you**
   dispatch it. A 6-hour cooldown marker (`<!-- self-heal -->`) stops alert-flap from burning
   Sonnet runs. Hand-labelling any issue `alert` also triggers it.
@@ -263,10 +264,34 @@ clears it), and Oracle reclaims idle free VMs (add a weekly keep-alive cron).
 - **Commands & rules** live in `CLAUDE.md` (“The @claude dev loop”): `@claude build` / `@claude
   fix` / `@claude revise:`; owner-only trigger (#343); hosted runner only; Sonnet 5 per the model
   policy (§4 of `research/github-automation.md`).
-- **Agent PRs and CI:** a PR opened by the workflow token does not trigger `pull_request`
-  workflows, so the required `lint-typecheck-test` check won't start on its own. **Close and
-  reopen the PR** to kick CI. (A dedicated GitHub App identity would remove this nudge — optional
-  future setup, more credential surface, see #348.)
+- **Agent PRs open themselves, run CI, and auto-merge when trivial — zero taps.** `@claude
+  build`/`@claude fix` on an issue now: the action pushes the `claude/…` branch, then a
+  deterministic step in `claude.yml` opens the PR (`gh pr create … --body "Closes #N"`) using a
+  **GitHub App installation token**, so `pull_request` CI (`lint-typecheck-test`) starts on its
+  own. **The old close-and-reopen nudge is gone.** A fail-closed policy
+  (`scripts/agent_pr_risk.py`, unit-tested in `tests/test_agent_pr_risk.py`) then decides:
+  - **Auto-merge (`gh pr merge --auto --squash`)** only if the PR touches no engine/strategy code
+    (`src/small_cap_stack/bullflag/`, `config.py`, `rmetrics.py`, `charts.py`, `day.py`, or any
+    `*engine*`/`*strategy*` path), no `.github/workflows/`, and no infra/deploy (`deploy/`,
+    `scripts/`, Dockerfile/Makefile/compose/pyproject) files; is ≤ 50 changed lines; and the
+    source issue is labelled `trivial` or carries no `strategy` label. Auto-merge waits for CI to
+    go green, then squash-merges. **Anything else stays open for your one-tap merge** with a
+    comment saying why.
+  - **Deploy stays gated.** Every box workflow (`deploy`, `deploy-backfill-publish`,
+    `data-export`, `backfill-dashboard`) is `workflow_dispatch`-only behind the VPS runner /
+    Environment approval, so an auto-merge to `main` can never deploy without your click.
+- **[YOU] One-time: create the PR-opener GitHub App (recommended).** This is what guarantees CI
+  triggers on agent PRs.
+  1. GitHub → Settings → Developer settings → **GitHub Apps → New GitHub App**. Name it e.g.
+     `scs-pr-opener`. Repository permissions: **Contents: Read & write**, **Pull requests: Read &
+     write**, **Issues: Read & write**. No webhook. Create it.
+  2. **Generate a private key** (downloads a `.pem`) and note the numeric **App ID**.
+  3. **Install** the App on `bennetwi92/small-cap-stack` (Install App → this repo only).
+  4. Save two repo secrets (Settings → Secrets and variables → Actions): **`PR_OPENER_APP_ID`**
+     (the App ID) and **`PR_OPENER_APP_PRIVATE_KEY`** (the full `.pem` contents).
+  - **If you skip this:** the workflow falls back to the Claude App token the action already
+    emits and still opens the PR; whether CI auto-starts then depends on that token being an App
+    installation token. The dedicated App removes that uncertainty — set it once.
 - **Quota is shared (#349):** CI agents draw the same Max quota as interactive Mac/mobile
   sessions. If CI runs start failing with quota exhaustion, pause the loop (don't summon agents)
   rather than switching to API billing.
