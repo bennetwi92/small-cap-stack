@@ -74,7 +74,7 @@ live IBKR session, or a spike** is not estimable from this table — it's gated 
 hours, not authoring speed (see the remote-work limits above).
 
 ## Issue & project hygiene (keep these current — every task)
-- **Every unit of work is a GitHub issue** with labels: `epic`, `phase-1`, `spike`, `infra`, `setup`, `ibkr`, `data`, `strategy`. Epic is **#1**.
+- **Every unit of work is a GitHub issue** with labels: `epic`, `phase-1`, `spike`, `infra`, `setup`, `ibkr`, `data`, `strategy`, `bug`. Epic is **#1**.
 - **Project board:** `https://github.com/users/bennetwi92/projects/3` (project id `PVT_kwHOCGbB5M4Bb_HY`, Status field `PVTSSF_lAHOCGbB5M4Bb_HYzhWrRtM`; options Todo `f75ad846` / In Progress `47fc9ee4` / Done `98236657`).
   - When creating an issue: `gh issue create` then add it to the board (`gh project item-add 3 --owner bennetwi92 --url <issue-url>`) and set Status.
   - **Status lifecycle:** Todo → In Progress (when work starts) → Done (when its PR merges / issue closes).

@@ -1,0 +1,42 @@
+name: Bug report
+description: Something in the tracker, dashboard, or trading logic isn't working as expected
+title: "bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Symbol/date/run if applicable, commands run, or a link to the dashboard page
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - Phase-1 tracker
+        - Dashboard / cockpit
+        - Backtest / spike
+        - IBKR connection
+        - CI / tests
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Does this block trading/tracking, corrupt data, or is it cosmetic?
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Paste relevant log output, stack traces, or screenshots
