@@ -24,6 +24,7 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`review_metaanalysis.py`](#review_metaanalysispy) | #173 | One flat row per run: engine vs the trader's ground truth |
 | [`review_meta_sweep.py`](#review_meta_sweeppy) | #173 | Replay candidate gate/param changes over the reviewed day-set |
 | [`warrior_library.py`](#warrior_librarypy) | #304 | Warrior Trading transcript corpus for rule provenance |
+| [`portfolio_cutoff_sweep.py`](#portfolio_cutoff_sweeppy) | #379 | Replay the virtual book under different selection filters |
 
 ### `viz_engine.py`
 
@@ -89,6 +90,26 @@ python spikes/warrior_library.py --limit 5        # smoke test
 
 YouTube requires a JS runtime to hand over caption URLs, so yt-dlp is pointed at the local `node`
 (`--js-runtimes node`).
+
+### `portfolio_cutoff_sweep.py`
+
+Replays the virtual book (#230) under `Settings` overrides by calling the **real**
+`build_portfolio_payload`, so a "what if I'd selected differently" question can never drift from the
+live book. Two views: the full adaptive book per variant (what you'd have experienced, kill-switch
+ladder and costs included) and a signal-isolation view that buckets every candidate pre-market vs
+post-open, unsized and cost-free, so the ladder doesn't confound the comparison.
+
+Answered #379 (2026-07-19): **keep the 09:30 pre-market cutoff** — every relaxation was worse over
+the 12-session sample, and post-open candidates lost ~0.5R each against pre-market's ~breakeven.
+
+Any variant must be **decidable at trigger time** — ranking a day's candidates against each other is
+look-ahead bias. Note the reproducibility caveat in the module docstring: the book rows wobble until
+the `day_opportunities` ordering bug is fixed.
+
+```bash
+.venv/bin/python spikes/portfolio_cutoff_sweep.py --store /path/to/store-copy
+.venv/bin/python spikes/portfolio_cutoff_sweep.py --store /data --json data/spikes/sweep.json
+```
 
 ---
 
