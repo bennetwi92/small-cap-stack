@@ -1,5 +1,19 @@
 # GitHub-native automation — the operating model for a public, agent-driven repo
 
+> ⚠️ **ARCHIVED 2026-07-19 — this describes a layer that was built and then rolled back (#377).**
+> Everything below shipped (PRs #358–#369) and was removed nine days later: it added a lot of
+> protocol (a spec gate, five slash-commands, a `trivial` lane, an agent-PR CI nudge) while doing
+> almost nothing — over its lifetime the agent workflows opened **zero** issues and **zero** PRs,
+> `commands`/`spec` fired only as skips, and the watchdogs ran green and silent. The owner's
+> actual workflow — driving Claude Code from desktop/mobile, one issue per unit of work — never
+> routed through any of it, and the spec gate actively obstructed that. Liveness monitoring
+> reverted to the app's own Healthchecks dead-man's switch, which predates all of this (#29).
+>
+> **Kept as the design record**, not as live docs — it is a good writeup of a model that didn't
+> fit this operator. Re-read it before rebuilding; the deleted code is at `git show c573a60..0c85a1c`.
+> The lesson worth carrying forward: build the *one* piece that removes a real pain, use it for a
+> week, and only then build the second.
+
 *Added 2026-07-17. Standing report / decision input. Scope: how we develop and operate this
 project **without the laptop**, using GitHub's free tier (Actions / Issues / Pages / secrets) and
 **Claude Code in CI on the Max subscription** for research, spec, build, triage, self-heal, and

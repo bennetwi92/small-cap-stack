@@ -479,7 +479,7 @@ too.
 
 ## Repo stays PUBLIC; automation stays $0 (DECISION 2026-07-17, #344)
 
-Deciding how to host the GitHub-native automation layer (`research/github-automation.md`) under a
+Deciding how to host the GitHub-native automation layer (`research/archive/github-automation.md`) under a
 **hard $0 constraint** (no paid plan). $0 is decisive and rules the topology:
 - **GitHub Pages on the Free plan works only from a *public* repo** — a private repo would take the
   `docs/` cockpit dashboard offline (private-repo Pages needs Pro+).
@@ -506,3 +506,34 @@ P2/P3 (#340/#341), and (c) supply-chain hardening — SHA-pinned actions, least-
   branch on a schedule). Closes the §0 hole at its root — no runner to hijack — while staying public
   + $0 + keeping Pages. Cost: re-architecting deploy + data-export to box-initiated, losing the
   "click deploy in Actions" UX.
+
+## The GitHub automation layer is ROLLED BACK (DECISION 2026-07-19, #377)
+
+The agent/automation layer built on 2026-07-17 (PRs #358–#369) is **removed**. Nine workflows
+deleted — `claude`, `spec`, `triage`, `self-heal`, `overnight-analyst`, `commands`, `watchdog`,
+`workflow-keepalive`, `oom-victim-test` — plus `src/small_cap_stack/watchdog.py` and the
+`spike-request` issue form. The design writeup is archived at `research/archive/github-automation.md`.
+
+**Why.** It cost protocol and returned nothing measurable. Over its life the agent workflows
+opened **zero** issues and **zero** PRs; `commands` and `spec` fired only as skips; `self-heal`
+and `overnight-analyst` never ran at all; `watchdog` ran 20× green and silent. Against that, it
+added a spec gate, five slash-commands, a `trivial` lane, an agent-PR close/reopen CI nudge, and
+~27 lines of CLAUDE.md protocol — enough that the repo stopped feeling legible to its owner.
+The **spec gate was actively harmful**: instructing the agent to refuse `strategy`-labelled work
+without `spec-ready` put a gate between the owner and the most common category of work in the repo.
+
+**What replaces it: nothing — the prior model was never displaced.** Work is the owner driving
+Claude Code (desktop/mobile), one issue per unit of work, one PR per issue. That loop never routed
+through any of the deleted workflows. Liveness stays on the app's **Healthchecks.io dead-man's
+switch** (`monitoring.py`, live and armed on the box), which predates the automation layer by three
+weeks (#29) and already covered "would I know if the tracker died".
+
+**Kept:** `canary.py` (local data-quality JSON, no GitHub coupling) · the runner lockdown (#355) ·
+swap + container memory limits (#329) · the seven human-triggered workflows (`ci`, `deploy`,
+`build-image`, `publish-dashboard`, `backfill-dashboard`, `deploy-backfill-publish`, `data-export`).
+**Kept deliberately inert:** the `CLAUDE_CODE_OAUTH_TOKEN` / `WATCHDOG_HEARTBEAT_URL` secrets and
+the `alert`/`trivial`/`needs-spec`/`spec-ready` labels — harmless with no workflows to read them,
+and they make a future rebuild one step instead of five.
+
+**If rebuilt:** ship the *single* piece that removes a real, felt pain, run it for a week, and only
+then consider a second. The failure here was building ten pieces in one day for pains not yet felt.

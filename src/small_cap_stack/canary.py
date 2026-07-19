@@ -1,11 +1,13 @@
 """Data-quality canary (#346): positive-confirmation assertions over today's raw captures.
 
-The watchdogs (#340/#341) catch *liveness*; this catches *correctness* — the failure mode of a
+The Healthchecks heartbeat catches *liveness*; this catches *correctness* — the failure mode of a
 store-raw/compute-on-read system where a dead float source, a dead news feed, or glitched bars
 produce confident wrong opportunities while every liveness signal stays green. Each assertion
-here is something that must be TRUE on a healthy day; the monitor fires when one fails to be
-true — and, past first sighting, when this payload stops appearing at all (silence is a failure,
-never a pass).
+here is something that must be TRUE on a healthy day.
+
+The CI watchdog that used to assert these verdicts was rolled back with the rest of the
+automation layer (#377), so nothing checks this payload automatically today — it is written for
+the dashboard and for manual review. Read it when you want a second opinion on a day's capture.
 
 Cost model: every read is ``dt=``-scoped to today's partition (the Parquet store prices reads by
 FILE count — CLAUDE.md), and the app throttles rebuilds to every few minutes, so the canary adds
