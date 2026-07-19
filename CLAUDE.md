@@ -141,32 +141,20 @@ When running on the **Mac** (the primary working dir, not a cloud/web session), 
   job is a deploy, it can leave the app container **stopped** (compose has torn the old one down but
   not brought the new one up). Check `docker ps` and re-run `deploy.yml` before walking away.
 
-## The @claude dev loop (Claude-in-CI, #334)
-Commenting `@claude …` as the repo owner on an issue or PR runs Claude Code on a **hosted**
-runner (`claude.yml`, Max-subscription OAuth token — never the API key, never the VPS runner).
-The action reacts 👀 the moment the command lands. Only OWNER/MEMBER/COLLABORATOR comments
-trigger it — public commenters get ignored (#343).
-- **`/spec`** on an issue (or adding the `needs-spec` label) — a research-only agent posts the
-  spec as an issue comment (ephemeral by design — no spec files to rot) and sets `spec-ready`
-  (#339). Re-spec with `/spec <requested changes>`. Sonnet; Opus for `strategy`-labelled work.
-  Before approving, sanity-check the spec's *files-touched* list against reality (#343).
-- **`@claude build`** on an issue — implement it and open a PR (`Closes #N`, this file's rules).
-  **Spec gate (engine/strategy only):** if the issue is labelled `strategy` and does NOT have
-  `spec-ready`, do not build — reply asking for `/spec` first. All other labels build directly.
-- **`@claude fix`** on a `trivial`-labelled issue — the fast path (#347): straight to a small PR,
-  no ceremony.
-- **`@claude revise: <feedback>`** on an agent PR — amend **that PR's branch in place**; never
-  close-and-regenerate.
-- **Genuine one-liners** (typo, doc tweak): hand-edit in GitHub's web/mobile editor on a branch
-  and self-merge — do NOT summon an agent for a typo (#347).
-- **Box control commands (#338, OWNER-only, model-free):** `/backfill YYYY-MM-DD` (one PAST
-  date — the today/--all rules are enforced in code) · `/deploy [ref]` · `/restart` ·
-  `/export <dataset> [start] [end]` · `/status`. Deterministic bash relays to the existing
-  guarded workflows — no model, no quota.
-- ⚠️ **Agent PRs need one nudge to run CI:** PRs opened with the workflow token don't trigger
-  `pull_request` workflows, so `lint-typecheck-test` won't start on its own — **close and reopen
-  the PR** (two taps on mobile) to kick CI, then review/merge as usual. Token setup + details:
-  `deploy/RUNBOOK.md` §13.
+## How work gets done (no CI agents — #377)
+Work happens by **you driving Claude Code** (desktop or mobile) against this repo: one issue per
+unit of work, one PR per issue, `make check` before every push. There is no `@claude` bot, no
+`/spec` gate, no auto-triage, no agent that opens issues or PRs on its own — the 2026-07-17
+automation layer was rolled back on 2026-07-19 because it added protocol without earning its keep
+(it opened zero issues and fired almost never). Nothing gates you: ask for any change on any
+issue, whatever its labels, and it gets built.
+- The workflows that remain are the **hands-off, human-triggered** ones: `ci` (on every PR),
+  `deploy`, `build-image`, `publish-dashboard` (scheduled), `backfill-dashboard`,
+  `deploy-backfill-publish`, `data-export`. Trigger them with `gh workflow run <name>.yml`.
+- **Liveness monitoring** is the app's own Healthchecks.io dead-man's switch (`monitoring.py`,
+  `HEALTHCHECKS_PING_URL`) — it pings each tick and `/fail`s if the tick dies. That predates the
+  automation layer and is the signal to trust.
+- To rebuild an automation layer later, the deleted code is in git history: `git show c573a60..0c85a1c`.
 
 ## Working remotely (Claude Code on mobile / web)
 The cloud environment has GitHub access (issues, PRs, board, CI all work) and can run `make setup`/`make check`, but it does **NOT** have: the local `.venv`, the local `gh` keyring token, the `.env` file, or any **live IBKR connection**. Therefore:

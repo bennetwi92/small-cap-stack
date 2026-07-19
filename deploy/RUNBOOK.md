@@ -68,37 +68,15 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
 - **Dashboard data** (#68/#69): the app writes `status.json`/`stats.json` under `/data/dashboard`; the
   `publish-dashboard` workflow (self-hosted runner, every ~15 min + manual dispatch) force-pushes them
   to the orphan **`dashboard-data`** branch for the Pages frontend (#70) to poll via `raw.githubusercontent.com`.
-- **Watchdogs** (#340/#341): the `watchdog` workflow (HOSTED runner — never the box; ~10 min
-  during market hours, plus chained after each `publish-dashboard` run) reads the public
-  `dashboard-data` payloads and opens/auto-closes **`[watchdog] <family>/<slug>`** issues — infra
-  checks are labelled `alert`+`infra`, strategy checks (scanner liveness, EOD completion,
-  opportunity-count anomalies) `alert`+`strategy`. Your open `alert` issues ARE the active-alerts
-  board; a stale *publish* alert usually means the self-hosted runner is down (§11), a stale *box*
-  alert means the app/tick loop is.
-- **Self-heal** (#336): when the watchdog opens an alert it dispatches `self-heal`, a hosted
-  Sonnet diagnosis over the alert + the public payloads only — it has no `actions:write`, so it
-  structurally **cannot** touch the box, dispatch deploys, or trigger `data-export`. Code-level
-  causes become a `fix/alert-<n>` PR (close+reopen it to kick CI); ops-level causes become a
-  diagnosis comment proposing ONE allowlisted runbook action with its exact command — **you**
-  dispatch it. A 6-hour cooldown marker (`<!-- self-heal -->`) stops alert-flap from burning
-  Sonnet runs. Hand-labelling any issue `alert` also triggers it.
 - **Data-quality canary** (#346): the app writes `canary.json` (float coverage / news recency /
-  bar sanity verdicts, ~5-min throttle) alongside `status.json`; the watchdog asserts the verdicts
-  (`strategy/canary-*` issues, labels `alert`+`strategy`+`data`) and — once it has seen the file at
-  all — treats its absence or staleness as a failure in its own right: a silent canary never reads
-  as green.
-- **Monitor-the-monitor** (#345): the watchdog pings a dedicated Healthchecks check as its LAST step
-  each run — if the watchdog itself dies (workflow disabled, schedule dropped, script/state failing),
-  that check goes silent and Healthchecks alerts out-of-band, independent of GitHub. **Setup:** create
-  a second Healthchecks check — **period 2 h, grace 1 h**: GitHub throttles scheduled runs hard on
-  this repo (the */15 publish cron effectively fires ~every 90 min, observed 2026-07-17), and the
-  watchdog inherits that cadence — and save its ping URL as the **`WATCHDOG_HEARTBEAT_URL`**
-  repo secret (Settings → Secrets and variables → Actions). Until the secret exists the step no-ops.
-  Keep the URL out of the repo and dashboard — a ping URL is effectively a write credential (#344).
+  bar sanity verdicts, ~5-min throttle) alongside `status.json`, for the dashboard and for manual
+  inspection. Nothing asserts it automatically — the CI watchdog that used to was rolled back
+  (#377); read it when you want a second opinion on whether a day's capture looks sane.
 - ⚠️ **GitHub auto-disables `schedule` workflows after ~60 days of repo inactivity** (public repos).
-  The monthly `workflow-keepalive` workflow re-enables every schedule-bearing workflow (idempotent —
-  resets the timer without running anything). If the heartbeat alert fires, check each workflow's
-  page under Actions for a "disabled" banner first — re-enable and dispatch a manual run.
+  `publish-dashboard` is the one schedule left, so if the dashboard stops refreshing, check its
+  page under Actions for a "disabled" banner first — re-enable and dispatch a manual run. (The
+  monthly `workflow-keepalive` that used to reset this timer was rolled back with the rest of the
+  automation layer, #377.)
 - (Oracle only) it reclaims idle Always-Free VMs after ~30 days — add a weekly keep-alive cron.
   Hetzner has no such reclamation.
 
@@ -253,23 +231,3 @@ is fine — but if you use the pull-based image path, build **`linux/arm64`** an
 match. Caveats: free A1 capacity is heavily contended ("Out of host capacity" — upgrading to
 **Pay-As-You-Go**, still $0 within limits, plus a smaller shape / cycling Availability Domains usually
 clears it), and Oracle reclaims idle free VMs (add a weekly keep-alive cron).
-
-## 13. Claude-in-CI — the @claude dev loop (#334)
-- **[YOU] Token setup (one-time):** on the Mac run `claude setup-token`, then save the resulting
-  OAuth token as the repo secret **`CLAUDE_CODE_OAUTH_TOKEN`** (Settings → Secrets and variables →
-  Actions). This bills the **Max subscription**, not the API. ⚠️ **Never also set
-  `ANTHROPIC_API_KEY`** — if both exist the API key wins and every CI run bills the API. Until the
-  secret exists, every `@claude` command is an inert warning (by design, not a failure).
-- **Commands & rules** live in `CLAUDE.md` (“The @claude dev loop”): `@claude build` / `@claude
-  fix` / `@claude revise:`; owner-only trigger (#343); hosted runner only; Sonnet 5 per the model
-  policy (§4 of `research/github-automation.md`).
-- **Agent PRs and CI:** a PR opened by the workflow token does not trigger `pull_request`
-  workflows, so the required `lint-typecheck-test` check won't start on its own. **Close and
-  reopen the PR** to kick CI. (A dedicated GitHub App identity would remove this nudge — optional
-  future setup, more credential surface, see #348.)
-- **Quota is shared (#349):** CI agents draw the same Max quota as interactive Mac/mobile
-  sessions. If CI runs start failing with quota exhaustion, pause the loop (don't summon agents)
-  rather than switching to API billing.
-- **Rotation:** treat `CLAUDE_CODE_OAUTH_TOKEN` like a personal credential — rotate it
-  periodically (re-run `claude setup-token`, update the secret) and revoke it if a workflow log
-  ever looks compromised (#348).

@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     health_max_disk_used_pct: float = 90.0
 
     # Data-quality canary (#346) — positive-confirmation assertions over today's captures,
-    # written to data_dir/dashboard/canary.json on a throttle and asserted by the watchdog.
+    # written to data_dir/dashboard/canary.json on a throttle, for the dashboard and manual review.
     canary_interval_min: float = 5.0
     canary_min_float_coverage: float = 0.8  # share of today's opps with a non-null float row
     canary_news_max_age_h: float = 24.0  # newest news ts_utc must be at most this old
