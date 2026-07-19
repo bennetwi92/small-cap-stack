@@ -103,8 +103,8 @@ Answered #379 (2026-07-19): **keep the 09:30 pre-market cutoff** — every relax
 the 12-session sample, and post-open candidates lost ~0.5R each against pre-market's ~breakeven.
 
 Any variant must be **decidable at trigger time** — ranking a day's candidates against each other is
-look-ahead bias. Note the reproducibility caveat in the module docstring: the book rows wobble until
-the `day_opportunities` ordering bug is fixed.
+look-ahead bias. Running it surfaced #381 (the book selected different trades on identical inputs);
+the numbers were re-pinned against that fix and are now stable run-to-run.
 
 ```bash
 .venv/bin/python spikes/portfolio_cutoff_sweep.py --store /path/to/store-copy

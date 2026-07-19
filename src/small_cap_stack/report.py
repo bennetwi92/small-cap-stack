@@ -95,7 +95,9 @@ def _all_bars(bars: pl.DataFrame, oid: str) -> list[Bar]:
         return []
     sub = (
         bars.filter(pl.col("opportunity_id") == oid)
-        .unique(subset="bar_start_utc", keep="first")
+        # maintain_order=True so `keep="first"` is *the* first row in store order (#381) — the sort
+        # below fixes row order, but not which of a duplicate pair's values survive.
+        .unique(subset="bar_start_utc", keep="first", maintain_order=True)
         .sort("bar_start_utc")
     )
     return [
@@ -245,7 +247,9 @@ def news_headlines_for(news: pl.DataFrame, oid: str) -> list[dict[str, Any]]:
     if sub.is_empty():
         return []
     if "article_id" in sub.columns:
-        sub = sub.unique(subset=["opportunity_id", "article_id"], keep="first")
+        sub = sub.unique(
+            subset=["opportunity_id", "article_id"], keep="first", maintain_order=True
+        )  # deterministic dedup (#381)
     items = [
         {
             "ts": int(r["ts_utc"].timestamp()) if r.get("ts_utc") is not None else None,
@@ -432,8 +436,12 @@ def day_opportunities(store: Store, trading_date: date) -> pl.DataFrame:
     opps = store.read("opportunities", dt=trading_date)
     if opps.is_empty():
         return opps
+    # maintain_order=True is load-bearing, not cosmetic (#381): without it polars returns the
+    # deduped rows in an arbitrary order that permutes between runs, and `keep="first"` picks an
+    # arbitrary duplicate rather than the first in store order. Callers iterate this frame to build
+    # trade candidates, so a permuted order silently changed which trades the virtual book took.
     return opps.filter(pl.col("trading_date") == trading_date).unique(
-        subset="opportunity_id", keep="first"
+        subset="opportunity_id", keep="first", maintain_order=True
     )
 
 
@@ -459,7 +467,9 @@ def build_eod_report(store: Store, settings: Settings, trading_date: date) -> Eo
     bars = store.read("bars", dt=trading_date)
     news = store.read("news", dt=trading_date)
     if not news.is_empty():  # dedup re-fetched news (same article) so news_count isn't inflated
-        news = news.unique(subset=["opportunity_id", "article_id"], keep="first")
+        news = news.unique(
+            subset=["opportunity_id", "article_id"], keep="first", maintain_order=True
+        )  # deterministic dedup (#381)
     funds = store.read("fundamentals", dt=trading_date)
     scans = store.read("scanner_hits", dt=trading_date)  # NOT deduped: each row is a distinct hit
 

@@ -92,5 +92,10 @@ def extract_day_trades(store: Store, s: Settings, trading_date: date) -> list[Ca
                     bars=tuple(day_bars),
                 )
             )
-    out.sort(key=lambda c: c.trigger_at)
+    # A **total** order (#381). Sorting on trigger_at alone is a stable sort over an upstream row
+    # order, so two candidates triggering on the same bar were separated by however the store
+    # happened to yield them — and `portfolio_max_trades_per_day` then took a different pair
+    # whenever such a tie straddled the day's cap. `day_opportunities` is deterministic again, but
+    # the tiebreak is what makes selection independent of upstream ordering at all.
+    out.sort(key=lambda c: (c.trigger_at, c.symbol, c.seg_id, c.run))
     return out
