@@ -17,13 +17,12 @@ relaxation is worse and only the baseline is profitable. See #379 for the number
 against each other ("take the best two") is look-ahead bias and is not a valid experiment; only
 thresholds on values known when the trade fires are.
 
-⚠️ **The book sweep is currently not reproducible run-to-run.** `day_opportunities` uses polars
-`.unique(keep="first")` without `maintain_order=True`, so opportunity order permutes every run;
-`extract_day_trades` stable-sorts by `trigger_at`, so same-bar ties break by that arbitrary order,
-and the `max_trades_per_day` cap then takes a different pair whenever a tie straddles the boundary
-(e.g. MULL/SNDU/SNXX all trigger 12:45 on 2026-07-14). Expect the book rows to wobble by a trade or
-two; the *signal* view is unaffected (it caps nothing, so order cannot matter). Filed as its own
-bug — re-pin these numbers once it is fixed.
+Reproducibility: the numbers above were re-pinned against the #381 fix and are stable run-to-run.
+Before it, the book rows wobbled by a trade or two — `day_opportunities` deduped without
+`maintain_order=True`, so same-bar ties broke arbitrarily and the `max_trades_per_day` cap took a
+different pair whenever a tie straddled the boundary. If these figures ever drift on an unchanged
+store again, that guarantee has regressed —
+`test_extract_day_trades_is_deterministic_and_totally_ordered` should catch it first.
 
 Run against a copy of the box's store (`docker cp` it out, or query `/data` on the VPS directly):
 

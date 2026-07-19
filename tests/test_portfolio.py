@@ -729,11 +729,14 @@ def test_qualify_rejects_in_session_and_out_of_band() -> None:
 # --- extraction (store integration; reuses the report seams) ---------------------------
 
 
-def _seed_premarket(store: object, *, oid_time_utc: datetime) -> None:
+def _seed_premarket(store: object, *, oid_time_utc: datetime, symbol: str = "AZI") -> None:
     """Seed a clean pre-market bull flag (AZI, triggers to ~2.8R) + a no-setup name (DUD).
 
     ``oid_time_utc`` is the first bar / first_hit; 12:00 UTC = 08:00 ET (EDT) → strictly pre-market;
-    16:00 UTC = 12:00 ET → in-session, which the pre-market filter must reject."""
+    16:00 UTC = 12:00 ET → in-session, which the pre-market filter must reject.
+
+    ``symbol`` seeds the identical setup under another ticker, so a caller can create candidates
+    that trigger on the *same bar* — the tie the #381 ordering test needs."""
     from small_cap_stack.storage import Store
 
     assert isinstance(store, Store)
@@ -754,13 +757,13 @@ def _seed_premarket(store: object, *, oid_time_utc: datetime) -> None:
             "volume": v,
         }
 
-    oid = f"{day.isoformat()}:AZI"
+    oid = f"{day.isoformat()}:{symbol}"
     store.append(
         "opportunities",
         [
             {
                 "opportunity_id": oid,
-                "symbol": "AZI",
+                "symbol": symbol,
                 "con_id": 1,
                 "trading_date": day,
                 "first_seen_utc": t0,
@@ -772,16 +775,16 @@ def _seed_premarket(store: object, *, oid_time_utc: datetime) -> None:
     store.append(
         "bars",
         [
-            bar_row(oid, "AZI", 0, 5.0, 5.8, 4.6, 5.7),  # launch (green)
-            bar_row(oid, "AZI", 1, 5.7, 6.5, 5.6, 6.4, 2000),  # higher-high pole
-            bar_row(oid, "AZI", 2, 6.4, 6.1, 5.6, 5.7),  # flag (red)
-            bar_row(oid, "AZI", 3, 5.7, 7.64, 5.7, 7.5),  # trigger + Max R ~2.8
+            bar_row(oid, symbol, 0, 5.0, 5.8, 4.6, 5.7),  # launch (green)
+            bar_row(oid, symbol, 1, 5.7, 6.5, 5.6, 6.4, 2000),  # higher-high pole
+            bar_row(oid, symbol, 2, 6.4, 6.1, 5.6, 5.7),  # flag (red)
+            bar_row(oid, symbol, 3, 5.7, 7.64, 5.7, 7.5),  # trigger + Max R ~2.8
         ],
         partition_date=day,
     )
     store.append(
         "scanner_hits",
-        [{"opportunity_id": oid, "symbol": "AZI", "ts_utc": t0, "rank": 0}],
+        [{"opportunity_id": oid, "symbol": symbol, "ts_utc": t0, "rank": 0}],
         partition_date=day,
     )
 
@@ -836,6 +839,37 @@ def test_extract_day_trades_excludes_configured_symbols(tmp_path: Path) -> None:
     assert [c.symbol for c in extract_day_trades(store, _s(), day)] == ["AZI"]
     # ...but is excluded when listed (case-insensitively).
     assert extract_day_trades(store, _s(portfolio_exclude_symbols=("azi",)), day) == []
+
+
+def test_extract_day_trades_is_deterministic_and_totally_ordered(tmp_path: Path) -> None:
+    """Repeated extraction over an unchanged store must be identical (#381).
+
+    It wasn't: ``day_opportunities`` deduped with polars ``.unique(keep="first")`` without
+    ``maintain_order=True``, so opportunity order permuted between runs. Candidates were then
+    stable-sorted on ``trigger_at`` alone, so names triggering on the *same bar* inherited that
+    arbitrary order — and ``portfolio_max_trades_per_day`` took a **different pair** whenever such a
+    tie straddled the day's cap. The published ``portfolio.json`` could therefore change between
+    rebuilds with no new data, which breaks the store-raw / compute-on-read guarantee.
+
+    Three identical setups under different tickers all trigger on the same bar, so this fails
+    loudly if either the dedup order or the tiebreak regresses."""
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    store = Store(tmp_path)
+    t0 = datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC)  # 08:00 ET
+    for sym in ("MULL", "SNDU", "SNXX"):
+        _seed_premarket(store, oid_time_utc=t0, symbol=sym)
+
+    runs = [extract_day_trades(store, _s(), day) for _ in range(8)]
+
+    # All three tie on trigger_at, so only the tiebreak can order them.
+    assert len({c.trigger_at for c in runs[0]}) == 1
+    fingerprint = [(c.symbol, c.seg_id, c.run, c.trigger_at, c.entry_price) for c in runs[0]]
+    assert [f[0] for f in fingerprint] == ["MULL", "SNDU", "SNXX"]  # total order, by symbol
+    for r in runs[1:]:
+        assert [(c.symbol, c.seg_id, c.run, c.trigger_at, c.entry_price) for c in r] == fingerprint
 
 
 def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
