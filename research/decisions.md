@@ -540,3 +540,33 @@ and they make a future rebuild one step instead of five.
 
 **If rebuilt:** ship the *single* piece that removes a real, felt pain, run it for a week, and only
 then consider a second. The failure here was building ten pieces in one day for pains not yet felt.
+
+## Intraday VWAP added to charts (DECISION 2026-07-21)
+
+Intraday **VWAP** — the volume-weighted average price the global retail momentum community trades
+around — is now computed and drawn on the charts. It was absent before (no code referenced it),
+which was short-sighted given how central it is to the strategy's audience.
+
+**Definition (locked):**
+- **Typical-price weighted:** `Σ(((high+low+close)/3) · volume) / Σ(volume)`, cumulative bar-by-bar.
+  Typical price (not close) is what TradingView / DAS / ThinkOrSwim draw, so our line matches the
+  reference the community actually watches. (The `entresys_light` repo — referenced, not lifted —
+  used `close` in one place and IBKR's per-bar `Average` in another; we chose the retail-standard
+  typical price, which also backfills cleanly from the O/H/L/C/V we already store.)
+- **Anchored at the 04:00 ET pre-market open, current day only.** No carry across days. The chart
+  series is already scoped to `chart_start`=04:00 → `capture_end`=16:00, so the anchor is by
+  construction; VWAP is seeded at the first bar of the drawn full-day series.
+- **Derived, never stored (store-raw / compute-on-read):** `capture.compute_vwap(bars)` is a pure
+  replayable function; the price term can change retroactively. Nothing is added to the raw `bars`
+  Parquet schema. A bar is `None` until cumulative volume turns positive (front-ends guard on null).
+
+**Where:** emitted per bar in `charts.build_opportunity_chart` (the single projection both chart
+frontends share) → drawn on the **review workbench** (`docs/review.js`) as a toggleable cyan line.
+Overlay only — no change to `detect_day` / `rmetrics` / gates (a VWAP *signal* would be a separate
+spike). The unused **live-day "Trade chart" on the dashboard page was retired** (`docs/app.js` /
+`index.html` / `cockpit.css`) rather than given VWAP — per the owner, it isn't used; the review
+workbench is the chart that is.
+
+**Backfill:** new days pick up VWAP automatically (compute-on-read at chart-build time). Already
+published `charts/<date>.json` files gain it only when re-generated — run `backfill-dashboard`
+**per date** overnight (never `--all`; it OOMs the box, see CLAUDE.md), then re-publish.

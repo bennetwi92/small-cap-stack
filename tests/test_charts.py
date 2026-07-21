@@ -52,7 +52,35 @@ def test_bars_serialised_in_order() -> None:
         "l": 4.6,
         "c": 5.7,
         "v": 1e3,
+        # first bar: VWAP == its own typical price (high+low+close)/3.
+        "vwap": (5.8 + 4.6 + 5.7) / 3,
     }
+
+
+def test_vwap_cumulates_typical_price_by_volume() -> None:
+    # VWAP is the running volume-weighted typical price (high+low+close)/3 from the first bar.
+    b0 = _bar(0, 5.0, 6.0, 4.0, 5.0, vol=100)  # typical (6+4+5)/3 = 5.0
+    b1 = _bar(1, 5.0, 7.0, 5.0, 6.0, vol=300)  # typical (7+5+6)/3 = 6.0
+    cd = build_opportunity_chart([b0, b1], _settings())
+    assert cd.bars[0]["vwap"] == 5.0
+    assert cd.bars[1]["vwap"] == (5.0 * 100 + 6.0 * 300) / 400  # == 5.75
+
+
+def test_vwap_anchors_at_first_rendered_bar() -> None:
+    # chart_bars (the full day) seeds VWAP at *its* first bar, not the run-window's — the whole
+    # point of the 04:00 anchor: VWAP must be identical regardless of which window is drawn.
+    cd = build_opportunity_chart([_POLE], _settings(), chart_bars=list(_SETUP))
+    assert [b["t"] for b in cd.bars] == [_ts(0), _ts(1), _ts(2)]
+    assert cd.bars[0]["vwap"] == (_LAUNCH.high + _LAUNCH.low + _LAUNCH.close) / 3
+
+
+def test_vwap_none_until_volume_accumulates() -> None:
+    # A zero-volume pre-market bar has no defined average -> None; the line starts once volume hits.
+    z = _bar(0, 5.0, 5.0, 5.0, 5.0, vol=0)
+    t = _bar(1, 5.0, 6.0, 4.0, 5.0, vol=100)
+    cd = build_opportunity_chart([z, t], _settings())
+    assert cd.bars[0]["vwap"] is None
+    assert cd.bars[1]["vwap"] == 5.0
 
 
 def test_triggered_markers_map_to_bars() -> None:

@@ -62,6 +62,35 @@ def bar_interval(bars: Sequence[Bar]) -> timedelta:
     return Counter(gaps).most_common(1)[0][0]
 
 
+def compute_vwap(bars: Sequence[Bar]) -> list[float | None]:
+    """Running **intraday VWAP** over ``bars`` — one value per bar, cumulative, current-day.
+
+    The volume-weighted average of each bar's **typical price** ``(high + low + close) / 3`` — the
+    line the retail momentum community actually watches (TradingView / DAS / ThinkOrSwim all draw
+    the typical-price VWAP) — accumulated from the *first* bar forward::
+
+        vwap[i] = Σ_{k≤i}(typical_k · volume_k) / Σ_{k≤i}(volume_k)
+
+    Callers pass a **single trading day** already scoped to the pre-market open (``chart_start`` =
+    04:00 ET, the review/dashboard full-day series), so the window anchors at the 04:00 bar by
+    construction and VWAP never carries across days — matching how every retail platform resets it.
+
+    Derived, never stored (store-raw / compute-on-read, see the module docstring): recomputed on
+    read so the price term can change retroactively. A bar carries ``None`` until cumulative volume
+    turns positive — an all-zero-volume pre-market stretch has no defined average — so front-ends
+    must guard on null before drawing (mirroring the existing ``b.v != null`` volume guard).
+    """
+    out: list[float | None] = []
+    cum_pv = 0.0
+    cum_v = 0.0
+    for b in bars:
+        typical = (b.high + b.low + b.close) / 3.0
+        cum_pv += typical * b.volume
+        cum_v += b.volume
+        out.append(cum_pv / cum_v if cum_v > 0 else None)
+    return out
+
+
 @dataclass(frozen=True)
 class NewsItem:
     time: str

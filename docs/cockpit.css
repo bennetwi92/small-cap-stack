@@ -399,21 +399,6 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
 .dash-left .dash-jobs{ flex:1 1 auto; min-height:0; }
 .dash-syms{ margin:0; line-height:1.6; word-break:break-word; }
 .dash-agg{ margin:2px 0 4px; font-size:11px; }
-.dash-chart-panel{
-  flex:0 0 44%;
-  display:flex;
-  flex-direction:column;
-  min-height:0;
-}
-.dash-chart-head{
-  display:flex;
-  align-items:baseline;
-  gap:12px;
-  flex-wrap:wrap;
-}
-.chart-legend{ font-size:10px; display:inline-flex; gap:10px; flex-wrap:wrap; }
-.chart-legend .mk{ font-weight:600; }
-#chart{ flex:1 1 auto; min-height:0; }
 .dash-session{
   flex:1 1 0;
   display:flex;
@@ -425,8 +410,6 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
 @media (max-width:780px){
   .dash{ flex-direction:column; height:auto; }
   .dash-left{ flex:0 0 auto; overflow:visible; }
-  .dash-chart-panel{ flex:0 0 auto; }
-  #chart{ height:300px; }
   .dash-stats{ max-height:420px; }
 }
 
@@ -504,7 +487,7 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
      a definite-height row layout; once .pf turns into a column with
      height:auto there's no definite height to fill, and flex:1 1 0 +
      min-height:0 collapses the panel to zero height instead (#373) — pin it
-     to content size, same as .dash-chart-panel above. */
+     to content size once the layout stacks. */
   .pf-trades-panel{ flex:0 0 auto; }
   .pf-fill{ max-height:52vh; }
 }

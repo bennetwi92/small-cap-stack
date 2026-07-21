@@ -41,16 +41,11 @@
         </section>
       </div>
 
-      <!-- Right: the last completed session — chart on top, per-opportunity
-           statistics below (scrolls inside its panel, never the body). -->
+      <!-- Right: the last completed session — per-opportunity statistics
+           (scrolls inside its panel, never the body). The live-day trade chart
+           was retired here; the annotated candlesticks (now with intraday VWAP)
+           live on the review workbench, which is the chart actually used. -->
       <div class="dash-right">
-        <section class="panel dash-chart-panel" id="charts-card" hidden>
-          <div class="dash-chart-head">
-            <h2 class="panel-h">Trade chart</h2>
-            <span id="chart-legend" class="chart-legend muted"></span>
-          </div>
-          <div id="chart"></div>
-        </section>
         <section class="panel dash-session">
           <h2 class="panel-h">
             Last session <span id="session-date" class="muted">—</span> ·
@@ -63,7 +58,6 @@
       </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
     <script type="module" src="app.js"></script>
   </body>
 </html>

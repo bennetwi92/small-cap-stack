@@ -35,6 +35,7 @@ const dateLabel = (iso) => {
 const MK = {
   up: "#1a7f37", down: "#c0362c",
   entry: "#2f81f7", stop: "#c0362c", firstHit: "#8957e5", maxR: "#d4a72c",
+  vwap: "#39c5cf", // intraday VWAP line — a distinct cyan the retail community reads at a glance
   volUp: "rgba(26,127,55,0.5)", volDown: "rgba(192,54,44,0.5)",
   // trader's annotations (#144) — solid lines so they read distinctly from the engine's dashed ones.
   annEntry: "#3fb950", annStop: "#db6d28",
@@ -55,6 +56,8 @@ let chartsData = null; // last-fetched charts/<date>.json payload for the select
 let chartApi = null; // LightweightCharts instance (recreated per drawn opportunity)
 let candleSeries = null;
 let volumeSeries = null;
+let vwapSeries = null; // intraday VWAP line (typical-price weighted, anchored at the 04:00 open)
+let vwapOn = true; // whether the VWAP line is shown (toggled by the VWAP button)
 let currentOpp = null; // the opportunity chart object currently drawn (for the notes sheet)
 let currentDate = null; // the trading date currently loaded (to restore the picker on a cancelled nav)
 const noteCache = new Map(); // opportunity_id -> loaded/saved review, so re-opening is instant
@@ -443,6 +446,28 @@ function buildChart(c) {
     volumeSeries = null;
   }
 
+  // Intraday VWAP line (typical-price weighted, anchored at the day's 04:00 pre-market open — the
+  // reference the retail momentum community trades around). Guarded on presence so charts.json
+  // payloads published before VWAP existed still render; drawn only over bars whose vwap is set
+  // (the pre-volume pre-market stretch is None). Honours the VWAP toggle via `vwapOn`.
+  const hasVwap = c.bars.some((b) => b.vwap != null);
+  if (hasVwap) {
+    vwapSeries = chartApi.addLineSeries({
+      color: MK.vwap,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+      title: "VWAP",
+    });
+    vwapSeries.setData(
+      c.bars.filter((b) => b.vwap != null).map((b) => ({ time: b.t, value: b.vwap })),
+    );
+    vwapSeries.applyOptions({ visible: vwapOn });
+  } else {
+    vwapSeries = null;
+  }
+
   // Entry-trigger + stop levels (shown even when the setup never triggered — where a fill'd be).
   // A "no trigger" verdict strips these later via applyVerdict(); we always draw them here so the
   // handles exist to restore when the verdict is toggled back off.
@@ -467,6 +492,7 @@ function buildChart(c) {
   renderReadout(c);
   renderEngineDetail(c);
   updateEngineToggleUI();
+  updateVwapToggleUI();
 }
 
 // (Re)draw the engine's dashed entry/stop context lines for chart `c`, keeping the handles so a
@@ -1158,6 +1184,21 @@ function updateEngineToggleUI() {
   btn.setAttribute("aria-pressed", engineOn ? "true" : "false");
 }
 
+// --- VWAP overlay controls -----------------------------------------------------------------
+// Show/hide the intraday VWAP line. Default ON; like the engine toggle the setting persists across
+// opportunities so the trader can keep VWAP up (or park it off) while paging through the day.
+function toggleVwap() {
+  vwapOn = !vwapOn;
+  if (vwapSeries) vwapSeries.applyOptions({ visible: vwapOn });
+  updateVwapToggleUI();
+}
+function updateVwapToggleUI() {
+  const btn = el("rv-vwap-toggle");
+  if (!btn) return;
+  btn.classList.toggle("armed", vwapOn);
+  btn.setAttribute("aria-pressed", vwapOn ? "true" : "false");
+}
+
 // Build the engine detail sheet: verdict, score, cycle/exhaustion, the segment, entry/stop levels,
 // the per-gate pass/fail table and the score contributions — the explainable ranking (#182, folded
 // into #216) behind the on-chart overlay.
@@ -1341,6 +1382,7 @@ el("rv-clear").addEventListener("click", clearAnnotations);
 el("rv-notrigger").addEventListener("click", toggleNoTrigger);
 // Engine overlay (#216): toggle the layer; open the detail sheet from the readout badge / its close.
 el("rv-engine-toggle").addEventListener("click", toggleEngine);
+el("rv-vwap-toggle").addEventListener("click", toggleVwap);
 el("rv-engine-close").addEventListener("click", closeEngineSheet);
 
 // Drag-to-refine (UX #152): our own pointer loop on the chart container. Listeners are attached

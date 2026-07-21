@@ -33,7 +33,7 @@ from .bullflag import (
     token_eps,
     tokenize,
 )
-from .capture import Bar, bar_interval
+from .capture import Bar, bar_interval, compute_vwap
 from .config import Settings
 from .rmetrics import compute_r_metrics
 
@@ -42,7 +42,10 @@ from .rmetrics import compute_r_metrics
 class ChartData:
     """Bars + annotations for one opportunity's chart (JSON-ready via ``dataclasses.asdict``)."""
 
-    bars: list[dict[str, float | int]]  # {"t": epoch_s, "o", "h", "l", "c", "v"} per 5-min bar
+    # {"t": epoch_s, "o", "h", "l", "c", "v", "vwap"} per 5-min bar. ``vwap`` is the running
+    # intraday VWAP (typical-price weighted, anchored at the day's 04:00 bar); None until volume
+    # accumulates, so front-ends guard on null before drawing the line (VWAP overlay).
+    bars: list[dict[str, float | int | None]]
     levels: dict[str, float | None]  # {"entry": trigger, "stop": stop} — None when no setup formed
     markers: dict[str, int | None]  # epoch-s per event: first_hit / entry / max_r / stop (#141)
     triggered: bool
@@ -185,6 +188,10 @@ def build_opportunity_chart(
         else None
     )
     first_hit_idx = _bar_containing(render_bars, first_hit) if first_hit is not None else None
+    # Intraday VWAP over the *drawn* series. ``render_bars`` is the full trading day (04:00–16:00)
+    # on every live chart path, so the cumulation anchors at the 04:00 open exactly as retail
+    # platforms do; the legacy run-window default seeds at the window start (that chart is retired).
+    vwaps = compute_vwap(render_bars)
     return ChartData(
         bars=[
             {
@@ -194,8 +201,9 @@ def build_opportunity_chart(
                 "l": b.low,
                 "c": b.close,
                 "v": b.volume,
+                "vwap": vw,
             }
-            for b in render_bars
+            for b, vw in zip(render_bars, vwaps, strict=True)
         ],
         levels={"entry": rm.entry_trigger, "stop": rm.stop},
         markers={
