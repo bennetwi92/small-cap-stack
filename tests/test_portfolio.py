@@ -718,10 +718,12 @@ def test_qualify_rejects_in_session_and_out_of_band() -> None:
     from small_cap_stack.portfolio import _qualify
 
     s = _s()
-    pre = [_bar(10, 10.1, 9.9, 10.0, hour=9, minute=15)]  # 09:15 ET -> pre-market
+    pre = [_bar(10, 10.1, 9.9, 10.0, hour=9, minute=10)]  # 09:10 ET -> before the 09:15 cutoff
+    edge = [_bar(10, 10.1, 9.9, 10.0, hour=9, minute=15)]  # 09:15 ET -> at cutoff (excluded)
     intr = [_bar(10, 10.1, 9.9, 10.0, hour=9, minute=45)]  # 09:45 ET -> in-session
     assert _qualify(0, 10.0, 10.0, 9.0, 1.0, True, pre, s) is True
-    assert _qualify(0, 10.0, 10.0, 9.0, 1.0, True, intr, s) is False  # after 09:30
+    assert _qualify(0, 10.0, 10.0, 9.0, 1.0, True, edge, s) is False  # 09:15 is not < 09:15
+    assert _qualify(0, 10.0, 10.0, 9.0, 1.0, True, intr, s) is False  # after the cutoff
     assert _qualify(0, 25.0, 25.0, 24.0, 1.0, True, pre, s) is False  # entry_fill 25 > $20 band
     assert _qualify(0, 10.0, 10.0, 9.0, 1.0, False, pre, s) is False  # not takeable
 
@@ -820,6 +822,27 @@ def test_extract_day_trades_rejects_in_session(tmp_path: Path) -> None:
     store = Store(tmp_path)
     _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 16, 0, tzinfo=ET_UTC))  # 12:00 ET
     assert extract_day_trades(store, _s(), day) == []  # same setup, but the trigger is in-session
+
+
+def test_extract_day_trades_rejects_after_0915_cutoff(tmp_path: Path) -> None:
+    """The final pre-open ramp 09:15–09:30 trades like the open and is excluded (#383).
+
+    Reproduces the 2026-07-20 VMAR case: a setup whose trigger bar opens at 09:15 ET qualified
+    under the old 09:30 cutoff but is rejected by the tightened 09:15 default (strict `<`). The
+    `first_hit` bar (index 0) is seeded at 09:00 ET so the run's trigger (idx 3) lands at 09:15."""
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 13, 0, tzinfo=ET_UTC))  # 09:00 ET
+
+    # Trigger opens 09:15 ET — at the cutoff, so rejected by the 09:15 default (not < 09:15).
+    assert extract_day_trades(store, _s(), day) == []
+    # ...but it is a valid setup: relaxing the cutoff back to 09:30 lets it through.
+    cands = extract_day_trades(store, _s(portfolio_premarket_cutoff=time(9, 30)), day)
+    assert [c.symbol for c in cands] == ["AZI"]
+    assert cands[0].trigger_at.astimezone(ET).time() == time(9, 15)
 
 
 def test_extract_day_trades_excludes_configured_symbols(tmp_path: Path) -> None:

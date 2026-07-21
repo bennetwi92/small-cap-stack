@@ -282,9 +282,12 @@ in P2). Locks the following execution parameters (chosen by the user 2026-07-15)
   - *Superseded original:* capital-based, 50% of opening equity per trade
     (`qty = floor(0.50 × equity / entry_fill)`), risk-per-trade floating freely with stop distance.
 - **Qualifying trade (all must hold):** (1) engine **v2 `pass`** (setup + every gate) **and
-  triggered**; (2) **strictly pre-market fill** — the **trigger bar** opens before **09:30 ET**
-  (deliberately stricter than the results-page `first_hit`-based "premarket" label, which can tag a
-  setup that only *breaks* in-session); (3) **entry price (`entry_fill`) ∈ [$1, $20]** (narrower
+  triggered**; (2) **strictly pre-market fill** — the **trigger bar** opens before **09:15 ET**
+  (AMENDED 2026-07-21, #383, from 09:30: the final pre-open ramp/auction 09:15–09:30 trades like the
+  open and is excluded from this strategy — a VMAR entry at ~09:25 on 2026-07-20 was a loss; spike
+  #379/#380 only swept *relaxations* of the old cutoff, never this tightening. Still deliberately
+  stricter than the results-page `first_hit`-based "premarket" label, which can tag a setup that
+  only *breaks* in-session); (3) **entry price (`entry_fill`) ∈ [$1, $20]** (narrower
   than the $1–50 scan universe, #126); (4) take the **first 2 by trigger time** each day, later
   qualifiers logged as *missed — at capacity*.
 - **Stop:** consolidation low (engine v2, unchanged — the R denominator, #182/#190).
