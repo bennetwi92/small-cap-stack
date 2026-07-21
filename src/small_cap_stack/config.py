@@ -193,7 +193,11 @@ class Settings(BaseSettings):
     portfolio_risk_fraction: float = 0.05  # target risk per trade, as a fraction of opening equity
     portfolio_position_fraction: float = 0.50  # max position notional, as a fraction of opening eq.
     portfolio_max_trades_per_day: int = 2  # cap 50% × 2 = at most fully deployed → 2 concurrent
-    portfolio_premarket_cutoff: time = time(9, 30)  # strict: the TRIGGER bar must open before this
+    # Strict: the TRIGGER bar must open before this. Tightened 09:30 → 09:15 (2026-07-21) — the
+    # final pre-open ramp/auction (09:15–09:30) trades like the open, which this strategy excludes
+    # (a VMAR entry at ~09:25 on 2026-07-20 lost). Spike #379/#380 only swept relaxations
+    # (10:00–12:00), all worse; tightening is the owner's call. Last takeable bar opens 09:10.
+    portfolio_premarket_cutoff: time = time(9, 15)
     portfolio_entry_price_min: float = 1.0  # entry_fill price band (narrower than the $1–50 scan)
     portfolio_entry_price_max: float = 20.0
     # Symbols to exclude from the paper book. Before #226/#227 added the scanner's `stkTypes`
