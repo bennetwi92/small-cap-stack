@@ -1,0 +1,22 @@
+{
+  "generated_utc": "2026-07-24T21:01:58.714234+00:00",
+  "trading_date": "2026-07-24",
+  "assertions": {
+    "float_coverage": {
+      "ok": true,
+      "covered": 28,
+      "total": 28,
+      "pct": 1.0
+    },
+    "news_recent": {
+      "ok": false,
+      "rows": 455,
+      "newest_age_h": 174.58
+    },
+    "bars_sane": {
+      "ok": true,
+      "symbols": 28,
+      "offenders": []
+    }
+  }
+}

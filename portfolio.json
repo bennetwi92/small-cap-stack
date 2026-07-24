@@ -1,0 +1,3143 @@
+{
+  "generated_utc": "2026-07-24T20:30:06.332308+00:00",
+  "start_equity": 500.0,
+  "gbpusd_rate": 1.27,
+  "config": {
+    "risk_fraction": 0.05,
+    "position_fraction": 0.5,
+    "max_trades_per_day": 2,
+    "premarket_cutoff_et": "09:15:00",
+    "entry_price_min": 1.0,
+    "entry_price_max": 20.0,
+    "breakeven_r": 0.0,
+    "commission_per_share": 0.0035,
+    "commission_min": 0.35,
+    "exchange_fee_per_share": 0.003,
+    "clearing_fee_per_share": 0.0002,
+    "market_data_usd_per_month": 10.0,
+    "market_data_waiver_usd": 30.0,
+    "exit_slippage_ticks": 2,
+    "adaptive_window_days": 20,
+    "adaptive_min_samples": 8,
+    "gbpusd_rate": 1.27,
+    "withdraw_fraction": 0.5,
+    "withdraw_cadence_months": 3,
+    "withdraw_floor_usd": 2000.0,
+    "cgt_rate": 0.24,
+    "cgt_annual_exempt_gbp": 3000.0,
+    "vps_gbp_per_month": 5.7,
+    "risk_rungs": 3,
+    "risk_ladder": [
+      0.0,
+      0.025,
+      0.05
+    ],
+    "risk_step_days": 2
+  },
+  "targets": [
+    "1",
+    "1.5",
+    "2",
+    "2.5",
+    "3",
+    "4",
+    "5"
+  ],
+  "books": {
+    "adaptive": {
+      "stats": {
+        "n_trades": 11,
+        "wins": 5,
+        "losses": 6,
+        "win_rate": 0.4545,
+        "total_r": 3.1895,
+        "avg_r": 0.29,
+        "expectancy_usd": 4.0358,
+        "avg_risk_pct": 0.037516,
+        "cap_bound_count": 4,
+        "end_equity": 527.155,
+        "return_pct": 0.0543,
+        "max_drawdown_pct": 0.1072,
+        "commission_usd": 8.239,
+        "fees_usd": 3.7098,
+        "data_fees_usd": 10.0,
+        "total_costs_usd": 21.9488,
+        "withdrawals_usd": 0.0,
+        "withdrawals_gbp": 0.0,
+        "tax_paid_usd": 0.0,
+        "tax_paid_gbp": 0.0,
+        "vps_costs_usd": 7.239,
+        "vps_costs_gbp": 5.7,
+        "net_take_home_gbp": 0.0,
+        "skipped_count": 0,
+        "skipped_total_r": 0,
+        "unaffordable_count": 0
+      },
+      "equity_curve": [
+        {
+          "date": "2026-07-01",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-02",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-03",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-04",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-05",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-06",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-07",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-08",
+          "equity": 453.1619
+        },
+        {
+          "date": "2026-07-09",
+          "equity": 490.3073
+        },
+        {
+          "date": "2026-07-10",
+          "equity": 490.3073
+        },
+        {
+          "date": "2026-07-13",
+          "equity": 537.2035
+        },
+        {
+          "date": "2026-07-14",
+          "equity": 550.8605
+        },
+        {
+          "date": "2026-07-15",
+          "equity": 604.2898
+        },
+        {
+          "date": "2026-07-16",
+          "equity": 604.2898
+        },
+        {
+          "date": "2026-07-17",
+          "equity": 604.2898
+        },
+        {
+          "date": "2026-07-20",
+          "equity": 604.2898
+        },
+        {
+          "date": "2026-07-21",
+          "equity": 604.2898
+        },
+        {
+          "date": "2026-07-22",
+          "equity": 573.7087
+        },
+        {
+          "date": "2026-07-23",
+          "equity": 544.394
+        },
+        {
+          "date": "2026-07-24",
+          "equity": 527.155
+        }
+      ],
+      "trades": [
+        {
+          "date": "2026-07-01",
+          "symbol": "CANF",
+          "seg_id": "2026-07-01:CANF",
+          "run": 1,
+          "trigger_at": "2026-07-01T07:15:00-04:00",
+          "entry": 6.26,
+          "stop": 5.39,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.36,
+          "risk_pct": 0.04872,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": -1.023,
+          "reason": "stop",
+          "exit_price": 5.37,
+          "gross_pnl": -24.92,
+          "costs": 0.888,
+          "net_pnl": -25.808,
+          "equity_after": 474.192
+        },
+        {
+          "date": "2026-07-01",
+          "symbol": "CORD",
+          "seg_id": "2026-07-01:CORD",
+          "run": 1,
+          "trigger_at": "2026-07-01T08:45:00-04:00",
+          "entry": 6.24,
+          "stop": 5.93,
+          "qty": 40,
+          "risk_fraction": 0.05,
+          "risk_usd": 12.4,
+          "risk_pct": 0.0248,
+          "sized_by": "cap",
+          "target_r": 2.0,
+          "realized_r": 2.0,
+          "reason": "target",
+          "exit_price": 6.86,
+          "gross_pnl": 24.8,
+          "costs": 0.9703,
+          "net_pnl": 23.8297,
+          "equity_after": 498.0217
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "SHPH",
+          "seg_id": "2026-07-08:SHPH",
+          "run": 1,
+          "trigger_at": "2026-07-08T04:20:00-04:00",
+          "entry": 3.96,
+          "stop": 3.77,
+          "qty": 62,
+          "risk_fraction": 0.05,
+          "risk_usd": 11.78,
+          "risk_pct": 0.023654,
+          "sized_by": "cap",
+          "target_r": 2.0,
+          "realized_r": -1.1053,
+          "reason": "stop",
+          "exit_price": 3.75,
+          "gross_pnl": -13.02,
+          "costs": 1.1136,
+          "net_pnl": -14.1336,
+          "equity_after": 483.8881
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "VTAK",
+          "seg_id": "2026-07-08:VTAK",
+          "run": 1,
+          "trigger_at": "2026-07-08T07:35:00-04:00",
+          "entry": 1.17,
+          "stop": 1.03,
+          "qty": 177,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.78,
+          "risk_pct": 0.049757,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": -1.1429,
+          "reason": "stop",
+          "exit_price": 1.01,
+          "gross_pnl": -28.32,
+          "costs": 2.4062,
+          "net_pnl": -30.7262,
+          "equity_after": 453.1619
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "SUNE",
+          "seg_id": "2026-07-09:SUNE#1",
+          "run": 1,
+          "trigger_at": "2026-07-09T04:30:00-04:00",
+          "entry": 2.48,
+          "stop": 2.44,
+          "qty": 91,
+          "risk_fraction": 0.05,
+          "risk_usd": 3.64,
+          "risk_pct": 0.008032,
+          "sized_by": "cap",
+          "target_r": 2.0,
+          "realized_r": -1.5,
+          "reason": "stop",
+          "exit_price": 2.42,
+          "gross_pnl": -5.46,
+          "costs": 1.3036,
+          "net_pnl": -6.7636,
+          "equity_after": 446.3983
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "VRAX",
+          "seg_id": "2026-07-09:VRAX",
+          "run": 1,
+          "trigger_at": "2026-07-09T07:55:00-04:00",
+          "entry": 7.61,
+          "stop": 6.81,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 22.4,
+          "risk_pct": 0.04943,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": 2.0,
+          "reason": "target",
+          "exit_price": 9.21,
+          "gross_pnl": 44.8,
+          "costs": 0.891,
+          "net_pnl": 43.909,
+          "equity_after": 490.3073
+        },
+        {
+          "date": "2026-07-13",
+          "symbol": "VEEE",
+          "seg_id": "2026-07-13:VEEE",
+          "run": 1,
+          "trigger_at": "2026-07-13T09:05:00-04:00",
+          "entry": 9.5,
+          "stop": 7.91,
+          "qty": 15,
+          "risk_fraction": 0.05,
+          "risk_usd": 23.85,
+          "risk_pct": 0.048643,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": 2.0,
+          "reason": "target",
+          "exit_price": 12.68,
+          "gross_pnl": 47.7,
+          "costs": 0.8038,
+          "net_pnl": 46.8962,
+          "equity_after": 537.2035
+        },
+        {
+          "date": "2026-07-14",
+          "symbol": "CLSK",
+          "seg_id": "2026-07-14:CLSK",
+          "run": 1,
+          "trigger_at": "2026-07-14T06:15:00-04:00",
+          "entry": 14.4223,
+          "stop": 14.02,
+          "qty": 18,
+          "risk_fraction": 0.05,
+          "risk_usd": 7.2414,
+          "risk_pct": 0.01348,
+          "sized_by": "cap",
+          "target_r": 2.0,
+          "realized_r": 2.0,
+          "reason": "target",
+          "exit_price": 15.2269,
+          "gross_pnl": 14.4828,
+          "costs": 0.8258,
+          "net_pnl": 13.657,
+          "equity_after": 550.8605
+        },
+        {
+          "date": "2026-07-15",
+          "symbol": "JTAI",
+          "seg_id": "2026-07-15:JTAI#2",
+          "run": 2,
+          "trigger_at": "2026-07-15T06:00:00-04:00",
+          "entry": 5.87,
+          "stop": 5.19,
+          "qty": 40,
+          "risk_fraction": 0.05,
+          "risk_usd": 27.2,
+          "risk_pct": 0.049377,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": 2.0,
+          "reason": "target",
+          "exit_price": 7.23,
+          "gross_pnl": 54.4,
+          "costs": 0.9707,
+          "net_pnl": 53.4293,
+          "equity_after": 604.2898
+        },
+        {
+          "date": "2026-07-22",
+          "symbol": "LABT",
+          "seg_id": "2026-07-22:LABT",
+          "run": 1,
+          "trigger_at": "2026-07-22T08:25:00-04:00",
+          "entry": 6.21,
+          "stop": 5.13,
+          "qty": 27,
+          "risk_fraction": 0.05,
+          "risk_usd": 29.16,
+          "risk_pct": 0.048255,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": -1.0185,
+          "reason": "stop",
+          "exit_price": 5.11,
+          "gross_pnl": -29.7,
+          "costs": 0.8811,
+          "net_pnl": -30.5811,
+          "equity_after": 573.7087
+        },
+        {
+          "date": "2026-07-23",
+          "symbol": "JEM",
+          "seg_id": "2026-07-23:JEM#3",
+          "run": 3,
+          "trigger_at": "2026-07-23T07:30:00-04:00",
+          "entry": 6.26,
+          "stop": 5.3,
+          "qty": 29,
+          "risk_fraction": 0.05,
+          "risk_usd": 27.84,
+          "risk_pct": 0.048526,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": -1.0208,
+          "reason": "stop",
+          "exit_price": 5.28,
+          "gross_pnl": -28.42,
+          "costs": 0.8947,
+          "net_pnl": -29.3147,
+          "equity_after": 544.394
+        }
+      ],
+      "skipped": [],
+      "cash_flows": [
+        {
+          "date": "2026-07-24",
+          "kind": "vps",
+          "usd": 7.239,
+          "gbp": 5.7
+        }
+      ],
+      "daily_targets": [
+        {
+          "date": "2026-07-01",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-02",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-03",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-04",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-05",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-06",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-07",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-08",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-09",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-10",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-13",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-14",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-15",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-16",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-17",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-20",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-21",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-22",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-23",
+          "target": 2.0
+        },
+        {
+          "date": "2026-07-24",
+          "target": 2.0
+        }
+      ],
+      "daily_risk": [
+        {
+          "date": "2026-07-01",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-02",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-03",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-04",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-05",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-06",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-07",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-08",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-09",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-10",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-13",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-14",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-15",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-16",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-17",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-20",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-21",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-22",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-23",
+          "risk": 0.05
+        },
+        {
+          "date": "2026-07-24",
+          "risk": 0.025
+        }
+      ],
+      "next_session": {
+        "as_of": "2026-07-25",
+        "target_r": 2.0,
+        "risk_fraction": 0.025,
+        "rung": 1,
+        "n_rungs": 3,
+        "streak": 0,
+        "step_days": 2,
+        "risk_budget_usd": 13.1789,
+        "max_position_usd": 263.5775
+      }
+    },
+    "1": {
+      "stats": {
+        "n_trades": 11,
+        "wins": 6,
+        "losses": 5,
+        "win_rate": 0.5455,
+        "total_r": 0.208,
+        "avg_r": 0.0189,
+        "expectancy_usd": 0.2141,
+        "avg_risk_pct": 0.037627,
+        "cap_bound_count": 4,
+        "end_equity": 485.1163,
+        "return_pct": -0.0298,
+        "max_drawdown_pct": 0.1299,
+        "commission_usd": 8.211,
+        "fees_usd": 3.5605,
+        "data_fees_usd": 10.0,
+        "total_costs_usd": 21.7715,
+        "withdrawals_usd": 0.0,
+        "withdrawals_gbp": 0.0,
+        "tax_paid_usd": 0.0,
+        "tax_paid_gbp": 0.0,
+        "vps_costs_usd": 7.239,
+        "vps_costs_gbp": 5.7,
+        "net_take_home_gbp": 0.0,
+        "skipped_count": 0,
+        "skipped_total_r": 0,
+        "unaffordable_count": 0
+      },
+      "equity_curve": [
+        {
+          "date": "2026-07-01",
+          "equity": 485.6221
+        },
+        {
+          "date": "2026-07-02",
+          "equity": 485.6221
+        },
+        {
+          "date": "2026-07-03",
+          "equity": 485.6221
+        },
+        {
+          "date": "2026-07-04",
+          "equity": 485.6221
+        },
+        {
+          "date": "2026-07-05",
+          "equity": 485.6221
+        },
+        {
+          "date": "2026-07-06",
+          "equity": 485.6221
+        },
+        {
+          "date": "2026-07-07",
+          "equity": 485.6221
+        },
+        {
+          "date": "2026-07-08",
+          "equity": 441.6734
+        },
+        {
+          "date": "2026-07-09",
+          "equity": 455.7594
+        },
+        {
+          "date": "2026-07-10",
+          "equity": 455.7594
+        },
+        {
+          "date": "2026-07-13",
+          "equity": 477.2232
+        },
+        {
+          "date": "2026-07-14",
+          "equity": 482.8484
+        },
+        {
+          "date": "2026-07-15",
+          "equity": 505.7122
+        },
+        {
+          "date": "2026-07-16",
+          "equity": 505.7122
+        },
+        {
+          "date": "2026-07-17",
+          "equity": 505.7122
+        },
+        {
+          "date": "2026-07-20",
+          "equity": 505.7122
+        },
+        {
+          "date": "2026-07-21",
+          "equity": 505.7122
+        },
+        {
+          "date": "2026-07-22",
+          "equity": 529.6965
+        },
+        {
+          "date": "2026-07-23",
+          "equity": 502.3553
+        },
+        {
+          "date": "2026-07-24",
+          "equity": 485.1163
+        }
+      ],
+      "trades": [
+        {
+          "date": "2026-07-01",
+          "symbol": "CANF",
+          "seg_id": "2026-07-01:CANF",
+          "run": 1,
+          "trigger_at": "2026-07-01T07:15:00-04:00",
+          "entry": 6.26,
+          "stop": 5.39,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.36,
+          "risk_pct": 0.04872,
+          "sized_by": "risk",
+          "target_r": 1.0,
+          "realized_r": -1.023,
+          "reason": "stop",
+          "exit_price": 5.37,
+          "gross_pnl": -24.92,
+          "costs": 0.888,
+          "net_pnl": -25.808,
+          "equity_after": 474.192
+        },
+        {
+          "date": "2026-07-01",
+          "symbol": "CORD",
+          "seg_id": "2026-07-01:CORD",
+          "run": 1,
+          "trigger_at": "2026-07-01T08:45:00-04:00",
+          "entry": 6.24,
+          "stop": 5.93,
+          "qty": 40,
+          "risk_fraction": 0.05,
+          "risk_usd": 12.4,
+          "risk_pct": 0.0248,
+          "sized_by": "cap",
+          "target_r": 1.0,
+          "realized_r": 1.0,
+          "reason": "target",
+          "exit_price": 6.55,
+          "gross_pnl": 12.4,
+          "costs": 0.9699,
+          "net_pnl": 11.4301,
+          "equity_after": 485.6221
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "SHPH",
+          "seg_id": "2026-07-08:SHPH",
+          "run": 1,
+          "trigger_at": "2026-07-08T04:20:00-04:00",
+          "entry": 3.96,
+          "stop": 3.77,
+          "qty": 61,
+          "risk_fraction": 0.05,
+          "risk_usd": 11.59,
+          "risk_pct": 0.023866,
+          "sized_by": "cap",
+          "target_r": 1.0,
+          "realized_r": -1.1053,
+          "reason": "stop",
+          "exit_price": 3.75,
+          "gross_pnl": -12.81,
+          "costs": 1.1069,
+          "net_pnl": -13.9169,
+          "equity_after": 471.7052
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "VTAK",
+          "seg_id": "2026-07-08:VTAK",
+          "run": 1,
+          "trigger_at": "2026-07-08T07:35:00-04:00",
+          "entry": 1.17,
+          "stop": 1.03,
+          "qty": 173,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.22,
+          "risk_pct": 0.049874,
+          "sized_by": "risk",
+          "target_r": 1.0,
+          "realized_r": -1.1429,
+          "reason": "stop",
+          "exit_price": 1.01,
+          "gross_pnl": -27.68,
+          "costs": 2.3518,
+          "net_pnl": -30.0318,
+          "equity_after": 441.6734
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "SUNE",
+          "seg_id": "2026-07-09:SUNE#1",
+          "run": 1,
+          "trigger_at": "2026-07-09T04:30:00-04:00",
+          "entry": 2.48,
+          "stop": 2.44,
+          "qty": 89,
+          "risk_fraction": 0.05,
+          "risk_usd": 3.56,
+          "risk_pct": 0.00806,
+          "sized_by": "cap",
+          "target_r": 1.0,
+          "realized_r": -1.5,
+          "reason": "stop",
+          "exit_price": 2.42,
+          "gross_pnl": -5.34,
+          "costs": 1.2904,
+          "net_pnl": -6.6304,
+          "equity_after": 435.043
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "VRAX",
+          "seg_id": "2026-07-09:VRAX",
+          "run": 1,
+          "trigger_at": "2026-07-09T07:55:00-04:00",
+          "entry": 7.61,
+          "stop": 6.81,
+          "qty": 27,
+          "risk_fraction": 0.05,
+          "risk_usd": 21.6,
+          "risk_pct": 0.048905,
+          "sized_by": "risk",
+          "target_r": 1.0,
+          "realized_r": 1.0,
+          "reason": "target",
+          "exit_price": 8.41,
+          "gross_pnl": 21.6,
+          "costs": 0.8836,
+          "net_pnl": 20.7164,
+          "equity_after": 455.7594
+        },
+        {
+          "date": "2026-07-13",
+          "symbol": "VEEE",
+          "seg_id": "2026-07-13:VEEE",
+          "run": 1,
+          "trigger_at": "2026-07-13T09:05:00-04:00",
+          "entry": 9.5,
+          "stop": 7.91,
+          "qty": 14,
+          "risk_fraction": 0.05,
+          "risk_usd": 22.26,
+          "risk_pct": 0.048842,
+          "sized_by": "risk",
+          "target_r": 1.0,
+          "realized_r": 1.0,
+          "reason": "target",
+          "exit_price": 11.09,
+          "gross_pnl": 22.26,
+          "costs": 0.7962,
+          "net_pnl": 21.4638,
+          "equity_after": 477.2232
+        },
+        {
+          "date": "2026-07-14",
+          "symbol": "CLSK",
+          "seg_id": "2026-07-14:CLSK",
+          "run": 1,
+          "trigger_at": "2026-07-14T06:15:00-04:00",
+          "entry": 14.4223,
+          "stop": 14.02,
+          "qty": 16,
+          "risk_fraction": 0.05,
+          "risk_usd": 6.4368,
+          "risk_pct": 0.013488,
+          "sized_by": "cap",
+          "target_r": 1.0,
+          "realized_r": 1.0,
+          "reason": "target",
+          "exit_price": 14.8246,
+          "gross_pnl": 6.4368,
+          "costs": 0.8116,
+          "net_pnl": 5.6252,
+          "equity_after": 482.8484
+        },
+        {
+          "date": "2026-07-15",
+          "symbol": "JTAI",
+          "seg_id": "2026-07-15:JTAI#2",
+          "run": 2,
+          "trigger_at": "2026-07-15T06:00:00-04:00",
+          "entry": 5.87,
+          "stop": 5.19,
+          "qty": 35,
+          "risk_fraction": 0.05,
+          "risk_usd": 23.8,
+          "risk_pct": 0.049291,
+          "sized_by": "risk",
+          "target_r": 1.0,
+          "realized_r": 1.0,
+          "reason": "target",
+          "exit_price": 6.55,
+          "gross_pnl": 23.8,
+          "costs": 0.9362,
+          "net_pnl": 22.8638,
+          "equity_after": 505.7122
+        },
+        {
+          "date": "2026-07-22",
+          "symbol": "LABT",
+          "seg_id": "2026-07-22:LABT",
+          "run": 1,
+          "trigger_at": "2026-07-22T08:25:00-04:00",
+          "entry": 6.21,
+          "stop": 5.13,
+          "qty": 23,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.84,
+          "risk_pct": 0.049119,
+          "sized_by": "risk",
+          "target_r": 1.0,
+          "realized_r": 1.0,
+          "reason": "target",
+          "exit_price": 7.29,
+          "gross_pnl": 24.84,
+          "costs": 0.8557,
+          "net_pnl": 23.9843,
+          "equity_after": 529.6965
+        },
+        {
+          "date": "2026-07-23",
+          "symbol": "JEM",
+          "seg_id": "2026-07-23:JEM#3",
+          "run": 3,
+          "trigger_at": "2026-07-23T07:30:00-04:00",
+          "entry": 6.26,
+          "stop": 5.3,
+          "qty": 27,
+          "risk_fraction": 0.05,
+          "risk_usd": 25.92,
+          "risk_pct": 0.048934,
+          "sized_by": "risk",
+          "target_r": 1.0,
+          "realized_r": -1.0208,
+          "reason": "stop",
+          "exit_price": 5.28,
+          "gross_pnl": -26.46,
+          "costs": 0.8812,
+          "net_pnl": -27.3412,
+          "equity_after": 502.3553
+        }
+      ],
+      "skipped": [],
+      "cash_flows": [
+        {
+          "date": "2026-07-24",
+          "kind": "vps",
+          "usd": 7.239,
+          "gbp": 5.7
+        }
+      ]
+    },
+    "1.5": {
+      "stats": {
+        "n_trades": 11,
+        "wins": 5,
+        "losses": 6,
+        "win_rate": 0.4545,
+        "total_r": 0.6895,
+        "avg_r": 0.0627,
+        "expectancy_usd": -0.4324,
+        "avg_risk_pct": 0.037442,
+        "cap_bound_count": 4,
+        "end_equity": 478.0048,
+        "return_pct": -0.044,
+        "max_drawdown_pct": 0.1188,
+        "commission_usd": 8.225,
+        "fees_usd": 3.6207,
+        "data_fees_usd": 10.0,
+        "total_costs_usd": 21.8457,
+        "withdrawals_usd": 0.0,
+        "withdrawals_gbp": 0.0,
+        "tax_paid_usd": 0.0,
+        "tax_paid_gbp": 0.0,
+        "vps_costs_usd": 7.239,
+        "vps_costs_gbp": 5.7,
+        "net_take_home_gbp": 0.0,
+        "skipped_count": 0,
+        "skipped_total_r": 0,
+        "unaffordable_count": 0
+      },
+      "equity_curve": [
+        {
+          "date": "2026-07-01",
+          "equity": 491.8219
+        },
+        {
+          "date": "2026-07-02",
+          "equity": 491.8219
+        },
+        {
+          "date": "2026-07-03",
+          "equity": 491.8219
+        },
+        {
+          "date": "2026-07-04",
+          "equity": 491.8219
+        },
+        {
+          "date": "2026-07-05",
+          "equity": 491.8219
+        },
+        {
+          "date": "2026-07-06",
+          "equity": 491.8219
+        },
+        {
+          "date": "2026-07-07",
+          "equity": 491.8219
+        },
+        {
+          "date": "2026-07-08",
+          "equity": 447.3093
+        },
+        {
+          "date": "2026-07-09",
+          "equity": 472.1284
+        },
+        {
+          "date": "2026-07-10",
+          "equity": 472.1284
+        },
+        {
+          "date": "2026-07-13",
+          "equity": 504.7219
+        },
+        {
+          "date": "2026-07-14",
+          "equity": 514.1627
+        },
+        {
+          "date": "2026-07-15",
+          "equity": 550.9527
+        },
+        {
+          "date": "2026-07-16",
+          "equity": 550.9527
+        },
+        {
+          "date": "2026-07-17",
+          "equity": 550.9527
+        },
+        {
+          "date": "2026-07-20",
+          "equity": 550.9527
+        },
+        {
+          "date": "2026-07-21",
+          "equity": 550.9527
+        },
+        {
+          "date": "2026-07-22",
+          "equity": 522.585
+        },
+        {
+          "date": "2026-07-23",
+          "equity": 495.2438
+        },
+        {
+          "date": "2026-07-24",
+          "equity": 478.0048
+        }
+      ],
+      "trades": [
+        {
+          "date": "2026-07-01",
+          "symbol": "CANF",
+          "seg_id": "2026-07-01:CANF",
+          "run": 1,
+          "trigger_at": "2026-07-01T07:15:00-04:00",
+          "entry": 6.26,
+          "stop": 5.39,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.36,
+          "risk_pct": 0.04872,
+          "sized_by": "risk",
+          "target_r": 1.5,
+          "realized_r": -1.023,
+          "reason": "stop",
+          "exit_price": 5.37,
+          "gross_pnl": -24.92,
+          "costs": 0.888,
+          "net_pnl": -25.808,
+          "equity_after": 474.192
+        },
+        {
+          "date": "2026-07-01",
+          "symbol": "CORD",
+          "seg_id": "2026-07-01:CORD",
+          "run": 1,
+          "trigger_at": "2026-07-01T08:45:00-04:00",
+          "entry": 6.24,
+          "stop": 5.93,
+          "qty": 40,
+          "risk_fraction": 0.05,
+          "risk_usd": 12.4,
+          "risk_pct": 0.0248,
+          "sized_by": "cap",
+          "target_r": 1.5,
+          "realized_r": 1.5,
+          "reason": "target",
+          "exit_price": 6.705,
+          "gross_pnl": 18.6,
+          "costs": 0.9701,
+          "net_pnl": 17.6299,
+          "equity_after": 491.8219
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "SHPH",
+          "seg_id": "2026-07-08:SHPH",
+          "run": 1,
+          "trigger_at": "2026-07-08T04:20:00-04:00",
+          "entry": 3.96,
+          "stop": 3.77,
+          "qty": 62,
+          "risk_fraction": 0.05,
+          "risk_usd": 11.78,
+          "risk_pct": 0.023952,
+          "sized_by": "cap",
+          "target_r": 1.5,
+          "realized_r": -1.1053,
+          "reason": "stop",
+          "exit_price": 3.75,
+          "gross_pnl": -13.02,
+          "costs": 1.1136,
+          "net_pnl": -14.1336,
+          "equity_after": 477.6883
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "VTAK",
+          "seg_id": "2026-07-08:VTAK",
+          "run": 1,
+          "trigger_at": "2026-07-08T07:35:00-04:00",
+          "entry": 1.17,
+          "stop": 1.03,
+          "qty": 175,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.5,
+          "risk_pct": 0.049815,
+          "sized_by": "risk",
+          "target_r": 1.5,
+          "realized_r": -1.1429,
+          "reason": "stop",
+          "exit_price": 1.01,
+          "gross_pnl": -28.0,
+          "costs": 2.379,
+          "net_pnl": -30.379,
+          "equity_after": 447.3093
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "SUNE",
+          "seg_id": "2026-07-09:SUNE#1",
+          "run": 1,
+          "trigger_at": "2026-07-09T04:30:00-04:00",
+          "entry": 2.48,
+          "stop": 2.44,
+          "qty": 90,
+          "risk_fraction": 0.05,
+          "risk_usd": 3.6,
+          "risk_pct": 0.008048,
+          "sized_by": "cap",
+          "target_r": 1.5,
+          "realized_r": -1.5,
+          "reason": "stop",
+          "exit_price": 2.42,
+          "gross_pnl": -5.4,
+          "costs": 1.297,
+          "net_pnl": -6.697,
+          "equity_after": 440.6123
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "VRAX",
+          "seg_id": "2026-07-09:VRAX",
+          "run": 1,
+          "trigger_at": "2026-07-09T07:55:00-04:00",
+          "entry": 7.61,
+          "stop": 6.81,
+          "qty": 27,
+          "risk_fraction": 0.05,
+          "risk_usd": 21.6,
+          "risk_pct": 0.048289,
+          "sized_by": "risk",
+          "target_r": 1.5,
+          "realized_r": 1.5,
+          "reason": "target",
+          "exit_price": 8.81,
+          "gross_pnl": 32.4,
+          "costs": 0.8839,
+          "net_pnl": 31.5161,
+          "equity_after": 472.1284
+        },
+        {
+          "date": "2026-07-13",
+          "symbol": "VEEE",
+          "seg_id": "2026-07-13:VEEE",
+          "run": 1,
+          "trigger_at": "2026-07-13T09:05:00-04:00",
+          "entry": 9.5,
+          "stop": 7.91,
+          "qty": 14,
+          "risk_fraction": 0.05,
+          "risk_usd": 22.26,
+          "risk_pct": 0.047148,
+          "sized_by": "risk",
+          "target_r": 1.5,
+          "realized_r": 1.5,
+          "reason": "target",
+          "exit_price": 11.885,
+          "gross_pnl": 33.39,
+          "costs": 0.7965,
+          "net_pnl": 32.5935,
+          "equity_after": 504.7219
+        },
+        {
+          "date": "2026-07-14",
+          "symbol": "CLSK",
+          "seg_id": "2026-07-14:CLSK",
+          "run": 1,
+          "trigger_at": "2026-07-14T06:15:00-04:00",
+          "entry": 14.4223,
+          "stop": 14.02,
+          "qty": 17,
+          "risk_fraction": 0.05,
+          "risk_usd": 6.8391,
+          "risk_pct": 0.01355,
+          "sized_by": "cap",
+          "target_r": 1.5,
+          "realized_r": 1.5,
+          "reason": "target",
+          "exit_price": 15.0258,
+          "gross_pnl": 10.2595,
+          "costs": 0.8187,
+          "net_pnl": 9.4408,
+          "equity_after": 514.1627
+        },
+        {
+          "date": "2026-07-15",
+          "symbol": "JTAI",
+          "seg_id": "2026-07-15:JTAI#2",
+          "run": 2,
+          "trigger_at": "2026-07-15T06:00:00-04:00",
+          "entry": 5.87,
+          "stop": 5.19,
+          "qty": 37,
+          "risk_fraction": 0.05,
+          "risk_usd": 25.16,
+          "risk_pct": 0.048934,
+          "sized_by": "risk",
+          "target_r": 1.5,
+          "realized_r": 1.5,
+          "reason": "target",
+          "exit_price": 6.89,
+          "gross_pnl": 37.74,
+          "costs": 0.95,
+          "net_pnl": 36.79,
+          "equity_after": 550.9527
+        },
+        {
+          "date": "2026-07-22",
+          "symbol": "LABT",
+          "seg_id": "2026-07-22:LABT",
+          "run": 1,
+          "trigger_at": "2026-07-22T08:25:00-04:00",
+          "entry": 6.21,
+          "stop": 5.13,
+          "qty": 25,
+          "risk_fraction": 0.05,
+          "risk_usd": 27.0,
+          "risk_pct": 0.049006,
+          "sized_by": "risk",
+          "target_r": 1.5,
+          "realized_r": -1.0185,
+          "reason": "stop",
+          "exit_price": 5.11,
+          "gross_pnl": -27.5,
+          "costs": 0.8677,
+          "net_pnl": -28.3677,
+          "equity_after": 522.585
+        },
+        {
+          "date": "2026-07-23",
+          "symbol": "JEM",
+          "seg_id": "2026-07-23:JEM#3",
+          "run": 3,
+          "trigger_at": "2026-07-23T07:30:00-04:00",
+          "entry": 6.26,
+          "stop": 5.3,
+          "qty": 27,
+          "risk_fraction": 0.05,
+          "risk_usd": 25.92,
+          "risk_pct": 0.0496,
+          "sized_by": "risk",
+          "target_r": 1.5,
+          "realized_r": -1.0208,
+          "reason": "stop",
+          "exit_price": 5.28,
+          "gross_pnl": -26.46,
+          "costs": 0.8812,
+          "net_pnl": -27.3412,
+          "equity_after": 495.2438
+        }
+      ],
+      "skipped": [],
+      "cash_flows": [
+        {
+          "date": "2026-07-24",
+          "kind": "vps",
+          "usd": 7.239,
+          "gbp": 5.7
+        }
+      ]
+    },
+    "2": {
+      "stats": {
+        "n_trades": 11,
+        "wins": 5,
+        "losses": 6,
+        "win_rate": 0.4545,
+        "total_r": 3.1895,
+        "avg_r": 0.29,
+        "expectancy_usd": 4.0358,
+        "avg_risk_pct": 0.037516,
+        "cap_bound_count": 4,
+        "end_equity": 527.155,
+        "return_pct": 0.0543,
+        "max_drawdown_pct": 0.1072,
+        "commission_usd": 8.239,
+        "fees_usd": 3.7098,
+        "data_fees_usd": 10.0,
+        "total_costs_usd": 21.9488,
+        "withdrawals_usd": 0.0,
+        "withdrawals_gbp": 0.0,
+        "tax_paid_usd": 0.0,
+        "tax_paid_gbp": 0.0,
+        "vps_costs_usd": 7.239,
+        "vps_costs_gbp": 5.7,
+        "net_take_home_gbp": 0.0,
+        "skipped_count": 0,
+        "skipped_total_r": 0,
+        "unaffordable_count": 0
+      },
+      "equity_curve": [
+        {
+          "date": "2026-07-01",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-02",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-03",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-04",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-05",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-06",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-07",
+          "equity": 498.0217
+        },
+        {
+          "date": "2026-07-08",
+          "equity": 453.1619
+        },
+        {
+          "date": "2026-07-09",
+          "equity": 490.3073
+        },
+        {
+          "date": "2026-07-10",
+          "equity": 490.3073
+        },
+        {
+          "date": "2026-07-13",
+          "equity": 537.2035
+        },
+        {
+          "date": "2026-07-14",
+          "equity": 550.8605
+        },
+        {
+          "date": "2026-07-15",
+          "equity": 604.2898
+        },
+        {
+          "date": "2026-07-16",
+          "equity": 604.2898
+        },
+        {
+          "date": "2026-07-17",
+          "equity": 604.2898
+        },
+        {
+          "date": "2026-07-20",
+          "equity": 604.2898
+        },
+        {
+          "date": "2026-07-21",
+          "equity": 604.2898
+        },
+        {
+          "date": "2026-07-22",
+          "equity": 573.7087
+        },
+        {
+          "date": "2026-07-23",
+          "equity": 544.394
+        },
+        {
+          "date": "2026-07-24",
+          "equity": 527.155
+        }
+      ],
+      "trades": [
+        {
+          "date": "2026-07-01",
+          "symbol": "CANF",
+          "seg_id": "2026-07-01:CANF",
+          "run": 1,
+          "trigger_at": "2026-07-01T07:15:00-04:00",
+          "entry": 6.26,
+          "stop": 5.39,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.36,
+          "risk_pct": 0.04872,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": -1.023,
+          "reason": "stop",
+          "exit_price": 5.37,
+          "gross_pnl": -24.92,
+          "costs": 0.888,
+          "net_pnl": -25.808,
+          "equity_after": 474.192
+        },
+        {
+          "date": "2026-07-01",
+          "symbol": "CORD",
+          "seg_id": "2026-07-01:CORD",
+          "run": 1,
+          "trigger_at": "2026-07-01T08:45:00-04:00",
+          "entry": 6.24,
+          "stop": 5.93,
+          "qty": 40,
+          "risk_fraction": 0.05,
+          "risk_usd": 12.4,
+          "risk_pct": 0.0248,
+          "sized_by": "cap",
+          "target_r": 2.0,
+          "realized_r": 2.0,
+          "reason": "target",
+          "exit_price": 6.86,
+          "gross_pnl": 24.8,
+          "costs": 0.9703,
+          "net_pnl": 23.8297,
+          "equity_after": 498.0217
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "SHPH",
+          "seg_id": "2026-07-08:SHPH",
+          "run": 1,
+          "trigger_at": "2026-07-08T04:20:00-04:00",
+          "entry": 3.96,
+          "stop": 3.77,
+          "qty": 62,
+          "risk_fraction": 0.05,
+          "risk_usd": 11.78,
+          "risk_pct": 0.023654,
+          "sized_by": "cap",
+          "target_r": 2.0,
+          "realized_r": -1.1053,
+          "reason": "stop",
+          "exit_price": 3.75,
+          "gross_pnl": -13.02,
+          "costs": 1.1136,
+          "net_pnl": -14.1336,
+          "equity_after": 483.8881
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "VTAK",
+          "seg_id": "2026-07-08:VTAK",
+          "run": 1,
+          "trigger_at": "2026-07-08T07:35:00-04:00",
+          "entry": 1.17,
+          "stop": 1.03,
+          "qty": 177,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.78,
+          "risk_pct": 0.049757,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": -1.1429,
+          "reason": "stop",
+          "exit_price": 1.01,
+          "gross_pnl": -28.32,
+          "costs": 2.4062,
+          "net_pnl": -30.7262,
+          "equity_after": 453.1619
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "SUNE",
+          "seg_id": "2026-07-09:SUNE#1",
+          "run": 1,
+          "trigger_at": "2026-07-09T04:30:00-04:00",
+          "entry": 2.48,
+          "stop": 2.44,
+          "qty": 91,
+          "risk_fraction": 0.05,
+          "risk_usd": 3.64,
+          "risk_pct": 0.008032,
+          "sized_by": "cap",
+          "target_r": 2.0,
+          "realized_r": -1.5,
+          "reason": "stop",
+          "exit_price": 2.42,
+          "gross_pnl": -5.46,
+          "costs": 1.3036,
+          "net_pnl": -6.7636,
+          "equity_after": 446.3983
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "VRAX",
+          "seg_id": "2026-07-09:VRAX",
+          "run": 1,
+          "trigger_at": "2026-07-09T07:55:00-04:00",
+          "entry": 7.61,
+          "stop": 6.81,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 22.4,
+          "risk_pct": 0.04943,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": 2.0,
+          "reason": "target",
+          "exit_price": 9.21,
+          "gross_pnl": 44.8,
+          "costs": 0.891,
+          "net_pnl": 43.909,
+          "equity_after": 490.3073
+        },
+        {
+          "date": "2026-07-13",
+          "symbol": "VEEE",
+          "seg_id": "2026-07-13:VEEE",
+          "run": 1,
+          "trigger_at": "2026-07-13T09:05:00-04:00",
+          "entry": 9.5,
+          "stop": 7.91,
+          "qty": 15,
+          "risk_fraction": 0.05,
+          "risk_usd": 23.85,
+          "risk_pct": 0.048643,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": 2.0,
+          "reason": "target",
+          "exit_price": 12.68,
+          "gross_pnl": 47.7,
+          "costs": 0.8038,
+          "net_pnl": 46.8962,
+          "equity_after": 537.2035
+        },
+        {
+          "date": "2026-07-14",
+          "symbol": "CLSK",
+          "seg_id": "2026-07-14:CLSK",
+          "run": 1,
+          "trigger_at": "2026-07-14T06:15:00-04:00",
+          "entry": 14.4223,
+          "stop": 14.02,
+          "qty": 18,
+          "risk_fraction": 0.05,
+          "risk_usd": 7.2414,
+          "risk_pct": 0.01348,
+          "sized_by": "cap",
+          "target_r": 2.0,
+          "realized_r": 2.0,
+          "reason": "target",
+          "exit_price": 15.2269,
+          "gross_pnl": 14.4828,
+          "costs": 0.8258,
+          "net_pnl": 13.657,
+          "equity_after": 550.8605
+        },
+        {
+          "date": "2026-07-15",
+          "symbol": "JTAI",
+          "seg_id": "2026-07-15:JTAI#2",
+          "run": 2,
+          "trigger_at": "2026-07-15T06:00:00-04:00",
+          "entry": 5.87,
+          "stop": 5.19,
+          "qty": 40,
+          "risk_fraction": 0.05,
+          "risk_usd": 27.2,
+          "risk_pct": 0.049377,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": 2.0,
+          "reason": "target",
+          "exit_price": 7.23,
+          "gross_pnl": 54.4,
+          "costs": 0.9707,
+          "net_pnl": 53.4293,
+          "equity_after": 604.2898
+        },
+        {
+          "date": "2026-07-22",
+          "symbol": "LABT",
+          "seg_id": "2026-07-22:LABT",
+          "run": 1,
+          "trigger_at": "2026-07-22T08:25:00-04:00",
+          "entry": 6.21,
+          "stop": 5.13,
+          "qty": 27,
+          "risk_fraction": 0.05,
+          "risk_usd": 29.16,
+          "risk_pct": 0.048255,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": -1.0185,
+          "reason": "stop",
+          "exit_price": 5.11,
+          "gross_pnl": -29.7,
+          "costs": 0.8811,
+          "net_pnl": -30.5811,
+          "equity_after": 573.7087
+        },
+        {
+          "date": "2026-07-23",
+          "symbol": "JEM",
+          "seg_id": "2026-07-23:JEM#3",
+          "run": 3,
+          "trigger_at": "2026-07-23T07:30:00-04:00",
+          "entry": 6.26,
+          "stop": 5.3,
+          "qty": 29,
+          "risk_fraction": 0.05,
+          "risk_usd": 27.84,
+          "risk_pct": 0.048526,
+          "sized_by": "risk",
+          "target_r": 2.0,
+          "realized_r": -1.0208,
+          "reason": "stop",
+          "exit_price": 5.28,
+          "gross_pnl": -28.42,
+          "costs": 0.8947,
+          "net_pnl": -29.3147,
+          "equity_after": 544.394
+        }
+      ],
+      "skipped": [],
+      "cash_flows": [
+        {
+          "date": "2026-07-24",
+          "kind": "vps",
+          "usd": 7.239,
+          "gbp": 5.7
+        }
+      ]
+    },
+    "2.5": {
+      "stats": {
+        "n_trades": 11,
+        "wins": 3,
+        "losses": 8,
+        "win_rate": 0.2727,
+        "total_r": -1.3896,
+        "avg_r": -0.1263,
+        "expectancy_usd": -2.3378,
+        "avg_risk_pct": 0.037497,
+        "cap_bound_count": 4,
+        "end_equity": 457.0451,
+        "return_pct": -0.0859,
+        "max_drawdown_pct": 0.1616,
+        "commission_usd": 8.26,
+        "fees_usd": 3.7072,
+        "data_fees_usd": 10.0,
+        "total_costs_usd": 21.9672,
+        "withdrawals_usd": 0.0,
+        "withdrawals_gbp": 0.0,
+        "tax_paid_usd": 0.0,
+        "tax_paid_gbp": 0.0,
+        "vps_costs_usd": 7.239,
+        "vps_costs_gbp": 5.7,
+        "net_take_home_gbp": 0.0,
+        "skipped_count": 0,
+        "skipped_total_r": 0,
+        "unaffordable_count": 0
+      },
+      "equity_curve": [
+        {
+          "date": "2026-07-01",
+          "equity": 504.2216
+        },
+        {
+          "date": "2026-07-02",
+          "equity": 504.2216
+        },
+        {
+          "date": "2026-07-03",
+          "equity": 504.2216
+        },
+        {
+          "date": "2026-07-04",
+          "equity": 504.2216
+        },
+        {
+          "date": "2026-07-05",
+          "equity": 504.2216
+        },
+        {
+          "date": "2026-07-06",
+          "equity": 504.2216
+        },
+        {
+          "date": "2026-07-07",
+          "equity": 504.2216
+        },
+        {
+          "date": "2026-07-08",
+          "equity": 458.6245
+        },
+        {
+          "date": "2026-07-09",
+          "equity": 506.9029
+        },
+        {
+          "date": "2026-07-10",
+          "equity": 506.9029
+        },
+        {
+          "date": "2026-07-13",
+          "equity": 565.7238
+        },
+        {
+          "date": "2026-07-14",
+          "equity": 556.868
+        },
+        {
+          "date": "2026-07-15",
+          "equity": 527.8996
+        },
+        {
+          "date": "2026-07-16",
+          "equity": 527.8996
+        },
+        {
+          "date": "2026-07-17",
+          "equity": 527.8996
+        },
+        {
+          "date": "2026-07-20",
+          "equity": 527.8996
+        },
+        {
+          "date": "2026-07-21",
+          "equity": 527.8996
+        },
+        {
+          "date": "2026-07-22",
+          "equity": 500.6386
+        },
+        {
+          "date": "2026-07-23",
+          "equity": 474.2841
+        },
+        {
+          "date": "2026-07-24",
+          "equity": 457.0451
+        }
+      ],
+      "trades": [
+        {
+          "date": "2026-07-01",
+          "symbol": "CANF",
+          "seg_id": "2026-07-01:CANF",
+          "run": 1,
+          "trigger_at": "2026-07-01T07:15:00-04:00",
+          "entry": 6.26,
+          "stop": 5.39,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.36,
+          "risk_pct": 0.04872,
+          "sized_by": "risk",
+          "target_r": 2.5,
+          "realized_r": -1.023,
+          "reason": "stop",
+          "exit_price": 5.37,
+          "gross_pnl": -24.92,
+          "costs": 0.888,
+          "net_pnl": -25.808,
+          "equity_after": 474.192
+        },
+        {
+          "date": "2026-07-01",
+          "symbol": "CORD",
+          "seg_id": "2026-07-01:CORD",
+          "run": 1,
+          "trigger_at": "2026-07-01T08:45:00-04:00",
+          "entry": 6.24,
+          "stop": 5.93,
+          "qty": 40,
+          "risk_fraction": 0.05,
+          "risk_usd": 12.4,
+          "risk_pct": 0.0248,
+          "sized_by": "cap",
+          "target_r": 2.5,
+          "realized_r": 2.5,
+          "reason": "target",
+          "exit_price": 7.015,
+          "gross_pnl": 31.0,
+          "costs": 0.9704,
+          "net_pnl": 30.0296,
+          "equity_after": 504.2216
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "SHPH",
+          "seg_id": "2026-07-08:SHPH",
+          "run": 1,
+          "trigger_at": "2026-07-08T04:20:00-04:00",
+          "entry": 3.96,
+          "stop": 3.77,
+          "qty": 63,
+          "risk_fraction": 0.05,
+          "risk_usd": 11.97,
+          "risk_pct": 0.02374,
+          "sized_by": "cap",
+          "target_r": 2.5,
+          "realized_r": -1.1053,
+          "reason": "stop",
+          "exit_price": 3.75,
+          "gross_pnl": -13.23,
+          "costs": 1.1202,
+          "net_pnl": -14.3502,
+          "equity_after": 489.8714
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "VTAK",
+          "seg_id": "2026-07-08:VTAK",
+          "run": 1,
+          "trigger_at": "2026-07-08T07:35:00-04:00",
+          "entry": 1.17,
+          "stop": 1.03,
+          "qty": 180,
+          "risk_fraction": 0.05,
+          "risk_usd": 25.2,
+          "risk_pct": 0.049978,
+          "sized_by": "risk",
+          "target_r": 2.5,
+          "realized_r": -1.1429,
+          "reason": "stop",
+          "exit_price": 1.01,
+          "gross_pnl": -28.8,
+          "costs": 2.4469,
+          "net_pnl": -31.2469,
+          "equity_after": 458.6245
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "SUNE",
+          "seg_id": "2026-07-09:SUNE#1",
+          "run": 1,
+          "trigger_at": "2026-07-09T04:30:00-04:00",
+          "entry": 2.48,
+          "stop": 2.44,
+          "qty": 92,
+          "risk_fraction": 0.05,
+          "risk_usd": 3.68,
+          "risk_pct": 0.008024,
+          "sized_by": "cap",
+          "target_r": 2.5,
+          "realized_r": -1.5,
+          "reason": "stop",
+          "exit_price": 2.42,
+          "gross_pnl": -5.52,
+          "costs": 1.3103,
+          "net_pnl": -6.8303,
+          "equity_after": 451.7942
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "VRAX",
+          "seg_id": "2026-07-09:VRAX",
+          "run": 1,
+          "trigger_at": "2026-07-09T07:55:00-04:00",
+          "entry": 7.61,
+          "stop": 6.81,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 22.4,
+          "risk_pct": 0.048842,
+          "sized_by": "risk",
+          "target_r": 2.5,
+          "realized_r": 2.5,
+          "reason": "target",
+          "exit_price": 9.61,
+          "gross_pnl": 56.0,
+          "costs": 0.8913,
+          "net_pnl": 55.1087,
+          "equity_after": 506.9029
+        },
+        {
+          "date": "2026-07-13",
+          "symbol": "VEEE",
+          "seg_id": "2026-07-13:VEEE",
+          "run": 1,
+          "trigger_at": "2026-07-13T09:05:00-04:00",
+          "entry": 9.5,
+          "stop": 7.91,
+          "qty": 15,
+          "risk_fraction": 0.05,
+          "risk_usd": 23.85,
+          "risk_pct": 0.04705,
+          "sized_by": "risk",
+          "target_r": 2.5,
+          "realized_r": 2.5,
+          "reason": "target",
+          "exit_price": 13.475,
+          "gross_pnl": 59.625,
+          "costs": 0.8041,
+          "net_pnl": 58.8209,
+          "equity_after": 565.7238
+        },
+        {
+          "date": "2026-07-14",
+          "symbol": "CLSK",
+          "seg_id": "2026-07-14:CLSK",
+          "run": 1,
+          "trigger_at": "2026-07-14T06:15:00-04:00",
+          "entry": 14.4223,
+          "stop": 14.02,
+          "qty": 19,
+          "risk_fraction": 0.05,
+          "risk_usd": 7.6437,
+          "risk_pct": 0.013511,
+          "sized_by": "cap",
+          "target_r": 2.5,
+          "realized_r": -1.0497,
+          "reason": "stop",
+          "exit_price": 14.0,
+          "gross_pnl": -8.0237,
+          "costs": 0.8321,
+          "net_pnl": -8.8558,
+          "equity_after": 556.868
+        },
+        {
+          "date": "2026-07-15",
+          "symbol": "JTAI",
+          "seg_id": "2026-07-15:JTAI#2",
+          "run": 2,
+          "trigger_at": "2026-07-15T06:00:00-04:00",
+          "entry": 5.87,
+          "stop": 5.19,
+          "qty": 40,
+          "risk_fraction": 0.05,
+          "risk_usd": 27.2,
+          "risk_pct": 0.048845,
+          "sized_by": "risk",
+          "target_r": 2.5,
+          "realized_r": -1.0294,
+          "reason": "stop",
+          "exit_price": 5.17,
+          "gross_pnl": -28.0,
+          "costs": 0.9684,
+          "net_pnl": -28.9684,
+          "equity_after": 527.8996
+        },
+        {
+          "date": "2026-07-22",
+          "symbol": "LABT",
+          "seg_id": "2026-07-22:LABT",
+          "run": 1,
+          "trigger_at": "2026-07-22T08:25:00-04:00",
+          "entry": 6.21,
+          "stop": 5.13,
+          "qty": 24,
+          "risk_fraction": 0.05,
+          "risk_usd": 25.92,
+          "risk_pct": 0.0491,
+          "sized_by": "risk",
+          "target_r": 2.5,
+          "realized_r": -1.0185,
+          "reason": "stop",
+          "exit_price": 5.11,
+          "gross_pnl": -26.4,
+          "costs": 0.861,
+          "net_pnl": -27.261,
+          "equity_after": 500.6386
+        },
+        {
+          "date": "2026-07-23",
+          "symbol": "JEM",
+          "seg_id": "2026-07-23:JEM#3",
+          "run": 3,
+          "trigger_at": "2026-07-23T07:30:00-04:00",
+          "entry": 6.26,
+          "stop": 5.3,
+          "qty": 26,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.96,
+          "risk_pct": 0.049856,
+          "sized_by": "risk",
+          "target_r": 2.5,
+          "realized_r": -1.0208,
+          "reason": "stop",
+          "exit_price": 5.28,
+          "gross_pnl": -25.48,
+          "costs": 0.8745,
+          "net_pnl": -26.3545,
+          "equity_after": 474.2841
+        }
+      ],
+      "skipped": [],
+      "cash_flows": [
+        {
+          "date": "2026-07-24",
+          "kind": "vps",
+          "usd": 7.239,
+          "gbp": 5.7
+        }
+      ]
+    },
+    "3": {
+      "stats": {
+        "n_trades": 11,
+        "wins": 3,
+        "losses": 8,
+        "win_rate": 0.2727,
+        "total_r": -0.4057,
+        "avg_r": -0.0369,
+        "expectancy_usd": -0.1786,
+        "avg_risk_pct": 0.037621,
+        "cap_bound_count": 4,
+        "end_equity": 480.7964,
+        "return_pct": -0.0384,
+        "max_drawdown_pct": 0.1607,
+        "commission_usd": 8.26,
+        "fees_usd": 3.7486,
+        "data_fees_usd": 10.0,
+        "total_costs_usd": 22.0086,
+        "withdrawals_usd": 0.0,
+        "withdrawals_gbp": 0.0,
+        "tax_paid_usd": 0.0,
+        "tax_paid_gbp": 0.0,
+        "vps_costs_usd": 7.239,
+        "vps_costs_gbp": 5.7,
+        "net_take_home_gbp": 0.0,
+        "skipped_count": 0,
+        "skipped_total_r": 0,
+        "unaffordable_count": 0
+      },
+      "equity_curve": [
+        {
+          "date": "2026-07-01",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-02",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-03",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-04",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-05",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-06",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-07",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-08",
+          "equity": 458.4245
+        },
+        {
+          "date": "2026-07-09",
+          "equity": 517.9026
+        },
+        {
+          "date": "2026-07-10",
+          "equity": 517.9026
+        },
+        {
+          "date": "2026-07-13",
+          "equity": 593.4112
+        },
+        {
+          "date": "2026-07-14",
+          "equity": 584.1261
+        },
+        {
+          "date": "2026-07-15",
+          "equity": 553.7443
+        },
+        {
+          "date": "2026-07-16",
+          "equity": 553.7443
+        },
+        {
+          "date": "2026-07-17",
+          "equity": 553.7443
+        },
+        {
+          "date": "2026-07-20",
+          "equity": 553.7443
+        },
+        {
+          "date": "2026-07-21",
+          "equity": 553.7443
+        },
+        {
+          "date": "2026-07-22",
+          "equity": 525.3766
+        },
+        {
+          "date": "2026-07-23",
+          "equity": 498.0354
+        },
+        {
+          "date": "2026-07-24",
+          "equity": 480.7964
+        }
+      ],
+      "trades": [
+        {
+          "date": "2026-07-01",
+          "symbol": "CANF",
+          "seg_id": "2026-07-01:CANF",
+          "run": 1,
+          "trigger_at": "2026-07-01T07:15:00-04:00",
+          "entry": 6.26,
+          "stop": 5.39,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.36,
+          "risk_pct": 0.04872,
+          "sized_by": "risk",
+          "target_r": 3.0,
+          "realized_r": -1.023,
+          "reason": "stop",
+          "exit_price": 5.37,
+          "gross_pnl": -24.92,
+          "costs": 0.888,
+          "net_pnl": -25.808,
+          "equity_after": 474.192
+        },
+        {
+          "date": "2026-07-01",
+          "symbol": "CORD",
+          "seg_id": "2026-07-01:CORD",
+          "run": 1,
+          "trigger_at": "2026-07-01T08:45:00-04:00",
+          "entry": 6.24,
+          "stop": 5.93,
+          "qty": 40,
+          "risk_fraction": 0.05,
+          "risk_usd": 12.4,
+          "risk_pct": 0.0248,
+          "sized_by": "cap",
+          "target_r": 3.0,
+          "realized_r": 2.4839,
+          "reason": "close",
+          "exit_price": 7.01,
+          "gross_pnl": 30.8,
+          "costs": 0.9704,
+          "net_pnl": 29.8296,
+          "equity_after": 504.0216
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "SHPH",
+          "seg_id": "2026-07-08:SHPH",
+          "run": 1,
+          "trigger_at": "2026-07-08T04:20:00-04:00",
+          "entry": 3.96,
+          "stop": 3.77,
+          "qty": 63,
+          "risk_fraction": 0.05,
+          "risk_usd": 11.97,
+          "risk_pct": 0.023749,
+          "sized_by": "cap",
+          "target_r": 3.0,
+          "realized_r": -1.1053,
+          "reason": "stop",
+          "exit_price": 3.75,
+          "gross_pnl": -13.23,
+          "costs": 1.1202,
+          "net_pnl": -14.3502,
+          "equity_after": 489.6714
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "VTAK",
+          "seg_id": "2026-07-08:VTAK",
+          "run": 1,
+          "trigger_at": "2026-07-08T07:35:00-04:00",
+          "entry": 1.17,
+          "stop": 1.03,
+          "qty": 180,
+          "risk_fraction": 0.05,
+          "risk_usd": 25.2,
+          "risk_pct": 0.049998,
+          "sized_by": "risk",
+          "target_r": 3.0,
+          "realized_r": -1.1429,
+          "reason": "stop",
+          "exit_price": 1.01,
+          "gross_pnl": -28.8,
+          "costs": 2.4469,
+          "net_pnl": -31.2469,
+          "equity_after": 458.4245
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "SUNE",
+          "seg_id": "2026-07-09:SUNE#1",
+          "run": 1,
+          "trigger_at": "2026-07-09T04:30:00-04:00",
+          "entry": 2.48,
+          "stop": 2.44,
+          "qty": 92,
+          "risk_fraction": 0.05,
+          "risk_usd": 3.68,
+          "risk_pct": 0.008027,
+          "sized_by": "cap",
+          "target_r": 3.0,
+          "realized_r": -1.5,
+          "reason": "stop",
+          "exit_price": 2.42,
+          "gross_pnl": -5.52,
+          "costs": 1.3103,
+          "net_pnl": -6.8303,
+          "equity_after": 451.5942
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "VRAX",
+          "seg_id": "2026-07-09:VRAX",
+          "run": 1,
+          "trigger_at": "2026-07-09T07:55:00-04:00",
+          "entry": 7.61,
+          "stop": 6.81,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 22.4,
+          "risk_pct": 0.048863,
+          "sized_by": "risk",
+          "target_r": 3.0,
+          "realized_r": 3.0,
+          "reason": "target",
+          "exit_price": 10.01,
+          "gross_pnl": 67.2,
+          "costs": 0.8916,
+          "net_pnl": 66.3084,
+          "equity_after": 517.9026
+        },
+        {
+          "date": "2026-07-13",
+          "symbol": "VEEE",
+          "seg_id": "2026-07-13:VEEE",
+          "run": 1,
+          "trigger_at": "2026-07-13T09:05:00-04:00",
+          "entry": 9.5,
+          "stop": 7.91,
+          "qty": 16,
+          "risk_fraction": 0.05,
+          "risk_usd": 25.44,
+          "risk_pct": 0.049121,
+          "sized_by": "risk",
+          "target_r": 3.0,
+          "realized_r": 3.0,
+          "reason": "target",
+          "exit_price": 14.27,
+          "gross_pnl": 76.32,
+          "costs": 0.8114,
+          "net_pnl": 75.5086,
+          "equity_after": 593.4112
+        },
+        {
+          "date": "2026-07-14",
+          "symbol": "CLSK",
+          "seg_id": "2026-07-14:CLSK",
+          "run": 1,
+          "trigger_at": "2026-07-14T06:15:00-04:00",
+          "entry": 14.4223,
+          "stop": 14.02,
+          "qty": 20,
+          "risk_fraction": 0.05,
+          "risk_usd": 8.046,
+          "risk_pct": 0.013559,
+          "sized_by": "cap",
+          "target_r": 3.0,
+          "realized_r": -1.0497,
+          "reason": "stop",
+          "exit_price": 14.0,
+          "gross_pnl": -8.446,
+          "costs": 0.8391,
+          "net_pnl": -9.2851,
+          "equity_after": 584.1261
+        },
+        {
+          "date": "2026-07-15",
+          "symbol": "JTAI",
+          "seg_id": "2026-07-15:JTAI#2",
+          "run": 2,
+          "trigger_at": "2026-07-15T06:00:00-04:00",
+          "entry": 5.87,
+          "stop": 5.19,
+          "qty": 42,
+          "risk_fraction": 0.05,
+          "risk_usd": 28.56,
+          "risk_pct": 0.048894,
+          "sized_by": "risk",
+          "target_r": 3.0,
+          "realized_r": -1.0294,
+          "reason": "stop",
+          "exit_price": 5.17,
+          "gross_pnl": -29.4,
+          "costs": 0.9818,
+          "net_pnl": -30.3818,
+          "equity_after": 553.7443
+        },
+        {
+          "date": "2026-07-22",
+          "symbol": "LABT",
+          "seg_id": "2026-07-22:LABT",
+          "run": 1,
+          "trigger_at": "2026-07-22T08:25:00-04:00",
+          "entry": 6.21,
+          "stop": 5.13,
+          "qty": 25,
+          "risk_fraction": 0.05,
+          "risk_usd": 27.0,
+          "risk_pct": 0.048759,
+          "sized_by": "risk",
+          "target_r": 3.0,
+          "realized_r": -1.0185,
+          "reason": "stop",
+          "exit_price": 5.11,
+          "gross_pnl": -27.5,
+          "costs": 0.8677,
+          "net_pnl": -28.3677,
+          "equity_after": 525.3766
+        },
+        {
+          "date": "2026-07-23",
+          "symbol": "JEM",
+          "seg_id": "2026-07-23:JEM#3",
+          "run": 3,
+          "trigger_at": "2026-07-23T07:30:00-04:00",
+          "entry": 6.26,
+          "stop": 5.3,
+          "qty": 27,
+          "risk_fraction": 0.05,
+          "risk_usd": 25.92,
+          "risk_pct": 0.049336,
+          "sized_by": "risk",
+          "target_r": 3.0,
+          "realized_r": -1.0208,
+          "reason": "stop",
+          "exit_price": 5.28,
+          "gross_pnl": -26.46,
+          "costs": 0.8812,
+          "net_pnl": -27.3412,
+          "equity_after": 498.0354
+        }
+      ],
+      "skipped": [],
+      "cash_flows": [
+        {
+          "date": "2026-07-24",
+          "kind": "vps",
+          "usd": 7.239,
+          "gbp": 5.7
+        }
+      ]
+    },
+    "4": {
+      "stats": {
+        "n_trades": 11,
+        "wins": 3,
+        "losses": 8,
+        "win_rate": 0.2727,
+        "total_r": 1.5943,
+        "avg_r": 0.1449,
+        "expectancy_usd": 3.4547,
+        "avg_risk_pct": 0.037496,
+        "cap_bound_count": 4,
+        "end_equity": 520.7628,
+        "return_pct": 0.0415,
+        "max_drawdown_pct": 0.161,
+        "commission_usd": 8.26,
+        "fees_usd": 3.8176,
+        "data_fees_usd": 10.0,
+        "total_costs_usd": 22.0776,
+        "withdrawals_usd": 0.0,
+        "withdrawals_gbp": 0.0,
+        "tax_paid_usd": 0.0,
+        "tax_paid_gbp": 0.0,
+        "vps_costs_usd": 7.239,
+        "vps_costs_gbp": 5.7,
+        "net_take_home_gbp": 0.0,
+        "skipped_count": 0,
+        "skipped_total_r": 0,
+        "unaffordable_count": 0
+      },
+      "equity_curve": [
+        {
+          "date": "2026-07-01",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-02",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-03",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-04",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-05",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-06",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-07",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-08",
+          "equity": 458.4245
+        },
+        {
+          "date": "2026-07-09",
+          "equity": 540.3019
+        },
+        {
+          "date": "2026-07-10",
+          "equity": 540.3019
+        },
+        {
+          "date": "2026-07-13",
+          "equity": 641.2498
+        },
+        {
+          "date": "2026-07-14",
+          "equity": 631.1062
+        },
+        {
+          "date": "2026-07-15",
+          "equity": 597.8976
+        },
+        {
+          "date": "2026-07-16",
+          "equity": 597.8976
+        },
+        {
+          "date": "2026-07-17",
+          "equity": 597.8976
+        },
+        {
+          "date": "2026-07-20",
+          "equity": 597.8976
+        },
+        {
+          "date": "2026-07-21",
+          "equity": 597.8976
+        },
+        {
+          "date": "2026-07-22",
+          "equity": 567.3165
+        },
+        {
+          "date": "2026-07-23",
+          "equity": 538.0018
+        },
+        {
+          "date": "2026-07-24",
+          "equity": 520.7628
+        }
+      ],
+      "trades": [
+        {
+          "date": "2026-07-01",
+          "symbol": "CANF",
+          "seg_id": "2026-07-01:CANF",
+          "run": 1,
+          "trigger_at": "2026-07-01T07:15:00-04:00",
+          "entry": 6.26,
+          "stop": 5.39,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.36,
+          "risk_pct": 0.04872,
+          "sized_by": "risk",
+          "target_r": 4.0,
+          "realized_r": -1.023,
+          "reason": "stop",
+          "exit_price": 5.37,
+          "gross_pnl": -24.92,
+          "costs": 0.888,
+          "net_pnl": -25.808,
+          "equity_after": 474.192
+        },
+        {
+          "date": "2026-07-01",
+          "symbol": "CORD",
+          "seg_id": "2026-07-01:CORD",
+          "run": 1,
+          "trigger_at": "2026-07-01T08:45:00-04:00",
+          "entry": 6.24,
+          "stop": 5.93,
+          "qty": 40,
+          "risk_fraction": 0.05,
+          "risk_usd": 12.4,
+          "risk_pct": 0.0248,
+          "sized_by": "cap",
+          "target_r": 4.0,
+          "realized_r": 2.4839,
+          "reason": "close",
+          "exit_price": 7.01,
+          "gross_pnl": 30.8,
+          "costs": 0.9704,
+          "net_pnl": 29.8296,
+          "equity_after": 504.0216
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "SHPH",
+          "seg_id": "2026-07-08:SHPH",
+          "run": 1,
+          "trigger_at": "2026-07-08T04:20:00-04:00",
+          "entry": 3.96,
+          "stop": 3.77,
+          "qty": 63,
+          "risk_fraction": 0.05,
+          "risk_usd": 11.97,
+          "risk_pct": 0.023749,
+          "sized_by": "cap",
+          "target_r": 4.0,
+          "realized_r": -1.1053,
+          "reason": "stop",
+          "exit_price": 3.75,
+          "gross_pnl": -13.23,
+          "costs": 1.1202,
+          "net_pnl": -14.3502,
+          "equity_after": 489.6714
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "VTAK",
+          "seg_id": "2026-07-08:VTAK",
+          "run": 1,
+          "trigger_at": "2026-07-08T07:35:00-04:00",
+          "entry": 1.17,
+          "stop": 1.03,
+          "qty": 180,
+          "risk_fraction": 0.05,
+          "risk_usd": 25.2,
+          "risk_pct": 0.049998,
+          "sized_by": "risk",
+          "target_r": 4.0,
+          "realized_r": -1.1429,
+          "reason": "stop",
+          "exit_price": 1.01,
+          "gross_pnl": -28.8,
+          "costs": 2.4469,
+          "net_pnl": -31.2469,
+          "equity_after": 458.4245
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "SUNE",
+          "seg_id": "2026-07-09:SUNE#1",
+          "run": 1,
+          "trigger_at": "2026-07-09T04:30:00-04:00",
+          "entry": 2.48,
+          "stop": 2.44,
+          "qty": 92,
+          "risk_fraction": 0.05,
+          "risk_usd": 3.68,
+          "risk_pct": 0.008027,
+          "sized_by": "cap",
+          "target_r": 4.0,
+          "realized_r": -1.5,
+          "reason": "stop",
+          "exit_price": 2.42,
+          "gross_pnl": -5.52,
+          "costs": 1.3103,
+          "net_pnl": -6.8303,
+          "equity_after": 451.5942
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "VRAX",
+          "seg_id": "2026-07-09:VRAX",
+          "run": 1,
+          "trigger_at": "2026-07-09T07:55:00-04:00",
+          "entry": 7.61,
+          "stop": 6.81,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 22.4,
+          "risk_pct": 0.048863,
+          "sized_by": "risk",
+          "target_r": 4.0,
+          "realized_r": 4.0,
+          "reason": "target",
+          "exit_price": 10.81,
+          "gross_pnl": 89.6,
+          "costs": 0.8923,
+          "net_pnl": 88.7077,
+          "equity_after": 540.3019
+        },
+        {
+          "date": "2026-07-13",
+          "symbol": "VEEE",
+          "seg_id": "2026-07-13:VEEE",
+          "run": 1,
+          "trigger_at": "2026-07-13T09:05:00-04:00",
+          "entry": 9.5,
+          "stop": 7.91,
+          "qty": 16,
+          "risk_fraction": 0.05,
+          "risk_usd": 25.44,
+          "risk_pct": 0.047085,
+          "sized_by": "risk",
+          "target_r": 4.0,
+          "realized_r": 4.0,
+          "reason": "target",
+          "exit_price": 15.86,
+          "gross_pnl": 101.76,
+          "costs": 0.8121,
+          "net_pnl": 100.9479,
+          "equity_after": 641.2498
+        },
+        {
+          "date": "2026-07-14",
+          "symbol": "CLSK",
+          "seg_id": "2026-07-14:CLSK",
+          "run": 1,
+          "trigger_at": "2026-07-14T06:15:00-04:00",
+          "entry": 14.4223,
+          "stop": 14.02,
+          "qty": 22,
+          "risk_fraction": 0.05,
+          "risk_usd": 8.8506,
+          "risk_pct": 0.013802,
+          "sized_by": "cap",
+          "target_r": 4.0,
+          "realized_r": -1.0497,
+          "reason": "stop",
+          "exit_price": 14.0,
+          "gross_pnl": -9.2906,
+          "costs": 0.853,
+          "net_pnl": -10.1436,
+          "equity_after": 631.1062
+        },
+        {
+          "date": "2026-07-15",
+          "symbol": "JTAI",
+          "seg_id": "2026-07-15:JTAI#2",
+          "run": 2,
+          "trigger_at": "2026-07-15T06:00:00-04:00",
+          "entry": 5.87,
+          "stop": 5.19,
+          "qty": 46,
+          "risk_fraction": 0.05,
+          "risk_usd": 31.28,
+          "risk_pct": 0.049564,
+          "sized_by": "risk",
+          "target_r": 4.0,
+          "realized_r": -1.0294,
+          "reason": "stop",
+          "exit_price": 5.17,
+          "gross_pnl": -32.2,
+          "costs": 1.0086,
+          "net_pnl": -33.2086,
+          "equity_after": 597.8976
+        },
+        {
+          "date": "2026-07-22",
+          "symbol": "LABT",
+          "seg_id": "2026-07-22:LABT",
+          "run": 1,
+          "trigger_at": "2026-07-22T08:25:00-04:00",
+          "entry": 6.21,
+          "stop": 5.13,
+          "qty": 27,
+          "risk_fraction": 0.05,
+          "risk_usd": 29.16,
+          "risk_pct": 0.048771,
+          "sized_by": "risk",
+          "target_r": 4.0,
+          "realized_r": -1.0185,
+          "reason": "stop",
+          "exit_price": 5.11,
+          "gross_pnl": -29.7,
+          "costs": 0.8811,
+          "net_pnl": -30.5811,
+          "equity_after": 567.3165
+        },
+        {
+          "date": "2026-07-23",
+          "symbol": "JEM",
+          "seg_id": "2026-07-23:JEM#3",
+          "run": 3,
+          "trigger_at": "2026-07-23T07:30:00-04:00",
+          "entry": 6.26,
+          "stop": 5.3,
+          "qty": 29,
+          "risk_fraction": 0.05,
+          "risk_usd": 27.84,
+          "risk_pct": 0.049073,
+          "sized_by": "risk",
+          "target_r": 4.0,
+          "realized_r": -1.0208,
+          "reason": "stop",
+          "exit_price": 5.28,
+          "gross_pnl": -28.42,
+          "costs": 0.8947,
+          "net_pnl": -29.3147,
+          "equity_after": 538.0018
+        }
+      ],
+      "skipped": [],
+      "cash_flows": [
+        {
+          "date": "2026-07-24",
+          "kind": "vps",
+          "usd": 7.239,
+          "gbp": 5.7
+        }
+      ]
+    },
+    "5": {
+      "stats": {
+        "n_trades": 11,
+        "wins": 3,
+        "losses": 8,
+        "win_rate": 0.2727,
+        "total_r": 3.5943,
+        "avg_r": 0.3268,
+        "expectancy_usd": 7.6198,
+        "avg_risk_pct": 0.037756,
+        "cap_bound_count": 4,
+        "end_equity": 566.5788,
+        "return_pct": 0.1332,
+        "max_drawdown_pct": 0.1624,
+        "commission_usd": 8.26,
+        "fees_usd": 3.907,
+        "data_fees_usd": 10.0,
+        "total_costs_usd": 22.167,
+        "withdrawals_usd": 0.0,
+        "withdrawals_gbp": 0.0,
+        "tax_paid_usd": 0.0,
+        "tax_paid_gbp": 0.0,
+        "vps_costs_usd": 7.239,
+        "vps_costs_gbp": 5.7,
+        "net_take_home_gbp": 0.0,
+        "skipped_count": 0,
+        "skipped_total_r": 0,
+        "unaffordable_count": 0
+      },
+      "equity_curve": [
+        {
+          "date": "2026-07-01",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-02",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-03",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-04",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-05",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-06",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-07",
+          "equity": 504.0216
+        },
+        {
+          "date": "2026-07-08",
+          "equity": 458.4245
+        },
+        {
+          "date": "2026-07-09",
+          "equity": 562.7013
+        },
+        {
+          "date": "2026-07-10",
+          "equity": 562.7013
+        },
+        {
+          "date": "2026-07-13",
+          "equity": 697.0314
+        },
+        {
+          "date": "2026-07-14",
+          "equity": 686.0293
+        },
+        {
+          "date": "2026-07-15",
+          "equity": 649.9938
+        },
+        {
+          "date": "2026-07-16",
+          "equity": 649.9938
+        },
+        {
+          "date": "2026-07-17",
+          "equity": 649.9938
+        },
+        {
+          "date": "2026-07-20",
+          "equity": 649.9938
+        },
+        {
+          "date": "2026-07-21",
+          "equity": 649.9938
+        },
+        {
+          "date": "2026-07-22",
+          "equity": 616.0926
+        },
+        {
+          "date": "2026-07-23",
+          "equity": 583.8178
+        },
+        {
+          "date": "2026-07-24",
+          "equity": 566.5788
+        }
+      ],
+      "trades": [
+        {
+          "date": "2026-07-01",
+          "symbol": "CANF",
+          "seg_id": "2026-07-01:CANF",
+          "run": 1,
+          "trigger_at": "2026-07-01T07:15:00-04:00",
+          "entry": 6.26,
+          "stop": 5.39,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 24.36,
+          "risk_pct": 0.04872,
+          "sized_by": "risk",
+          "target_r": 5.0,
+          "realized_r": -1.023,
+          "reason": "stop",
+          "exit_price": 5.37,
+          "gross_pnl": -24.92,
+          "costs": 0.888,
+          "net_pnl": -25.808,
+          "equity_after": 474.192
+        },
+        {
+          "date": "2026-07-01",
+          "symbol": "CORD",
+          "seg_id": "2026-07-01:CORD",
+          "run": 1,
+          "trigger_at": "2026-07-01T08:45:00-04:00",
+          "entry": 6.24,
+          "stop": 5.93,
+          "qty": 40,
+          "risk_fraction": 0.05,
+          "risk_usd": 12.4,
+          "risk_pct": 0.0248,
+          "sized_by": "cap",
+          "target_r": 5.0,
+          "realized_r": 2.4839,
+          "reason": "close",
+          "exit_price": 7.01,
+          "gross_pnl": 30.8,
+          "costs": 0.9704,
+          "net_pnl": 29.8296,
+          "equity_after": 504.0216
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "SHPH",
+          "seg_id": "2026-07-08:SHPH",
+          "run": 1,
+          "trigger_at": "2026-07-08T04:20:00-04:00",
+          "entry": 3.96,
+          "stop": 3.77,
+          "qty": 63,
+          "risk_fraction": 0.05,
+          "risk_usd": 11.97,
+          "risk_pct": 0.023749,
+          "sized_by": "cap",
+          "target_r": 5.0,
+          "realized_r": -1.1053,
+          "reason": "stop",
+          "exit_price": 3.75,
+          "gross_pnl": -13.23,
+          "costs": 1.1202,
+          "net_pnl": -14.3502,
+          "equity_after": 489.6714
+        },
+        {
+          "date": "2026-07-08",
+          "symbol": "VTAK",
+          "seg_id": "2026-07-08:VTAK",
+          "run": 1,
+          "trigger_at": "2026-07-08T07:35:00-04:00",
+          "entry": 1.17,
+          "stop": 1.03,
+          "qty": 180,
+          "risk_fraction": 0.05,
+          "risk_usd": 25.2,
+          "risk_pct": 0.049998,
+          "sized_by": "risk",
+          "target_r": 5.0,
+          "realized_r": -1.1429,
+          "reason": "stop",
+          "exit_price": 1.01,
+          "gross_pnl": -28.8,
+          "costs": 2.4469,
+          "net_pnl": -31.2469,
+          "equity_after": 458.4245
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "SUNE",
+          "seg_id": "2026-07-09:SUNE#1",
+          "run": 1,
+          "trigger_at": "2026-07-09T04:30:00-04:00",
+          "entry": 2.48,
+          "stop": 2.44,
+          "qty": 92,
+          "risk_fraction": 0.05,
+          "risk_usd": 3.68,
+          "risk_pct": 0.008027,
+          "sized_by": "cap",
+          "target_r": 5.0,
+          "realized_r": -1.5,
+          "reason": "stop",
+          "exit_price": 2.42,
+          "gross_pnl": -5.52,
+          "costs": 1.3103,
+          "net_pnl": -6.8303,
+          "equity_after": 451.5942
+        },
+        {
+          "date": "2026-07-09",
+          "symbol": "VRAX",
+          "seg_id": "2026-07-09:VRAX",
+          "run": 1,
+          "trigger_at": "2026-07-09T07:55:00-04:00",
+          "entry": 7.61,
+          "stop": 6.81,
+          "qty": 28,
+          "risk_fraction": 0.05,
+          "risk_usd": 22.4,
+          "risk_pct": 0.048863,
+          "sized_by": "risk",
+          "target_r": 5.0,
+          "realized_r": 5.0,
+          "reason": "target",
+          "exit_price": 11.61,
+          "gross_pnl": 112.0,
+          "costs": 0.8929,
+          "net_pnl": 111.1071,
+          "equity_after": 562.7013
+        },
+        {
+          "date": "2026-07-13",
+          "symbol": "VEEE",
+          "seg_id": "2026-07-13:VEEE",
+          "run": 1,
+          "trigger_at": "2026-07-13T09:05:00-04:00",
+          "entry": 9.5,
+          "stop": 7.91,
+          "qty": 17,
+          "risk_fraction": 0.05,
+          "risk_usd": 27.03,
+          "risk_pct": 0.048036,
+          "sized_by": "risk",
+          "target_r": 5.0,
+          "realized_r": 5.0,
+          "reason": "target",
+          "exit_price": 17.45,
+          "gross_pnl": 135.15,
+          "costs": 0.8199,
+          "net_pnl": 134.3301,
+          "equity_after": 697.0314
+        },
+        {
+          "date": "2026-07-14",
+          "symbol": "CLSK",
+          "seg_id": "2026-07-14:CLSK",
+          "run": 1,
+          "trigger_at": "2026-07-14T06:15:00-04:00",
+          "entry": 14.4223,
+          "stop": 14.02,
+          "qty": 24,
+          "risk_fraction": 0.05,
+          "risk_usd": 9.6552,
+          "risk_pct": 0.013852,
+          "sized_by": "cap",
+          "target_r": 5.0,
+          "realized_r": -1.0497,
+          "reason": "stop",
+          "exit_price": 14.0,
+          "gross_pnl": -10.1352,
+          "costs": 0.8669,
+          "net_pnl": -11.0021,
+          "equity_after": 686.0293
+        },
+        {
+          "date": "2026-07-15",
+          "symbol": "JTAI",
+          "seg_id": "2026-07-15:JTAI#2",
+          "run": 2,
+          "trigger_at": "2026-07-15T06:00:00-04:00",
+          "entry": 5.87,
+          "stop": 5.19,
+          "qty": 50,
+          "risk_fraction": 0.05,
+          "risk_usd": 34.0,
+          "risk_pct": 0.049561,
+          "sized_by": "risk",
+          "target_r": 5.0,
+          "realized_r": -1.0294,
+          "reason": "stop",
+          "exit_price": 5.17,
+          "gross_pnl": -35.0,
+          "costs": 1.0355,
+          "net_pnl": -36.0355,
+          "equity_after": 649.9938
+        },
+        {
+          "date": "2026-07-22",
+          "symbol": "LABT",
+          "seg_id": "2026-07-22:LABT",
+          "run": 1,
+          "trigger_at": "2026-07-22T08:25:00-04:00",
+          "entry": 6.21,
+          "stop": 5.13,
+          "qty": 30,
+          "risk_fraction": 0.05,
+          "risk_usd": 32.4,
+          "risk_pct": 0.049847,
+          "sized_by": "risk",
+          "target_r": 5.0,
+          "realized_r": -1.0185,
+          "reason": "stop",
+          "exit_price": 5.11,
+          "gross_pnl": -33.0,
+          "costs": 0.9012,
+          "net_pnl": -33.9012,
+          "equity_after": 616.0926
+        },
+        {
+          "date": "2026-07-23",
+          "symbol": "JEM",
+          "seg_id": "2026-07-23:JEM#3",
+          "run": 3,
+          "trigger_at": "2026-07-23T07:30:00-04:00",
+          "entry": 6.26,
+          "stop": 5.3,
+          "qty": 32,
+          "risk_fraction": 0.05,
+          "risk_usd": 30.72,
+          "risk_pct": 0.049863,
+          "sized_by": "risk",
+          "target_r": 5.0,
+          "realized_r": -1.0208,
+          "reason": "stop",
+          "exit_price": 5.28,
+          "gross_pnl": -31.36,
+          "costs": 0.9148,
+          "net_pnl": -32.2748,
+          "equity_after": 583.8178
+        }
+      ],
+      "skipped": [],
+      "cash_flows": [
+        {
+          "date": "2026-07-24",
+          "kind": "vps",
+          "usd": 7.239,
+          "gbp": 5.7
+        }
+      ]
+    }
+  }
+}

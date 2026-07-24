@@ -1,0 +1,125 @@
+{
+  "generated_utc": "2026-07-24T21:01:58.714234+00:00",
+  "trading_date": "2026-07-24",
+  "service": {
+    "connected": true,
+    "trading_mode": "paper",
+    "in_scan_window": false,
+    "deployed_commit": "1590d68",
+    "jobs": [
+      {
+        "id": "tick",
+        "next_run_utc": "2026-07-24T17:02:58.680824-04:00"
+      },
+      {
+        "id": "eod_backfill",
+        "next_run_utc": "2026-07-25T03:45:00-04:00"
+      },
+      {
+        "id": "scan_start",
+        "next_run_utc": "2026-07-25T04:00:00-04:00"
+      },
+      {
+        "id": "scan_end",
+        "next_run_utc": "2026-07-25T11:59:00-04:00"
+      },
+      {
+        "id": "eod_bars",
+        "next_run_utc": "2026-07-25T16:20:00-04:00"
+      },
+      {
+        "id": "eod_report",
+        "next_run_utc": "2026-07-25T16:30:00-04:00"
+      }
+    ]
+  },
+  "scanner": {
+    "last_scan_utc": "2026-07-24T15:59:58.742071+00:00",
+    "scan_ticks_total": 3071,
+    "latest_candidates": [
+      {
+        "symbol": "OMH",
+        "rank": 0
+      },
+      {
+        "symbol": "LVWR",
+        "rank": 1
+      },
+      {
+        "symbol": "VIVK",
+        "rank": 2
+      },
+      {
+        "symbol": "FRMI",
+        "rank": 3
+      }
+    ]
+  },
+  "opportunities": {
+    "open_today": 28,
+    "symbols": [
+      "ADVB",
+      "AKAN",
+      "AMIX",
+      "ANY",
+      "BNRG",
+      "BYRN",
+      "CJMB",
+      "CPHI",
+      "CTNT",
+      "DFNS",
+      "EXYN",
+      "FRMI",
+      "JEM",
+      "KUST",
+      "LGCL",
+      "LVWR",
+      "MBLY",
+      "MOBX",
+      "MSS",
+      "OMH",
+      "PN",
+      "RNG",
+      "RUBI",
+      "SKYQ",
+      "VIVK",
+      "WKC",
+      "WLDS",
+      "ZCMD"
+    ]
+  },
+  "data": {
+    "opportunities": {
+      "today": 28,
+      "total": 680,
+      "files": 694
+    },
+    "scanner_hits": {
+      "today": 2153,
+      "total": 46832,
+      "files": 2981
+    },
+    "bars": {
+      "today": 3990,
+      "total": 94168,
+      "files": 732
+    },
+    "news": {
+      "today": 232,
+      "total": 5039,
+      "files": 1011
+    },
+    "fundamentals": {
+      "today": 28,
+      "total": 680,
+      "files": 701
+    }
+  },
+  "health": {
+    "tick": "ok",
+    "ticks_over_budget_total": 0,
+    "jobs_missed_total": 0,
+    "mem_ok": true,
+    "disk_ok": true
+  }
+}

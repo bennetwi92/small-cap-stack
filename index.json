@@ -1,0 +1,6750 @@
+{
+  "generated_utc": "2026-07-24T20:20:58.713812+00:00",
+  "dates": [
+    {
+      "date": "2026-07-24",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-24:MOBX",
+          "symbol": "MOBX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.846
+        },
+        {
+          "opportunity_id": "2026-07-24:LGCL",
+          "symbol": "LGCL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.1
+        },
+        {
+          "opportunity_id": "2026-07-24:ADVB#1",
+          "symbol": "ADVB",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-24:ADVB#2",
+          "symbol": "ADVB",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 5.447
+        },
+        {
+          "opportunity_id": "2026-07-24:AKAN#1",
+          "symbol": "AKAN",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-24:AKAN#2",
+          "symbol": "AKAN",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.149
+        },
+        {
+          "opportunity_id": "2026-07-24:AMIX",
+          "symbol": "AMIX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-24:SKYQ",
+          "symbol": "SKYQ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.367
+        },
+        {
+          "opportunity_id": "2026-07-24:WKC",
+          "symbol": "WKC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-24:CPHI",
+          "symbol": "CPHI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-24:CTNT",
+          "symbol": "CTNT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.803
+        },
+        {
+          "opportunity_id": "2026-07-24:RNG",
+          "symbol": "RNG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-24:BYRN",
+          "symbol": "BYRN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.154
+        },
+        {
+          "opportunity_id": "2026-07-24:LVWR",
+          "symbol": "LVWR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-24:RUBI",
+          "symbol": "RUBI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.333
+        },
+        {
+          "opportunity_id": "2026-07-24:CJMB#1",
+          "symbol": "CJMB",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.009
+        },
+        {
+          "opportunity_id": "2026-07-24:CJMB#2",
+          "symbol": "CJMB",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": -0.043
+        },
+        {
+          "opportunity_id": "2026-07-24:DFNS",
+          "symbol": "DFNS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.2
+        },
+        {
+          "opportunity_id": "2026-07-24:OMH",
+          "symbol": "OMH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-24:KUST",
+          "symbol": "KUST",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-24:EXYN",
+          "symbol": "EXYN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-24:VIVK#1",
+          "symbol": "VIVK",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-24:VIVK#2",
+          "symbol": "VIVK",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.412
+        },
+        {
+          "opportunity_id": "2026-07-24:PN#1",
+          "symbol": "PN",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-24:PN#2",
+          "symbol": "PN",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.644
+        },
+        {
+          "opportunity_id": "2026-07-24:FRMI",
+          "symbol": "FRMI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 6.222
+        },
+        {
+          "opportunity_id": "2026-07-24:JEM#1",
+          "symbol": "JEM",
+          "run": 1,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 1.869
+        },
+        {
+          "opportunity_id": "2026-07-24:JEM#2",
+          "symbol": "JEM",
+          "run": 2,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-24:JEM#3",
+          "symbol": "JEM",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-24:ANY#1",
+          "symbol": "ANY",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-24:ANY#2",
+          "symbol": "ANY",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": -0.1
+        },
+        {
+          "opportunity_id": "2026-07-24:MBLY",
+          "symbol": "MBLY",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.1
+        },
+        {
+          "opportunity_id": "2026-07-24:MSS",
+          "symbol": "MSS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.076
+        },
+        {
+          "opportunity_id": "2026-07-24:BNRG",
+          "symbol": "BNRG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.453
+        },
+        {
+          "opportunity_id": "2026-07-24:WLDS#1",
+          "symbol": "WLDS",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-24:WLDS#2",
+          "symbol": "WLDS",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-24:ZCMD",
+          "symbol": "ZCMD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        }
+      ]
+    },
+    {
+      "date": "2026-07-23",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-23:EHGO",
+          "symbol": "EHGO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-23:ZCMD",
+          "symbol": "ZCMD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-23:ZYBT",
+          "symbol": "ZYBT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-23:HYLN",
+          "symbol": "HYLN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.208
+        },
+        {
+          "opportunity_id": "2026-07-23:CPHI",
+          "symbol": "CPHI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.059
+        },
+        {
+          "opportunity_id": "2026-07-23:HIHO",
+          "symbol": "HIHO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.429
+        },
+        {
+          "opportunity_id": "2026-07-23:IMAX",
+          "symbol": "IMAX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.148
+        },
+        {
+          "opportunity_id": "2026-07-23:PAVS",
+          "symbol": "PAVS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.987
+        },
+        {
+          "opportunity_id": "2026-07-23:NVCR",
+          "symbol": "NVCR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.089
+        },
+        {
+          "opportunity_id": "2026-07-23:PLAG",
+          "symbol": "PLAG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-23:SKYQ",
+          "symbol": "SKYQ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.545
+        },
+        {
+          "opportunity_id": "2026-07-23:NEUP#1",
+          "symbol": "NEUP",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.814
+        },
+        {
+          "opportunity_id": "2026-07-23:NEUP#2",
+          "symbol": "NEUP",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.467
+        },
+        {
+          "opportunity_id": "2026-07-23:WLDS",
+          "symbol": "WLDS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.083
+        },
+        {
+          "opportunity_id": "2026-07-23:ADVB#1",
+          "symbol": "ADVB",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.958
+        },
+        {
+          "opportunity_id": "2026-07-23:ADVB#2",
+          "symbol": "ADVB",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.152
+        },
+        {
+          "opportunity_id": "2026-07-23:WBUY#1",
+          "symbol": "WBUY",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-23:WBUY#2",
+          "symbol": "WBUY",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.078
+        },
+        {
+          "opportunity_id": "2026-07-23:NVVE",
+          "symbol": "NVVE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-23:LICN",
+          "symbol": "LICN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.077
+        },
+        {
+          "opportunity_id": "2026-07-23:CLF",
+          "symbol": "CLF",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-23:SORA",
+          "symbol": "SORA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-23:DOMO#1",
+          "symbol": "DOMO",
+          "run": 1,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-23:DOMO#2",
+          "symbol": "DOMO",
+          "run": 2,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.6
+        },
+        {
+          "opportunity_id": "2026-07-23:DOMO#3",
+          "symbol": "DOMO",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-23:PALI",
+          "symbol": "PALI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.0
+        },
+        {
+          "opportunity_id": "2026-07-23:LGCL",
+          "symbol": "LGCL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-23:CJMB",
+          "symbol": "CJMB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-23:NIKI",
+          "symbol": "NIKI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.279
+        },
+        {
+          "opportunity_id": "2026-07-23:EQPT",
+          "symbol": "EQPT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.091
+        },
+        {
+          "opportunity_id": "2026-07-23:GREE",
+          "symbol": "GREE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.395
+        },
+        {
+          "opportunity_id": "2026-07-23:JEM#1",
+          "symbol": "JEM",
+          "run": 1,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 1.147
+        },
+        {
+          "opportunity_id": "2026-07-23:JEM#2",
+          "symbol": "JEM",
+          "run": 2,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 15.556
+        },
+        {
+          "opportunity_id": "2026-07-23:JEM#3",
+          "symbol": "JEM",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-23:FCEL",
+          "symbol": "FCEL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.0
+        },
+        {
+          "opportunity_id": "2026-07-23:MRLN",
+          "symbol": "MRLN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-23:VIVK",
+          "symbol": "VIVK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.333
+        },
+        {
+          "opportunity_id": "2026-07-23:BATL",
+          "symbol": "BATL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.286
+        },
+        {
+          "opportunity_id": "2026-07-23:AMBP",
+          "symbol": "AMBP",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.222
+        }
+      ]
+    },
+    {
+      "date": "2026-07-22",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-22:KSCP",
+          "symbol": "KSCP",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:CJMB",
+          "symbol": "CJMB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.266
+        },
+        {
+          "opportunity_id": "2026-07-22:CPHI",
+          "symbol": "CPHI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:SXTC",
+          "symbol": "SXTC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:INLF",
+          "symbol": "INLF",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:GWH",
+          "symbol": "GWH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:ADVB#1",
+          "symbol": "ADVB",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.018
+        },
+        {
+          "opportunity_id": "2026-07-22:ADVB#2",
+          "symbol": "ADVB",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.291
+        },
+        {
+          "opportunity_id": "2026-07-22:INM",
+          "symbol": "INM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:BIYA",
+          "symbol": "BIYA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.882
+        },
+        {
+          "opportunity_id": "2026-07-22:QMLS",
+          "symbol": "QMLS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.108
+        },
+        {
+          "opportunity_id": "2026-07-22:AGPU",
+          "symbol": "AGPU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:MF",
+          "symbol": "MF",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 5.0
+        },
+        {
+          "opportunity_id": "2026-07-22:DLNG",
+          "symbol": "DLNG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.166
+        },
+        {
+          "opportunity_id": "2026-07-22:AEHL#1",
+          "symbol": "AEHL",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:AEHL#2",
+          "symbol": "AEHL",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.526
+        },
+        {
+          "opportunity_id": "2026-07-22:ZCMD",
+          "symbol": "ZCMD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.636
+        },
+        {
+          "opportunity_id": "2026-07-22:AIRJ",
+          "symbol": "AIRJ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.143
+        },
+        {
+          "opportunity_id": "2026-07-22:NFGC",
+          "symbol": "NFGC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.273
+        },
+        {
+          "opportunity_id": "2026-07-22:EZGO",
+          "symbol": "EZGO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.035
+        },
+        {
+          "opportunity_id": "2026-07-22:GDC",
+          "symbol": "GDC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.334
+        },
+        {
+          "opportunity_id": "2026-07-22:LICN#1",
+          "symbol": "LICN",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.412
+        },
+        {
+          "opportunity_id": "2026-07-22:LICN#2",
+          "symbol": "LICN",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 3.726
+        },
+        {
+          "opportunity_id": "2026-07-22:CRML",
+          "symbol": "CRML",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.522
+        },
+        {
+          "opportunity_id": "2026-07-22:SKYQ#1",
+          "symbol": "SKYQ",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-22:SKYQ#2",
+          "symbol": "SKYQ",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.5
+        },
+        {
+          "opportunity_id": "2026-07-22:VET",
+          "symbol": "VET",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.12
+        },
+        {
+          "opportunity_id": "2026-07-22:KUST#1",
+          "symbol": "KUST",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 5.308
+        },
+        {
+          "opportunity_id": "2026-07-22:KUST#2",
+          "symbol": "KUST",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 6.5
+        },
+        {
+          "opportunity_id": "2026-07-22:SMCI#1",
+          "symbol": "SMCI",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:SMCI#2",
+          "symbol": "SMCI",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.312
+        },
+        {
+          "opportunity_id": "2026-07-22:AMPG",
+          "symbol": "AMPG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-22:EFOR",
+          "symbol": "EFOR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-22:HIHO",
+          "symbol": "HIHO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.048
+        },
+        {
+          "opportunity_id": "2026-07-22:SNTG#1",
+          "symbol": "SNTG",
+          "run": 1,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:SNTG#2",
+          "symbol": "SNTG",
+          "run": 2,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:SNTG#3",
+          "symbol": "SNTG",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 2.091
+        },
+        {
+          "opportunity_id": "2026-07-22:GORO",
+          "symbol": "GORO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:LHSW",
+          "symbol": "LHSW",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 5.727
+        },
+        {
+          "opportunity_id": "2026-07-22:CHNR",
+          "symbol": "CHNR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.56
+        },
+        {
+          "opportunity_id": "2026-07-22:MTEN",
+          "symbol": "MTEN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 5.667
+        },
+        {
+          "opportunity_id": "2026-07-22:ONDS",
+          "symbol": "ONDS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-22:LABT",
+          "symbol": "LABT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.472
+        },
+        {
+          "opportunity_id": "2026-07-22:CDTG",
+          "symbol": "CDTG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.12
+        },
+        {
+          "opportunity_id": "2026-07-22:BDRX",
+          "symbol": "BDRX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        }
+      ]
+    },
+    {
+      "date": "2026-07-21",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-21:AIXI",
+          "symbol": "AIXI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:AGPU",
+          "symbol": "AGPU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.248
+        },
+        {
+          "opportunity_id": "2026-07-21:GREE",
+          "symbol": "GREE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.004
+        },
+        {
+          "opportunity_id": "2026-07-21:PRQR",
+          "symbol": "PRQR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-21:ZYBT",
+          "symbol": "ZYBT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-21:UTZ",
+          "symbol": "UTZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.813
+        },
+        {
+          "opportunity_id": "2026-07-21:SIDU",
+          "symbol": "SIDU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-21:LPTH",
+          "symbol": "LPTH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 7.909
+        },
+        {
+          "opportunity_id": "2026-07-21:PAPL",
+          "symbol": "PAPL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.167
+        },
+        {
+          "opportunity_id": "2026-07-21:BNRG",
+          "symbol": "BNRG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.139
+        },
+        {
+          "opportunity_id": "2026-07-21:PFSA",
+          "symbol": "PFSA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.292
+        },
+        {
+          "opportunity_id": "2026-07-21:POET",
+          "symbol": "POET",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-21:IMNN",
+          "symbol": "IMNN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.01
+        },
+        {
+          "opportunity_id": "2026-07-21:LASE#1",
+          "symbol": "LASE",
+          "run": 1,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 1.167
+        },
+        {
+          "opportunity_id": "2026-07-21:LASE#2",
+          "symbol": "LASE",
+          "run": 2,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.385
+        },
+        {
+          "opportunity_id": "2026-07-21:LASE#3",
+          "symbol": "LASE",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": -0.286
+        },
+        {
+          "opportunity_id": "2026-07-21:IPW#1",
+          "symbol": "IPW",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": -0.188
+        },
+        {
+          "opportunity_id": "2026-07-21:IPW#2",
+          "symbol": "IPW",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:HIHO",
+          "symbol": "HIHO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:DFNS",
+          "symbol": "DFNS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 6.783
+        },
+        {
+          "opportunity_id": "2026-07-21:APLD",
+          "symbol": "APLD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-21:LMFA",
+          "symbol": "LMFA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:IE",
+          "symbol": "IE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.5
+        },
+        {
+          "opportunity_id": "2026-07-21:CRNT#1",
+          "symbol": "CRNT",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.294
+        },
+        {
+          "opportunity_id": "2026-07-21:CRNT#2",
+          "symbol": "CRNT",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": -0.137
+        },
+        {
+          "opportunity_id": "2026-07-21:VIVK",
+          "symbol": "VIVK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.879
+        },
+        {
+          "opportunity_id": "2026-07-21:CCTG",
+          "symbol": "CCTG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.5
+        },
+        {
+          "opportunity_id": "2026-07-21:OUST",
+          "symbol": "OUST",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 4.828
+        },
+        {
+          "opportunity_id": "2026-07-21:ONDS",
+          "symbol": "ONDS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.125
+        },
+        {
+          "opportunity_id": "2026-07-21:AGEN",
+          "symbol": "AGEN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:BEEM",
+          "symbol": "BEEM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.173
+        },
+        {
+          "opportunity_id": "2026-07-21:AEVA",
+          "symbol": "AEVA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.273
+        },
+        {
+          "opportunity_id": "2026-07-21:TRAX",
+          "symbol": "TRAX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-21:SLGB",
+          "symbol": "SLGB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 4.588
+        },
+        {
+          "opportunity_id": "2026-07-21:CIFR",
+          "symbol": "CIFR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.133
+        },
+        {
+          "opportunity_id": "2026-07-21:RDGT",
+          "symbol": "RDGT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:VELO",
+          "symbol": "VELO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.2
+        },
+        {
+          "opportunity_id": "2026-07-21:NUAI",
+          "symbol": "NUAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.167
+        },
+        {
+          "opportunity_id": "2026-07-21:FWRD",
+          "symbol": "FWRD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.861
+        },
+        {
+          "opportunity_id": "2026-07-21:HELP",
+          "symbol": "HELP",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.444
+        },
+        {
+          "opportunity_id": "2026-07-21:NRGV",
+          "symbol": "NRGV",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:TC",
+          "symbol": "TC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:ADVB",
+          "symbol": "ADVB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:KLAR",
+          "symbol": "KLAR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:SHPH",
+          "symbol": "SHPH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-21:MRLN#1",
+          "symbol": "MRLN",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.0
+        },
+        {
+          "opportunity_id": "2026-07-21:MRLN#2",
+          "symbol": "MRLN",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.125
+        },
+        {
+          "opportunity_id": "2026-07-21:FRMI",
+          "symbol": "FRMI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:AREC",
+          "symbol": "AREC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:CPHI",
+          "symbol": "CPHI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 13.877
+        },
+        {
+          "opportunity_id": "2026-07-21:BTDR",
+          "symbol": "BTDR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.769
+        },
+        {
+          "opportunity_id": "2026-07-21:HBM",
+          "symbol": "HBM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 5.0
+        },
+        {
+          "opportunity_id": "2026-07-21:KIDZ",
+          "symbol": "KIDZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:HOVR#1",
+          "symbol": "HOVR",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-21:HOVR#2",
+          "symbol": "HOVR",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        }
+      ]
+    },
+    {
+      "date": "2026-07-20",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-20:DAIC",
+          "symbol": "DAIC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.2
+        },
+        {
+          "opportunity_id": "2026-07-20:BIYA",
+          "symbol": "BIYA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-20:BXBL#1",
+          "symbol": "BXBL",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 4.714
+        },
+        {
+          "opportunity_id": "2026-07-20:BXBL#2",
+          "symbol": "BXBL",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.31
+        },
+        {
+          "opportunity_id": "2026-07-20:XNCR",
+          "symbol": "XNCR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-20:SLND",
+          "symbol": "SLND",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.375
+        },
+        {
+          "opportunity_id": "2026-07-20:GOAI",
+          "symbol": "GOAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-20:GMM#1",
+          "symbol": "GMM",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 4.825
+        },
+        {
+          "opportunity_id": "2026-07-20:GMM#2",
+          "symbol": "GMM",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-20:GREE",
+          "symbol": "GREE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.179
+        },
+        {
+          "opportunity_id": "2026-07-20:SDOT#1",
+          "symbol": "SDOT",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 3.044
+        },
+        {
+          "opportunity_id": "2026-07-20:SDOT#2",
+          "symbol": "SDOT",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-20:ACHR#1",
+          "symbol": "ACHR",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-20:ACHR#2",
+          "symbol": "ACHR",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-20:CIFR",
+          "symbol": "CIFR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.314
+        },
+        {
+          "opportunity_id": "2026-07-20:ADVB#1",
+          "symbol": "ADVB",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-20:ADVB#2",
+          "symbol": "ADVB",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.409
+        },
+        {
+          "opportunity_id": "2026-07-20:AIHS",
+          "symbol": "AIHS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-20:SLNH",
+          "symbol": "SLNH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-20:STIM",
+          "symbol": "STIM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.621
+        },
+        {
+          "opportunity_id": "2026-07-20:AMC",
+          "symbol": "AMC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.56
+        },
+        {
+          "opportunity_id": "2026-07-20:JTAI",
+          "symbol": "JTAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-20:RDGT",
+          "symbol": "RDGT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.135
+        },
+        {
+          "opportunity_id": "2026-07-20:VMAR#1",
+          "symbol": "VMAR",
+          "run": 1,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-20:VMAR#2",
+          "symbol": "VMAR",
+          "run": 2,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-20:VMAR#3",
+          "symbol": "VMAR",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-20:VCIG",
+          "symbol": "VCIG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.6
+        },
+        {
+          "opportunity_id": "2026-07-20:IREN#1",
+          "symbol": "IREN",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.133
+        },
+        {
+          "opportunity_id": "2026-07-20:IREN#2",
+          "symbol": "IREN",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.287
+        },
+        {
+          "opportunity_id": "2026-07-20:NVVE",
+          "symbol": "NVVE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.031
+        },
+        {
+          "opportunity_id": "2026-07-20:CLSK",
+          "symbol": "CLSK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.231
+        },
+        {
+          "opportunity_id": "2026-07-20:CJMB",
+          "symbol": "CJMB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.255
+        },
+        {
+          "opportunity_id": "2026-07-20:NNBR",
+          "symbol": "NNBR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.0
+        },
+        {
+          "opportunity_id": "2026-07-20:KSCP",
+          "symbol": "KSCP",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.222
+        },
+        {
+          "opportunity_id": "2026-07-20:SKYQ",
+          "symbol": "SKYQ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.229
+        },
+        {
+          "opportunity_id": "2026-07-20:NUAI",
+          "symbol": "NUAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.636
+        },
+        {
+          "opportunity_id": "2026-07-20:GVH",
+          "symbol": "GVH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-20:NIKI",
+          "symbol": "NIKI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-20:NUVB",
+          "symbol": "NUVB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.074
+        },
+        {
+          "opportunity_id": "2026-07-20:DGXX",
+          "symbol": "DGXX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.091
+        },
+        {
+          "opportunity_id": "2026-07-20:MARA",
+          "symbol": "MARA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.6
+        },
+        {
+          "opportunity_id": "2026-07-20:ZYBT",
+          "symbol": "ZYBT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-20:KEEL",
+          "symbol": "KEEL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.12
+        }
+      ]
+    },
+    {
+      "date": "2026-07-17",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-17:PMAX#1",
+          "symbol": "PMAX",
+          "run": 1,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:PMAX#2",
+          "symbol": "PMAX",
+          "run": 2,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 2.833
+        },
+        {
+          "opportunity_id": "2026-07-17:PMAX#3",
+          "symbol": "PMAX",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-17:TRUG",
+          "symbol": "TRUG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:GORO#1",
+          "symbol": "GORO",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.071
+        },
+        {
+          "opportunity_id": "2026-07-17:GORO#2",
+          "symbol": "GORO",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": -0.333
+        },
+        {
+          "opportunity_id": "2026-07-17:KLRS",
+          "symbol": "KLRS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.5
+        },
+        {
+          "opportunity_id": "2026-07-17:ALTO",
+          "symbol": "ALTO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.067
+        },
+        {
+          "opportunity_id": "2026-07-17:SDOT#1",
+          "symbol": "SDOT",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 18.476
+        },
+        {
+          "opportunity_id": "2026-07-17:SDOT#2",
+          "symbol": "SDOT",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:CPHI",
+          "symbol": "CPHI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:STXS",
+          "symbol": "STXS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:SG",
+          "symbol": "SG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.381
+        },
+        {
+          "opportunity_id": "2026-07-17:CNF",
+          "symbol": "CNF",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.047
+        },
+        {
+          "opportunity_id": "2026-07-17:BIYA#1",
+          "symbol": "BIYA",
+          "run": 1,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-17:BIYA#2",
+          "symbol": "BIYA",
+          "run": 2,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 5.062
+        },
+        {
+          "opportunity_id": "2026-07-17:BIYA#3",
+          "symbol": "BIYA",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.278
+        },
+        {
+          "opportunity_id": "2026-07-17:NVVE",
+          "symbol": "NVVE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:SLND",
+          "symbol": "SLND",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:BJDX",
+          "symbol": "BJDX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:TRVI",
+          "symbol": "TRVI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:GLXG#1",
+          "symbol": "GLXG",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:GLXG#2",
+          "symbol": "GLXG",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-17:ZNTL",
+          "symbol": "ZNTL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-17:VEEE#1",
+          "symbol": "VEEE",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:VEEE#2",
+          "symbol": "VEEE",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 3.166
+        },
+        {
+          "opportunity_id": "2026-07-17:VCIG",
+          "symbol": "VCIG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-17:SLS",
+          "symbol": "SLS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.829
+        },
+        {
+          "opportunity_id": "2026-07-17:FCEL#1",
+          "symbol": "FCEL",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.696
+        },
+        {
+          "opportunity_id": "2026-07-17:FCEL#2",
+          "symbol": "FCEL",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:BATL",
+          "symbol": "BATL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.125
+        },
+        {
+          "opportunity_id": "2026-07-17:CJMB",
+          "symbol": "CJMB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:GPRE",
+          "symbol": "GPRE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.722
+        },
+        {
+          "opportunity_id": "2026-07-17:JLHL#1",
+          "symbol": "JLHL",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.62
+        },
+        {
+          "opportunity_id": "2026-07-17:JLHL#2",
+          "symbol": "JLHL",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-17:BRIA",
+          "symbol": "BRIA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-17:STAK",
+          "symbol": "STAK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.026
+        },
+        {
+          "opportunity_id": "2026-07-17:GIPR",
+          "symbol": "GIPR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.191
+        }
+      ]
+    },
+    {
+      "date": "2026-07-16",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-16:LCID",
+          "symbol": "LCID",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-16:STIM",
+          "symbol": "STIM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.176
+        },
+        {
+          "opportunity_id": "2026-07-16:EHGO#1",
+          "symbol": "EHGO",
+          "run": 1,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-16:EHGO#2",
+          "symbol": "EHGO",
+          "run": 2,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": -0.25
+        },
+        {
+          "opportunity_id": "2026-07-16:EHGO#3",
+          "symbol": "EHGO",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-16:TVRD",
+          "symbol": "TVRD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-16:RUBI",
+          "symbol": "RUBI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-16:VEEE#1",
+          "symbol": "VEEE",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-16:VEEE#2",
+          "symbol": "VEEE",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.0
+        },
+        {
+          "opportunity_id": "2026-07-16:VRAX#1",
+          "symbol": "VRAX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.467
+        },
+        {
+          "opportunity_id": "2026-07-16:VRAX#2",
+          "symbol": "VRAX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-16:DXST#1",
+          "symbol": "DXST",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.76
+        },
+        {
+          "opportunity_id": "2026-07-16:DXST#2",
+          "symbol": "DXST",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.556
+        },
+        {
+          "opportunity_id": "2026-07-16:ATPC",
+          "symbol": "ATPC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-16:ATAI",
+          "symbol": "ATAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-16:HELP",
+          "symbol": "HELP",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.533
+        },
+        {
+          "opportunity_id": "2026-07-16:MAN",
+          "symbol": "MAN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.067
+        },
+        {
+          "opportunity_id": "2026-07-16:TGHL",
+          "symbol": "TGHL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-16:NXTC",
+          "symbol": "NXTC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-16:CLIK#1",
+          "symbol": "CLIK",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.0
+        },
+        {
+          "opportunity_id": "2026-07-16:CLIK#2",
+          "symbol": "CLIK",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.287
+        },
+        {
+          "opportunity_id": "2026-07-16:DSGR",
+          "symbol": "DSGR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.4
+        },
+        {
+          "opportunity_id": "2026-07-16:IQST",
+          "symbol": "IQST",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.611
+        },
+        {
+          "opportunity_id": "2026-07-16:GHRS",
+          "symbol": "GHRS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-16:JTAI",
+          "symbol": "JTAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.0
+        },
+        {
+          "opportunity_id": "2026-07-16:CMND",
+          "symbol": "CMND",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.702
+        },
+        {
+          "opportunity_id": "2026-07-16:RHI#1",
+          "symbol": "RHI",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 3.474
+        },
+        {
+          "opportunity_id": "2026-07-16:RHI#2",
+          "symbol": "RHI",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 3.55
+        },
+        {
+          "opportunity_id": "2026-07-16:CDNA",
+          "symbol": "CDNA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-16:STAK",
+          "symbol": "STAK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 4.923
+        }
+      ]
+    },
+    {
+      "date": "2026-07-15",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-15:BABX",
+          "symbol": "BABX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.824
+        },
+        {
+          "opportunity_id": "2026-07-15:VIVS",
+          "symbol": "VIVS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.151
+        },
+        {
+          "opportunity_id": "2026-07-15:DAMD",
+          "symbol": "DAMD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.333
+        },
+        {
+          "opportunity_id": "2026-07-15:LTRX",
+          "symbol": "LTRX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-15:PYPG",
+          "symbol": "PYPG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.2
+        },
+        {
+          "opportunity_id": "2026-07-15:ELVA#1",
+          "symbol": "ELVA",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.103
+        },
+        {
+          "opportunity_id": "2026-07-15:ELVA#2",
+          "symbol": "ELVA",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:GUTS",
+          "symbol": "GUTS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.287
+        },
+        {
+          "opportunity_id": "2026-07-15:INTW",
+          "symbol": "INTW",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:ASMU",
+          "symbol": "ASMU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:PHIO",
+          "symbol": "PHIO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.059
+        },
+        {
+          "opportunity_id": "2026-07-15:YMAT",
+          "symbol": "YMAT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.255
+        },
+        {
+          "opportunity_id": "2026-07-15:SPCE",
+          "symbol": "SPCE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:SNDQ",
+          "symbol": "SNDQ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 5.399
+        },
+        {
+          "opportunity_id": "2026-07-15:WAI",
+          "symbol": "WAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 4.297
+        },
+        {
+          "opportunity_id": "2026-07-15:SOBR",
+          "symbol": "SOBR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.188
+        },
+        {
+          "opportunity_id": "2026-07-15:FGL",
+          "symbol": "FGL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.182
+        },
+        {
+          "opportunity_id": "2026-07-15:SECZ",
+          "symbol": "SECZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.353
+        },
+        {
+          "opportunity_id": "2026-07-15:UMAC",
+          "symbol": "UMAC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.278
+        },
+        {
+          "opportunity_id": "2026-07-15:PCT",
+          "symbol": "PCT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:SKDD#1",
+          "symbol": "SKDD",
+          "run": 1,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:SKDD#2",
+          "symbol": "SKDD",
+          "run": 2,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 1.417
+        },
+        {
+          "opportunity_id": "2026-07-15:SKDD#3",
+          "symbol": "SKDD",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 2.455
+        },
+        {
+          "opportunity_id": "2026-07-15:VTAK",
+          "symbol": "VTAK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.041
+        },
+        {
+          "opportunity_id": "2026-07-15:VSA",
+          "symbol": "VSA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:LCID",
+          "symbol": "LCID",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 4.735
+        },
+        {
+          "opportunity_id": "2026-07-15:JLHL#1",
+          "symbol": "JLHL",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:JLHL#2",
+          "symbol": "JLHL",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.67
+        },
+        {
+          "opportunity_id": "2026-07-15:BABU",
+          "symbol": "BABU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-15:UBXG",
+          "symbol": "UBXG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 4.133
+        },
+        {
+          "opportunity_id": "2026-07-15:TGHL",
+          "symbol": "TGHL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:AEHG",
+          "symbol": "AEHG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.22
+        },
+        {
+          "opportunity_id": "2026-07-15:CRCG",
+          "symbol": "CRCG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.2
+        },
+        {
+          "opportunity_id": "2026-07-15:RUBI",
+          "symbol": "RUBI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 4.6
+        },
+        {
+          "opportunity_id": "2026-07-15:BJDX#1",
+          "symbol": "BJDX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:BJDX#2",
+          "symbol": "BJDX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": -0.2
+        },
+        {
+          "opportunity_id": "2026-07-15:MAGN",
+          "symbol": "MAGN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.538
+        },
+        {
+          "opportunity_id": "2026-07-15:GEVO",
+          "symbol": "GEVO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.091
+        },
+        {
+          "opportunity_id": "2026-07-15:MUZ",
+          "symbol": "MUZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 4.64
+        },
+        {
+          "opportunity_id": "2026-07-15:CRVO",
+          "symbol": "CRVO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:VEEE",
+          "symbol": "VEEE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:VMAR#1",
+          "symbol": "VMAR",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:VMAR#2",
+          "symbol": "VMAR",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": -0.1
+        },
+        {
+          "opportunity_id": "2026-07-15:KOPN",
+          "symbol": "KOPN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-15:JTAI#1",
+          "symbol": "JTAI",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:JTAI#2",
+          "symbol": "JTAI",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.132
+        },
+        {
+          "opportunity_id": "2026-07-15:COTY",
+          "symbol": "COTY",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.201
+        },
+        {
+          "opportunity_id": "2026-07-15:KUST",
+          "symbol": "KUST",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.565
+        },
+        {
+          "opportunity_id": "2026-07-15:CCUP",
+          "symbol": "CCUP",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.833
+        },
+        {
+          "opportunity_id": "2026-07-15:NVVE",
+          "symbol": "NVVE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.811
+        },
+        {
+          "opportunity_id": "2026-07-15:XCUR#1",
+          "symbol": "XCUR",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-15:XCUR#2",
+          "symbol": "XCUR",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-15:AIIO#1",
+          "symbol": "AIIO",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-15:AIIO#2",
+          "symbol": "AIIO",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-15:CLRO",
+          "symbol": "CLRO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-15:TRT",
+          "symbol": "TRT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.542
+        },
+        {
+          "opportunity_id": "2026-07-15:ERNA",
+          "symbol": "ERNA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-15:ISPC",
+          "symbol": "ISPC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.5
+        },
+        {
+          "opportunity_id": "2026-07-15:CPHI",
+          "symbol": "CPHI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.718
+        }
+      ]
+    },
+    {
+      "date": "2026-07-14",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-14:BMNR",
+          "symbol": "BMNR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:BMNG",
+          "symbol": "BMNG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.438
+        },
+        {
+          "opportunity_id": "2026-07-14:SNXX#1",
+          "symbol": "SNXX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:SNXX#2",
+          "symbol": "SNXX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.923
+        },
+        {
+          "opportunity_id": "2026-07-14:BTAI",
+          "symbol": "BTAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.318
+        },
+        {
+          "opportunity_id": "2026-07-14:YYGH#1",
+          "symbol": "YYGH",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.091
+        },
+        {
+          "opportunity_id": "2026-07-14:YYGH#2",
+          "symbol": "YYGH",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:OTLK",
+          "symbol": "OTLK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:MSTU",
+          "symbol": "MSTU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:RXT",
+          "symbol": "RXT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.1
+        },
+        {
+          "opportunity_id": "2026-07-14:RKLX",
+          "symbol": "RKLX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:YAAS",
+          "symbol": "YAAS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:FCEL",
+          "symbol": "FCEL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:ERAS",
+          "symbol": "ERAS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:IKT",
+          "symbol": "IKT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.571
+        },
+        {
+          "opportunity_id": "2026-07-14:ETHU",
+          "symbol": "ETHU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 5.75
+        },
+        {
+          "opportunity_id": "2026-07-14:MULL#1",
+          "symbol": "MULL",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.205
+        },
+        {
+          "opportunity_id": "2026-07-14:MULL#2",
+          "symbol": "MULL",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.7
+        },
+        {
+          "opportunity_id": "2026-07-14:GALT",
+          "symbol": "GALT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.716
+        },
+        {
+          "opportunity_id": "2026-07-14:ACTU",
+          "symbol": "ACTU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.072
+        },
+        {
+          "opportunity_id": "2026-07-14:EHGO",
+          "symbol": "EHGO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:SNDG",
+          "symbol": "SNDG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.02
+        },
+        {
+          "opportunity_id": "2026-07-14:RAM",
+          "symbol": "RAM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.375
+        },
+        {
+          "opportunity_id": "2026-07-14:AXTX#1",
+          "symbol": "AXTX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.25
+        },
+        {
+          "opportunity_id": "2026-07-14:AXTX#2",
+          "symbol": "AXTX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.667
+        },
+        {
+          "opportunity_id": "2026-07-14:NB",
+          "symbol": "NB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.273
+        },
+        {
+          "opportunity_id": "2026-07-14:UONEK",
+          "symbol": "UONEK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:LEDS#1",
+          "symbol": "LEDS",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:LEDS#2",
+          "symbol": "LEDS",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 4.929
+        },
+        {
+          "opportunity_id": "2026-07-14:GFUZ",
+          "symbol": "GFUZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.77
+        },
+        {
+          "opportunity_id": "2026-07-14:MGIH",
+          "symbol": "MGIH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.0
+        },
+        {
+          "opportunity_id": "2026-07-14:SNDU#1",
+          "symbol": "SNDU",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:SNDU#2",
+          "symbol": "SNDU",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.988
+        },
+        {
+          "opportunity_id": "2026-07-14:SPRO",
+          "symbol": "SPRO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:GMEX",
+          "symbol": "GMEX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:CCXI",
+          "symbol": "CCXI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:UBXG",
+          "symbol": "UBXG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.432
+        },
+        {
+          "opportunity_id": "2026-07-14:BMNU",
+          "symbol": "BMNU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.208
+        },
+        {
+          "opportunity_id": "2026-07-14:ATAI",
+          "symbol": "ATAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:LHAI",
+          "symbol": "LHAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.263
+        },
+        {
+          "opportunity_id": "2026-07-14:AAOG#1",
+          "symbol": "AAOG",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:AAOG#2",
+          "symbol": "AAOG",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.714
+        },
+        {
+          "opportunity_id": "2026-07-14:NIXX",
+          "symbol": "NIXX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:VEEE",
+          "symbol": "VEEE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.017
+        },
+        {
+          "opportunity_id": "2026-07-14:JLHL",
+          "symbol": "JLHL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:XHLD",
+          "symbol": "XHLD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.444
+        },
+        {
+          "opportunity_id": "2026-07-14:IPW",
+          "symbol": "IPW",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.281
+        },
+        {
+          "opportunity_id": "2026-07-14:SUNE#1",
+          "symbol": "SUNE",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.514
+        },
+        {
+          "opportunity_id": "2026-07-14:SUNE#2",
+          "symbol": "SUNE",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:BRR#1",
+          "symbol": "BRR",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:BRR#2",
+          "symbol": "BRR",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.918
+        },
+        {
+          "opportunity_id": "2026-07-14:CLSK",
+          "symbol": "CLSK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.423
+        },
+        {
+          "opportunity_id": "2026-07-14:TGB",
+          "symbol": "TGB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.143
+        },
+        {
+          "opportunity_id": "2026-07-14:GLWG",
+          "symbol": "GLWG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.232
+        },
+        {
+          "opportunity_id": "2026-07-14:DLLL",
+          "symbol": "DLLL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.522
+        },
+        {
+          "opportunity_id": "2026-07-14:CANF",
+          "symbol": "CANF",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.731
+        },
+        {
+          "opportunity_id": "2026-07-14:AAOX#1",
+          "symbol": "AAOX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:AAOX#2",
+          "symbol": "AAOX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:LITX",
+          "symbol": "LITX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.596
+        },
+        {
+          "opportunity_id": "2026-07-14:NXTC",
+          "symbol": "NXTC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:BEX",
+          "symbol": "BEX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.085
+        },
+        {
+          "opportunity_id": "2026-07-14:SHPH",
+          "symbol": "SHPH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:VMAR",
+          "symbol": "VMAR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:CRDL",
+          "symbol": "CRDL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:SOBR",
+          "symbol": "SOBR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:NTSK",
+          "symbol": "NTSK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-14:TRNR",
+          "symbol": "TRNR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:MVLL#1",
+          "symbol": "MVLL",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.767
+        },
+        {
+          "opportunity_id": "2026-07-14:MVLL#2",
+          "symbol": "MVLL",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:MSTX",
+          "symbol": "MSTX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:SHLS#1",
+          "symbol": "SHLS",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.437
+        },
+        {
+          "opportunity_id": "2026-07-14:SHLS#2",
+          "symbol": "SHLS",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.357
+        },
+        {
+          "opportunity_id": "2026-07-14:ASTX",
+          "symbol": "ASTX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.106
+        },
+        {
+          "opportunity_id": "2026-07-14:BJDX#1",
+          "symbol": "BJDX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:BJDX#2",
+          "symbol": "BJDX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.636
+        },
+        {
+          "opportunity_id": "2026-07-14:CRMT",
+          "symbol": "CRMT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.283
+        },
+        {
+          "opportunity_id": "2026-07-14:RDGT",
+          "symbol": "RDGT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.212
+        },
+        {
+          "opportunity_id": "2026-07-14:GLOO",
+          "symbol": "GLOO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.211
+        },
+        {
+          "opportunity_id": "2026-07-14:HODO",
+          "symbol": "HODO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-14:VTAK",
+          "symbol": "VTAK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.105
+        }
+      ]
+    },
+    {
+      "date": "2026-07-13",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-13:BRAI",
+          "symbol": "BRAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 12.684
+        },
+        {
+          "opportunity_id": "2026-07-13:AIIO",
+          "symbol": "AIIO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.105
+        },
+        {
+          "opportunity_id": "2026-07-13:UCAR#1",
+          "symbol": "UCAR",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-13:UCAR#2",
+          "symbol": "UCAR",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": -0.167
+        },
+        {
+          "opportunity_id": "2026-07-13:PLSM",
+          "symbol": "PLSM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.96
+        },
+        {
+          "opportunity_id": "2026-07-13:SKYQ#1",
+          "symbol": "SKYQ",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-13:SKYQ#2",
+          "symbol": "SKYQ",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": -0.2
+        },
+        {
+          "opportunity_id": "2026-07-13:LGPS",
+          "symbol": "LGPS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.514
+        },
+        {
+          "opportunity_id": "2026-07-13:SOXS#1",
+          "symbol": "SOXS",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-13:SOXS#2",
+          "symbol": "SOXS",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-13:CMND",
+          "symbol": "CMND",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.077
+        },
+        {
+          "opportunity_id": "2026-07-13:BQ",
+          "symbol": "BQ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.355
+        },
+        {
+          "opportunity_id": "2026-07-13:GFUZ#1",
+          "symbol": "GFUZ",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 10.6
+        },
+        {
+          "opportunity_id": "2026-07-13:GFUZ#2",
+          "symbol": "GFUZ",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-13:UBXG",
+          "symbol": "UBXG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.905
+        },
+        {
+          "opportunity_id": "2026-07-13:BATL#1",
+          "symbol": "BATL",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-13:BATL#2",
+          "symbol": "BATL",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.286
+        },
+        {
+          "opportunity_id": "2026-07-13:VRRM",
+          "symbol": "VRRM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.5
+        },
+        {
+          "opportunity_id": "2026-07-13:PSNL",
+          "symbol": "PSNL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.433
+        },
+        {
+          "opportunity_id": "2026-07-13:SOBR",
+          "symbol": "SOBR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.433
+        },
+        {
+          "opportunity_id": "2026-07-13:MTVA",
+          "symbol": "MTVA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.588
+        },
+        {
+          "opportunity_id": "2026-07-13:AGEN",
+          "symbol": "AGEN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.098
+        },
+        {
+          "opportunity_id": "2026-07-13:AMIX",
+          "symbol": "AMIX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-13:MUZ#1",
+          "symbol": "MUZ",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.667
+        },
+        {
+          "opportunity_id": "2026-07-13:MUZ#2",
+          "symbol": "MUZ",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-13:TDIC",
+          "symbol": "TDIC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.306
+        },
+        {
+          "opportunity_id": "2026-07-13:ACTU",
+          "symbol": "ACTU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.269
+        },
+        {
+          "opportunity_id": "2026-07-13:IONZ",
+          "symbol": "IONZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.692
+        },
+        {
+          "opportunity_id": "2026-07-13:ONCY",
+          "symbol": "ONCY",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.143
+        },
+        {
+          "opportunity_id": "2026-07-13:CNMD",
+          "symbol": "CNMD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.31
+        },
+        {
+          "opportunity_id": "2026-07-13:AURE#1",
+          "symbol": "AURE",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-13:AURE#2",
+          "symbol": "AURE",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.053
+        },
+        {
+          "opportunity_id": "2026-07-13:VEEE",
+          "symbol": "VEEE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 16.711
+        },
+        {
+          "opportunity_id": "2026-07-13:MIMI",
+          "symbol": "MIMI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-13:SNDQ",
+          "symbol": "SNDQ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-13:QTTB#1",
+          "symbol": "QTTB",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-13:QTTB#2",
+          "symbol": "QTTB",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.584
+        },
+        {
+          "opportunity_id": "2026-07-13:EHGO#1",
+          "symbol": "EHGO",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 4.818
+        },
+        {
+          "opportunity_id": "2026-07-13:EHGO#2",
+          "symbol": "EHGO",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 16.6
+        },
+        {
+          "opportunity_id": "2026-07-13:OLOX",
+          "symbol": "OLOX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.815
+        },
+        {
+          "opportunity_id": "2026-07-13:SOC",
+          "symbol": "SOC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        }
+      ]
+    },
+    {
+      "date": "2026-07-10",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-10:JZXN",
+          "symbol": "JZXN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 5.788
+        },
+        {
+          "opportunity_id": "2026-07-10:CBRG",
+          "symbol": "CBRG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.429
+        },
+        {
+          "opportunity_id": "2026-07-10:WOK#1",
+          "symbol": "WOK",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.55
+        },
+        {
+          "opportunity_id": "2026-07-10:WOK#2",
+          "symbol": "WOK",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": -0.143
+        },
+        {
+          "opportunity_id": "2026-07-10:CHSN",
+          "symbol": "CHSN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 4.909
+        },
+        {
+          "opportunity_id": "2026-07-10:CRCG",
+          "symbol": "CRCG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 8.19
+        },
+        {
+          "opportunity_id": "2026-07-10:CCC",
+          "symbol": "CCC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.095
+        },
+        {
+          "opportunity_id": "2026-07-10:CCUP",
+          "symbol": "CCUP",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 4.5
+        },
+        {
+          "opportunity_id": "2026-07-10:VOD",
+          "symbol": "VOD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.667
+        },
+        {
+          "opportunity_id": "2026-07-10:RXT",
+          "symbol": "RXT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.625
+        },
+        {
+          "opportunity_id": "2026-07-10:HAO",
+          "symbol": "HAO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.074
+        },
+        {
+          "opportunity_id": "2026-07-10:CRE#1",
+          "symbol": "CRE",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-10:CRE#2",
+          "symbol": "CRE",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.714
+        },
+        {
+          "opportunity_id": "2026-07-10:SUNE",
+          "symbol": "SUNE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 6.476
+        },
+        {
+          "opportunity_id": "2026-07-10:QTEX",
+          "symbol": "QTEX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-10:TPTS",
+          "symbol": "TPTS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-10:GMM",
+          "symbol": "GMM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.771
+        },
+        {
+          "opportunity_id": "2026-07-10:JLHL#1",
+          "symbol": "JLHL",
+          "run": 1,
+          "run_count": 4,
+          "triggered": true,
+          "max_r": 0.232
+        },
+        {
+          "opportunity_id": "2026-07-10:JLHL#2",
+          "symbol": "JLHL",
+          "run": 2,
+          "run_count": 4,
+          "triggered": true,
+          "max_r": 1.821
+        },
+        {
+          "opportunity_id": "2026-07-10:JLHL#3",
+          "symbol": "JLHL",
+          "run": 3,
+          "run_count": 4,
+          "triggered": true,
+          "max_r": 0.924
+        },
+        {
+          "opportunity_id": "2026-07-10:JLHL#4",
+          "symbol": "JLHL",
+          "run": 4,
+          "run_count": 4,
+          "triggered": true,
+          "max_r": 0.187
+        },
+        {
+          "opportunity_id": "2026-07-10:PMA#1",
+          "symbol": "PMA",
+          "run": 1,
+          "run_count": 5,
+          "triggered": true,
+          "max_r": 0.375
+        },
+        {
+          "opportunity_id": "2026-07-10:PMA#2",
+          "symbol": "PMA",
+          "run": 2,
+          "run_count": 5,
+          "triggered": true,
+          "max_r": 1.545
+        },
+        {
+          "opportunity_id": "2026-07-10:PMA#3",
+          "symbol": "PMA",
+          "run": 3,
+          "run_count": 5,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-10:PMA#4",
+          "symbol": "PMA",
+          "run": 4,
+          "run_count": 5,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-10:PMA#5",
+          "symbol": "PMA",
+          "run": 5,
+          "run_count": 5,
+          "triggered": true,
+          "max_r": 5.023
+        },
+        {
+          "opportunity_id": "2026-07-10:METU",
+          "symbol": "METU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.275
+        },
+        {
+          "opportunity_id": "2026-07-10:LXEH",
+          "symbol": "LXEH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.042
+        },
+        {
+          "opportunity_id": "2026-07-10:LABD",
+          "symbol": "LABD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-10:TKLF#1",
+          "symbol": "TKLF",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.234
+        },
+        {
+          "opportunity_id": "2026-07-10:TKLF#2",
+          "symbol": "TKLF",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.115
+        },
+        {
+          "opportunity_id": "2026-07-10:YYGH",
+          "symbol": "YYGH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.3
+        },
+        {
+          "opportunity_id": "2026-07-10:EQPT",
+          "symbol": "EQPT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.519
+        },
+        {
+          "opportunity_id": "2026-07-10:ZCMD",
+          "symbol": "ZCMD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-10:ELPW",
+          "symbol": "ELPW",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-10:ZBAO",
+          "symbol": "ZBAO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.003
+        },
+        {
+          "opportunity_id": "2026-07-10:INUV#1",
+          "symbol": "INUV",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": -0.284
+        },
+        {
+          "opportunity_id": "2026-07-10:INUV#2",
+          "symbol": "INUV",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-10:LUCY",
+          "symbol": "LUCY",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-10:NVVE",
+          "symbol": "NVVE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-10:CDZI",
+          "symbol": "CDZI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-10:CONL",
+          "symbol": "CONL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-10:MSTU",
+          "symbol": "MSTU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.395
+        },
+        {
+          "opportunity_id": "2026-07-10:FBL",
+          "symbol": "FBL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.288
+        },
+        {
+          "opportunity_id": "2026-07-10:FBRX",
+          "symbol": "FBRX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.102
+        },
+        {
+          "opportunity_id": "2026-07-10:CRCA#1",
+          "symbol": "CRCA",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 4.794
+        },
+        {
+          "opportunity_id": "2026-07-10:CRCA#2",
+          "symbol": "CRCA",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-10:ELAB#1",
+          "symbol": "ELAB",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-10:ELAB#2",
+          "symbol": "ELAB",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 5.6
+        },
+        {
+          "opportunity_id": "2026-07-10:MSTX",
+          "symbol": "MSTX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        }
+      ]
+    },
+    {
+      "date": "2026-07-09",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-09:BEX",
+          "symbol": "BEX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.2
+        },
+        {
+          "opportunity_id": "2026-07-09:SNDU",
+          "symbol": "SNDU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.967
+        },
+        {
+          "opportunity_id": "2026-07-09:VMAR",
+          "symbol": "VMAR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.148
+        },
+        {
+          "opportunity_id": "2026-07-09:CLRO",
+          "symbol": "CLRO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.483
+        },
+        {
+          "opportunity_id": "2026-07-09:USDE",
+          "symbol": "USDE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-09:AAOX#1",
+          "symbol": "AAOX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-09:AAOX#2",
+          "symbol": "AAOX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-09:AMAU",
+          "symbol": "AMAU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.119
+        },
+        {
+          "opportunity_id": "2026-07-09:LITX",
+          "symbol": "LITX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.236
+        },
+        {
+          "opportunity_id": "2026-07-09:SMPL",
+          "symbol": "SMPL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.067
+        },
+        {
+          "opportunity_id": "2026-07-09:FBRX",
+          "symbol": "FBRX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.449
+        },
+        {
+          "opportunity_id": "2026-07-09:OSTX",
+          "symbol": "OSTX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.2
+        },
+        {
+          "opportunity_id": "2026-07-09:TRAX",
+          "symbol": "TRAX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-09:ARMG",
+          "symbol": "ARMG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.092
+        },
+        {
+          "opportunity_id": "2026-07-09:SNXX",
+          "symbol": "SNXX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-09:QGEN",
+          "symbol": "QGEN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.494
+        },
+        {
+          "opportunity_id": "2026-07-09:BJDX#1",
+          "symbol": "BJDX",
+          "run": 1,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-09:BJDX#2",
+          "symbol": "BJDX",
+          "run": 2,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-09:BJDX#3",
+          "symbol": "BJDX",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 1.207
+        },
+        {
+          "opportunity_id": "2026-07-09:AXTX#1",
+          "symbol": "AXTX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.111
+        },
+        {
+          "opportunity_id": "2026-07-09:AXTX#2",
+          "symbol": "AXTX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-09:AAOG",
+          "symbol": "AAOG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-09:MVLL#1",
+          "symbol": "MVLL",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-09:MVLL#2",
+          "symbol": "MVLL",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.944
+        },
+        {
+          "opportunity_id": "2026-07-09:WDCX",
+          "symbol": "WDCX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.456
+        },
+        {
+          "opportunity_id": "2026-07-09:CNTB#1",
+          "symbol": "CNTB",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.042
+        },
+        {
+          "opportunity_id": "2026-07-09:CNTB#2",
+          "symbol": "CNTB",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-09:MARA",
+          "symbol": "MARA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.222
+        },
+        {
+          "opportunity_id": "2026-07-09:WRAP",
+          "symbol": "WRAP",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-09:RAM",
+          "symbol": "RAM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.556
+        },
+        {
+          "opportunity_id": "2026-07-09:NUAI",
+          "symbol": "NUAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-09:LRMR#1",
+          "symbol": "LRMR",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": -0.053
+        },
+        {
+          "opportunity_id": "2026-07-09:LRMR#2",
+          "symbol": "LRMR",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.267
+        },
+        {
+          "opportunity_id": "2026-07-09:FLNC",
+          "symbol": "FLNC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.267
+        },
+        {
+          "opportunity_id": "2026-07-09:TRNR",
+          "symbol": "TRNR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-09:VRAX",
+          "symbol": "VRAX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 6.975
+        },
+        {
+          "opportunity_id": "2026-07-09:OPEN",
+          "symbol": "OPEN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.25
+        },
+        {
+          "opportunity_id": "2026-07-09:TDTH#1",
+          "symbol": "TDTH",
+          "run": 1,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.6
+        },
+        {
+          "opportunity_id": "2026-07-09:TDTH#2",
+          "symbol": "TDTH",
+          "run": 2,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-09:TDTH#3",
+          "symbol": "TDTH",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-09:CBRG#1",
+          "symbol": "CBRG",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-09:CBRG#2",
+          "symbol": "CBRG",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 3.778
+        },
+        {
+          "opportunity_id": "2026-07-09:FRVO",
+          "symbol": "FRVO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.05
+        },
+        {
+          "opportunity_id": "2026-07-09:JLHL#1",
+          "symbol": "JLHL",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-09:JLHL#2",
+          "symbol": "JLHL",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 36.31
+        },
+        {
+          "opportunity_id": "2026-07-09:TXG",
+          "symbol": "TXG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-09:GLWG",
+          "symbol": "GLWG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.388
+        },
+        {
+          "opportunity_id": "2026-07-09:MULL",
+          "symbol": "MULL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.327
+        },
+        {
+          "opportunity_id": "2026-07-09:RKTO",
+          "symbol": "RKTO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.952
+        },
+        {
+          "opportunity_id": "2026-07-09:SUNE#1",
+          "symbol": "SUNE",
+          "run": 1,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-09:SUNE#2",
+          "symbol": "SUNE",
+          "run": 2,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 1.994
+        },
+        {
+          "opportunity_id": "2026-07-09:SUNE#3",
+          "symbol": "SUNE",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": -0.167
+        },
+        {
+          "opportunity_id": "2026-07-09:FCEL",
+          "symbol": "FCEL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.789
+        },
+        {
+          "opportunity_id": "2026-07-09:KOLD",
+          "symbol": "KOLD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.769
+        },
+        {
+          "opportunity_id": "2026-07-09:SRXH#1",
+          "symbol": "SRXH",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-09:SRXH#2",
+          "symbol": "SRXH",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-09:CAST",
+          "symbol": "CAST",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.769
+        },
+        {
+          "opportunity_id": "2026-07-09:SDOT",
+          "symbol": "SDOT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.18
+        },
+        {
+          "opportunity_id": "2026-07-09:GMEX",
+          "symbol": "GMEX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.321
+        },
+        {
+          "opportunity_id": "2026-07-09:ENVX",
+          "symbol": "ENVX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.5
+        },
+        {
+          "opportunity_id": "2026-07-09:RPGL",
+          "symbol": "RPGL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        }
+      ]
+    },
+    {
+      "date": "2026-07-08",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-08:VTAK",
+          "symbol": "VTAK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-08:IRE",
+          "symbol": "IRE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.88
+        },
+        {
+          "opportunity_id": "2026-07-08:KC",
+          "symbol": "KC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.385
+        },
+        {
+          "opportunity_id": "2026-07-08:OPTU",
+          "symbol": "OPTU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.5
+        },
+        {
+          "opportunity_id": "2026-07-08:TVRD#1",
+          "symbol": "TVRD",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:TVRD#2",
+          "symbol": "TVRD",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 16.0
+        },
+        {
+          "opportunity_id": "2026-07-08:NCRA#1",
+          "symbol": "NCRA",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:NCRA#2",
+          "symbol": "NCRA",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:IONZ",
+          "symbol": "IONZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:WTI",
+          "symbol": "WTI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:NBIL",
+          "symbol": "NBIL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.104
+        },
+        {
+          "opportunity_id": "2026-07-08:SNDQ",
+          "symbol": "SNDQ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.818
+        },
+        {
+          "opportunity_id": "2026-07-08:MSTZ",
+          "symbol": "MSTZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-08:SKYQ",
+          "symbol": "SKYQ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 10.014
+        },
+        {
+          "opportunity_id": "2026-07-08:VRXA",
+          "symbol": "VRXA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:BNRG#1",
+          "symbol": "BNRG",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:BNRG#2",
+          "symbol": "BNRG",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.111
+        },
+        {
+          "opportunity_id": "2026-07-08:OTLK",
+          "symbol": "OTLK",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.643
+        },
+        {
+          "opportunity_id": "2026-07-08:VANI",
+          "symbol": "VANI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.083
+        },
+        {
+          "opportunity_id": "2026-07-08:NEBX",
+          "symbol": "NEBX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:WULF",
+          "symbol": "WULF",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.31
+        },
+        {
+          "opportunity_id": "2026-07-08:CWEB",
+          "symbol": "CWEB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:ZCMD",
+          "symbol": "ZCMD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.737
+        },
+        {
+          "opportunity_id": "2026-07-08:BABX#1",
+          "symbol": "BABX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:BABX#2",
+          "symbol": "BABX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 3.519
+        },
+        {
+          "opportunity_id": "2026-07-08:RGC",
+          "symbol": "RGC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-08:TMDE",
+          "symbol": "TMDE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.231
+        },
+        {
+          "opportunity_id": "2026-07-08:YINN",
+          "symbol": "YINN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:PRME",
+          "symbol": "PRME",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.138
+        },
+        {
+          "opportunity_id": "2026-07-08:SHPH",
+          "symbol": "SHPH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-08:AXTX",
+          "symbol": "AXTX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.107
+        },
+        {
+          "opportunity_id": "2026-07-08:SOXS",
+          "symbol": "SOXS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.111
+        },
+        {
+          "opportunity_id": "2026-07-08:RDWU",
+          "symbol": "RDWU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.571
+        },
+        {
+          "opportunity_id": "2026-07-08:CBRG",
+          "symbol": "CBRG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-08:DCX#1",
+          "symbol": "DCX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:DCX#2",
+          "symbol": "DCX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:VEEE#1",
+          "symbol": "VEEE",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:VEEE#2",
+          "symbol": "VEEE",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-08:LUCY",
+          "symbol": "LUCY",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.429
+        },
+        {
+          "opportunity_id": "2026-07-08:TC#1",
+          "symbol": "TC",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:TC#2",
+          "symbol": "TC",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.643
+        },
+        {
+          "opportunity_id": "2026-07-08:ELTX",
+          "symbol": "ELTX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.8
+        },
+        {
+          "opportunity_id": "2026-07-08:VMAR",
+          "symbol": "VMAR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.919
+        },
+        {
+          "opportunity_id": "2026-07-08:RXT",
+          "symbol": "RXT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.379
+        },
+        {
+          "opportunity_id": "2026-07-08:WFF",
+          "symbol": "WFF",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.176
+        },
+        {
+          "opportunity_id": "2026-07-08:BATL",
+          "symbol": "BATL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-08:DLLL",
+          "symbol": "DLLL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.14
+        },
+        {
+          "opportunity_id": "2026-07-08:CMMB",
+          "symbol": "CMMB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.844
+        },
+        {
+          "opportunity_id": "2026-07-08:NVVE",
+          "symbol": "NVVE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 11.404
+        },
+        {
+          "opportunity_id": "2026-07-08:LHAI",
+          "symbol": "LHAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.806
+        },
+        {
+          "opportunity_id": "2026-07-08:IOTR",
+          "symbol": "IOTR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.139
+        },
+        {
+          "opportunity_id": "2026-07-08:MUZ",
+          "symbol": "MUZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-08:BABU",
+          "symbol": "BABU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.462
+        }
+      ]
+    },
+    {
+      "date": "2026-07-07",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-07:SRXH",
+          "symbol": "SRXH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:TDIC#1",
+          "symbol": "TDIC",
+          "run": 1,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:TDIC#2",
+          "symbol": "TDIC",
+          "run": 2,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.667
+        },
+        {
+          "opportunity_id": "2026-07-07:TDIC#3",
+          "symbol": "TDIC",
+          "run": 3,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:IVF",
+          "symbol": "IVF",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.753
+        },
+        {
+          "opportunity_id": "2026-07-07:CMND",
+          "symbol": "CMND",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-07:TDTH",
+          "symbol": "TDTH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:SKYQ#1",
+          "symbol": "SKYQ",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 5.154
+        },
+        {
+          "opportunity_id": "2026-07-07:SKYQ#2",
+          "symbol": "SKYQ",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-07:VANI",
+          "symbol": "VANI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.2
+        },
+        {
+          "opportunity_id": "2026-07-07:SPHL",
+          "symbol": "SPHL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.28
+        },
+        {
+          "opportunity_id": "2026-07-07:SKIN",
+          "symbol": "SKIN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.232
+        },
+        {
+          "opportunity_id": "2026-07-07:LGCL",
+          "symbol": "LGCL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.188
+        },
+        {
+          "opportunity_id": "2026-07-07:OPTU",
+          "symbol": "OPTU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.444
+        },
+        {
+          "opportunity_id": "2026-07-07:NPT",
+          "symbol": "NPT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.546
+        },
+        {
+          "opportunity_id": "2026-07-07:PPCB",
+          "symbol": "PPCB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.5
+        },
+        {
+          "opportunity_id": "2026-07-07:SILO",
+          "symbol": "SILO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.495
+        },
+        {
+          "opportunity_id": "2026-07-07:TRVI",
+          "symbol": "TRVI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.867
+        },
+        {
+          "opportunity_id": "2026-07-07:VRXA",
+          "symbol": "VRXA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.818
+        },
+        {
+          "opportunity_id": "2026-07-07:WXM",
+          "symbol": "WXM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.091
+        },
+        {
+          "opportunity_id": "2026-07-07:ADBG",
+          "symbol": "ADBG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.2
+        },
+        {
+          "opportunity_id": "2026-07-07:XWEL",
+          "symbol": "XWEL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:STEX",
+          "symbol": "STEX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:AMPG#1",
+          "symbol": "AMPG",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.207
+        },
+        {
+          "opportunity_id": "2026-07-07:AMPG#2",
+          "symbol": "AMPG",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-07:BJDX",
+          "symbol": "BJDX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:CRE",
+          "symbol": "CRE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.05
+        },
+        {
+          "opportunity_id": "2026-07-07:SSPC",
+          "symbol": "SSPC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.389
+        },
+        {
+          "opportunity_id": "2026-07-07:IREZ",
+          "symbol": "IREZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.214
+        },
+        {
+          "opportunity_id": "2026-07-07:IONZ",
+          "symbol": "IONZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:DAMD#1",
+          "symbol": "DAMD",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.333
+        },
+        {
+          "opportunity_id": "2026-07-07:DAMD#2",
+          "symbol": "DAMD",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:SUGP",
+          "symbol": "SUGP",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-07:JLHL",
+          "symbol": "JLHL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.133
+        },
+        {
+          "opportunity_id": "2026-07-07:TVRD",
+          "symbol": "TVRD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.333
+        },
+        {
+          "opportunity_id": "2026-07-07:SNDQ",
+          "symbol": "SNDQ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:NBIZ",
+          "symbol": "NBIZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.047
+        },
+        {
+          "opportunity_id": "2026-07-07:RKLZ",
+          "symbol": "RKLZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.981
+        },
+        {
+          "opportunity_id": "2026-07-07:CLRO",
+          "symbol": "CLRO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 12.149
+        },
+        {
+          "opportunity_id": "2026-07-07:SOXS",
+          "symbol": "SOXS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:BYAH#1",
+          "symbol": "BYAH",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:BYAH#2",
+          "symbol": "BYAH",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.056
+        },
+        {
+          "opportunity_id": "2026-07-07:MUZ#1",
+          "symbol": "MUZ",
+          "run": 1,
+          "run_count": 4,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:MUZ#2",
+          "symbol": "MUZ",
+          "run": 2,
+          "run_count": 4,
+          "triggered": true,
+          "max_r": -0.182
+        },
+        {
+          "opportunity_id": "2026-07-07:MUZ#3",
+          "symbol": "MUZ",
+          "run": 3,
+          "run_count": 4,
+          "triggered": true,
+          "max_r": 2.343
+        },
+        {
+          "opportunity_id": "2026-07-07:MUZ#4",
+          "symbol": "MUZ",
+          "run": 4,
+          "run_count": 4,
+          "triggered": true,
+          "max_r": 0.7
+        },
+        {
+          "opportunity_id": "2026-07-07:EDHL#1",
+          "symbol": "EDHL",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-07:EDHL#2",
+          "symbol": "EDHL",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.828
+        },
+        {
+          "opportunity_id": "2026-07-07:PEW",
+          "symbol": "PEW",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.167
+        }
+      ]
+    },
+    {
+      "date": "2026-07-06",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-06:TDIC#1",
+          "symbol": "TDIC",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.66
+        },
+        {
+          "opportunity_id": "2026-07-06:TDIC#2",
+          "symbol": "TDIC",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 4.346
+        },
+        {
+          "opportunity_id": "2026-07-06:AXTX",
+          "symbol": "AXTX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:INLF",
+          "symbol": "INLF",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.529
+        },
+        {
+          "opportunity_id": "2026-07-06:BYAH",
+          "symbol": "BYAH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:LUCY",
+          "symbol": "LUCY",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.299
+        },
+        {
+          "opportunity_id": "2026-07-06:WULF",
+          "symbol": "WULF",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.378
+        },
+        {
+          "opportunity_id": "2026-07-06:FXHO#1",
+          "symbol": "FXHO",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:FXHO#2",
+          "symbol": "FXHO",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:YDES",
+          "symbol": "YDES",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.773
+        },
+        {
+          "opportunity_id": "2026-07-06:SLNH",
+          "symbol": "SLNH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:IREN",
+          "symbol": "IREN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.734
+        },
+        {
+          "opportunity_id": "2026-07-06:ZCMD",
+          "symbol": "ZCMD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.125
+        },
+        {
+          "opportunity_id": "2026-07-06:SPHL",
+          "symbol": "SPHL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.324
+        },
+        {
+          "opportunity_id": "2026-07-06:ICCM",
+          "symbol": "ICCM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.759
+        },
+        {
+          "opportunity_id": "2026-07-06:PEW#1",
+          "symbol": "PEW",
+          "run": 1,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 2.0
+        },
+        {
+          "opportunity_id": "2026-07-06:PEW#2",
+          "symbol": "PEW",
+          "run": 2,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:PEW#3",
+          "symbol": "PEW",
+          "run": 3,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:LHAI",
+          "symbol": "LHAI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:SNDU",
+          "symbol": "SNDU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.229
+        },
+        {
+          "opportunity_id": "2026-07-06:LHSW",
+          "symbol": "LHSW",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.938
+        },
+        {
+          "opportunity_id": "2026-07-06:ABTC",
+          "symbol": "ABTC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.085
+        },
+        {
+          "opportunity_id": "2026-07-06:KIDZ",
+          "symbol": "KIDZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:WBUY",
+          "symbol": "WBUY",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.091
+        },
+        {
+          "opportunity_id": "2026-07-06:MSTZ",
+          "symbol": "MSTZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 3.0
+        },
+        {
+          "opportunity_id": "2026-07-06:CIFR",
+          "symbol": "CIFR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.136
+        },
+        {
+          "opportunity_id": "2026-07-06:EHGO",
+          "symbol": "EHGO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.083
+        },
+        {
+          "opportunity_id": "2026-07-06:TDTH",
+          "symbol": "TDTH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.951
+        },
+        {
+          "opportunity_id": "2026-07-06:UPC",
+          "symbol": "UPC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:CCTG",
+          "symbol": "CCTG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:IRE#1",
+          "symbol": "IRE",
+          "run": 1,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:IRE#2",
+          "symbol": "IRE",
+          "run": 2,
+          "run_count": 3,
+          "triggered": true,
+          "max_r": 0.087
+        },
+        {
+          "opportunity_id": "2026-07-06:IRE#3",
+          "symbol": "IRE",
+          "run": 3,
+          "run_count": 3,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:FCHL",
+          "symbol": "FCHL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.833
+        },
+        {
+          "opportunity_id": "2026-07-06:GMEX",
+          "symbol": "GMEX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:IPW",
+          "symbol": "IPW",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.048
+        },
+        {
+          "opportunity_id": "2026-07-06:WRAP#1",
+          "symbol": "WRAP",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.483
+        },
+        {
+          "opportunity_id": "2026-07-06:WRAP#2",
+          "symbol": "WRAP",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:SCLX",
+          "symbol": "SCLX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:ONCO#1",
+          "symbol": "ONCO",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:ONCO#2",
+          "symbol": "ONCO",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:CCUP",
+          "symbol": "CCUP",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:SEER",
+          "symbol": "SEER",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:AIXI",
+          "symbol": "AIXI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:SNXX#1",
+          "symbol": "SNXX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:SNXX#2",
+          "symbol": "SNXX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.211
+        },
+        {
+          "opportunity_id": "2026-07-06:BFLY",
+          "symbol": "BFLY",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.9
+        },
+        {
+          "opportunity_id": "2026-07-06:ELAB#1",
+          "symbol": "ELAB",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.35
+        },
+        {
+          "opportunity_id": "2026-07-06:ELAB#2",
+          "symbol": "ELAB",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.875
+        },
+        {
+          "opportunity_id": "2026-07-06:STEX",
+          "symbol": "STEX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:MSS",
+          "symbol": "MSS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:CLRO#1",
+          "symbol": "CLRO",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.568
+        },
+        {
+          "opportunity_id": "2026-07-06:CLRO#2",
+          "symbol": "CLRO",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.857
+        },
+        {
+          "opportunity_id": "2026-07-06:WXM",
+          "symbol": "WXM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.722
+        },
+        {
+          "opportunity_id": "2026-07-06:BJDX#1",
+          "symbol": "BJDX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.005
+        },
+        {
+          "opportunity_id": "2026-07-06:BJDX#2",
+          "symbol": "BJDX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:JLHL",
+          "symbol": "JLHL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.682
+        },
+        {
+          "opportunity_id": "2026-07-06:CRE#1",
+          "symbol": "CRE",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 2.355
+        },
+        {
+          "opportunity_id": "2026-07-06:CRE#2",
+          "symbol": "CRE",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:WDCX",
+          "symbol": "WDCX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-06:CRCG",
+          "symbol": "CRCG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.579
+        },
+        {
+          "opportunity_id": "2026-07-06:QTEX",
+          "symbol": "QTEX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:RAM#1",
+          "symbol": "RAM",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-06:RAM#2",
+          "symbol": "RAM",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.661
+        }
+      ]
+    },
+    {
+      "date": "2026-07-05",
+      "opportunities": []
+    },
+    {
+      "date": "2026-07-04",
+      "opportunities": []
+    },
+    {
+      "date": "2026-07-03",
+      "opportunities": []
+    },
+    {
+      "date": "2026-07-02",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-02:NKTX",
+          "symbol": "NKTX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-02:WHLR",
+          "symbol": "WHLR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-02:ETHT#1",
+          "symbol": "ETHT",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.333
+        },
+        {
+          "opportunity_id": "2026-07-02:ETHT#2",
+          "symbol": "ETHT",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-02:USDE",
+          "symbol": "USDE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:TSDD",
+          "symbol": "TSDD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:NBIZ",
+          "symbol": "NBIZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:MSTX#1",
+          "symbol": "MSTX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.154
+        },
+        {
+          "opportunity_id": "2026-07-02:MSTX#2",
+          "symbol": "MSTX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.222
+        },
+        {
+          "opportunity_id": "2026-07-02:CMMB",
+          "symbol": "CMMB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-02:CSTE",
+          "symbol": "CSTE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:DJT",
+          "symbol": "DJT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-02:CONL",
+          "symbol": "CONL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.667
+        },
+        {
+          "opportunity_id": "2026-07-02:MSTU",
+          "symbol": "MSTU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.231
+        },
+        {
+          "opportunity_id": "2026-07-02:CLVT",
+          "symbol": "CLVT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.8
+        },
+        {
+          "opportunity_id": "2026-07-02:VRXA",
+          "symbol": "VRXA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.909
+        },
+        {
+          "opportunity_id": "2026-07-02:CYH",
+          "symbol": "CYH",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.058
+        },
+        {
+          "opportunity_id": "2026-07-02:FWDI",
+          "symbol": "FWDI",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.25
+        },
+        {
+          "opportunity_id": "2026-07-02:SNDQ#1",
+          "symbol": "SNDQ",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:SNDQ#2",
+          "symbol": "SNDQ",
+          "run": 2,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:JEM#1",
+          "symbol": "JEM",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:JEM#2",
+          "symbol": "JEM",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 3.36
+        },
+        {
+          "opportunity_id": "2026-07-02:PRME",
+          "symbol": "PRME",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-02:IREZ",
+          "symbol": "IREZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-02:CRCG",
+          "symbol": "CRCG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.13
+        },
+        {
+          "opportunity_id": "2026-07-02:SOXS",
+          "symbol": "SOXS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-02:CRMT",
+          "symbol": "CRMT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.319
+        },
+        {
+          "opportunity_id": "2026-07-02:DSY",
+          "symbol": "DSY",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:AVXX#1",
+          "symbol": "AVXX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:AVXX#2",
+          "symbol": "AVXX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.8
+        },
+        {
+          "opportunity_id": "2026-07-02:IPW",
+          "symbol": "IPW",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.235
+        },
+        {
+          "opportunity_id": "2026-07-02:EDIT",
+          "symbol": "EDIT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.13
+        },
+        {
+          "opportunity_id": "2026-07-02:CETX",
+          "symbol": "CETX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.027
+        },
+        {
+          "opportunity_id": "2026-07-02:CLRO",
+          "symbol": "CLRO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:SIDU",
+          "symbol": "SIDU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:ILLR#1",
+          "symbol": "ILLR",
+          "run": 1,
+          "run_count": 2,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:ILLR#2",
+          "symbol": "ILLR",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.065
+        },
+        {
+          "opportunity_id": "2026-07-02:DFDV",
+          "symbol": "DFDV",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.049
+        },
+        {
+          "opportunity_id": "2026-07-02:AHMA",
+          "symbol": "AHMA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:PPCB",
+          "symbol": "PPCB",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-02:ITRG",
+          "symbol": "ITRG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.286
+        },
+        {
+          "opportunity_id": "2026-07-02:ARCT",
+          "symbol": "ARCT",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.914
+        },
+        {
+          "opportunity_id": "2026-07-02:LGCL",
+          "symbol": "LGCL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.034
+        },
+        {
+          "opportunity_id": "2026-07-02:EHGO",
+          "symbol": "EHGO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-02:OKLL",
+          "symbol": "OKLL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        }
+      ]
+    },
+    {
+      "date": "2026-07-01",
+      "opportunities": [
+        {
+          "opportunity_id": "2026-07-01:TONX",
+          "symbol": "TONX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.667
+        },
+        {
+          "opportunity_id": "2026-07-01:SOXS",
+          "symbol": "SOXS",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-01:MSTU",
+          "symbol": "MSTU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-01:PCLA",
+          "symbol": "PCLA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-01:MSTX",
+          "symbol": "MSTX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 4.348
+        },
+        {
+          "opportunity_id": "2026-07-01:FWDI#1",
+          "symbol": "FWDI",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.222
+        },
+        {
+          "opportunity_id": "2026-07-01:FWDI#2",
+          "symbol": "FWDI",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-01:UPC",
+          "symbol": "UPC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-01:SOC",
+          "symbol": "SOC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-01:IBIO",
+          "symbol": "IBIO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.057
+        },
+        {
+          "opportunity_id": "2026-07-01:CRMG",
+          "symbol": "CRMG",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.125
+        },
+        {
+          "opportunity_id": "2026-07-01:SNDQ",
+          "symbol": "SNDQ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-01:OKLL",
+          "symbol": "OKLL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 1.833
+        },
+        {
+          "opportunity_id": "2026-07-01:JEM",
+          "symbol": "JEM",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 5.596
+        },
+        {
+          "opportunity_id": "2026-07-01:AHMA",
+          "symbol": "AHMA",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.763
+        },
+        {
+          "opportunity_id": "2026-07-01:DFDV",
+          "symbol": "DFDV",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-01:VRAX",
+          "symbol": "VRAX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.025
+        },
+        {
+          "opportunity_id": "2026-07-01:RPD",
+          "symbol": "RPD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.636
+        },
+        {
+          "opportunity_id": "2026-07-01:EHGO",
+          "symbol": "EHGO",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.385
+        },
+        {
+          "opportunity_id": "2026-07-01:CORD",
+          "symbol": "CORD",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 2.774
+        },
+        {
+          "opportunity_id": "2026-07-01:AMPL",
+          "symbol": "AMPL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.053
+        },
+        {
+          "opportunity_id": "2026-07-01:UXIN",
+          "symbol": "UXIN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.444
+        },
+        {
+          "opportunity_id": "2026-07-01:TC",
+          "symbol": "TC",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-01:NOWL#1",
+          "symbol": "NOWL",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-01:NOWL#2",
+          "symbol": "NOWL",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.286
+        },
+        {
+          "opportunity_id": "2026-07-01:VMAR",
+          "symbol": "VMAR",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.312
+        },
+        {
+          "opportunity_id": "2026-07-01:RGC#1",
+          "symbol": "RGC",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.08
+        },
+        {
+          "opportunity_id": "2026-07-01:RGC#2",
+          "symbol": "RGC",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-01:DXST",
+          "symbol": "DXST",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-01:CANF",
+          "symbol": "CANF",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.172
+        },
+        {
+          "opportunity_id": "2026-07-01:TTDU",
+          "symbol": "TTDU",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-01:OPEN",
+          "symbol": "OPEN",
+          "run": 1,
+          "run_count": 1,
+          "triggered": false,
+          "max_r": null
+        },
+        {
+          "opportunity_id": "2026-07-01:ELTX#1",
+          "symbol": "ELTX",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 1.294
+        },
+        {
+          "opportunity_id": "2026-07-01:ELTX#2",
+          "symbol": "ELTX",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.125
+        },
+        {
+          "opportunity_id": "2026-07-01:EVLV",
+          "symbol": "EVLV",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 4.6
+        },
+        {
+          "opportunity_id": "2026-07-01:CONL",
+          "symbol": "CONL",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": -0.2
+        },
+        {
+          "opportunity_id": "2026-07-01:CODX",
+          "symbol": "CODX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-01:FATE",
+          "symbol": "FATE",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-01:AVXX",
+          "symbol": "AVXX",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.444
+        },
+        {
+          "opportunity_id": "2026-07-01:NBIZ",
+          "symbol": "NBIZ",
+          "run": 1,
+          "run_count": 1,
+          "triggered": true,
+          "max_r": 0.222
+        },
+        {
+          "opportunity_id": "2026-07-01:IREZ#1",
+          "symbol": "IREZ",
+          "run": 1,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.0
+        },
+        {
+          "opportunity_id": "2026-07-01:IREZ#2",
+          "symbol": "IREZ",
+          "run": 2,
+          "run_count": 2,
+          "triggered": true,
+          "max_r": 0.409
+        }
+      ]
+    }
+  ]
+}
