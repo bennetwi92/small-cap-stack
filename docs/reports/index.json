@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-07-31T16:38:00+00:00",
+  "generated_utc": "2026-07-31T17:19:53+00:00",
   "reports": [
     {
       "slug": "2026-07-31-time-of-day-when-the-entry-fires-and-what-it-s-worth",
@@ -40,6 +40,19 @@
       ],
       "author": "Claude",
       "words": 1925
+    },
+    {
+      "slug": "2026-07-31-engine-feature-analysis-which-gates-and-score-terms-actually-earn-their-keep",
+      "file": "2026-07-31-engine-feature-analysis-which-gates-and-score-terms-actually-earn-their-keep.md",
+      "title": "Engine feature analysis: which gates and score terms actually earn their keep",
+      "published": "2026-07-31",
+      "summary": "1050 setups, 21 days. The gate set only separates inside the window the book trades; a third of the score's weight is inert; and the strongest signal in the data — stop distance — isn't a feature at all.",
+      "tags": [
+        "strategy",
+        "data"
+      ],
+      "author": "Claude",
+      "words": 2988
     }
   ]
 }
