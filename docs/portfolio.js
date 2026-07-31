@@ -11,6 +11,23 @@ import { fetchJson } from "./js/data.js";
 import { esc, etClockIso, fmtPct, fmtShares, rRampClass } from "./js/fmt.js";
 
 const el = (id) => document.getElementById(id);
+
+// Panel explainers. On a wide monitor cockpit.css clamps these to three lines so the
+// rails fit one screen (#397); the full text always lives in the tooltip, and a click
+// opens the note in place. Below that breakpoint the clamp doesn't apply and this is
+// an ordinary innerHTML write. Takes an id or an element — the payout empty-state note
+// is built inside the cash-flow markup, so it's adopted rather than written.
+function setNote(target, html) {
+  const n = typeof target === "string" ? el(target) : target;
+  if (html != null) n.innerHTML = html;
+  n.title = n.textContent.trim();
+  n.classList.add("pf-clamp");
+  n.classList.remove("open");
+}
+document.addEventListener("click", (e) => {
+  const n = e.target.closest(".pf-clamp");
+  if (n) n.classList.toggle("open");
+});
 // Cockpit tokens (cockpit.css): win/loss green+red stay reserved for P&L, so the two
 // state charts wear the neutral accents — neither a target nor a risk rung is a win.
 const MK = { up: "#3ec07e", down: "#f06673", flat: "#9aa0b5", line: "#4fe3ef", gold: "#e3b452" };
@@ -49,12 +66,38 @@ function buildOptbar() {
   });
 }
 
+/* ---------- Chart sizing ----------
+   Charts are drawn at their container's pixel size — viewBox units ARE CSS px — rather
+   than at a fixed 720×240 the browser then rescales. Two reasons (#397): the old fixed
+   box scaled to ~0.55 in a 400px rail, shrinking the 11px axis labels to ~6px; and a
+   box-sized chart can spend a tall monitor's spare height on the plot instead of leaving
+   the rail half empty. Where no panel has spare height to give — phone, laptop, the
+   single-rail fixed book — height comes from the aspect instead. */
+function chartBox(wrap) {
+  const W = Math.max(260, Math.round(wrap.clientWidth) || 640);
+  // 3:1 was the old ratio of a 720-unit box the browser then squeezed into ~380px on a
+  // phone — which shrank the axis type to ~6px too. At 1:1 units the labels are their
+  // real 11px, so the plot needs a taller slice to keep them off each other.
+  const aspect = Math.min(260, Math.max(150, Math.round(W / 2.2)));
+  // cockpit.css makes the wrap `position:relative` in exactly the case where its height
+  // is flex-driven and the SVG inside is out of flow — which is what makes clientHeight
+  // safe to read. Anywhere else it's just the chart we drew last time, and measuring our
+  // own output would ratchet the plot taller on every redraw.
+  if (getComputedStyle(wrap).position !== "relative") return { W, H: aspect };
+  // Square is the ceiling: a rail with height to spare would otherwise draw a 320×560
+  // equity curve, and a plot that much taller than it is wide reads every wobble as a
+  // crash. Past the cap the chart just centres in its panel.
+  const avail = Math.round(wrap.clientHeight) || aspect;
+  return { W, H: Math.max(110, Math.min(avail, W)) };
+}
+
 /* ---------- Equity curve (inline SVG) ---------- */
 
-function equitySvg(curve, start, cashFlows = []) {
+function equitySvg(curve, start, cashFlows, box) {
   const pts = [{ date: null, equity: start }, ...curve]; // anchor at the opening balance
   if (pts.length < 2) return '<p class="muted">Not enough data to chart yet.</p>';
-  const W = 720, H = 240, PAD = 34;
+  const { W, H } = box;
+  const PAD = 34;
   const ys = pts.map((p) => p.equity);
   const yMin = Math.min(start, ...ys), yMax = Math.max(start, ...ys);
   const span = yMax - yMin || 1;
@@ -80,7 +123,9 @@ function equitySvg(curve, start, cashFlows = []) {
   return (
     `<svg viewBox="0 0 ${W} ${H}" class="pf-chart" role="img" aria-label="Equity curve">` +
     `<line x1="${PAD}" x2="${W - PAD}" y1="${baseY}" y2="${baseY}" stroke="${MK.flat}" stroke-dasharray="3 3" stroke-width="1"/>` +
-    `<text x="${W - PAD}" y="${(+baseY - 4).toFixed(1)}" text-anchor="end" class="pf-axis">start ${fmtUsd(start)}</text>` +
+    // Left-anchored: the end-of-curve label sits at the right, and a book that finishes
+    // near its opening balance would otherwise print the two on top of each other.
+    `<text x="${PAD}" y="${(+baseY - 4).toFixed(1)}" class="pf-axis">start ${fmtUsd(start)}</text>` +
     marks +
     `<path d="${area}" fill="${stroke}" opacity="0.10"/>` +
     `<path d="${line}" fill="none" stroke="${stroke}" stroke-width="2"/>` +
@@ -97,9 +142,10 @@ function equitySvg(curve, start, cashFlows = []) {
 // the target drifted through Tuesday, which it never does. Each day owns a slot of equal width,
 // and the y-domain always spans the whole configured ladder so a move reads against what was
 // available, not just against the days on screen. Same frame/typography as the equity curve.
-function stepSvg(points, o) {
+function stepSvg(points, o, box) {
   if (!points.length) return '<p class="muted">Not enough data to chart yet.</p>';
-  const W = 720, H = 240, PAD = 40, BOT = 46; // BOT leaves room for the date axis
+  const { W, H } = box;
+  const PAD = 40, BOT = 46; // BOT leaves room for the date axis
   const grid = o.grid || [];
   const dom = [...points.map((p) => p.value), ...grid.map((g) => g.v)];
   let lo = Math.min(...dom), hi = Math.max(...dom);
@@ -167,30 +213,38 @@ function stepSvg(points, o) {
 
 // The R multiple the book exits at, re-fit daily from the trailing window. Rules mark the
 // candidate grid, so a flat stretch reads as "the fit kept choosing the same rung".
-function targetSvg(book) {
+function targetSvg(book, box) {
   const pts = (book.daily_targets || [])
     .filter((d) => d.target != null)
     .map((d) => ({ date: d.date, value: d.target }));
   const grid = PAYLOAD.config.target_grid || [...new Set(pts.map((p) => p.value))].sort((a, b) => a - b);
-  return stepSvg(pts, {
-    color: MK.line,
-    label: "Daily exit target, in R",
-    fmt: (v) => Number(v).toFixed(1) + "R",
-    grid: grid.map((v) => ({ v, label: Number(v).toFixed(1) + "R" })),
-  });
+  return stepSvg(
+    pts,
+    {
+      color: MK.line,
+      label: "Daily exit target, in R",
+      fmt: (v) => Number(v).toFixed(1) + "R",
+      grid: grid.map((v) => ({ v, label: Number(v).toFixed(1) + "R" })),
+    },
+    box
+  );
 }
 
 // The kill-switch rung in force each day. Rules mark the ladder, including the 0% floor, so
 // a stretch of sitting out is legible as a floor rather than as missing data.
-function riskSvg(book) {
+function riskSvg(book, box) {
   const pts = (book.daily_risk || []).map((d) => ({ date: d.date, value: d.risk }));
   const ladder = PAYLOAD.config.risk_ladder || [];
-  return stepSvg(pts, {
-    color: MK.gold,
-    label: "Daily risk per trade, as a share of equity",
-    fmt: pct,
-    grid: ladder.map((v) => ({ v, label: pct(v) })),
-  });
+  return stepSvg(
+    pts,
+    {
+      color: MK.gold,
+      label: "Daily risk per trade, as a share of equity",
+      fmt: pct,
+      grid: ladder.map((v) => ({ v, label: pct(v) })),
+    },
+    box
+  );
 }
 
 /* ---------- Stat tiles ---------- */
@@ -290,10 +344,12 @@ function renderToday(book) {
   const sitting = parked
     ? ` The book is <strong>sitting out</strong> — it still watches the tape and re-arms once setups work again.`
     : "";
-  el("pf-today-note").innerHTML =
+  setNote(
+    "pf-today-note",
     `Applies to the next session the book sizes (data through ${esc(prevDay(st.as_of))}). ` +
-    streakNote(st) +
-    sitting;
+      streakNote(st) +
+      sitting
+  );
 }
 
 // The state is stamped with the session it governs; the day before it is the last collected one.
@@ -344,7 +400,7 @@ function cashFlowRows(book, cfg) {
     })
     .join("");
   return (
-    '<div class="tbl-wrap"><table class="tbl"><thead><tr>' +
+    '<div class="tbl-wrap pf-cash-scroll"><table class="tbl"><thead><tr>' +
     '<th>Date</th><th>Type</th><th class="r">GBP</th><th class="r">USD</th>' +
     `</tr></thead><tbody>${rows}</tbody></table></div>`
   );
@@ -577,33 +633,60 @@ function metaLine(book) {
 
 // Only the adaptive book re-fits a target or throttles risk; a fixed book holds both flat by
 // construction, so the panels hide rather than charting a straight line as if it were a result.
-function renderStateCharts(book) {
+function renderStateNotes(book) {
   const has = (book.daily_targets || []).length > 0;
   const hasRisk = (book.daily_risk || []).length > 0;
   el("pf-target-wrap").hidden = !has;
   el("pf-risk-wrap").hidden = !hasRisk;
-  if (has) {
-    el("pf-target-chart").innerHTML = targetSvg(book);
-    el("pf-target-note").innerHTML = targetNote(book);
+  if (has) setNote("pf-target-note", targetNote(book));
+  if (hasRisk) setNote("pf-risk-note", riskNote(book));
+  // A book with neither knob has half the panels — cockpit.css narrows the left
+  // region and restacks the rails so the trade log takes the reclaimed width.
+  document.querySelector(".pf").classList.toggle("pf-single", !has && !hasRisk);
+}
+
+// Drawn last, after every panel is in the DOM: each chart is sized from the box its
+// panel ended up with, which only exists once the rest of the rail has laid out.
+function drawCharts(book) {
+  el("pf-chart-wrap").innerHTML = equitySvg(
+    book.equity_curve,
+    PAYLOAD.start_equity,
+    book.cash_flows,
+    chartBox(el("pf-chart-wrap"))
+  );
+  if (!el("pf-target-wrap").hidden) {
+    el("pf-target-chart").innerHTML = targetSvg(book, chartBox(el("pf-target-chart")));
   }
-  if (hasRisk) {
-    el("pf-risk-chart").innerHTML = riskSvg(book);
-    el("pf-risk-note").innerHTML = riskNote(book);
+  if (!el("pf-risk-wrap").hidden) {
+    el("pf-risk-chart").innerHTML = riskSvg(book, chartBox(el("pf-risk-chart")));
   }
 }
+
+// Resizing the window (or dragging it between monitors) changes every chart's box, and a
+// box-sized chart drawn for the old one would be stretched by the browser. Redraw instead.
+let pending = 0;
+new ResizeObserver(() => {
+  if (pending || !PAYLOAD) return;
+  pending = requestAnimationFrame(() => {
+    pending = 0;
+    if (PAYLOAD) drawCharts(PAYLOAD.books[BOOK]);
+  });
+}).observe(document.querySelector(".pf-left"));
 
 function render() {
   const book = PAYLOAD.books[BOOK];
   el("pf-meta").innerHTML = metaLine(book);
   el("pf-tiles").innerHTML = statTiles(book, PAYLOAD.start_equity);
   renderToday(book);
-  el("pf-chart-wrap").innerHTML = equitySvg(book.equity_curve, PAYLOAD.start_equity, book.cash_flows);
-  renderStateCharts(book);
+  renderStateNotes(book);
   el("pf-payout-tiles").innerHTML = payoutTiles(book);
   el("pf-cashflows").innerHTML = cashFlowRows(book, PAYLOAD.config);
+  const noPayouts = el("pf-cashflows").querySelector(".pf-note");
+  if (noPayouts) setNote(noPayouts);
   el("pf-trades").innerHTML = tradeRows(book);
-  el("pf-skipped-note").innerHTML = skippedNote(book);
+  setNote("pf-skipped-note", skippedNote(book));
   el("pf-skipped").innerHTML = skippedRows(book);
+  drawCharts(book);
   const s = book.stats;
   setStatusPage(
     `book ${esc(BOOK === "adaptive" ? "adaptive" : BOOK + "R")} · ${s.n_trades ?? 0} trades · ` +
