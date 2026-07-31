@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-07-31T16:28:57+00:00",
+  "generated_utc": "2026-07-31T16:38:00+00:00",
   "reports": [
     {
       "slug": "2026-07-31-time-of-day-when-the-entry-fires-and-what-it-s-worth",
@@ -26,6 +26,20 @@
       ],
       "author": "Claude",
       "words": 464
+    },
+    {
+      "slug": "2026-07-31-float-vs-max-r",
+      "file": "2026-07-31-float-vs-max-r.md",
+      "title": "Does a smaller float buy a bigger Max R?",
+      "published": "2026-07-31",
+      "summary": "Float is a tail effect, not a gradient — it barely moves the median trade but roughly doubles the odds of a big one, and the break is at ~5M shares, not at the 20M gate.",
+      "tags": [
+        "strategy",
+        "data",
+        "float"
+      ],
+      "author": "Claude",
+      "words": 1925
     }
   ]
 }
