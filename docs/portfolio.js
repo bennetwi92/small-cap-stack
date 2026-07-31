@@ -8,7 +8,7 @@ import "./js/nav.js";
 import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
-import { esc, etClockIso, fmtShares, rRampClass } from "./js/fmt.js";
+import { esc, etClockIso, fmtPct, fmtShares, rRampClass } from "./js/fmt.js";
 
 const el = (id) => document.getElementById(id);
 // Cockpit tokens (cockpit.css): win/loss green+red stay reserved for P&L, so the two
@@ -18,7 +18,6 @@ const MK = { up: "#3ec07e", down: "#f06673", flat: "#9aa0b5", line: "#4fe3ef", g
 const fmtUsd = (x) => (x == null || !isFinite(x) ? "—" : "$" + Number(x).toFixed(2));
 const fmtGbp = (x) => (x == null || !isFinite(x) ? "—" : "£" + Number(x).toFixed(2));
 const fmtR = (x) => (x == null || !isFinite(x) ? "—" : (x >= 0 ? "+" : "") + Number(x).toFixed(2) + "R");
-const fmtPct = (x) => (x == null || !isFinite(x) ? "—" : (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%");
 const fmtInt = (x) => (x == null || !isFinite(x) ? "—" : String(x));
 const pct = (r) => (r * 100).toFixed(2).replace(/\.?0+$/, "") + "%"; // 0.025 -> "2.5%"
 

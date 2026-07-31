@@ -863,6 +863,19 @@ body.review{
   color:var(--dim);
   font-size:12px;
 }
+/* Grouped headers (results' engine-feature areas): the group title is the quiet
+   label over its block of columns, so it reads dimmer than the columns it spans. */
+.tabulator .tabulator-header .tabulator-col-group .tabulator-col-group-cols{
+  border-top:1px solid var(--line);
+}
+.tabulator .tabulator-header .tabulator-col-group > .tabulator-col-content .tabulator-col-title{
+  color:var(--acc);
+  letter-spacing:.09em;
+}
+/* Boolean feature cells: twenty of these sit side by side, so they read as shape
+   (tick / cross) rather than words — green for the quality the engine wants. */
+.flag-y{ color:var(--win); }
+.flag-n{ color:var(--dim); }
 
 /* ---------- reports (list + rendered markdown) ----------
    The only page whose content is repo prose rather than box data: a table of

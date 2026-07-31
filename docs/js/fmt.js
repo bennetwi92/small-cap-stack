@@ -17,6 +17,19 @@ export function fmtShares(n) {
 
 export const fmtPrice = (x) => (x == null || !isFinite(x) ? "—" : "$" + Number(x).toFixed(2));
 export const fmtR = (x) => (x == null || !isFinite(x) ? "—" : Number(x).toFixed(2) + "R");
+
+// A fraction as a SIGNED percent move (0.0345 -> "+3.5%"). The size-of-the-move
+// view that sits next to R — the portfolio's max % column and the results grid
+// read the same helper so one number can't render two ways (#288).
+export const fmtPct = (x, dp = 1) =>
+  x == null || !isFinite(x) ? "—" : (x >= 0 ? "+" : "") + (x * 100).toFixed(dp) + "%";
+// A fraction as an unsigned percent (0.32 -> "32%") — for ratios that aren't moves
+// (retracement, wick fraction, …), where a leading "+" would read as a gain.
+export const fmtPctPlain = (x, dp = 0) =>
+  x == null || !isFinite(x) ? "—" : (x * 100).toFixed(dp) + "%";
+// Plain fixed-dp number; `signed` prefixes "+" so a slope's direction reads at a glance.
+export const fmtNum = (x, dp = 2, signed = false) =>
+  x == null || !isFinite(x) ? "—" : (signed && x >= 0 ? "+" : "") + Number(x).toFixed(dp);
 export const fmtRSigned = (x) =>
   x == null || !isFinite(x) ? "—" : (x >= 0 ? "+" : "") + Number(x).toFixed(2) + "R";
 
