@@ -287,8 +287,13 @@ in P2). Locks the following execution parameters (chosen by the user 2026-07-15)
   open and is excluded from this strategy — a VMAR entry at ~09:25 on 2026-07-20 was a loss; spike
   #379/#380 only swept *relaxations* of the old cutoff, never this tightening. Still deliberately
   stricter than the results-page `first_hit`-based "premarket" label, which can tag a setup that
-  only *breaks* in-session); (3) **entry price (`entry_fill`) ∈ [$1, $20]** (narrower
-  than the $1–50 scan universe, #126); (4) take the **first 2 by trigger time** each day, later
+  only *breaks* in-session); (3) **entry price (`entry_fill`) ∈ [$2, $20]** (narrower
+  than the $1–50 scan universe, #126; floor AMENDED 2026-07-31, #386, from $1 — sub-$2 entries are
+  excluded from the book. This is a **selection** decision, not a cost one: `research/broker-costs.md`
+  §3 still stands and the **scanner floor stays $1**, so sub-$2 names keep being captured, charted
+  and scored on the results page — they simply stop being takeable. Store-raw/compute-on-read means
+  the whole historical book re-simulates under the new floor on the next publish);
+  (4) take the **first 2 by trigger time** each day, later
   qualifiers logged as *missed — at capacity*.
 - **Stop:** consolidation low (engine v2, unchanged — the R denominator, #182/#190).
 - **Exit = fixed R target `T` + optional breakeven arm at `b`·R.** Realized R is simulated by walking
