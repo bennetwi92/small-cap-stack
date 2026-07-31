@@ -1,6 +1,19 @@
 {
-  "generated_utc": "2026-07-31T15:45:53+00:00",
+  "generated_utc": "2026-07-31T16:28:57+00:00",
   "reports": [
+    {
+      "slug": "2026-07-31-time-of-day-when-the-entry-fires-and-what-it-s-worth",
+      "file": "2026-07-31-time-of-day-when-the-entry-fires-and-what-it-s-worth.md",
+      "title": "Time of day: when the entry fires, and what it's worth",
+      "published": "2026-07-31",
+      "summary": "21 days, 787 triggered setups. Within the pre-market no window is statistically distinguishable from another — but entries decay monotonically through the session, after 11:00 significantly so, and R-normalisation hides a large percentage-move effect.",
+      "tags": [
+        "strategy",
+        "data"
+      ],
+      "author": "Claude",
+      "words": 2861
+    },
     {
       "slug": "2026-07-31-how-reports-work",
       "file": "2026-07-31-how-reports-work.md",
