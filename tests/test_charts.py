@@ -7,8 +7,11 @@ must be exact), and ``chart_bars`` must render a wider series without moving the
 
 from __future__ import annotations
 
+import json
+from dataclasses import fields
 from datetime import UTC, datetime, timedelta
 
+from small_cap_stack.bullflag.features import FeatureVector
 from small_cap_stack.charts import build_opportunity_chart
 from small_cap_stack.config import Settings
 
@@ -240,6 +243,66 @@ def test_engine_block_no_setup_still_carries_tokens() -> None:
     assert eng["setup"] is False
     assert "segment" not in eng
     assert eng["tokens"] == [{"t": _ts(1), "tok": "L"}]  # 6.1 -> 6.0 = lower high
+
+
+# --- the results table's columns: outcome restatements + the whole feature vector ----------------
+# The results grid ranks opportunities by any single engine input, so the payload must carry every
+# feature the detector gated/scored on — and carry it as *valid JSON* (an inf would kill the page).
+
+
+def test_max_gain_pct_and_mae_restate_the_measured_trade() -> None:
+    bars = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9), _bar(4, 6.9, 7.64, 6.8, 7.5)]
+    cd = build_opportunity_chart(bars, _settings())
+    assert cd.triggered is True
+    # Fill = breakout 6.1 + 3 ticks = 6.13; the peak high is 7.64.
+    assert cd.max_gain_pct == round((7.64 - 6.13) / 6.13, 5)
+    # Never stopped: MAE is measured off the entry bar's low (5.7).
+    assert cd.mae_r == round((6.13 - 5.7) / (6.13 - 5.6), 3)
+
+
+def test_no_setup_leaves_the_outcome_columns_empty() -> None:
+    bars = [_bar(0, 6.0, 6.1, 5.9, 5.95), _bar(1, 5.95, 6.0, 5.8, 5.85)]
+    cd = build_opportunity_chart(bars, _settings())
+    assert cd.max_gain_pct is None and cd.mae_r is None
+
+
+def test_engine_block_carries_every_feature() -> None:
+    bars = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9), _bar(4, 6.9, 7.64, 6.8, 7.5)]
+    eng = build_opportunity_chart(bars, _settings()).engine
+    feats = eng["features"]
+    # Every FeatureVector field is published except bars_before_scan (always None until the
+    # scanner_hits join lands) — a new engine feature must show up here or the table can't rank it.
+    expected = {f.name for f in fields(FeatureVector)} - {"bars_before_scan"}
+    assert set(feats) == expected
+    # Spot-check the gate inputs against the fixture's geometry: the pole runs from the LAUNCH
+    # bar's low (4.6 — the base is a low, not an open) to the peak high 6.5, the flag lows at 5.6,
+    # and the peak bar traded 2000 against the flag's 1000.
+    assert feats["pole_len"] == 1 and feats["cons_len"] == 1
+    assert feats["token_string"] == "HL"
+    assert feats["retracement"] == round((6.5 - 5.6) / (6.5 - 4.6), 4)
+    assert feats["pole_height_pct"] == round((6.5 - 4.6) / 4.6, 4)
+    assert feats["vol_ratio"] == 2.0
+    assert feats["peak_gt_cons"] is True and feats["holds_base"] is True
+    # Gates now carry the measured value, so a rejection reads as "by how much".
+    assert all({"name", "passed", "value"} <= g.keys() for g in eng["gates"])
+    assert {g["name"]: g["value"] for g in eng["gates"]}["cons_retracement"] == feats["retracement"]
+
+
+def test_infinite_features_are_published_as_null_not_infinity() -> None:
+    # A consolidation that traded no volume makes vol_ratio +inf. json.dumps writes a bare
+    # `Infinity`, which is NOT valid JSON — the browser's response.json() throws and the whole
+    # results page dies. Every float leaving charts.py must be finite or null.
+    bars = [
+        _LAUNCH,
+        _POLE,
+        _bar(2, 6.4, 6.1, 5.6, 5.7, vol=0.0),
+        _bar(3, 5.7, 7.0, 5.7, 6.9),
+    ]
+    eng = build_opportunity_chart(bars, _settings()).engine
+    assert eng["features"]["vol_ratio"] is None
+    assert {g["name"]: g["value"] for g in eng["gates"]}["vol_peak_gt_cons"] is None
+    json.loads(json.dumps(eng))  # round-trips as strict JSON (allow_nan would have hidden this)
+    assert "Infinity" not in json.dumps(eng)
 
 
 def test_engine_block_maps_onto_full_day_bars() -> None:
