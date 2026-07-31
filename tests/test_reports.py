@@ -253,3 +253,9 @@ def test_committed_reports_parse_and_the_index_is_current() -> None:
     reports_dir = REPO_ROOT / REPORTS_DIRNAME
     collect_reports(reports_dir)  # every committed report must parse
     assert index_is_current(reports_dir), "docs/reports/index.json is stale — run `make reports`"
+
+
+def test_pages_source_bypasses_jekyll() -> None:
+    """Guard: without `.nojekyll`, Pages renders each report to .html and the raw .md 404s."""
+    marker = REPO_ROOT / Path(REPORTS_DIRNAME).parts[0] / ".nojekyll"
+    assert marker.exists(), f"{marker.relative_to(REPO_ROOT)} is missing — reports.js fetches .md"
