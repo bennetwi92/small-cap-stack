@@ -282,12 +282,18 @@ in P2). Locks the following execution parameters (chosen by the user 2026-07-15)
   - *Superseded original:* capital-based, 50% of opening equity per trade
     (`qty = floor(0.50 × equity / entry_fill)`), risk-per-trade floating freely with stop distance.
 - **Qualifying trade (all must hold):** (1) engine **v2 `pass`** (setup + every gate) **and
-  triggered**; (2) **strictly pre-market fill** — the **trigger bar** opens before **09:15 ET**
-  (AMENDED 2026-07-21, #383, from 09:30: the final pre-open ramp/auction 09:15–09:30 trades like the
-  open and is excluded from this strategy — a VMAR entry at ~09:25 on 2026-07-20 was a loss; spike
-  #379/#380 only swept *relaxations* of the old cutoff, never this tightening. Still deliberately
-  stricter than the results-page `first_hit`-based "premarket" label, which can tag a setup that
-  only *breaks* in-session); (3) **entry price (`entry_fill`) ∈ [$2, $20]** (narrower
+  triggered**; (2) **pre-market fill inside `[05:30, 09:15)` ET** — the **trigger bar** opens at or
+  after **05:30** and before **09:15** (cutoff AMENDED 2026-07-21, #383, from 09:30: the final
+  pre-open ramp/auction 09:15–09:30 trades like the open and is excluded from this strategy — a
+  VMAR entry at ~09:25 on 2026-07-20 was a loss; spike #379/#380 only swept *relaxations* of the
+  old cutoff, never this tightening. Floor ADDED 2026-07-31: no trades on the 04:00–05:30 tape.
+  Like the $2 price floor this is a **selection** call, not a measured edge — the 2026-07-31
+  time-of-day report found *no* pre-market window statistically separable from another (04:00–06:00
+  is −0.32R over 86 triggers, but permuting entry-time labels within a day reproduces that spread
+  68% of the time). The **scan window stays 04:00–11:59**, so pre-05:30 names keep being captured,
+  charted and scored on the results page — they simply stop being takeable. Both bounds are still
+  deliberately stricter than the results-page `first_hit`-based "premarket" label, which can tag a
+  setup that only *breaks* in-session); (3) **entry price (`entry_fill`) ∈ [$2, $20]** (narrower
   than the $1–50 scan universe, #126; floor AMENDED 2026-07-31, #386, from $1 — sub-$2 entries are
   excluded from the book. This is a **selection** decision, not a cost one: `research/broker-costs.md`
   §3 still stands and the **scanner floor stays $1**, so sub-$2 names keep being captured, charted

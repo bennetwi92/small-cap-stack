@@ -374,6 +374,7 @@ def build_portfolio_payload(
             "risk_fraction": s.portfolio_risk_fraction,
             "position_fraction": s.portfolio_position_fraction,
             "max_trades_per_day": s.portfolio_max_trades_per_day,
+            "premarket_earliest_et": s.portfolio_premarket_earliest.isoformat(),
             "premarket_cutoff_et": s.portfolio_premarket_cutoff.isoformat(),
             "entry_price_min": s.portfolio_entry_price_min,
             "entry_price_max": s.portfolio_entry_price_max,
