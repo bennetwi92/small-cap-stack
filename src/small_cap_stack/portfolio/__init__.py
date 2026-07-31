@@ -102,6 +102,7 @@ from .models import (
 from .payload import (
     _candidate_from_json,
     _candidate_to_json,
+    _read_candidate_cache,
     build_portfolio_payload,
     collected_dates,
     portfolio_candidate_cache_dir,

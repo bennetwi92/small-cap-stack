@@ -70,6 +70,7 @@
                 <tr>
                   <th>Date</th>
                   <th>Sym</th>
+                  <th class="r" title="Shares in the free float at flag time, merged across sources (fmp first) — the same number the results and review pages show.">Float</th>
                   <th>Trigger</th>
                   <th class="r">Entry</th>
                   <th class="r">Stop</th>
@@ -78,12 +79,14 @@
                   <th class="r">Tgt</th>
                   <th>Exit</th>
                   <th class="r">R</th>
+                  <th class="r" title="Peak favourable excursion: the best this setup ever offered, measured from entry against the initial stop over the rest of the day. Max R minus R is what the exit left on the table.">Max R</th>
+                  <th class="r" title="That same peak as a plain price move from entry. R normalises by stop distance, so this is the one that says how big the run actually was.">Max %</th>
                   <th class="r">Net</th>
                   <th class="r">Balance</th>
                 </tr>
               </thead>
               <tbody id="pf-trades">
-                <tr><td colspan="12" class="muted">loading…</td></tr>
+                <tr><td colspan="15" class="muted">loading…</td></tr>
               </tbody>
             </table>
           </div>
@@ -98,6 +101,7 @@
                 <tr>
                   <th>Date</th>
                   <th>Sym</th>
+                  <th class="r" title="Shares in the free float at flag time.">Float</th>
                   <th>Why</th>
                   <th>Trigger</th>
                   <th class="r">Entry</th>
@@ -105,10 +109,12 @@
                   <th class="r">Tgt</th>
                   <th>Would-be exit</th>
                   <th class="r">R</th>
+                  <th class="r" title="Peak favourable excursion this setup offered — what skipping it actually cost.">Max R</th>
+                  <th class="r" title="That same peak as a plain price move from entry.">Max %</th>
                 </tr>
               </thead>
               <tbody id="pf-skipped">
-                <tr><td colspan="9" class="muted">loading…</td></tr>
+                <tr><td colspan="12" class="muted">loading…</td></tr>
               </tbody>
             </table>
           </div>

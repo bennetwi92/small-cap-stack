@@ -31,6 +31,12 @@ class CandidateTrade:
     risk: float  # entry_price - stop (> 0)
     entry_index: int
     bars: tuple[Bar, ...]
+    # Context + what the setup *offered*, carried from the same R-metrics the review/results pages
+    # render so the book can't quote a different Max R than the chart (#390). All three are
+    # properties of the candidate, not of a (target, breakeven) choice, so they survive the sweep.
+    float_shares: int | None = None  # merged across sources by `report._funds_for` (fmp first)
+    max_r: float | None = None  # peak favourable excursion in R — the ceiling `realized_r` chased
+    max_gain_pct: float | None = None  # that same peak as a fraction of the entry price
 
     def exit_under(self, s: Settings, target_r: float, breakeven_r: float) -> ExitOutcome:
         return simulate_exit(
@@ -76,6 +82,12 @@ class PaperTrade:
     net_pnl_usd: float  # gross − commission − fees
     equity_before: float
     equity_after: float
+    # Carried from the candidate (#390) — see CandidateTrade. `max_r` is measured against the
+    # *initial* stop over the rest of the day and knows nothing of this book's target or breakeven
+    # stop, so it is the honest ceiling: `max_r - realized_r` is what this exit left on the table.
+    float_shares: int | None = None
+    max_r: float | None = None
+    max_gain_pct: float | None = None
 
 
 @dataclass(frozen=True)
@@ -111,6 +123,10 @@ class SkippedTrade:
     reason: str  # exit reason: "target" | "stop" | "breakeven" | "close"
     exit_price: float
     skip_reason: str = "cap"  # why it wasn't taken: "cap" | "unaffordable"
+    # Carried from the candidate (#390) — same meaning as on PaperTrade.
+    float_shares: int | None = None
+    max_r: float | None = None
+    max_gain_pct: float | None = None
 
 
 @dataclass(frozen=True)
