@@ -361,6 +361,11 @@ def build_portfolio_payload(
             "exit_slippage_ticks": s.portfolio_exit_slippage_ticks,
             "adaptive_window_days": s.portfolio_adaptive_window_days,
             "adaptive_min_samples": s.portfolio_adaptive_min_samples,
+            # The grid the daily re-fit picks from, plus the target it falls back to before the
+            # window has samples. `targets` (below) is the *selectable book* list — the grid
+            # widened with extremes — so it can't stand in as the ladder for the target chart.
+            "target_grid": sorted(s.portfolio_target_grid),
+            "target_fallback_r": s.portfolio_target_r,
             # Getting-paid layer.
             "gbpusd_rate": s.portfolio_gbpusd_rate,
             "withdraw_fraction": s.portfolio_withdraw_fraction,

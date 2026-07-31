@@ -916,6 +916,13 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     assert "withdrawals_gbp" in adaptive["stats"] and "tax_paid_gbp" in adaptive["stats"]
     assert "cash_flows" in adaptive
     assert "withdraw_fraction" in payload["config"] and "cgt_rate" in payload["config"]
+    # The target chart draws its rules from the *adaptive grid*, which the widened `targets` book
+    # list can't stand in for — 4R/5R are selectable books the daily re-fit can never choose.
+    assert payload["config"]["target_grid"] == [1.5, 2.0, 2.5, 3.0]
+    assert payload["config"]["target_fallback_r"] == 2.0
+    assert {t for _d, t in [(d["date"], d["target"]) for d in adaptive["daily_targets"]]} <= set(
+        payload["config"]["target_grid"] + [payload["config"]["target_fallback_r"]]
+    )
     trade = adaptive["trades"][0]
     assert trade["symbol"] == "AZI" and trade["reason"] == "target"
     # Per-trade risk attribution + the next-session state reach the page (#286).

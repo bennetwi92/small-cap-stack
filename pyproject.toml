@@ -46,6 +46,11 @@ packages = ["src/small_cap_stack"]
 line-length = 100
 target-version = "py311"
 src = ["src", "tests"]
+# ruff 0.16 started formatting Python code blocks inside Markdown, which reflows the
+# hand-aligned comment columns the `research/` specs use to stay readable (and turned
+# `ruff format --check .` red on docs no CI job has any business rewriting). `ruff>=0.8`
+# is unpinned, so this is opt-out, not a version pin: the formatter owns .py only.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
