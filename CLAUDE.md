@@ -108,12 +108,26 @@ hours, not authoring speed (see the remote-work limits above).
   `cockpit.css` + `docs/js/` modules). The name is forced: Pages is on `build_type: legacy`, whose
   source path may only be `/` or `/docs`, so renaming it takes the live dashboard offline. Docs live
   in `research/`; only root keeps `README`/`CLAUDE`/`CONTRIBUTING`/`DISCLAIMER` (#300).
+  `docs/reports/` is the one exception that *is* prose: published reports (see below).
 - `data/` — local runtime data (gitignored).
 - `scripts/` — repo helpers (e.g. `board.sh`).
 - `deploy/` — host runbook + systemd units.
 
 ## Quick commands
 `make help` lists everything. Common ones: `make setup` (venv + deps), `make check` (all CI gates), `make lint` / `make fmt` / `make typecheck` / `make test`. Run `make check` before every push.
+
+## Reports (published analyses)
+Ask for an analysis — *"write me a report on how often the float gate kills a runner"* — and it gets
+published to the dashboard's **Reports** tab. The **`publish-report`** skill is the procedure.
+- A report is markdown in **`docs/reports/<published>-<slug>.md`** with front matter (`title`,
+  `published` required; `summary`, `tags`, `author` optional). `src/small_cap_stack/reports.py`
+  parses it into **`docs/reports/index.json`**, which `docs/reports.js` renders as the list
+  (newest first) and then fetches the markdown on click (`?r=<slug>` deep-links a report).
+- **Run `make reports` after adding or editing one** — a report missing from `index.json` is
+  invisible to the page. `tests/test_reports.py` fails when the committed index is stale.
+- ⚠️ **Reports live in the repo, never on the box.** `publish-dashboard` force-pushes a fresh single
+  commit to `dashboard-data` every 15 min, so anything hand-written on that branch is destroyed on
+  the next cycle. `docs/` is already the Pages source: a merged report is a served report.
 
 ## Helper scripts
 - `scripts/board.sh <issue#> <Todo|"In Progress"|Done>` — set an issue's status on project board #3 (encapsulates the project/field IDs). Use it instead of re-deriving `gh project item-edit` calls.
