@@ -889,6 +889,42 @@ def test_extract_day_trades_rejects_after_0915_cutoff(tmp_path: Path) -> None:
     assert cands[0].trigger_at.astimezone(ET).time() == time(9, 15)
 
 
+def test_extract_day_trades_rejects_before_0530_floor(tmp_path: Path) -> None:
+    """The book doesn't take the earliest pre-market tape: no trigger before 05:30 ET.
+
+    The `first_hit` bar (index 0) is seeded at 05:00 ET so the run's trigger (idx 3) lands at
+    05:15 — rejected on the default floor, accepted when the floor is dialled back to 04:00, so it
+    is the floor doing the work and not a broken fixture."""
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 9, 0, tzinfo=ET_UTC))  # 05:00 ET
+
+    assert extract_day_trades(store, _s(), day) == []
+    cands = extract_day_trades(store, _s(portfolio_premarket_earliest=time(4, 0)), day)
+    assert [c.symbol for c in cands] == ["AZI"]
+    assert cands[0].trigger_at.astimezone(ET).time() == time(5, 15)
+
+
+def test_extract_day_trades_takes_trigger_exactly_at_0530(tmp_path: Path) -> None:
+    """The floor is inclusive: a trigger bar opening exactly at 05:30 ET is takeable.
+
+    Pins the boundary convention against the cutoff's strict `<` — the window is [earliest, cutoff).
+    """
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 9, 15, tzinfo=ET_UTC))  # 05:15 ET
+
+    cands = extract_day_trades(store, _s(), day)
+    assert [c.symbol for c in cands] == ["AZI"]
+    assert cands[0].trigger_at.astimezone(ET).time() == time(5, 30)
+
+
 def test_extract_day_trades_rejects_sub_2_dollar_entries(tmp_path: Path) -> None:
     """Sub-$2 entries are out of the book's price band (#386, floor raised $1 → $2).
 

@@ -612,13 +612,22 @@ function riskMeta(book, c) {
   return `${ceiling} · <strong>actually risked ${pct(s.avg_risk_pct)}/trade on average</strong>${capped}`;
 }
 
+// The takeable trigger window, "05:30–09:15" (floor inclusive, cutoff strict). The floor is newer
+// than the cutoff, so a payload published before it existed omits the key — fall back to the
+// cutoff-only form rather than rendering "undefined–09:15" until the next publish lands.
+function premarketWindow(c) {
+  const cutoff = c.premarket_cutoff_et.slice(0, 5);
+  if (!c.premarket_earliest_et) return `< ${cutoff}`;
+  return `${c.premarket_earliest_et.slice(0, 5)}–${cutoff}`;
+}
+
 // The per-book config/meta line, under the options bar's ··· expander.
 function metaLine(book) {
   const c = PAYLOAD.config;
   return (
     `Pre-shadow paper book — the trades I'd take, over the data already collected. ` +
     `Start ${fmtUsd(PAYLOAD.start_equity)} · ${riskMeta(book, c)} · ` +
-    `max ${c.max_trades_per_day}/day · pre-market fills only (&lt; ${esc(c.premarket_cutoff_et.slice(0, 5))} ET) · ` +
+    `max ${c.max_trades_per_day}/day · pre-market fills only (${esc(premarketWindow(c))} ET) · ` +
     `entry $${c.entry_price_min}–${c.entry_price_max} · ` +
     `IBKR tiered costs + $${c.market_data_usd_per_month}/mo data (#232) · ` +
     `withdraw ${(c.withdraw_fraction * 100).toFixed(0)}% of profit &gt; ${fmtUsd(c.withdraw_floor_usd)} every ` +
