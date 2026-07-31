@@ -1,0 +1,6 @@
+Bypass Jekyll: GitHub Pages serves this directory as static files, verbatim.
+
+Without this marker Pages runs the legacy Jekyll build over the publishing
+source, which turns every `docs/reports/*.md` (they carry YAML front matter)
+into `reports/<slug>.html` and serves no raw `.md` at all — so `reports.js`,
+which fetches the markdown itself, gets a 404 on every report.

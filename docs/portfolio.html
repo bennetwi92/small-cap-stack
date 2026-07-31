@@ -21,42 +21,53 @@
     <p id="pf-error" class="error" hidden></p>
 
     <div class="pf">
-      <!-- Left rail: the book's state — stats, forward knobs, curve, payouts. -->
+      <!-- Left region: the book's state — stats, forward knobs, curves, payouts.
+           It splits into TWO rails side by side on a wide monitor (#397) so the
+           whole book fits one screen with nothing to scroll; the rails restack
+           into one column on a laptop and on a phone. DOM order is the reading
+           order once stacked: stats → next session → equity → target → risk →
+           payouts. -->
       <div class="pf-left">
-        <section class="panel">
-          <h2 class="panel-h">Book stats</h2>
-          <div id="pf-tiles" class="tiles"></div>
-        </section>
-        <!-- What the book will do on its NEXT setup (#286) — forward-looking
-             knobs, not a record of the last collected day. Adaptive book only. -->
-        <section class="panel" id="pf-today-wrap" hidden>
-          <h2 class="panel-h">Next session — the risk and target in force now</h2>
-          <div id="pf-today-tiles" class="tiles"></div>
-          <p id="pf-today-note" class="muted pf-note"></p>
-        </section>
-        <section class="panel">
-          <h2 class="panel-h">Equity curve</h2>
-          <div id="pf-chart-wrap" class="pf-chart-wrap"></div>
-        </section>
-        <!-- The two knobs the adaptive book moves on its own, plotted the same way
-             as the equity curve so their drift is readable over the same window.
-             Step lines: each is daily state, held for a whole session. -->
-        <section class="panel" id="pf-target-wrap" hidden>
-          <h2 class="panel-h">Target through time</h2>
-          <div id="pf-target-chart" class="pf-chart-wrap"></div>
-          <p id="pf-target-note" class="muted pf-note"></p>
-        </section>
-        <section class="panel" id="pf-risk-wrap" hidden>
-          <h2 class="panel-h">Risk / trade through time</h2>
-          <div id="pf-risk-chart" class="pf-chart-wrap"></div>
-          <p id="pf-risk-note" class="muted pf-note"></p>
-        </section>
-        <!-- Getting paid: quarterly withdrawals, UK CGT reserve, VPS cost — GBP. -->
-        <section class="panel">
-          <h2 class="panel-h">Getting paid — take-home in GBP, after tax &amp; costs</h2>
-          <div id="pf-payout-tiles" class="tiles"></div>
-          <div id="pf-cashflows"></div>
-        </section>
+        <div class="pf-rail">
+          <section class="panel">
+            <h2 class="panel-h">Book stats</h2>
+            <div id="pf-tiles" class="tiles"></div>
+          </section>
+          <!-- What the book will do on its NEXT setup (#286) — forward-looking
+               knobs, not a record of the last collected day. Adaptive book only. -->
+          <section class="panel" id="pf-today-wrap" hidden>
+            <h2 class="panel-h">Next session — the risk and target in force now</h2>
+            <div id="pf-today-tiles" class="tiles"></div>
+            <p id="pf-today-note" class="muted pf-note"></p>
+          </section>
+          <!-- pf-grow: on a wide monitor this panel takes the rail's leftover height and
+               the chart is drawn to fit it (portfolio.js sizes the viewBox to the box). -->
+          <section class="panel pf-grow">
+            <h2 class="panel-h">Equity curve</h2>
+            <div id="pf-chart-wrap" class="pf-chart-wrap"></div>
+          </section>
+        </div>
+        <div class="pf-rail">
+          <!-- The two knobs the adaptive book moves on its own, plotted the same way
+               as the equity curve so their drift is readable over the same window.
+               Step lines: each is daily state, held for a whole session. -->
+          <section class="panel pf-grow" id="pf-target-wrap" hidden>
+            <h2 class="panel-h">Target through time</h2>
+            <div id="pf-target-chart" class="pf-chart-wrap"></div>
+            <p id="pf-target-note" class="muted pf-note"></p>
+          </section>
+          <section class="panel pf-grow" id="pf-risk-wrap" hidden>
+            <h2 class="panel-h">Risk / trade through time</h2>
+            <div id="pf-risk-chart" class="pf-chart-wrap"></div>
+            <p id="pf-risk-note" class="muted pf-note"></p>
+          </section>
+          <!-- Getting paid: quarterly withdrawals, UK CGT reserve, VPS cost — GBP. -->
+          <section class="panel">
+            <h2 class="panel-h">Getting paid — take-home in GBP, after tax &amp; costs</h2>
+            <div id="pf-payout-tiles" class="tiles"></div>
+            <div id="pf-cashflows"></div>
+          </section>
+        </div>
       </div>
 
       <!-- Right: the trades themselves; the log fills the column and scrolls

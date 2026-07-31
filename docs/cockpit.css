@@ -416,7 +416,13 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
 /* stat tile sub-line (today / total) */
 .tile-s{ font-size:10px; color:var(--dim); white-space:nowrap; }
 
-/* ---------- virtual portfolio (#290): two-column cockpit ---------- */
+/* ---------- virtual portfolio (#290, rails #397) ----------
+   Three regions across a wide monitor: two *rails* of book state, then the
+   trade log. The rails are the fix for the left column having to scroll — the
+   same panels laid across two columns instead of one, with charts sized by
+   their column width (viewBox 720×240, so a 400px rail draws a 133px chart).
+   Below the wide breakpoint the rails restack into one scrollable column,
+   which is the pre-#397 layout, and below 860px everything stacks for a phone. */
 .pf{
   display:flex;
   gap:8px;
@@ -432,6 +438,13 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
   min-width:0;
   min-height:0;
   overflow-y:auto;
+}
+.pf-rail{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  min-width:0;
+  flex:0 0 auto;
 }
 .pf-left .panel{ flex:0 0 auto; }
 /* portfolio tile values run long ($11.59/trade, $20.17 (4.0%)) — wider minimum */
@@ -479,6 +492,69 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
 }
 .pf-reason-target{ color:var(--win); border-color:var(--win); }
 .pf-reason-stop{ color:var(--loss); border-color:var(--loss); }
+
+/* --- wide monitor (#397): the left region becomes two rails, one screen, no scroll ---
+   The left region is capped rather than a bare percentage: 38% of an ultrawide would
+   starve the trade log, and 38% of a 1360px window would squeeze the rails until the
+   explainer prose grew taller than the charts it explains. */
+@media (min-width:1360px){
+  .pf-left{
+    /* The trade log's width need is bounded (15 columns ≈ 900px) while the rails always
+       spend more width on bigger charts, so past ~1900px the extra goes to the rails —
+       but the −90px keeps the log from being squeezed at the low end of the range. */
+    flex:0 0 clamp(560px, calc(46% - 90px), 1000px);
+    flex-direction:row;
+    overflow-y:hidden;
+  }
+  /* Rails share the region evenly and own their own overflow. The rails are SIZED to
+     fit — this is the safety valve for a short window, not the expected state. */
+  .pf-rail{ flex:1 1 0; min-height:0; overflow-y:auto; }
+  /* Chart panels absorb whatever height the rail has left, so a tall monitor spends
+     its space on the charts instead of on a blank rail floor. The SVG is taken out
+     of flow (absolute) so the box it's measured against can't depend on what was
+     drawn into it last — portfolio.js reads the wrap and draws to that size. */
+  .pf-left .panel.pf-grow{
+    flex:1 1 auto;
+    display:flex;
+    flex-direction:column;
+    min-height:0;
+  }
+  /* …but a class selector outranks the UA's [hidden]{display:none}, and the target/risk
+     panels are hidden for every fixed-target book — so say it again, louder. */
+  .pf-left .panel.pf-grow[hidden]{ display:none; }
+  .pf-grow .pf-chart-wrap{ position:relative; flex:1 1 0; min-height:110px; }
+  .pf-grow .pf-chart{ position:absolute; inset:0; width:100%; height:100%; max-height:none; }
+  /* The explainers are the one thing that doesn't shrink with the column: ~550
+     characters of prose is taller than the chart above it in a 400px rail. Clamp
+     them to three lines, keep the whole text in the tooltip, and open in place on
+     click (portfolio.js tags these .pf-clamp and fills in the title). */
+  .pf-note{ font-size:10px; line-height:1.4; }
+  .pf-note.pf-clamp{
+    display:-webkit-box;
+    -webkit-line-clamp:3;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+    cursor:pointer;
+  }
+  .pf-note.pf-clamp.open{ display:block; }
+  /* Payout history grows a row a quarter; cap it so it can't push the rail. */
+  .pf-cash-scroll{ max-height:120px; overflow-y:auto; }
+  /* A fixed-target book has no adaptive knobs to chart, so its rails hold half the
+     panels — restack them into one narrow column and give the width to the log. */
+  .pf-single .pf-left{
+    flex-basis:clamp(300px, 22%, 420px);
+    flex-direction:column;
+    overflow-y:auto;
+  }
+  .pf-single .pf-rail{ flex:0 0 auto; overflow-y:visible; }
+  /* Stacked rails have no leftover height to hand a chart, so the grow panels stand
+     down and the charts go back to being sized by their aspect (see chartBox, which
+     reads this very `position` to tell the two regimes apart). */
+  .pf-single .pf-left .panel.pf-grow:not([hidden]){ flex:0 0 auto; display:block; }
+  .pf-single .pf-grow .pf-chart-wrap{ position:static; flex:none; min-height:0; }
+  .pf-single .pf-grow .pf-chart{ position:static; height:auto; max-height:240px; }
+}
+
 /* small window: stack the rails and let the body scroll again */
 @media (max-width:860px){
   .pf{ flex-direction:column; height:auto; }
@@ -846,6 +922,19 @@ body.review{
   color:var(--dim);
   font-size:12px;
 }
+/* Grouped headers (results' engine-feature areas): the group title is the quiet
+   label over its block of columns, so it reads dimmer than the columns it spans. */
+.tabulator .tabulator-header .tabulator-col-group .tabulator-col-group-cols{
+  border-top:1px solid var(--line);
+}
+.tabulator .tabulator-header .tabulator-col-group > .tabulator-col-content .tabulator-col-title{
+  color:var(--acc);
+  letter-spacing:.09em;
+}
+/* Boolean feature cells: twenty of these sit side by side, so they read as shape
+   (tick / cross) rather than words — green for the quality the engine wants. */
+.flag-y{ color:var(--win); }
+.flag-n{ color:var(--dim); }
 
 /* ---------- reports (list + rendered markdown) ----------
    The only page whose content is repo prose rather than box data: a table of

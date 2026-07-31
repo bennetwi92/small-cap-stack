@@ -21,6 +21,7 @@ deps), so it runs in cloud dev.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -33,6 +34,7 @@ from .bullflag import (
     token_eps,
     tokenize,
 )
+from .bullflag.features import FeatureVector
 from .capture import Bar, bar_interval
 from .config import Settings
 from .rmetrics import compute_r_metrics
@@ -48,6 +50,12 @@ class ChartData:
     triggered: bool
     stopped_out: bool
     max_r: float | None
+    # Max R restated as a plain move off the entry, and the worst adverse excursion (#390 view):
+    # R normalises by the stop distance, so a wide-stop 0.9R and a tight-stop 0.9R read identically
+    # while being very different moves in the tape. Surfaced next to `max_r` so the results table
+    # can rank by size-of-move as well as by R.
+    max_gain_pct: float | None
+    mae_r: float | None
     engine: dict[str, Any]  # engine-v2 detector's read of the drawn series (overlay #216)
 
 
@@ -78,6 +86,67 @@ def _marker_ts(bars: list[Bar], idx: int | None) -> int | None:
     return int(bars[idx].start.timestamp())
 
 
+def _num(x: float | None, nd: int = 4) -> float | None:
+    """JSON-safe rounded float: ``None``/``inf``/``NaN`` -> ``None``.
+
+    ``json.dumps`` happily writes bare ``Infinity`` (``vol_ratio`` is ``inf`` when the consolidation
+    traded no volume) but that is **not** valid JSON — the browser's ``response.json()`` throws and
+    takes the whole page down with it. Every float that leaves this module goes through here.
+    """
+    if x is None or not math.isfinite(x):
+        return None
+    return round(x, nd)
+
+
+def _gate_value(v: float | bool) -> float | bool | None:
+    """A gate's measured value, JSON-safe (bools pass through; ``vol_ratio`` can be ``inf``)."""
+    if isinstance(v, bool):
+        return v
+    return _num(v)
+
+
+def _features_block(fv: FeatureVector) -> dict[str, Any]:
+    """The whole engine-v2 feature vector, JSON-safe (#178 §3 areas SHAPE/VOL/WICK/POLE/CONS/LOC).
+
+    The detector already computes all of it to gate and score a shape; publishing it lets the
+    results table rank opportunities by any single feature and eyeball which ones actually separate
+    the runners from the duds. ``bars_before_scan`` is omitted — it is always ``None`` until the
+    scanner_hits join lands. Score *contributions* are omitted too: each is
+    ``weight × normalise(feature)``, a monotone restatement of a column already here (the total
+    ``score`` carries the combination).
+    """
+    return {
+        # SHAPE
+        "pole_len": fv.pole_len,
+        "cons_len": fv.cons_len,
+        "cons_strictness": _num(fv.cons_strictness),
+        "token_string": fv.token_string,
+        # VOL
+        "peak_gt_cons": fv.peak_gt_cons,
+        "vol_ratio": _num(fv.vol_ratio, 3),  # inf (cons traded nothing) -> None
+        "cons_vol_reducing": fv.cons_vol_reducing,
+        "pole_vol_concentration": _num(fv.pole_vol_concentration),
+        # WICK
+        "peak_upper_wick": _num(fv.peak_upper_wick),
+        "peak_is_green": fv.peak_is_green,
+        "pole_has_big_green": fv.pole_has_big_green,
+        "pole_avg_body": _num(fv.pole_avg_body),
+        "cons_indecision": _num(fv.cons_indecision),
+        # POLE
+        "pole_height_pct": _num(fv.pole_height_pct),
+        "pole_height_abs": _num(fv.pole_height_abs),
+        "pole_velocity": _num(fv.pole_velocity),
+        "pole_extension_atr": _num(fv.pole_extension_atr, 3),
+        # CONS
+        "retracement": _num(fv.retracement),
+        "holds_base": fv.holds_base,
+        "cons_tightness": _num(fv.cons_tightness),
+        "cons_drift_slope": _num(fv.cons_drift_slope),
+        # LOC
+        "trigger_in_window": fv.trigger_in_window,
+    }
+
+
 def _engine_block(
     bars: list[Bar], settings: Settings, first_hit: datetime | None
 ) -> dict[str, Any]:
@@ -92,7 +161,9 @@ def _engine_block(
     prior-cycle bands match its ``cycle_num`` badge exactly.
 
     Always emits the per-bar ``tokens`` (meaningful even with no setup); ``setup: False`` when no
-    pole forms, otherwise the full segment / gates / score / cycle context.
+    pole forms, otherwise the full segment / gates / score / cycle context — plus ``features``, the
+    complete feature vector the gates and score were computed from (see :func:`_features_block`), so
+    the results table can rank every opportunity by any single engine input.
     """
     eps = token_eps(settings)
     tokens = tokenize(bars, eps=eps)
@@ -140,7 +211,12 @@ def _engine_block(
             "cons_len": seg.cons_len,
             "token_string": "".join(seg.tokens),
         },
-        "gates": [{"name": g.name, "passed": g.passed} for g in setup.gates],
+        # The measured value alongside the verdict, so a rejection can be read as "by how much"
+        # rather than just "no" (gates.py::GateResult carries it for exactly this).
+        "gates": [
+            {"name": g.name, "passed": g.passed, "value": _gate_value(g.value)} for g in setup.gates
+        ],
+        "features": _features_block(setup.features),
         "levels": {
             "entry_trigger": setup.entry_trigger,
             "entry_fill": setup.entry_fill,
@@ -207,5 +283,7 @@ def build_opportunity_chart(
         triggered=rm.triggered,
         stopped_out=rm.stopped_out,
         max_r=rm.max_r,
+        max_gain_pct=rm.max_gain_pct,
+        mae_r=rm.mae_r,
         engine=_engine_block(render_bars, settings, first_hit),
     )
