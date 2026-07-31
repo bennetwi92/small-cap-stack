@@ -289,7 +289,17 @@ def test_commission_respects_minimum() -> None:
 # --- --- portfolio simulation ---------------------------------------------------------
 
 
-def _cand(sym: str, minute: int, entry: float, stop: float, bars: list[Bar]) -> CandidateTrade:
+def _cand(
+    sym: str,
+    minute: int,
+    entry: float,
+    stop: float,
+    bars: list[Bar],
+    *,
+    float_shares: int | None = None,
+    max_r: float | None = None,
+    max_gain_pct: float | None = None,
+) -> CandidateTrade:
     return CandidateTrade(
         trading_date=date(2026, 7, 14),
         symbol=sym,
@@ -302,6 +312,9 @@ def _cand(sym: str, minute: int, entry: float, stop: float, bars: list[Bar]) -> 
         risk=entry - stop,
         entry_index=0,
         bars=tuple(bars),
+        float_shares=float_shares,
+        max_r=max_r,
+        max_gain_pct=max_gain_pct,
     )
 
 
@@ -734,7 +747,12 @@ def test_qualify_rejects_in_session_and_out_of_band() -> None:
 
 
 def _seed_premarket(
-    store: object, *, oid_time_utc: datetime, symbol: str = "AZI", price_scale: float = 1.0
+    store: object,
+    *,
+    oid_time_utc: datetime,
+    symbol: str = "AZI",
+    price_scale: float = 1.0,
+    float_shares: int | None = 8_000_000,
 ) -> None:
     """Seed a clean pre-market bull flag (AZI, triggers to ~2.8R) + a no-setup name (DUD).
 
@@ -745,7 +763,10 @@ def _seed_premarket(
     that trigger on the *same bar* — the tie the #381 ordering test needs.
 
     ``price_scale`` multiplies every price, keeping the setup's *shape* (all gates are percentage-
-    based) while moving it in the price band — used to seed a sub-$2 name for the #386 floor."""
+    based) while moving it in the price band — used to seed a sub-$2 name for the #386 floor.
+
+    ``float_shares`` seeds the fundamentals row the candidate's float is read from (#390); pass
+    None to seed no fundamentals at all, which is the 'source returned nothing' case."""
     from small_cap_stack.storage import Store
 
     assert isinstance(store, Store)
@@ -796,6 +817,22 @@ def _seed_premarket(
         [{"opportunity_id": oid, "symbol": symbol, "ts_utc": t0, "rank": 0}],
         partition_date=day,
     )
+    if float_shares is not None:
+        store.append(
+            "fundamentals",
+            [
+                {
+                    "opportunity_id": oid,
+                    "symbol": symbol,
+                    "ts_utc": t0,
+                    "float_shares": float_shares,
+                    "shares_outstanding": float_shares * 2,
+                    "short_percent": 0.1,
+                    "source": "fmp",
+                }
+            ],
+            partition_date=day,
+        )
 
 
 def test_extract_day_trades_selects_premarket_v2_setup(tmp_path: Path) -> None:
@@ -921,6 +958,143 @@ def test_extract_day_trades_is_deterministic_and_totally_ordered(tmp_path: Path)
     assert [f[0] for f in fingerprint] == ["MULL", "SNDU", "SNXX"]  # total order, by symbol
     for r in runs[1:]:
         assert [(c.symbol, c.seg_id, c.run, c.trigger_at, c.entry_price) for c in r] == fingerprint
+
+
+# --- --- Trade-log context: float + what the setup offered (#390) ----------------------
+#
+# The log used to say only what the book *took*. These pin the three columns that say what was
+# there to take: the name's float, the peak favourable excursion in R (Max R − R is the R left on
+# the table), and that same peak as a plain move (which R hides whenever the stop is wide).
+
+
+def test_extract_carries_float_and_the_peak_the_setup_offered(tmp_path: Path) -> None:
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))
+    [c] = extract_day_trades(store, _s(), day)
+
+    assert c.float_shares == 8_000_000  # merged off the seeded fmp fundamentals row
+    # The seeded flag runs to a 7.64 high off a 6.13 fill with a 5.60 stop.
+    assert c.max_r == pytest.approx((7.64 - c.entry_price) / c.risk, abs=0.001)
+    assert c.max_r > 2.0  # ...i.e. it offered more than the 2R the book's target takes
+    # Same peak, as a plain move off entry — a fraction, like every other _pct in this payload.
+    assert c.max_gain_pct == pytest.approx((7.64 - c.entry_price) / c.entry_price, abs=1e-5)
+
+
+def test_extract_float_is_none_when_no_fundamentals_landed(tmp_path: Path) -> None:
+    """A missing float must read as unknown, not as 0 — the log renders "—" for it."""
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    store = Store(tmp_path)
+    _seed_premarket(
+        store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC), float_shares=None
+    )
+    [c] = extract_day_trades(store, _s(), date(2026, 6, 29))
+    assert c.float_shares is None
+    assert c.max_r is not None  # the peak does not depend on fundamentals landing
+
+
+def test_taken_and_skipped_trades_both_carry_the_peak_and_float() -> None:
+    """Both logs answer the same question, so both need the same columns.
+
+    Max R is a property of the *candidate* — measured against the initial stop over the rest of the
+    day — so it must survive the target sweep unchanged. That is what makes ``max_r - realized_r``
+    read as "what this exit left on the table" rather than as a second exit model."""
+    s = _s(portfolio_max_trades_per_day=1, portfolio_exit_slippage_ticks=0)
+    bars = [_bar(10, 12.0, 9.95, 12.0)]  # +2R available on the entry bar
+    taken = _cand("AAA", 5, 10.0, 9.0, bars, float_shares=6_000_000, max_r=2.8, max_gain_pct=0.28)
+    dropped = _cand("BBB", 6, 10.0, 9.0, bars, float_shares=None, max_r=5.0, max_gain_pct=0.5)
+
+    res = simulate_portfolio([(date(2026, 7, 14), [taken, dropped])], s, target_r=2.0)
+    [t] = res.trades
+    assert (t.symbol, t.float_shares, t.max_r, t.max_gain_pct) == ("AAA", 6_000_000, 2.8, 0.28)
+    assert round(t.max_r - t.realized_r, 4) == 0.8  # 0.8R left on the table at this target
+    [sk] = res.skipped
+    assert (sk.symbol, sk.float_shares, sk.max_r, sk.max_gain_pct) == ("BBB", None, 5.0, 0.5)
+
+    # A different target changes what was TAKEN but not what was OFFERED.
+    wider = simulate_portfolio([(date(2026, 7, 14), [taken, dropped])], s, target_r=1.0)
+    assert wider.trades[0].realized_r == 1.0
+    assert wider.trades[0].max_r == 2.8
+
+
+def test_payload_trade_log_exposes_the_peak_and_float(tmp_path: Path) -> None:
+    from small_cap_stack.portfolio import build_portfolio_payload
+    from small_cap_stack.storage import Store
+
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))
+    payload = build_portfolio_payload(store, _s(), datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC))
+    trade = payload["books"]["adaptive"]["trades"][0]  # type: ignore[index,call-overload]
+
+    assert trade["float_shares"] == 8_000_000
+    assert trade["max_r"] > trade["realized_r"]  # exited at target; the move kept going
+    assert 0 < trade["max_pct"] < 1  # a fraction, not already multiplied out to percent
+
+
+def test_late_fundamentals_bust_the_candidate_cache(tmp_path: Path) -> None:
+    """The EOD fundamentals backfill lands a float on a day whose bars are already final (#255).
+
+    ``_EXTRACT_DATASETS`` must therefore list ``fundamentals``: without it the day's fingerprint
+    is unchanged by that write, and the cache serves a null-float candidate forever."""
+    import small_cap_stack.portfolio as pf
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    store = Store(tmp_path)
+    _seed_premarket(
+        store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC), float_shares=None
+    )
+    now = datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC)
+    cache_dir = pf.portfolio_candidate_cache_dir(_s(data_dir=tmp_path))
+    primed = pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir)
+    assert primed["books"]["adaptive"]["trades"][0]["float_shares"] is None  # type: ignore[index,call-overload]
+
+    store.append(
+        "fundamentals",
+        [
+            {
+                "opportunity_id": f"{day.isoformat()}:AZI",
+                "symbol": "AZI",
+                "ts_utc": datetime(2026, 6, 29, 20, 0, tzinfo=ET_UTC),
+                "float_shares": 4_200_000,
+                "shares_outstanding": 9_000_000,
+                "short_percent": 0.1,
+                "source": "fmp",
+            }
+        ],
+        partition_date=day,
+    )
+    rebuilt = pf.build_portfolio_payload(store, _s(), now, cache_dir=cache_dir)
+    assert rebuilt["books"]["adaptive"]["trades"][0]["float_shares"] == 4_200_000  # type: ignore[index,call-overload]
+
+
+def test_cache_written_before_the_peak_fields_is_rejected(tmp_path: Path) -> None:
+    """An older cache file must re-extract, not silently serve nulls for the new columns."""
+    import json
+
+    from small_cap_stack.portfolio import (
+        _candidate_to_json,
+        _read_candidate_cache,
+        extract_day_trades,
+    )
+    from small_cap_stack.storage import Store
+
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))
+    [c] = extract_day_trades(store, _s(), date(2026, 6, 29))
+
+    legacy = _candidate_to_json(c)
+    for key in ("float_shares", "max_r", "max_gain_pct"):
+        legacy.pop(key)
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps({"fingerprint": "fp", "candidates": [legacy]}))
+
+    assert _read_candidate_cache(path, "fp") is None  # schema drift → re-extract
 
 
 def test_build_portfolio_payload_shape(tmp_path: Path) -> None:

@@ -56,6 +56,12 @@ def _trade_json(t: PaperTrade) -> dict[str, object]:
         "sized_by": t.sized_by,
         "target_r": t.target_r,
         "realized_r": t.realized_r,
+        # What the setup offered vs what this exit took (#390): `max_r - realized_r` is the R left
+        # on the table, and `max_pct` is the same peak as a plain move so a wide-stop trade's modest
+        # R doesn't hide a big run. `float_shares` is the name's float at flag time.
+        "max_r": t.max_r,
+        "max_pct": t.max_gain_pct,
+        "float_shares": t.float_shares,
         "reason": t.reason,
         "exit_price": t.exit_price,
         "gross_pnl": t.gross_pnl_usd,
@@ -76,6 +82,9 @@ def _skipped_json(sk: SkippedTrade) -> dict[str, object]:
         "stop": sk.stop,
         "target_r": sk.target_r,
         "realized_r": sk.realized_r,
+        "max_r": sk.max_r,
+        "max_pct": sk.max_gain_pct,
+        "float_shares": sk.float_shares,
         "reason": sk.reason,
         "exit_price": sk.exit_price,
         "skip_reason": sk.skip_reason,
@@ -174,7 +183,11 @@ def _book_json(
 # regenerable.
 _CANDIDATE_CACHE_SUBDIR = ("cache", "portfolio_candidates")
 
-_EXTRACT_DATASETS = ("opportunities", "bars", "scanner_hits")
+# Every dataset `extract_day_trades` reads. `fundamentals` is here because the candidate now carries
+# the name's float (#390), and the EOD backfill (`capture.capture_missing_fundamentals`) lands rows
+# for a day whose bars/opportunities are already final — without it that day's fingerprint would be
+# unchanged and the cache would keep serving candidates with a null float forever.
+_EXTRACT_DATASETS = ("opportunities", "bars", "scanner_hits", "fundamentals")
 
 
 def portfolio_candidate_cache_dir(s: Settings) -> Path:
@@ -230,8 +243,15 @@ def _candidate_to_json(c: CandidateTrade) -> dict[str, Any]:
         "stop": c.stop,
         "risk": c.risk,
         "entry_index": c.entry_index,
+        "float_shares": c.float_shares,
+        "max_r": c.max_r,
+        "max_gain_pct": c.max_gain_pct,
         "bars": [_bar_to_json(b) for b in c.bars],
     }
+
+
+def _opt_float(v: Any) -> float | None:
+    return None if v is None else float(v)
 
 
 def _candidate_from_json(d: dict[str, Any]) -> CandidateTrade:
@@ -246,6 +266,12 @@ def _candidate_from_json(d: dict[str, Any]) -> CandidateTrade:
         stop=float(d["stop"]),
         risk=float(d["risk"]),
         entry_index=int(d["entry_index"]),
+        # Indexed, not `.get()`, on purpose: a cache written before these fields existed raises
+        # KeyError here, which `_read_candidate_cache` turns into a re-extract. A `.get()` default
+        # would instead serve a null float / null Max R for every historical day, permanently.
+        float_shares=None if d["float_shares"] is None else int(d["float_shares"]),
+        max_r=_opt_float(d["max_r"]),
+        max_gain_pct=_opt_float(d["max_gain_pct"]),
         bars=tuple(_bar_from_json(b) for b in d["bars"]),
     )
 

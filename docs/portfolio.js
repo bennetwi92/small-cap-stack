@@ -8,7 +8,7 @@ import "./js/nav.js";
 import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
-import { esc, etClockIso, rRampClass } from "./js/fmt.js";
+import { esc, etClockIso, fmtShares, rRampClass } from "./js/fmt.js";
 
 const el = (id) => document.getElementById(id);
 // Cockpit tokens (cockpit.css): win/loss green+red stay reserved for P&L, so the two
@@ -376,8 +376,38 @@ function riskCell(t) {
 const rRampCell = (v) =>
   `<td class="r ${v == null ? "muted" : rRampClass(v)}">${fmtR(v)}</td>`;
 
+// Float at flag time — context for the name, never a filter here (the float gate ran upstream).
+// Absent from books published before #390, and genuinely null when no source returned one.
+const floatCell = (t) =>
+  `<td class="r ${t.float_shares == null ? "muted" : ""}">${fmtShares(t.float_shares)}</td>`;
+
+// Peak favourable excursion. Deliberately NOT on the R ramp: Max R is ≥ 0 by construction, so the
+// diverging scale would paint the whole column green and drown out the realised-R column beside it.
+// The tooltip carries the actual question — how much this exit left on the table.
+function maxRCell(t, realized) {
+  if (t.max_r == null) return '<td class="r muted" title="Not recorded for this trade">—</td>';
+  const left = t.max_r - realized;
+  // A 0R peak means the trade never traded above entry, so there was nothing on the table to
+  // leave — phrasing that gap as "left on the table" would describe the LOSS as forgone upside.
+  const offered = t.max_r > 0.005;
+  const tip = !offered
+    ? `never traded above entry — nothing was on the table`
+    : left > 0.005
+      ? `${fmtR(left)} left on the table — the exit took ${fmtR(realized)} of a ${fmtR(t.max_r)} peak`
+      : `caught the whole move — the setup never went beyond ${fmtR(t.max_r)}`;
+  // Half an R+ unclaimed is worth flagging — in GOLD, the Max R marker colour the review chart
+  // already uses. Not the loss colour: "you didn't capture all of it" is not "you lost money", and
+  // painting it red next to a green Net would read as a contradiction on every winning runner.
+  const cls = offered && left > 0.5 ? "warn" : "muted";
+  return `<td class="r" title="${esc(tip)}"><span class="${cls}">${fmtR(t.max_r)}</span></td>`;
+}
+
+// The same peak as a plain move off entry (payload stores a fraction, like every other _pct field).
+const maxPctCell = (t) =>
+  `<td class="r ${t.max_pct == null ? "muted" : ""}">${t.max_pct == null ? "—" : fmtPct(t.max_pct)}</td>`;
+
 function tradeRows(book) {
-  if (!book.trades.length) return '<tr><td colspan="12" class="muted">No qualifying pre-market trades yet.</td></tr>';
+  if (!book.trades.length) return '<tr><td colspan="15" class="muted">No qualifying pre-market trades yet.</td></tr>';
   return book.trades
     .slice()
     .reverse() // newest first
@@ -388,6 +418,7 @@ function tradeRows(book) {
         "<tr>" +
         `<td>${esc(t.date)}</td>` +
         `<td><a href="${rev}"><strong>${esc(t.symbol)}</strong></a></td>` +
+        floatCell(t) +
         `<td>${etClockIso(t.trigger_at)}</td>` +
         `<td class="r">${fmtUsd(t.entry)}</td>` +
         `<td class="r">${fmtUsd(t.stop)}</td>` +
@@ -396,6 +427,8 @@ function tradeRows(book) {
         `<td class="r">${Number(t.target_r).toFixed(1)}R</td>` +
         `<td><span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtUsd(t.exit_price)}</td>` +
         rRampCell(t.realized_r) +
+        maxRCell(t, t.realized_r) +
+        maxPctCell(t) +
         `<td class="r ${nCls}">${fmtUsd(t.net_pnl)}</td>` +
         `<td class="r">${fmtUsd(t.equity_after)}</td>` +
         "</tr>"
@@ -446,7 +479,7 @@ function skippedNote(book) {
 
 function skippedRows(book) {
   const skipped = book.skipped || [];
-  if (!skipped.length) return '<tr><td colspan="9" class="muted">None — the daily cap was never binding.</td></tr>';
+  if (!skipped.length) return '<tr><td colspan="12" class="muted">None — the daily cap was never binding.</td></tr>';
   return skipped
     .slice()
     .reverse() // newest first, matching the trade log
@@ -456,6 +489,7 @@ function skippedRows(book) {
         "<tr>" +
         `<td>${esc(t.date)}</td>` +
         `<td><a href="${rev}"><strong>${esc(t.symbol)}</strong></a></td>` +
+        floatCell(t) +
         `<td>${SKIP_LBL[t.skip_reason] || SKIP_LBL.cap}</td>` +
         `<td>${etClockIso(t.trigger_at)}</td>` +
         `<td class="r">${fmtUsd(t.entry)}</td>` +
@@ -463,6 +497,8 @@ function skippedRows(book) {
         `<td class="r">${Number(t.target_r).toFixed(1)}R</td>` +
         `<td><span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtUsd(t.exit_price)}</td>` +
         rRampCell(t.realized_r) +
+        maxRCell(t, t.realized_r) +
+        maxPctCell(t) +
         "</tr>"
       );
     })

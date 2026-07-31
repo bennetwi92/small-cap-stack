@@ -13,7 +13,7 @@ from datetime import date
 from ..capture import Bar
 from ..clock import ET
 from ..config import Settings
-from ..report import day_chart_bars, day_opportunities, symbol_runs
+from ..report import _funds_for, day_chart_bars, day_opportunities, symbol_runs
 from ..rmetrics import compute_r_metrics
 from ..storage import Store
 from .models import CandidateTrade
@@ -52,6 +52,13 @@ def extract_day_trades(store: Store, s: Settings, trading_date: date) -> list[Ca
         return []
     bars_df = store.read("bars", dt=trading_date)
     scans = store.read("scanner_hits", dt=trading_date)
+    # Float is context, never a filter here — the float gate already ran upstream, at flag time.
+    # Read through the same `_funds_for` seam the EOD report uses so the book quotes the same
+    # source-merged number the results/review pages do (fmp first), rather than a second opinion.
+    # NOTE: adding this read means `payload._EXTRACT_DATASETS` must list `fundamentals` too, or the
+    # EOD fundamentals backfill (`capture.capture_missing_fundamentals`) would land a float without
+    # busting the day's candidate-cache fingerprint.
+    funds = store.read("fundamentals", dt=trading_date)
     excluded = {sym.upper() for sym in s.portfolio_exclude_symbols}
     out: list[CandidateTrade] = []
     for row in opps.iter_rows(named=True):
@@ -61,6 +68,7 @@ def extract_day_trades(store: Store, s: Settings, trading_date: date) -> list[Ca
         day_bars = day_chart_bars(bars_df, oid, s)
         if not day_bars:
             continue
+        float_shares, _short_percent = _funds_for(funds, oid)
         for run in symbol_runs(row, bars_df, scans, s):
             rm = compute_r_metrics(day_bars, s, first_hit=run.first_hit)
             if not _qualify(
@@ -90,6 +98,9 @@ def extract_day_trades(store: Store, s: Settings, trading_date: date) -> list[Ca
                     risk=rm.initial_risk,
                     entry_index=rm.entry_index,
                     bars=tuple(day_bars),
+                    float_shares=float_shares,
+                    max_r=rm.max_r,
+                    max_gain_pct=rm.max_gain_pct,
                 )
             )
     # A **total** order (#381). Sorting on trigger_at alone is a stable sort over an upstream row

@@ -44,6 +44,9 @@ def _skipped(
         reason=o.reason,
         exit_price=o.exit_price,
         skip_reason=skip_reason,
+        float_shares=c.float_shares,
+        max_r=c.max_r,
+        max_gain_pct=c.max_gain_pct,
     )
 
 
@@ -140,6 +143,9 @@ def _take_day(
                 net_pnl_usd=net,
                 equity_before=before,
                 equity_after=equity,
+                float_shares=c.float_shares,
+                max_r=c.max_r,
+                max_gain_pct=c.max_gain_pct,
             )
         )
     # Cap-skips come from the day's LAST triggers and unaffordable ones are appended from among its

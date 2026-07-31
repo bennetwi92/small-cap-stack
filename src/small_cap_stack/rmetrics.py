@@ -9,7 +9,8 @@ exhaustion) and the bar its entry triggers; this module measures the trade from 
   R is deliberately measured against a worse fill so Phase-1 never overstates the edge;
 - **risk** R = entry - stop (stop = consolidation low), with a gap-through fill: if the trigger bar
   *opened* above the fill, the entry (and realised risk) widen to that open (#163);
-- **Max R** (peak favourable excursion) and **MAE** (worst adverse), under a conservative
+- **Max R** (peak favourable excursion — also reported as ``max_gain_pct``, the same peak as a
+  plain fraction of the entry price) and **MAE** (worst adverse), under a conservative
   **stop-first** intrabar convention: if a bar breaches the stop we treat the trade closed at the
   stop on that bar — its high is not credited and no later bar is measured.
 
@@ -46,6 +47,10 @@ class RMetrics:
     entry_price: float | None = None  # the realised fill (>= entry_fill on a gap-through)
     entry_index: int | None = None
     max_r: float | None = None  # peak favourable excursion, in R
+    # The same peak expressed as a fraction of the entry price — R normalises by the stop distance,
+    # so a 0.9R move on a wide stop and a 0.9R move on a tight one read identically while being very
+    # different moves in the tape. This is the size-of-the-move view of Max R (#390).
+    max_gain_pct: float | None = None
     mae_r: float | None = None  # worst adverse excursion after entry, in R
     stopped_out: bool = False
     stop_index: int | None = None
@@ -96,6 +101,7 @@ def _measure(
         "entry_index": entry_j,
         "initial_risk": risk,
         "max_r": round((max_high - entry) / risk, 3),
+        "max_gain_pct": round((max_high - entry) / entry, 5),
         "mae_r": round((entry - min_low) / risk, 3),
         "stopped_out": stopped_out,
         "stop_index": stop_index,

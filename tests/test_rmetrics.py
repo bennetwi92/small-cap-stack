@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from small_cap_stack.rmetrics import compute_r_metrics
@@ -76,6 +78,42 @@ def test_no_setup() -> None:
     m = compute_r_metrics(bars, _settings())
     assert not m.setup_found
     assert not m.triggered
+
+
+def test_max_gain_pct_is_the_same_peak_as_a_plain_move() -> None:
+    """``max_gain_pct`` re-expresses Max R as a fraction of the entry price (#390).
+
+    R divides by the stop distance, so it says how the trade paid relative to what it risked — two
+    setups can both print 0.9R off a 3% move and a 25% move. This is the second view: same peak,
+    same stop-first walk, denominated in the entry price instead of the risk."""
+    bars = [
+        *_SETUP,
+        _bar(3, 5.7, 7.0, 5.7, 6.9),
+        _bar(4, 6.9, 7.64, 6.8, 7.5),  # peak 7.64 vs the 6.13 fill
+    ]
+    m = compute_r_metrics(bars, _settings())
+    assert m.max_gain_pct == round((7.64 - 6.13) / 6.13, 5)
+    # Both views measure the SAME peak, so they differ by exactly risk/entry.
+    assert m.max_r is not None and m.initial_risk is not None and m.entry_price is not None
+    assert m.max_gain_pct == pytest.approx(m.max_r * m.initial_risk / m.entry_price, abs=1e-5)
+
+
+def test_max_gain_pct_respects_the_stop_first_convention() -> None:
+    """A post-stop spike inflates neither view — same walk, same closed position."""
+    bars = [
+        *_SETUP,
+        _bar(3, 5.7, 6.5, 5.7, 6.0),  # triggers; peak 6.5
+        _bar(4, 6.0, 6.1, 5.5, 5.5),  # stopped here
+        _bar(5, 5.5, 9.0, 5.5, 8.9),  # must be ignored
+    ]
+    m = compute_r_metrics(bars, _settings())
+    assert m.max_gain_pct == round((6.5 - 6.13) / 6.13, 5)
+
+
+def test_max_gain_pct_is_zero_on_a_same_bar_stop() -> None:
+    bars = [*_SETUP, _bar(3, 5.7, 6.3, 5.4, 5.5)]  # trigger + stop on one bar
+    m = compute_r_metrics(bars, _settings())
+    assert m.max_r == 0.0 and m.max_gain_pct == 0.0
 
 
 def test_max_r_not_credited_after_stop() -> None:
