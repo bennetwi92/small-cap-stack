@@ -39,7 +39,10 @@ def _qualify(
     if not (s.portfolio_entry_price_min <= rm_entry_fill <= s.portfolio_entry_price_max):
         return False
     trigger_bar = day_bars[rm_entry_index]
-    return trigger_bar.start.astimezone(ET).time() < s.portfolio_premarket_cutoff
+    # The takeable window is bounded at both ends: the floor is inclusive (a bar opening exactly at
+    # 05:30 is takeable), the cutoff strict. Anything outside is a valid setup the book won't take.
+    trigger_time = trigger_bar.start.astimezone(ET).time()
+    return s.portfolio_premarket_earliest <= trigger_time < s.portfolio_premarket_cutoff
 
 
 def extract_day_trades(store: Store, s: Settings, trading_date: date) -> list[CandidateTrade]:

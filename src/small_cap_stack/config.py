@@ -193,6 +193,17 @@ class Settings(BaseSettings):
     portfolio_risk_fraction: float = 0.05  # target risk per trade, as a fraction of opening equity
     portfolio_position_fraction: float = 0.50  # max position notional, as a fraction of opening eq.
     portfolio_max_trades_per_day: int = 2  # cap 50% × 2 = at most fully deployed → 2 concurrent
+    # The takeable window for the TRIGGER bar: `earliest` <= bar open < `cutoff` (floor inclusive,
+    # cutoff strict). The scan window still starts at 04:00 — this only bounds the paper book.
+    # Floor added 2026-07-31: no trades before 05:30 ET. The owner's call, like the $2 price floor
+    # (#386) — `research/reports/…time-of-day…` found no pre-market window statistically separable
+    # from another (the 04:00–06:00 block is −0.32R over 86 triggers, but permuting entry-time
+    # labels within a day reproduces that spread 68% of the time), so this is a selection decision
+    # about the thinnest, earliest tape, not a measured edge. The *scanner* window is unchanged, so
+    # pre-05:30 names keep being captured, charted and scored on the results page — they simply
+    # stop being takeable. Compute-on-read means the whole historical book replays under the new
+    # floor on the next publish; there is no stored state to migrate.
+    portfolio_premarket_earliest: time = time(5, 30)
     # Strict: the TRIGGER bar must open before this. Tightened 09:30 → 09:15 (2026-07-21) — the
     # final pre-open ramp/auction (09:15–09:30) trades like the open, which this strategy excludes
     # (a VMAR entry at ~09:25 on 2026-07-20 lost). Spike #379/#380 only swept relaxations
