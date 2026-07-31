@@ -13,6 +13,7 @@ import "./js/nav.js";
 import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
+import { el, setBanner, showError } from "./js/dom.js";
 import { esc, etClockIso, fmtPct, fmtShares, rRampClass } from "./js/fmt.js";
 import {
   chartsFor,
@@ -28,8 +29,6 @@ import {
   reviewFor,
   reviewHtml,
 } from "./js/inspector.js";
-
-const el = (id) => document.getElementById(id);
 
 // Panel explainers. On a wide monitor cockpit.css clamps these to three lines so the
 // rails fit one screen (#397); the full text always lives in the tooltip, and a click
@@ -1685,11 +1684,10 @@ function render() {
 }
 
 async function load() {
-  el("pf-error").hidden = true;
+  setBanner("pf-error", "");
   const data = await fetchJson("portfolio.json");
   if (!data || !data.books) {
-    el("pf-error").hidden = false;
-    el("pf-error").textContent = "No portfolio data yet — it's built at the end-of-day report.";
+    setBanner("pf-error", "No portfolio data yet — it's built at the end-of-day report.");
     return;
   }
   PAYLOAD = data;
@@ -1699,7 +1697,4 @@ async function load() {
 }
 
 buildOptbar();
-load().catch((e) => {
-  el("pf-error").hidden = false;
-  el("pf-error").textContent = `Failed to load portfolio: ${e && e.message ? e.message : e}`;
-});
+load().catch((e) => showError("pf-error", "Failed to load portfolio", e));

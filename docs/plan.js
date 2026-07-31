@@ -16,6 +16,7 @@ import "./js/nav.js";
 import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
+import { el } from "./js/dom.js";
 import { issueStates, issueUrl } from "./js/gh.js";
 import { esc, fmtPct, fmtPctPlain, fmtRSigned } from "./js/fmt.js";
 
@@ -72,7 +73,6 @@ const GATES = [
    Small helpers
    ============================================================ */
 
-const el = (id) => document.getElementById(id);
 // en-CA renders YYYY-MM-DD; ET so "today" flips with the trading date, not the browser.
 const _etDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" });
 const todayEt = () => _etDate.format(new Date());

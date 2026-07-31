@@ -15,9 +15,8 @@
 import "./js/nav.js";
 import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
+import { el, setBanner, showError } from "./js/dom.js";
 import { esc } from "./js/fmt.js";
-
-const el = (id) => document.getElementById(id);
 
 const INDEX_URL = "reports/index.json";
 const reportUrl = (file) => `reports/${encodeURIComponent(file)}`;
@@ -56,11 +55,6 @@ async function fetchText(url) {
   const res = await fetch(bust(url), { cache: "no-store" });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.text();
-}
-
-function showError(msg) {
-  el("rp-error").hidden = false;
-  el("rp-error").textContent = msg;
 }
 
 /* ---------- options bar ---------- */
@@ -201,7 +195,7 @@ async function showReport(slug) {
     setStatusPage(`reading ${report.slug}`);
   } catch (e) {
     el("rp-doc-body").innerHTML = "";
-    showError(`Failed to load ${report.file}: ${e && e.message ? e.message : e}`);
+    showError("rp-error", `Failed to load ${report.file}`, e);
   }
 }
 
@@ -225,7 +219,7 @@ function openReport(slug) {
 }
 
 function route() {
-  el("rp-error").hidden = true;
+  setBanner("rp-error", "");
   const slug = slugFromUrl();
   if (slug) showReport(slug);
   else showList();
@@ -236,14 +230,14 @@ window.addEventListener("popstate", route);
 /* ---------- load ---------- */
 
 async function load() {
-  el("rp-error").hidden = true;
+  setBanner("rp-error", "");
   el("rp-count").textContent = "loading…";
   try {
     const index = JSON.parse(await fetchText(INDEX_URL));
     reports = Array.isArray(index.reports) ? index.reports : [];
   } catch (e) {
     reports = [];
-    showError(`Failed to load the reports index: ${e && e.message ? e.message : e}`);
+    showError("rp-error", "Failed to load the reports index", e);
   }
   el("rp-count").textContent = countLabel();   // stays truthful in the report view too
   route();

@@ -23,6 +23,7 @@ import "./js/nav.js";
 import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
+import { el, setBanner, showError } from "./js/dom.js";
 import {
   esc,
   fmtShares,
@@ -52,8 +53,6 @@ import {
 } from "./js/inspector.js";
 import { MARKET_OPEN_MIN } from "./js/session.js";
 import { TabulatorFull as Tabulator } from "https://cdn.jsdelivr.net/npm/tabulator-tables@6.5.2/dist/js/tabulator_esm.min.js";
-
-const el = (id) => document.getElementById(id);
 
 /* ---------- dock state ----------
    Declared up here because the options bar (built below, at module evaluation)
@@ -617,7 +616,7 @@ let optbarOffersScope = false; // whether the bar currently carries the DATA con
 let firstLoad = true; // only the first load reads a scope out of the URL hash
 
 async function load() {
-  el("rs-error").hidden = true;
+  setBanner("rs-error", "");
   el("rs-count").textContent = "loading…";
   try {
     // Both indexes, in parallel — the reconstructed one is nav rows only (tens of KB), and
@@ -651,8 +650,7 @@ async function load() {
     }
     restoreSelection();
   } catch (e) {
-    el("rs-error").hidden = false;
-    el("rs-error").textContent = `Failed to load results: ${e && e.message ? e.message : e}`;
+    showError("rs-error", "Failed to load results", e);
   }
 }
 

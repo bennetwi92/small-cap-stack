@@ -16,6 +16,7 @@
 
 import "./js/nav.js";
 import { REPO, fetchJson } from "./js/data.js";
+import { el } from "./js/dom.js";
 import { esc } from "./js/fmt.js";
 import {
   MK,
@@ -36,8 +37,6 @@ import {
 const DEFAULT_BRANCH = "main"; // base the review-data branch off this on first save
 const API = "https://api.github.com";
 const PAT_KEY = "rv_pat"; // localStorage key for the phone-local GitHub token
-
-const el = (id) => document.getElementById(id);
 
 // Date-picker label: "2026-07-01" -> "2026-07-01 · Wed" so the day of week reads at a glance.
 // Parse the ISO parts directly (local Date from y/m/d, no UTC parse) so the weekday never tz-shifts.
