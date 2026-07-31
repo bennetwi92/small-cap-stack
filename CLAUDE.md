@@ -125,6 +125,10 @@ published to the dashboard's **Reports** tab. The **`publish-report`** skill is 
   (newest first) and then fetches the markdown on click (`?r=<slug>` deep-links a report).
 - **Run `make reports` after adding or editing one** — a report missing from `index.json` is
   invisible to the page. `tests/test_reports.py` fails when the committed index is stale.
+- ⚠️ **`docs/.nojekyll` must stay.** Pages' legacy build otherwise runs Jekyll over `docs/`, which
+  turns each front-matter-carrying `docs/reports/*.md` into `reports/<slug>.html` and serves **no**
+  raw `.md` — so `reports.js`, which fetches the markdown itself, 404s on every report while the
+  list still loads (`index.json` is a static asset). `tests/test_reports.py` fails if it's deleted.
 - ⚠️ **Reports live in the repo, never on the box.** `publish-dashboard` force-pushes a fresh single
   commit to `dashboard-data` every 15 min, so anything hand-written on that branch is destroyed on
   the next cycle. `docs/` is already the Pages source: a merged report is a served report.

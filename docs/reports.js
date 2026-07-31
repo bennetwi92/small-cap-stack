@@ -6,6 +6,9 @@
 // `docs/reports/index.json` (built by `python -m small_cap_stack.reports build`)
 // is the list; each row fetches its own markdown on demand.
 //
+// Fetching the markdown is why `docs/.nojekyll` exists: Jekyll would render each
+// report to `reports/<slug>.html` and serve no `.md`, 404ing every fetch below.
+//
 // One page, two views, switched by the `?r=<slug>` URL parameter — so a report
 // is linkable, and Back returns to the list.
 
