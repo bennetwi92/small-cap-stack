@@ -198,7 +198,12 @@ class Settings(BaseSettings):
     # (a VMAR entry at ~09:25 on 2026-07-20 lost). Spike #379/#380 only swept relaxations
     # (10:00–12:00), all worse; tightening is the owner's call. Last takeable bar opens 09:10.
     portfolio_premarket_cutoff: time = time(9, 15)
-    portfolio_entry_price_min: float = 1.0  # entry_fill price band (narrower than the $1–50 scan)
+    # entry_fill price band (narrower than the $1–50 scan). Floor raised $1 → $2 (2026-07-31, #386)
+    # — the owner's call on the book, NOT a cost argument: `research/broker-costs.md` §3 still
+    # stands and the *scanner* floor stays $1, so sub-$2 names keep being captured and scored on the
+    # results page; they just stop being takeable in the paper book. Being compute-on-read, the
+    # whole book replays under the new floor on the next publish — no stored state to migrate.
+    portfolio_entry_price_min: float = 2.0
     portfolio_entry_price_max: float = 20.0
     # Symbols to exclude from the paper book. Before #226/#227 added the scanner's `stkTypes`
     # ETF/ETN filter, `STK.US.MAJOR` captured a handful of leveraged single-stock ETFs (no share

@@ -725,20 +725,27 @@ def test_qualify_rejects_in_session_and_out_of_band() -> None:
     assert _qualify(0, 10.0, 10.0, 9.0, 1.0, True, edge, s) is False  # 09:15 is not < 09:15
     assert _qualify(0, 10.0, 10.0, 9.0, 1.0, True, intr, s) is False  # after the cutoff
     assert _qualify(0, 25.0, 25.0, 24.0, 1.0, True, pre, s) is False  # entry_fill 25 > $20 band
+    assert _qualify(0, 1.5, 1.5, 1.2, 0.3, True, pre, s) is False  # entry_fill 1.50 < $2 floor
+    assert _qualify(0, 2.0, 2.0, 1.7, 0.3, True, pre, s) is True  # $2.00 exactly is inclusive
     assert _qualify(0, 10.0, 10.0, 9.0, 1.0, False, pre, s) is False  # not takeable
 
 
 # --- extraction (store integration; reuses the report seams) ---------------------------
 
 
-def _seed_premarket(store: object, *, oid_time_utc: datetime, symbol: str = "AZI") -> None:
+def _seed_premarket(
+    store: object, *, oid_time_utc: datetime, symbol: str = "AZI", price_scale: float = 1.0
+) -> None:
     """Seed a clean pre-market bull flag (AZI, triggers to ~2.8R) + a no-setup name (DUD).
 
     ``oid_time_utc`` is the first bar / first_hit; 12:00 UTC = 08:00 ET (EDT) → strictly pre-market;
     16:00 UTC = 12:00 ET → in-session, which the pre-market filter must reject.
 
     ``symbol`` seeds the identical setup under another ticker, so a caller can create candidates
-    that trigger on the *same bar* — the tie the #381 ordering test needs."""
+    that trigger on the *same bar* — the tie the #381 ordering test needs.
+
+    ``price_scale`` multiplies every price, keeping the setup's *shape* (all gates are percentage-
+    based) while moving it in the price band — used to seed a sub-$2 name for the #386 floor."""
     from small_cap_stack.storage import Store
 
     assert isinstance(store, Store)
@@ -752,10 +759,10 @@ def _seed_premarket(store: object, *, oid_time_utc: datetime, symbol: str = "AZI
             "opportunity_id": oid,
             "symbol": sym,
             "bar_start_utc": t0 + timedelta(minutes=5 * i),
-            "open": o,
-            "high": h,
-            "low": low,
-            "close": c,
+            "open": round(o * price_scale, 2),
+            "high": round(h * price_scale, 2),
+            "low": round(low * price_scale, 2),
+            "close": round(c * price_scale, 2),
             "volume": v,
         }
 
@@ -843,6 +850,27 @@ def test_extract_day_trades_rejects_after_0915_cutoff(tmp_path: Path) -> None:
     cands = extract_day_trades(store, _s(portfolio_premarket_cutoff=time(9, 30)), day)
     assert [c.symbol for c in cands] == ["AZI"]
     assert cands[0].trigger_at.astimezone(ET).time() == time(9, 15)
+
+
+def test_extract_day_trades_rejects_sub_2_dollar_entries(tmp_path: Path) -> None:
+    """Sub-$2 entries are out of the book's price band (#386, floor raised $1 → $2).
+
+    The same setup scaled to a ~$1.53 fill: rejected on the default floor, accepted when the floor
+    is dialled back to the old $1 — so it is the price band doing the work, not a broken fixture."""
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    store = Store(tmp_path)
+    # 0.25× the AZI setup → the $6.13 fill becomes ~$1.53, below the $2 floor but above the old $1.
+    _seed_premarket(
+        store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC), price_scale=0.25
+    )
+
+    assert extract_day_trades(store, _s(), day) == []
+    cands = extract_day_trades(store, _s(portfolio_entry_price_min=1.0), day)
+    assert [c.symbol for c in cands] == ["AZI"]
+    assert 1.0 <= cands[0].entry_fill < 2.0
 
 
 def test_extract_day_trades_excludes_configured_symbols(tmp_path: Path) -> None:
