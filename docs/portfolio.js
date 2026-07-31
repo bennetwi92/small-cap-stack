@@ -11,7 +11,9 @@ import { fetchJson } from "./js/data.js";
 import { esc, etClockIso, rRampClass } from "./js/fmt.js";
 
 const el = (id) => document.getElementById(id);
-const MK = { up: "#3ec07e", down: "#f06673", flat: "#9aa0b5", line: "#4fe3ef" };
+// Cockpit tokens (cockpit.css): win/loss green+red stay reserved for P&L, so the two
+// state charts wear the neutral accents — neither a target nor a risk rung is a win.
+const MK = { up: "#3ec07e", down: "#f06673", flat: "#9aa0b5", line: "#4fe3ef", gold: "#e3b452" };
 
 const fmtUsd = (x) => (x == null || !isFinite(x) ? "—" : "$" + Number(x).toFixed(2));
 const fmtGbp = (x) => (x == null || !isFinite(x) ? "—" : "£" + Number(x).toFixed(2));
@@ -87,6 +89,109 @@ function equitySvg(curve, start, cashFlows = []) {
     `<text x="${(x(pts.length - 1) - 6).toFixed(1)}" y="${(y(end) - 8).toFixed(1)}" text-anchor="end" class="pf-axis">${fmtUsd(end)}</text>` +
     `</svg>`
   );
+}
+
+/* ---------- Daily state curves: target + risk through time (inline SVG) ---------- */
+
+// Target and risk are *daily state*: a value the book holds for a whole session and only ever
+// changes between days. So they're drawn as **step** lines, not sloped ones — a slope would claim
+// the target drifted through Tuesday, which it never does. Each day owns a slot of equal width,
+// and the y-domain always spans the whole configured ladder so a move reads against what was
+// available, not just against the days on screen. Same frame/typography as the equity curve.
+function stepSvg(points, o) {
+  if (!points.length) return '<p class="muted">Not enough data to chart yet.</p>';
+  const W = 720, H = 240, PAD = 40, BOT = 46; // BOT leaves room for the date axis
+  const grid = o.grid || [];
+  const dom = [...points.map((p) => p.value), ...grid.map((g) => g.v)];
+  let lo = Math.min(...dom), hi = Math.max(...dom);
+  if (hi === lo) {
+    const p = Math.abs(hi) * 0.5 || 1; // a book with one constant value still needs a scale
+    lo -= p;
+    hi += p;
+  }
+  const room = (hi - lo) * 0.12; // headroom so the line never fuses with the frame
+  lo -= room;
+  hi += room;
+  const w = (W - 2 * PAD) / points.length;
+  const x0 = (i) => PAD + i * w;
+  const x1 = (i) => PAD + (i + 1) * w;
+  const y = (v) => H - BOT - ((v - lo) / (hi - lo)) * (H - PAD - BOT);
+
+  const line = points
+    .map((p, i) => {
+      const yy = y(p.value).toFixed(1);
+      return `${i ? "L" : "M"}${x0(i).toFixed(1)},${yy} L${x1(i).toFixed(1)},${yy}`;
+    })
+    .join(" ");
+  const base = y(lo).toFixed(1);
+  const area = `${line} L${x1(points.length - 1).toFixed(1)},${base} L${x0(0).toFixed(1)},${base} Z`;
+
+  // Recessive rules at each rung of the ladder, labelled in the axis gutter.
+  const rules = grid
+    .map((g) => {
+      const gy = y(g.v).toFixed(1);
+      return (
+        `<line x1="${PAD}" x2="${W - PAD}" y1="${gy}" y2="${gy}" stroke="${MK.flat}" ` +
+        `stroke-dasharray="3 3" stroke-width="1" opacity="0.3"/>` +
+        `<text x="${PAD - 5}" y="${(+gy + 3.5).toFixed(1)}" text-anchor="end" class="pf-axis">${esc(g.label)}</text>`
+      );
+    })
+    .join("");
+
+  // Native per-day tooltips: a transparent hit slot per day, so hovering anywhere in a
+  // column names the date and the value it held.
+  const hits = points
+    .map(
+      (p, i) =>
+        `<rect x="${x0(i).toFixed(1)}" y="${PAD}" width="${w.toFixed(1)}" height="${(H - BOT - PAD).toFixed(1)}" ` +
+        `fill="transparent"><title>${esc(p.date)} · ${esc(o.fmt(p.value))}</title></rect>`
+    )
+    .join("");
+
+  const last = points[points.length - 1];
+  const lastX = ((x0(points.length - 1) + x1(points.length - 1)) / 2).toFixed(1);
+  const lastY = y(last.value).toFixed(1);
+  const axisY = (H - BOT + 16).toFixed(1);
+  return (
+    `<svg viewBox="0 0 ${W} ${H}" class="pf-chart" role="img" aria-label="${esc(o.label)}">` +
+    rules +
+    `<path d="${area}" fill="${o.color}" opacity="0.10"/>` +
+    `<path d="${line}" fill="none" stroke="${o.color}" stroke-width="2"/>` +
+    `<circle cx="${lastX}" cy="${lastY}" r="3.5" fill="${o.color}"/>` +
+    `<text x="${lastX}" y="${(+lastY - 8).toFixed(1)}" text-anchor="end" class="pf-axis">${esc(o.fmt(last.value))}</text>` +
+    `<text x="${PAD}" y="${axisY}" class="pf-axis">${esc(points[0].date)}</text>` +
+    `<text x="${W - PAD}" y="${axisY}" text-anchor="end" class="pf-axis">${esc(last.date)}</text>` +
+    hits +
+    `</svg>`
+  );
+}
+
+// The R multiple the book exits at, re-fit daily from the trailing window. Rules mark the
+// candidate grid, so a flat stretch reads as "the fit kept choosing the same rung".
+function targetSvg(book) {
+  const pts = (book.daily_targets || [])
+    .filter((d) => d.target != null)
+    .map((d) => ({ date: d.date, value: d.target }));
+  const grid = PAYLOAD.config.target_grid || [...new Set(pts.map((p) => p.value))].sort((a, b) => a - b);
+  return stepSvg(pts, {
+    color: MK.line,
+    label: "Daily exit target, in R",
+    fmt: (v) => Number(v).toFixed(1) + "R",
+    grid: grid.map((v) => ({ v, label: Number(v).toFixed(1) + "R" })),
+  });
+}
+
+// The kill-switch rung in force each day. Rules mark the ladder, including the 0% floor, so
+// a stretch of sitting out is legible as a floor rather than as missing data.
+function riskSvg(book) {
+  const pts = (book.daily_risk || []).map((d) => ({ date: d.date, value: d.risk }));
+  const ladder = PAYLOAD.config.risk_ladder || [];
+  return stepSvg(pts, {
+    color: MK.gold,
+    label: "Daily risk per trade, as a share of equity",
+    fmt: pct,
+    grid: ladder.map((v) => ({ v, label: pct(v) })),
+  });
 }
 
 /* ---------- Stat tiles ---------- */
@@ -366,32 +471,38 @@ function skippedRows(book) {
 
 /* ---------- Notes + meta line ---------- */
 
-function adaptiveTargetNote(book) {
+// Each note now sits under the chart it explains rather than all of it under the equity curve.
+// `target_fallback_r` post-dates these payloads, so the prose degrades instead of printing
+// "undefined" against a portfolio.json published before it existed.
+function targetNote(book) {
   const c = PAYLOAD.config;
-  let out = "";
   const targets = (book.daily_targets || []).filter((d) => d.target != null);
-  if (targets.length) {
-    const last = targets[targets.length - 1];
-    const uniq = [...new Set(targets.map((d) => d.target))].sort((a, b) => a - b);
-    out +=
-      `<p class="muted pf-note">Target re-fits daily from the trailing ${c.adaptive_window_days}-day ` +
-      `window (needs ≥ ${c.adaptive_min_samples} prior trades, else the configured fallback). ` +
-      `Latest chosen target: <strong>${last.target}R</strong> · targets used: ${uniq.map((t) => t + "R").join(", ")}.</p>`;
-  }
-  const risk = book.daily_risk || [];
-  if (risk.length) {
-    const ladder = (c.risk_ladder || []).map(pct).join(" / ");
-    const d = c.risk_step_days || 1;
-    const days = d === 1 ? "day" : `${d} days`;
-    // Deliberately no "Latest risk: N%" here (#286): the forward-looking number
-    // lives in the Next session panel.
-    out +=
-      `<p class="muted pf-note">Risk throttle (kill-switch): position risk walks ${c.risk_rungs} rungs ` +
-      `(${ladder}), starting at full risk. It takes ${days} in a row of net-positive results to step ` +
-      `risk up a rung (and ${days} of net-negative to step down); at 0% the book sits out but still ` +
-      `watches the tape to re-arm.</p>`;
-  }
-  return out;
+  if (!targets.length) return "";
+  const last = targets[targets.length - 1];
+  const uniq = [...new Set(targets.map((d) => d.target))].sort((a, b) => a - b);
+  const fallback = c.target_fallback_r != null ? `the ${c.target_fallback_r}R fallback` : "the configured fallback";
+  return (
+    `Target re-fits daily from the trailing ${c.adaptive_window_days}-day window (needs ≥ ` +
+    `${c.adaptive_min_samples} prior trades, else ${fallback}). Latest chosen target: ` +
+    `<strong>${last.target}R</strong> · targets used: ${uniq.map((t) => t + "R").join(", ")}.`
+  );
+}
+
+function riskNote(book) {
+  const c = PAYLOAD.config;
+  if (!(book.daily_risk || []).length) return "";
+  const ladder = (c.risk_ladder || []).map(pct).join(" / ");
+  const d = c.risk_step_days || 1;
+  const days = d === 1 ? "day" : `${d} days`;
+  // Deliberately no "Latest risk: N%" here (#286): the forward-looking number
+  // lives in the Next session panel.
+  return (
+    `Risk throttle (kill-switch): position risk walks ${c.risk_rungs} rungs (${ladder}), starting ` +
+    `at full risk. It takes ${days} in a row of net-positive results to step risk up a rung (and ` +
+    `${days} of net-negative to step down); at 0% the book sits out but still watches the tape to ` +
+    `re-arm. The rung caps the risk — a tight stop can still leave the ` +
+    `${pct(c.position_fraction)} position cap binding first, so the risk actually taken lands below it.`
+  );
 }
 
 // The header used to promise a flat "up to 5% risk / trade", which read as a description of what
@@ -429,13 +540,30 @@ function metaLine(book) {
 
 /* ---------- render + load ---------- */
 
+// Only the adaptive book re-fits a target or throttles risk; a fixed book holds both flat by
+// construction, so the panels hide rather than charting a straight line as if it were a result.
+function renderStateCharts(book) {
+  const has = (book.daily_targets || []).length > 0;
+  const hasRisk = (book.daily_risk || []).length > 0;
+  el("pf-target-wrap").hidden = !has;
+  el("pf-risk-wrap").hidden = !hasRisk;
+  if (has) {
+    el("pf-target-chart").innerHTML = targetSvg(book);
+    el("pf-target-note").innerHTML = targetNote(book);
+  }
+  if (hasRisk) {
+    el("pf-risk-chart").innerHTML = riskSvg(book);
+    el("pf-risk-note").innerHTML = riskNote(book);
+  }
+}
+
 function render() {
   const book = PAYLOAD.books[BOOK];
   el("pf-meta").innerHTML = metaLine(book);
   el("pf-tiles").innerHTML = statTiles(book, PAYLOAD.start_equity);
   renderToday(book);
   el("pf-chart-wrap").innerHTML = equitySvg(book.equity_curve, PAYLOAD.start_equity, book.cash_flows);
-  el("pf-note").innerHTML = BOOK === "adaptive" ? adaptiveTargetNote(book) : "";
+  renderStateCharts(book);
   el("pf-payout-tiles").innerHTML = payoutTiles(book);
   el("pf-cashflows").innerHTML = cashFlowRows(book, PAYLOAD.config);
   el("pf-trades").innerHTML = tradeRows(book);

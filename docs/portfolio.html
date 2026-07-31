@@ -37,7 +37,19 @@
         <section class="panel">
           <h2 class="panel-h">Equity curve</h2>
           <div id="pf-chart-wrap" class="pf-chart-wrap"></div>
-          <div id="pf-note"></div>
+        </section>
+        <!-- The two knobs the adaptive book moves on its own, plotted the same way
+             as the equity curve so their drift is readable over the same window.
+             Step lines: each is daily state, held for a whole session. -->
+        <section class="panel" id="pf-target-wrap" hidden>
+          <h2 class="panel-h">Target through time</h2>
+          <div id="pf-target-chart" class="pf-chart-wrap"></div>
+          <p id="pf-target-note" class="muted pf-note"></p>
+        </section>
+        <section class="panel" id="pf-risk-wrap" hidden>
+          <h2 class="panel-h">Risk / trade through time</h2>
+          <div id="pf-risk-chart" class="pf-chart-wrap"></div>
+          <p id="pf-risk-note" class="muted pf-note"></p>
         </section>
         <!-- Getting paid: quarterly withdrawals, UK CGT reserve, VPS cost — GBP. -->
         <section class="panel">
