@@ -10,6 +10,7 @@ export const PAGES = [
   { label: "Review",    file: "review.html" },
   { label: "Results",   file: "results.html" },
   { label: "Portfolio", file: "portfolio.html" },
+  { label: "Reports",   file: "reports.html" },
 ];
 
 function currentFile() {

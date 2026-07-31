@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>small-cap-stack · reports</title>
+    <meta name="robots" content="noindex" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="cockpit.css" />
+  </head>
+  <body>
+    <!-- Cockpit chrome: app bar + options bar render themselves; the status bar
+         self-mounts at the bottom. Two views live in here — the published list
+         and one rendered report — swapped by the `?r=<slug>` URL parameter. -->
+    <header id="appbar" class="appbar"></header>
+    <div id="optbar"></div>
+    <p id="rp-error" class="error" hidden></p>
+
+    <main class="page">
+      <!-- list view -->
+      <section id="rp-list-view">
+        <h1 class="page-h">Reports</h1>
+        <p class="page-sub">
+          Written analyses, newest first. Click a row to read one.
+        </p>
+        <div id="rp-list" class="tbl-wrap rp-list"></div>
+      </section>
+
+      <!-- report view -->
+      <article id="rp-doc-view" hidden>
+        <a class="rp-back" href="reports.html">&larr; All reports</a>
+        <header class="rp-doc-head">
+          <h1 id="rp-doc-title" class="rp-doc-title">—</h1>
+          <p id="rp-doc-meta" class="rp-doc-meta muted"></p>
+        </header>
+        <div id="rp-doc-body" class="md-body"></div>
+      </article>
+    </main>
+
+    <script type="module" src="reports.js"></script>
+  </body>
+</html>

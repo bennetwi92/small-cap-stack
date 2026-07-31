@@ -545,3 +545,29 @@ and they make a future rebuild one step instead of five.
 
 **If rebuilt:** ship the *single* piece that removes a real, felt pain, run it for a week, and only
 then consider a second. The failure here was building ten pieces in one day for pains not yet felt.
+
+---
+
+## 2026-07-31 — Reports are repo prose served by Pages, not box data (#392)
+
+**Decision.** A *report* (a written analysis, produced on request) is a markdown file committed to
+`docs/reports/` with front-matter metadata, listed on a new **Reports** page in the dashboard and
+served straight out of GitHub Pages. `src/small_cap_stack/reports.py` builds
+`docs/reports/index.json` (the list the page reads); `make reports` regenerates it and
+`tests/test_reports.py` fails if the committed index is stale.
+
+**Why not the box.** Every other page reads the `dashboard-data` branch, which `publish-dashboard`
+**force-pushes as a fresh single commit every 15 minutes** — hand-written content there survives at
+most one cycle. Reports are prose authored alongside the code, so they belong in git, reviewed
+through the normal PR flow. `docs/` is already the Pages source, so merging *is* publishing: no box
+round-trip, no new workflow, and no dependency on the runner being healthy to read an analysis.
+
+**Why front matter over a JSON manifest.** Metadata lives next to the prose it describes, so a
+report is one file to write and one file to review; the generated index is a build artifact of it.
+The parser is a deliberately tiny YAML *subset* (`key: value` scalars) rather than a YAML
+dependency — it rejects unknown keys loudly, which catches `sumary:`-class typos at CI time
+instead of silently dropping the field.
+
+**Rendering.** Markdown is rendered client-side by `marked` from the same jsDelivr CDN the charts
+and grids already use, styled with cockpit tokens rather than the renderer's stylesheet. A CDN
+failure degrades to the raw markdown source rather than a blank pane.
