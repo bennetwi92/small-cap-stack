@@ -22,6 +22,7 @@ from ..storage import Store
 from .adaptive import risk_ladder
 from .extract import extract_day_trades
 from .models import CandidateTrade, PaperTrade, PortfolioResult, SkippedTrade
+from .projection import build_projection, day_rate_net_annual_gbp
 from .sim import AdaptiveState, simulate_portfolio, simulate_portfolio_adaptive
 
 
@@ -107,6 +108,7 @@ def _state_json(st: AdaptiveState) -> dict[str, object]:
 
 def _book_json(
     res: PortfolioResult,
+    s: Settings,
     daily_targets: list[tuple[date, float]] | None,
     daily_risk: list[tuple[date, float]] | None = None,
     state: AdaptiveState | None = None,
@@ -156,6 +158,11 @@ def _book_json(
             {"date": cf.date.isoformat(), "kind": cf.kind, "usd": cf.usd, "gbp": cf.gbp}
             for cf in res.cash_flows
         ],
+        # The forward view (see `projection`): the same book resampled a year into the future, for
+        # the drawdown you'd have to sit through and the date the payouts start. Per book, because
+        # every book has its own return distribution — projecting the adaptive one and labelling it
+        # "5R" would answer a question nobody asked.
+        "projection": build_projection(res, s),
     }
     if daily_targets is not None:
         book["daily_targets"] = [{"date": d.isoformat(), "target": t} for d, t in daily_targets]
@@ -361,11 +368,11 @@ def build_portfolio_payload(
     targets = sorted(set(s.portfolio_target_grid) | {1.0, 4.0, 5.0})
     books: dict[str, object] = {
         "adaptive": _book_json(
-            adaptive.result, adaptive.daily_targets, adaptive.daily_risk, adaptive.state
+            adaptive.result, s, adaptive.daily_targets, adaptive.daily_risk, adaptive.state
         )
     }
     for t in targets:
-        books[f"{t:g}"] = _book_json(simulate_portfolio(by_day, s, target_r=t), None)
+        books[f"{t:g}"] = _book_json(simulate_portfolio(by_day, s, target_r=t), s, None)
     return {
         "generated_utc": generated_utc.isoformat(),
         "start_equity": s.portfolio_start_equity_usd,
@@ -405,6 +412,15 @@ def build_portfolio_payload(
             "risk_rungs": s.portfolio_risk_rungs,
             "risk_ladder": list(risk_ladder(s)),
             "risk_step_days": s.portfolio_risk_step_days,
+            # Forward projection — the knobs, so the page states its own assumptions rather
+            # than hard-coding a day rate or horizon it would be wrong about after an edit.
+            "projection_days": s.portfolio_projection_days,
+            "projection_paths": s.portfolio_projection_paths,
+            "projection_block_days": s.portfolio_projection_block_days,
+            "day_rate_gbp": s.portfolio_day_rate_gbp,
+            "day_rate_days_per_year": s.portfolio_day_rate_days_per_year,
+            "day_rate_net_fraction": s.portfolio_day_rate_net_fraction,
+            "day_rate_net_annual_gbp": day_rate_net_annual_gbp(s),
         },
         "targets": [f"{t:g}" for t in targets],
         "books": books,

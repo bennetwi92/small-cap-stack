@@ -42,7 +42,15 @@ ET_UTC = UTC  # seeds store timestamps in UTC (the store's native tz), like test
 
 
 def _s(**overrides: object) -> Settings:
-    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
+    # The forward projection (`portfolio.projection`) is a 500-path × 252-session Monte-Carlo run
+    # for EVERY book in the payload, so leaving it at production settings turned this file from
+    # 4.5s into 57s — an order of magnitude of CI, spent re-running a simulation none of these
+    # tests assert anything about. It has its own module (`test_projection.py`) with its own
+    # settings; here it is dialled down to the cheapest run that still produces a real block.
+    # An explicit override still wins, so a test that *does* want the full thing can ask.
+    defaults: dict[str, object] = {"portfolio_projection_paths": 8}
+    defaults.update(overrides)
+    return Settings(_env_file=None, **defaults)  # type: ignore[call-arg]
 
 
 def _bar(o: float, h: float, low: float, c: float, *, minute: int = 0, hour: int = 8) -> Bar:
@@ -1158,6 +1166,12 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     # list can't stand in for — 4R/5R are selectable books the daily re-fit can never choose.
     assert payload["config"]["target_grid"] == [1.5, 2.0, 2.5, 3.0]
     assert payload["config"]["target_fallback_r"] == 2.0
+    # The forward projection rides along per book (see `portfolio.projection`), and the page needs
+    # the day-rate knobs from config to state its own comparison rather than hard-coding one.
+    assert adaptive["projection"]["available"] is True
+    assert "projection" in payload["books"]["2"]
+    assert payload["config"]["day_rate_gbp"] == 800.0
+    assert payload["config"]["day_rate_net_annual_gbp"] == pytest.approx(91520.0)
     assert {t for _d, t in [(d["date"], d["target"]) for d in adaptive["daily_targets"]]} <= set(
         payload["config"]["target_grid"] + [payload["config"]["target_fallback_r"]]
     )

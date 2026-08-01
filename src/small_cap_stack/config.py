@@ -293,6 +293,31 @@ class Settings(BaseSettings):
     # would make this ~£0.41/mo high. Reconcile against August's invoice — July's is muddied by the
     # volume's partial month.
     portfolio_vps_gbp_per_month: float = 5.70
+    # --- Forward projection: what does the NEXT year look like, and when does it pay? ---
+    # The book above is a backward-looking record. These drive a bootstrap Monte-Carlo forward from
+    # its closing balance — resampling the book's own *trading days* (not individual trades) in
+    # short blocks, so a day's two concurrent positions stay together and short streaks survive,
+    # which is what makes the projected drawdowns believable rather than i.i.d.-smooth.
+    portfolio_projection_days: int = 252  # trading days to project ≈ one calendar year
+    portfolio_projection_paths: int = 500  # Monte-Carlo paths; the fan is percentiles across these
+    # Moving-block bootstrap length. 1 = i.i.d. days, which destroys the clustering that makes a
+    # drawdown deep; ~a trading week keeps losing runs (and the kill-switch's own memory) intact.
+    portfolio_projection_block_days: int = 5
+    # Fixed seed: publish-dashboard rebuilds every 15 min, and an unseeded fan would jitter between
+    # publishes so the page looked like it was reporting news when it was reporting noise.
+    portfolio_projection_seed: int = 230
+    # The income the strategy is being asked to replace. Inside IR35 the assignment rate is taxed
+    # as employment income, so the honest comparison against a post-CGT withdrawal is net-vs-net:
+    # `net_fraction` is the share of the *assignment rate* that reaches the bank through an
+    # umbrella (employer NI + apprenticeship levy off the top, then PAYE/NI with the personal
+    # allowance tapered away above £100k). ~0.52 at £176k/yr; it is a knob, not a tax engine —
+    # change it rather than reading the default as advice.
+    portfolio_day_rate_gbp: float = 800.0
+    portfolio_day_rate_days_per_year: int = 220
+    portfolio_day_rate_net_fraction: float = 0.52
+    # Rungs for the "capital needed to pay me £X/month" ladder, in GBP/month. The day-rate figure
+    # is appended at render time, so this is the road up to it.
+    portfolio_income_targets_gbp_per_month: tuple[float, ...] = (500.0, 1000.0, 2500.0, 5000.0)
 
 
 @lru_cache
