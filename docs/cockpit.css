@@ -493,6 +493,54 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
 .pf-reason-target{ color:var(--win); border-color:var(--win); }
 .pf-reason-stop{ color:var(--loss); border-color:var(--loss); }
 
+/* --- forward projection: a SECOND `.pf` region, swapped in by the VIEW control ---
+   It reuses every layout rule above, which is the point: the book view is already
+   sized to fill exactly one screen, so a projection appended INSIDE it would have to
+   scroll. Swapping whole regions keeps both at one-screen-no-scroll by construction.
+   `.pf` sets display:flex, and a class selector outranks the UA's [hidden] rule at
+   equal specificity — so the hidden region needs saying again, louder. */
+.pf[hidden]{ display:none; }
+.pj-verdict{ flex:0 0 auto; }
+.pj-verdict p{
+  margin:0;
+  font-size:13px;
+  line-height:1.65;
+  color:var(--ink);
+}
+/* The day-rate rung is the row the whole table is walking toward — mark it rather than
+   leaving the reader to find it by reading the labels. */
+.pj-target-row{ background:rgba(227,180,82,.07); }
+.pj-target-row td{ border-top:1px solid var(--line-2); font-weight:600; }
+/* The ladder is a handful of rows, so it sizes to content; the assumptions take the leftover
+   height and scroll inside their own panel if the window is short. */
+.pj-ladder-panel{ flex:0 0 auto; }
+/* A table whose inputs the page has just disowned: keep it visible (the shape is still the
+   answer) but stop it looking like a figure to act on. */
+.pj-void{ opacity:.4; filter:saturate(.4); }
+.pj-assume-panel{
+  flex:1 1 0;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+}
+.pj-assume{
+  margin:0;
+  overflow-y:auto;
+  min-height:0;
+  flex:1 1 auto;
+  font-size:12px;
+  line-height:1.55;
+}
+.pj-assume dt{
+  margin-top:9px;
+  color:var(--ink);
+  font-weight:600;
+  letter-spacing:.02em;
+}
+.pj-assume dt:first-child{ margin-top:0; }
+.pj-assume dd{ margin:1px 0 0; color:var(--dim); }
+.pj-assume em{ color:var(--ink); font-style:normal; }
+
 /* --- wide monitor (#397): the left region becomes two rails, one screen, no scroll ---
    The left region is capped rather than a bare percentage: 38% of an ultrawide would
    starve the trade log, and 38% of a 1360px window would squeeze the rails until the
@@ -566,6 +614,11 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
      to content size. */
   .pf-trades-panel{ flex:0 0 auto; }
   .pf-fill{ max-height:52vh; }
+  /* Same trap as .pf-trades-panel above (#373): flex:1 1 0 + min-height:0 collapses to zero
+     once .pf becomes a height:auto column, so the assumptions would vanish entirely on a phone.
+     Pin it to content and let the body scroll, which is this breakpoint's whole contract. */
+  .pj-assume-panel{ flex:0 0 auto; }
+  .pj-assume{ overflow-y:visible; }
 }
 
 /* ---------- error strip ---------- */

@@ -577,3 +577,54 @@ instead of silently dropping the field.
 **Rendering.** Markdown is rendered client-side by `marked` from the same jsDelivr CDN the charts
 and grids already use, styled with cockpit tokens rather than the renderer's stylesheet. A CDN
 failure degrades to the raw markdown source rather than a blank pane.
+
+---
+
+## 2026-08-01 — The portfolio page projects forward, and says when it can pay a salary (#411)
+
+**Decision.** The virtual-portfolio page gains a second view — **VIEW → Projection** — carrying a
+bootstrap Monte-Carlo of the next year plus the arithmetic for "when could this replace the day
+job". The book view is unchanged. Both views are separate `.pf` regions swapped by the selector,
+because the book view is already sized to fill exactly one screen on a desktop: anything appended
+*inside* it would have to scroll, and one-screen-no-scroll is the cockpit's whole contract (#397).
+
+**Method — moving-block bootstrap over trading days, not trades.** Each collected day becomes one
+scale-free sample: its trades' P&L as a fraction of that day's *opening* equity (what both
+concurrent positions size against), plus the commission it generated on the same base. Days the
+book sat out are kept — they set the cadence at which the withdrawal floor and the tax year
+arrive. Paths draw days in **5-day blocks** so losing runs stay runs; i.i.d. day sampling washes
+streaks out and roughly halves the projected drawdown, which is the number the whole feature
+exists to produce. The four period ledgers (VPS, market data, CGT, withdrawals) are the *same
+objects* the historical day-walk uses, settling in the same order, so a projected pound and a
+historical pound are computed once.
+
+**Why day-level returns rather than replaying candidates.** Re-running selection/sizing/exit over
+resampled *setups* would need a year of synthetic bars and would still assume the same thing this
+does — that the edge persists. Returns-on-opening-equity carries costs, sizing and the day's risk
+rung with it, in one number that is already tested.
+
+**The income question is not an extrapolated equity curve.** The withdrawal policy takes money out,
+so the curve that pays you is not the curve that compounds. Instead the projection carries a
+reinvest-everything shadow balance, annualises *its* growth, and inverts the steady-state identity
+`T = P − fixed − max(0, P − exempt)·cgt_rate` to get the capital that sustains a given take-home.
+`capital_for_income` and `income_from_capital` are each other's exact inverse by test, so the ramp
+chart and the ladder table can never quote different tax rules.
+
+**The day rate is compared net-of-tax, both sides.** £800/day inside IR35 is employment income;
+matching a gross assignment rate against a post-CGT withdrawal would flatter the day job by the
+whole PAYE bill. `portfolio_day_rate_net_fraction` (0.52) is an explicit, adjustable estimate —
+employer NI + apprenticeship levy off the top, then PAYE/NI with the personal allowance tapered —
+not a tax engine, and the page says so.
+
+**Two guards, because the honest answer is often "no".** A non-positive growth rate returns `None`
+rather than a date. And above **10×/yr** the projection sets `growth_implausible`: fixed-fractional
+compounding turns a short lucky run into hundreds of times the account per year, and the capital
+arithmetic then divides by that rate and reports that a £91k salary needs $551 — right arithmetic,
+meaningless input. The page leads with that instead, and dims the table.
+
+**Determinism.** The RNG is seeded from settings. `publish-dashboard` rebuilds every 15 minutes and
+an unseeded fan would drift between publishes, reading as news when it was noise.
+
+**Cost.** ~0.5 s per book, ~5 s per payload build across all nine. Tests dial
+`portfolio_projection_paths` down — at production settings the portfolio suite went 4.5 s → 57 s,
+which is an order of magnitude of CI spent re-running a simulation those tests assert nothing about.

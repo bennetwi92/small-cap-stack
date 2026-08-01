@@ -62,7 +62,16 @@ class _DataFeeLedger:
         return round(total, 4)
 
     def observe(self, trades: Sequence[PaperTrade]) -> None:
-        self._commission += sum(t.commission_usd for t in trades)
+        self.observe_commission(sum(t.commission_usd for t in trades))
+
+    def observe_commission(self, usd: float) -> None:
+        """Accrue commission toward this month's waiver from a bare USD figure.
+
+        The trade-shaped :meth:`observe` is the day-walk's door in; the forward projection
+        (:mod:`.projection`) resamples *returns*, never PaperTrades, and still has to decide whether
+        a projected month clears the waiver — so the accrual is reachable without inventing a
+        synthetic trade whose only real field would be this number."""
+        self._commission += usd
 
     def close(self) -> float:
         """Fee for the final (possibly partial) month."""
@@ -151,7 +160,11 @@ class _TaxLedger:
         return boundary if day >= boundary else date(day.year - 1, 4, 6)
 
     def observe(self, trades: Sequence[PaperTrade]) -> None:
-        usd = sum(t.net_pnl_usd for t in trades)
+        self.observe_usd(sum(t.net_pnl_usd for t in trades))
+
+    def observe_usd(self, usd: float) -> None:
+        """Accrue a bare USD realised P&L into the year's gain — see
+        :meth:`_DataFeeLedger.observe_commission` for why the trade-free door exists."""
         self._ytd_gain_gbp += usd / self._s.portfolio_gbpusd_rate
 
     def _cgt_gbp(self) -> float:
@@ -198,9 +211,12 @@ class _WithdrawalLedger:
     underwater — which is why the whole layer is a no-op at the $500 start until the account grows
     past the floor."""
 
-    def __init__(self, s: Settings) -> None:
+    def __init__(self, s: Settings, *, hwm: float | None = None) -> None:
         self._s = s
-        self._hwm = s.portfolio_start_equity_usd
+        # The historical book opens at the funded balance; the forward projection
+        # (:mod:`.projection`) opens at *today's* balance and measures new profit from
+        # there, so it passes its own mark.
+        self._hwm = s.portfolio_start_equity_usd if hwm is None else hwm
         self._anchor: tuple[int, int] | None = None  # (year, month) the cadence last reset at
         self.total_usd = 0.0
         self.total_gbp = 0.0

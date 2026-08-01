@@ -20,7 +20,7 @@
     <div id="optbar"></div>
     <p id="pf-error" class="error" hidden></p>
 
-    <div class="pf">
+    <div class="pf" id="pf-view">
       <!-- Left region: the book's state — stats, forward knobs, curves, payouts.
            It splits into TWO rails side by side on a wide monitor (#397) so the
            whole book fits one screen with nothing to scroll; the rails restack
@@ -129,6 +129,80 @@
               </tbody>
             </table>
           </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- The forward view (VIEW → Projection). A SECOND `.pf` region rather than extra
+         panels inside the first: the book view is already sized to fill exactly one
+         screen on a desktop, so anything appended to it would have to scroll. Swapping
+         whole regions keeps both views at "one screen, no scroll" by construction, and
+         reuses the same rails/right-column CSS that guarantees it. -->
+    <div class="pf" id="pj-view" hidden>
+      <div class="pf-left">
+        <div class="pf-rail">
+          <section class="panel">
+            <h2 class="panel-h">A year from here — where the balance lands</h2>
+            <div id="pj-tiles" class="tiles"></div>
+          </section>
+          <section class="panel pf-grow">
+            <h2 class="panel-h">Projected balance — median, with the 25–75 and 5–95 bands</h2>
+            <div id="pj-fan" class="pf-chart-wrap"></div>
+            <p id="pj-fan-note" class="muted pf-note"></p>
+          </section>
+        </div>
+        <div class="pf-rail">
+          <!-- The drawdown question, on its own, because it's the one that decides
+               whether the plan is survivable rather than whether it's profitable. -->
+          <section class="panel">
+            <h2 class="panel-h">Drawdowns you'd have to sit through</h2>
+            <div id="pj-dd-tiles" class="tiles"></div>
+            <p id="pj-dd-note" class="muted pf-note"></p>
+          </section>
+          <section class="panel">
+            <h2 class="panel-h">When it starts paying — withdrawals &amp; CGT</h2>
+            <div id="pj-pay-tiles" class="tiles"></div>
+            <p id="pj-pay-note" class="muted pf-note"></p>
+          </section>
+          <section class="panel pf-grow">
+            <h2 class="panel-h">Income ramp — take-home per year vs the day rate</h2>
+            <div id="pj-ramp" class="pf-chart-wrap"></div>
+            <p id="pj-ramp-note" class="muted pf-note"></p>
+          </section>
+        </div>
+      </div>
+
+      <div class="pf-right">
+        <section class="panel pj-verdict">
+          <h2 class="panel-h">Can this replace the day rate?</h2>
+          <p id="pj-verdict"></p>
+        </section>
+        <section class="panel pj-ladder-panel">
+          <h2 class="panel-h">What each income level costs in capital</h2>
+          <div id="pj-ladder-wrap" class="tbl-wrap">
+            <table class="tbl">
+              <thead>
+                <tr>
+                  <th>Take-home</th>
+                  <th class="r">Per year</th>
+                  <th class="r" title="Account size whose annual profit sustains this take-home indefinitely — capital held flat, after CGT and running costs.">Capital</th>
+                  <th class="r" title="Notional ONE position would carry at that capital, at the 50% position cap. The whole table assumes percentage returns hold at any size; this column is where you judge whether they plausibly could.">Position</th>
+                  <th class="r" title="Years of reinvesting everything to compound from today's balance to that capital, at the median projected growth rate.">Years</th>
+                </tr>
+              </thead>
+              <tbody id="pj-ladder">
+                <tr><td colspan="5" class="muted">loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p id="pj-ladder-note" class="muted pf-note"></p>
+        </section>
+        <!-- Every number on this page rests on assumptions the data cannot check. They go here,
+             in full, rather than under a three-line clamp — a projection that hides what it
+             assumed is just a confident-looking guess. -->
+        <section class="panel pj-assume-panel">
+          <h2 class="panel-h">What this assumes — and where it breaks</h2>
+          <dl id="pj-assumptions" class="pj-assume"></dl>
         </section>
       </div>
     </div>

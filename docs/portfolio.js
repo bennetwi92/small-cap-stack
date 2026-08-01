@@ -40,8 +40,9 @@ const pct = (r) => (r * 100).toFixed(2).replace(/\.?0+$/, "") + "%"; // 0.025 ->
 
 let PAYLOAD = null; // the whole portfolio.json
 let BOOK = "adaptive"; // selected book key
+let VIEW = "book"; // "book" (the record) | "projection" (the forward Monte-Carlo)
 
-/* ---------- options bar: book selector + refresh; meta line under ··· ---------- */
+/* ---------- options bar: view + book selector + refresh; meta line under ··· ---------- */
 
 function buildOptbar() {
   const books = PAYLOAD
@@ -52,16 +53,30 @@ function buildOptbar() {
     : [{ value: "adaptive", label: "Adaptive" }];
   createOptionsBar("optbar", {
     primary: [
+      {
+        // NOT "pf-view": createOptionsBar stamps this id onto the control, the book region
+        // already owns `#pf-view`, and getElementById would then hand `render()` the segmented
+        // button instead of the region it means to hide.
+        type: "seg",
+        id: "pf-viewsel",
+        label: "VIEW",
+        value: VIEW,
+        options: [
+          { value: "book", label: "Book" },
+          { value: "projection", label: "Projection" },
+        ],
+      },
+      // The book selector drives BOTH views — every book carries its own projection, since
+      // each has its own return distribution to resample.
       { type: "seg", id: "pf-book", label: "BOOK", value: BOOK, options: books },
       { type: "btn", id: "pf-refresh", label: "Refresh", title: "Refresh now" },
     ],
     extra: [{ type: "note", id: "pf-meta", value: "loading…" }],
     onChange: (id, value) => {
       if (id === "pf-refresh") return load();
-      if (id === "pf-book") {
-        BOOK = value;
-        render();
-      }
+      if (id === "pf-viewsel") VIEW = value;
+      if (id === "pf-book") BOOK = value;
+      render();
     },
   });
 }
@@ -73,7 +88,11 @@ function buildOptbar() {
    box-sized chart can spend a tall monitor's spare height on the plot instead of leaving
    the rail half empty. Where no panel has spare height to give — phone, laptop, the
    single-rail fixed book — height comes from the aspect instead. */
-function chartBox(wrap) {
+// `maxAspect` is the height ceiling as a multiple of the width. It defaults to 1 (square) for the
+// linear curves, where a tall narrow plot exaggerates every wobble into a crash; the projection's
+// fan is log-scaled, so vertical distance is ratio and extra height buys real resolution instead
+// of drama — it asks for more.
+function chartBox(wrap, maxAspect = 1) {
   const W = Math.max(260, Math.round(wrap.clientWidth) || 640);
   // 3:1 was the old ratio of a 720-unit box the browser then squeezed into ~380px on a
   // phone — which shrank the axis type to ~6px too. At 1:1 units the labels are their
@@ -88,7 +107,7 @@ function chartBox(wrap) {
   // equity curve, and a plot that much taller than it is wide reads every wobble as a
   // crash. Past the cap the chart just centres in its panel.
   const avail = Math.round(wrap.clientHeight) || aspect;
-  return { W, H: Math.max(110, Math.min(avail, W)) };
+  return { W, H: Math.max(110, Math.min(avail, W * maxAspect)) };
 }
 
 /* ---------- Equity curve (inline SVG) ---------- */
@@ -244,6 +263,476 @@ function riskSvg(book, box) {
       grid: ladder.map((v) => ({ v, label: pct(v) })),
     },
     box
+  );
+}
+
+/* ---------- Forward projection (bootstrap Monte-Carlo, computed in Python) ----------
+   Everything below RENDERS `book.projection`; not one number is derived here. The tax and
+   cost arithmetic behind the income ladder and the ramp lives in `portfolio/projection.py`
+   where it is unit-tested — a second, untested copy in JavaScript in front of the one figure
+   this view exists to produce is exactly the trade nobody should take. */
+
+// Money the way this view needs it: no cents on four- and five-figure sums (they're the noise
+// floor of a Monte-Carlo, not precision), cents below that where they still carry meaning.
+const money = (sym) => (x, force) => {
+  if (x == null || !isFinite(x)) return "—";
+  const dp = force != null ? force : Math.abs(x) >= 1000 ? 0 : 2;
+  return sym + Number(x).toLocaleString("en-GB", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+};
+const usd = money("$");
+const gbp = money("£");
+
+// A compounding rate is not a percentage once it gets big: "+8,600%/yr" is unreadable and reads
+// as a typo. Past 10× a year say it as a multiple, and past 1000× stop quoting a figure at all —
+// precision there is a small-sample artifact (see `growth_implausible`), not information.
+function fmtGrowth(g) {
+  if (g == null || !isFinite(g)) return "—";
+  if (g <= -0.999) return "wipeout";
+  if (g >= 999) return "&gt;1000×/yr";
+  if (g >= 9) return `${(1 + g).toFixed(1)}×/yr`;
+  return `${g >= 0 ? "+" : ""}${(g * 100).toFixed(0)}%/yr`;
+}
+
+// Axis money: an equity axis has to survive $20 and $170,000,000 in the same chart, and a
+// thousands-separated label at the top end simply runs off the left of the plot.
+function compactMoney(sym, v) {
+  const a = Math.abs(v);
+  if (a >= 1e9) return sym + (v / 1e9).toFixed(a >= 1e10 ? 0 : 1).replace(/\.0$/, "") + "B";
+  if (a >= 1e6) return sym + (v / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
+  if (a >= 1e3) return sym + (v / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, "") + "k";
+  return sym + Math.round(v);
+}
+
+// A near-breakeven book honestly needs ~690 years to reach the day rate. Printing "687.7 yr"
+// dresses a "no" up as a plan and invites arithmetic on a number that is pure extrapolation —
+// past a working lifetime the only true statement is that it doesn't get there.
+const fmtYears = (y) =>
+  y == null
+    ? "—"
+    : y === 0
+      ? "already there"
+      : y < 1
+        ? `${Math.round(y * 12)} mo`
+        : y > 50
+          ? "beyond a lifetime"
+          : `${y.toFixed(1)} yr`;
+
+// A probability as plain odds. "1 in 3" beats "34%" for a thing you either sit through or don't.
+function odds(p) {
+  if (p == null || !isFinite(p)) return "—";
+  if (p <= 0) return "never in this run";
+  if (p >= 1) return "every run";
+  return `${(p * 100).toFixed(0)}% of years`;
+}
+
+const isoDay = (s) => (s ? String(s).slice(0, 10) : "—");
+
+// "Nice" 1/2/5×10^k gridline values inside a range — the same tick vocabulary a reader already
+// has for money. Used on the log axis, where evenly-spaced ticks would land on 337, 1094, …
+function niceTicks(lo, hi, max = 5) {
+  const out = [];
+  for (let k = Math.floor(Math.log10(lo)); k <= Math.ceil(Math.log10(hi)); k++) {
+    for (const m of [1, 2, 5]) {
+      const v = m * 10 ** k;
+      if (v >= lo && v <= hi) out.push(v);
+    }
+  }
+  // Thin evenly rather than truncating, so the labels still span the whole axis.
+  const step = Math.ceil(out.length / max);
+  return out.filter((_v, i) => i % step === 0);
+}
+
+/* --- Fan chart: the median path with two confidence bands ---
+   ONE hue at graded opacity, not three colours: the bands are nested confidence, a sequential
+   encoding, and painting them as separate categorical series would claim p25 and p95 are
+   different *things* rather than the same thing at different certainty.
+
+   The y-axis is LOGARITHMIC. A year of compounding spreads the 5th and 95th percentiles across
+   one to two orders of magnitude, and on a linear axis the p95 tail sets the scale: the median —
+   the line the reader actually came for — gets pressed into the bottom 5% of the plot as a flat
+   smear, and a doubling looks identical to no change. Log is also the honest geometry for a
+   compounding quantity, where equal vertical distance should mean equal *ratio*. */
+function fanSvg(pj, box) {
+  const days = pj.sample_days || [];
+  if (days.length < 2) return '<p class="muted">Not enough data to project yet.</p>';
+  const { W, H } = box;
+  const PAD = 52, BOT = 30, RGT = 12;
+  const b = pj.bands;
+  const hi = Math.max(...b.p95, pj.start_equity) * 1.15 || 1;
+  // A wiped-out path is a real outcome and log(0) is not a number, so the axis floors at a
+  // decade below the smallest positive value on it and zeros are drawn sitting on that floor.
+  const positives = [...b.p5, ...b.p50, pj.start_equity].filter((v) => v > 0);
+  const lo = Math.max(Math.min(...positives, hi) / 3, hi / 1e4);
+  const ly = Math.log10(lo), lh = Math.log10(hi);
+  const x = (i) => PAD + (i * (W - PAD - RGT)) / (days.length - 1);
+  const y = (v) => {
+    const t = (Math.log10(Math.max(v, lo)) - ly) / (lh - ly || 1);
+    return H - BOT - t * (H - PAD - BOT);
+  };
+  const band = (a, c) => {
+    const up = a.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const down = c
+      .map((_v, i) => `L${x(c.length - 1 - i).toFixed(1)},${y(c[c.length - 1 - i]).toFixed(1)}`)
+      .join(" ");
+    return `${up} ${down} Z`;
+  };
+  const mid = b.p50.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const startY = y(pj.start_equity).toFixed(1);
+  const endV = b.p50[b.p50.length - 1];
+
+  const grid = niceTicks(lo, hi)
+    .map((v) => {
+      const gy = y(v).toFixed(1);
+      return (
+        `<line x1="${PAD}" x2="${W - RGT}" y1="${gy}" y2="${gy}" stroke="${MK.flat}" ` +
+        `stroke-width="1" opacity="0.18"/>` +
+        `<text x="${PAD - 5}" y="${(+gy + 3.5).toFixed(1)}" text-anchor="end" class="pf-axis">${compactMoney("$", v)}</text>`
+      );
+    })
+    .join("");
+
+  // One hover slot per sampled week, naming all three lines — a fan is unreadable without it.
+  const slot = (W - PAD - RGT) / (days.length - 1);
+  const hits = days
+    .map((d, i) => {
+      const tip = `${d} · median ${usd(b.p50[i])} · 5–95% ${usd(b.p5[i])}–${usd(b.p95[i])}`;
+      return (
+        `<rect x="${(x(i) - slot / 2).toFixed(1)}" y="${PAD}" width="${slot.toFixed(1)}" ` +
+        `height="${(H - BOT - PAD).toFixed(1)}" fill="transparent"><title>${esc(tip)}</title></rect>`
+      );
+    })
+    .join("");
+
+  return (
+    `<svg viewBox="0 0 ${W} ${H}" class="pf-chart" role="img" aria-label="Projected balance on a log scale, median with 25-75 and 5-95 percentile bands">` +
+    grid +
+    `<path d="${band(b.p5, b.p95)}" fill="${MK.line}" opacity="0.12"/>` +
+    `<path d="${band(b.p25, b.p75)}" fill="${MK.line}" opacity="0.22"/>` +
+    `<line x1="${PAD}" x2="${W - RGT}" y1="${startY}" y2="${startY}" stroke="${MK.gold}" stroke-dasharray="3 3" stroke-width="1"/>` +
+    `<text x="${PAD + 4}" y="${(+startY - 5).toFixed(1)}" class="pf-axis">today ${compactMoney("$", pj.start_equity)}</text>` +
+    `<path d="${mid}" fill="none" stroke="${MK.line}" stroke-width="2"/>` +
+    `<circle cx="${x(days.length - 1).toFixed(1)}" cy="${y(endV).toFixed(1)}" r="3.5" fill="${MK.line}"/>` +
+    `<text x="${(x(days.length - 1) - 5).toFixed(1)}" y="${(y(endV) - 8).toFixed(1)}" text-anchor="end" class="pf-axis">${compactMoney("$", endV)}</text>` +
+    `<text x="${PAD}" y="${(H - BOT + 15).toFixed(1)}" class="pf-axis">${esc(days[0])}</text>` +
+    `<text x="${W - RGT}" y="${(H - BOT + 15).toFixed(1)}" text-anchor="end" class="pf-axis">${esc(days[days.length - 1])}</text>` +
+    hits +
+    `</svg>`
+  );
+}
+
+/* --- Income ramp: sustainable take-home per year, against the day rate ---
+   Three ordered quantiles of the same quantity, so again one hue with the median carrying the
+   weight. The day-rate rule is the only other mark, in gold, because it is a different KIND of
+   thing — a target, not a projection — and the crossing is the whole picture. */
+function rampSvg(ramp, box) {
+  const yrs = (ramp && ramp.years) || [];
+  if (yrs.length < 2) return '<p class="muted">No growth rate to ramp from.</p>';
+  const { W, H } = box;
+  const PAD = 56, BOT = 30, RGT = 14;
+  const series = ramp.series || {};
+  const target = ramp.target_gbp || 1;
+  // The y-domain is deliberately CLIPPED at 1.5× the day rate rather than fitted to the data.
+  // Compounding means year 15 can be a hundred times the target, and fitting to that puts the
+  // gold rule on the floor with every line flat against it until one vertical spike — a picture
+  // in which the crossing, the only thing this chart is for, is invisible. Past the top the
+  // lines simply leave the frame, which is the correct reading: more than enough.
+  const hi = target * 1.5;
+  const x = (i) => PAD + (i * (W - PAD - RGT)) / (yrs.length - 1);
+  const y = (v) => H - BOT - (Math.min(v, hi * 1.2) / hi) * (H - PAD - BOT);
+  const path = (vals) =>
+    vals.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const line = (key, width, op) =>
+    series[key]
+      ? `<path d="${path(series[key])}" fill="none" stroke="${MK.line}" stroke-width="${width}" ` +
+        `opacity="${op}" clip-path="url(#pj-ramp-clip)"/>`
+      : "";
+  const tY = y(target).toFixed(1);
+
+  // The crossing is the answer, so mark it: the first year the median clears the day rate,
+  // interpolated between the two bracketing years so the marker sits where the lines actually meet.
+  const mid = series.p50 || [];
+  let cross = "";
+  // Already above the rule at year 0 — every line is clipped off the top and the loop below would
+  // never fire, leaving a chart with a gold rule and nothing else on it. Say so instead.
+  if (mid.length && mid[0] >= target) {
+    cross =
+      `<text x="${((PAD + W - RGT) / 2).toFixed(1)}" y="${(PAD + 14).toFixed(1)}" ` +
+      `text-anchor="middle" class="pf-axis">already above the day rate at today's balance</text>`;
+  }
+  for (let i = 1; i < mid.length && !cross; i++) {
+    if (mid[i - 1] < target && mid[i] >= target) {
+      const f = (target - mid[i - 1]) / (mid[i] - mid[i - 1] || 1);
+      const cx = (x(i - 1) + (x(i) - x(i - 1)) * f).toFixed(1);
+      cross =
+        `<line x1="${cx}" x2="${cx}" y1="${PAD}" y2="${H - BOT}" stroke="${MK.gold}" ` +
+        `stroke-dasharray="2 3" stroke-width="1" opacity="0.7"/>` +
+        `<circle cx="${cx}" cy="${tY}" r="4" fill="${MK.gold}"/>` +
+        `<text x="${cx}" y="${(PAD - 6).toFixed(1)}" text-anchor="middle" class="pf-axis">` +
+        `${(yrs[i - 1] + f).toFixed(1)} yr</text>`;
+      break;
+    }
+  }
+
+  const slot = (W - PAD - RGT) / (yrs.length - 1);
+  const hits = yrs
+    .map((yr, i) => {
+      const tip =
+        `year ${yr} · median ${gbp(series.p50 ? series.p50[i] : null, 0)}/yr` +
+        (series.p25 && series.p75
+          ? ` · slow ${gbp(series.p25[i], 0)} · fast ${gbp(series.p75[i], 0)}`
+          : "");
+      return (
+        `<rect x="${(x(i) - slot / 2).toFixed(1)}" y="${PAD}" width="${slot.toFixed(1)}" ` +
+        `height="${(H - BOT - PAD).toFixed(1)}" fill="transparent"><title>${esc(tip)}</title></rect>`
+      );
+    })
+    .join("");
+  // Year ticks every ~3 years so the crossing can be read off the axis, not just the marker.
+  const step = Math.max(1, Math.round((yrs.length - 1) / 5));
+  const xticks = yrs
+    .filter((_v, i) => i % step === 0 || i === yrs.length - 1)
+    .map(
+      (yr) =>
+        `<text x="${x(yrs.indexOf(yr)).toFixed(1)}" y="${(H - BOT + 15).toFixed(1)}" ` +
+        `text-anchor="middle" class="pf-axis">${yr === 0 ? "now" : "+" + yr}</text>`
+    )
+    .join("");
+  return (
+    `<svg viewBox="0 0 ${W} ${H}" class="pf-chart" role="img" aria-label="Sustainable annual take-home by year, against the day rate">` +
+    `<defs><clipPath id="pj-ramp-clip"><rect x="${PAD}" y="${PAD - 8}" width="${(W - PAD - RGT).toFixed(1)}" height="${(H - BOT - PAD + 8).toFixed(1)}"/></clipPath></defs>` +
+    `<line x1="${PAD}" x2="${W - RGT}" y1="${tY}" y2="${tY}" stroke="${MK.gold}" stroke-dasharray="4 3" stroke-width="1.5"/>` +
+    `<text x="${PAD - 5}" y="${(+tY + 3.5).toFixed(1)}" text-anchor="end" class="pf-axis">${compactMoney("£", target)}</text>` +
+    `<text x="${PAD + 4}" y="${(+tY - 6).toFixed(1)}" class="pf-axis">day rate, after tax</text>` +
+    line("p25", 1, 0.5) +
+    line("p75", 1, 0.5) +
+    line("p50", 2, 1) +
+    cross +
+    xticks +
+    hits +
+    `</svg>`
+  );
+}
+
+/* --- Tiles, verdict, ladder --- */
+
+function projectionTiles(pj) {
+  const e = pj.end_equity;
+  const grew = e.p50 >= pj.start_equity;
+  const ret = pj.start_equity > 0 ? e.p50 / pj.start_equity - 1 : null;
+  return (
+    tile("Median balance", usd(e.p50), grew ? "pf-pos" : "pf-neg", `A year out, half the simulated futures end above this and half below. Today: ${usd(pj.start_equity)}.`) +
+    tile("Median return", fmtPct(ret, 0), grew ? "pf-pos" : "pf-neg", "The median year's total return on today's balance, after every cost, tax reserve and payout.") +
+    tile("Bad year (5th %ile)", usd(e.p5), "pf-neg", "One year in twenty ends at or below this.") +
+    tile("Good year (95th %ile)", usd(e.p95), "pf-pos", "One year in twenty ends at or above this.") +
+    tile("Ends up", (pj.p_profit * 100).toFixed(0) + "%", pj.p_profit >= 0.5 ? "pf-pos" : "pf-neg", "Share of simulated years that finish above today's balance.") +
+    tile("Growth", fmtGrowth(pj.growth.p50), grew ? "pf-pos" : "pf-neg", `Median compound annual growth, reinvesting everything. Quartiles: ${fmtGrowth(pj.growth.p25)} to ${fmtGrowth(pj.growth.p75)}.`)
+  );
+}
+
+function drawdownTiles(pj) {
+  const d = pj.drawdown;
+  const pctOf = (v) => "-" + (v * 100).toFixed(0) + "%";
+  return (
+    tile("Typical year", pctOf(d.p50), "pf-neg", "Median worst peak-to-trough within a year. Half of all years are deeper than this.") +
+    tile("1 year in 10", pctOf(d.p90), "pf-neg", "90th percentile of the worst peak-to-trough — the bad year you should plan to be able to hold through.") +
+    tile("Worst drawn", pctOf(d.max), "pf-neg", "The deepest drawdown in any simulated path. Not a floor — just the worst this run happened to draw.") +
+    tile("Halves at least once", (d.p_halved * 100).toFixed(0) + "%", d.p_halved > 0.1 ? "pf-neg" : "", "Share of years containing a 50% peak-to-trough drawdown.")
+  );
+}
+
+function payoutTiles2(pj) {
+  const w = pj.first_withdrawal, t = pj.first_tax;
+  return (
+    tile("First withdrawal", isoDay(w.median_date), w.probability > 0 ? "pf-pos" : "pf-neg", `Median date of the first payout, across the ${(w.probability * 100).toFixed(0)}% of years that reach one. Withdrawals stay dormant until the balance clears the floor.`) +
+    tile("Any payout at all", odds(w.probability), w.probability > 0.5 ? "pf-pos" : "", "How often a simulated year produces any withdrawal at all — the date beside this is conditional on it happening.") +
+    tile("First CGT bill", isoDay(t.median_date), t.probability > 0 ? "pf-neg" : "", `CGT settles at the 6-April tax-year boundary, on gains above the annual allowance. Reached in ${(t.probability * 100).toFixed(0)}% of years.`) +
+    tile("Take-home, yr 1", gbp(pj.take_home_gbp.p50), pj.take_home_gbp.p50 > 0 ? "pf-pos" : "", `Median total paid out to you over the year. Quartiles: ${gbp(pj.take_home_gbp.p25)} to ${gbp(pj.take_home_gbp.p75)}.`)
+  );
+}
+
+// The paragraph the whole view is for. It has to be as willing to say "not on this evidence" as
+// it is to name a date — a projection that can only ever answer "when" isn't an answer.
+function verdictHtml(pj, cfg) {
+  const dr = pj.day_rate;
+  const baseline =
+    `Replacing <strong>£${dr.gbp_per_day}/day</strong> at ${dr.days_per_year} days a year means ` +
+    `${gbp(dr.gross_annual_gbp, 0)} gross — about <strong>${gbp(dr.net_annual_gbp, 0)}/yr</strong> ` +
+    `(${gbp(dr.net_annual_gbp / 12, 0)}/mo) in the bank once an inside-IR35 umbrella has taken its ` +
+    `${((1 - dr.net_fraction) * 100).toFixed(0)}%.`;
+  const g = pj.growth.p50;
+  if (!(g > 0)) {
+    return (
+      `<span class="pf-neg"><strong>Not on this evidence.</strong></span> The median projected growth is ` +
+      `${fmtGrowth(g)}, so there is no balance this book compounds to and no date to give — the ` +
+      `question stops being "when" and becomes whether the edge is real. ${baseline}`
+    );
+  }
+  // A rate this high is a lucky month amplified by fixed-fractional compounding, and dividing by
+  // it makes the capital requirement collapse toward zero. Quoting "£91k/yr needs $0 of capital"
+  // with a straight face is a worse failure than admitting the sample can't support the question.
+  if (pj.growth_implausible) {
+    return (
+      `${baseline} <span class="warn"><strong>The sample is too good to extrapolate.</strong></span> ` +
+      `These ${pj.sample.trading_days} trading days annualise to <strong>${fmtGrowth(g)}</strong>, ` +
+      `which no account sustains — it is a short lucky run amplified by compounding a fixed ` +
+      `fraction of a growing balance. Every capital and years figure below divides by that rate, ` +
+      `so they collapse toward zero and mean nothing. The drawdown and payout numbers on the left ` +
+      `still stand; come back to this panel when there are months of history behind it.`
+    );
+  }
+  const target = pj.ladder[pj.ladder.length - 1];
+  const yrs = pj.day_rate_years;
+  const need =
+    `At the median projected growth of <strong>${fmtGrowth(g)}</strong>, that income needs about ` +
+    `<strong>${usd(target.capital_usd, 0)}</strong> of capital, from today's ${usd(pj.start_equity)}.`;
+  // A positive-but-tiny edge still returns a number of years, and it can be six hundred of them.
+  // Printing "687.7 yr of reinvesting everything" as though it were a plan is the failure mode
+  // this branch exists to avoid — say no, and say what would have to change.
+  if (target.years == null || target.years > 50) {
+    return (
+      `${baseline} <span class="pf-neg"><strong>Not within a working lifetime.</strong></span> ` +
+      `${need} Compounding there at this rate takes longer than you have, so the lever isn't ` +
+      `patience — it's a bigger edge, more capital in, or both.`
+    );
+  }
+  const range =
+    yrs.p25 != null && yrs.p75 != null
+      ? ` The growth quartiles bracket it between <strong>${fmtYears(yrs.p75)}</strong> and ` +
+        `<strong>${fmtYears(yrs.p25)}</strong>.`
+      : "";
+  return (
+    `${baseline} ${need} That is roughly ` +
+    `<strong class="pf-pos">${fmtYears(target.years)}</strong> of reinvesting everything.${range} ` +
+    `At that size one position carries <strong>${usd(target.position_usd, 0)}</strong> of notional; ` +
+    `whether these entries still fill like that is the assumption the whole table rests on, and it ` +
+    `is not one this data can settle.`
+  );
+}
+
+function ladderRows(pj) {
+  return pj.ladder
+    .map((m) => {
+      const isTarget = m === pj.ladder[pj.ladder.length - 1];
+      const cls = isTarget ? ' class="pj-target-row"' : "";
+      if (m.capital_usd == null) {
+        return `<tr${cls}><td>${esc(m.label)}</td><td class="r">${gbp(m.gbp_per_year, 0)}</td>` +
+          `<td class="r muted" colspan="3">no positive growth rate — unreachable</td></tr>`;
+      }
+      return (
+        `<tr${cls}>` +
+        `<td>${esc(m.label)}</td>` +
+        `<td class="r">${gbp(m.gbp_per_year, 0)}</td>` +
+        `<td class="r">${usd(m.capital_usd, 0)}</td>` +
+        `<td class="r muted">${usd(m.position_usd, 0)}</td>` +
+        `<td class="r">${fmtYears(m.years)}</td>` +
+        "</tr>"
+      );
+    })
+    .join("");
+}
+
+// The assumptions, stated plainly and in the order they'd bite. Not decoration: the first one is
+// why the capital column is an upper bound, and the second is why none of it is a forecast.
+function assumptionRows(pj, cfg) {
+  const items = [
+    [
+      "Returns don't shrink with size",
+      `Every projected day replays a historical day as a <em>percentage</em> of the balance. This ` +
+        `book trades a few hundred dollars a clip; the capital column asks whether the same ` +
+        `bull-flag entries fill the same way at ${usd(pj.ladder[pj.ladder.length - 1].position_usd, 0)} ` +
+        `on a sub-20M-float name. On thin small-cap tape they almost certainly won't — which makes ` +
+        `every income figure here a ceiling, not a target.`,
+    ],
+    [
+      "The sample is tiny",
+      `${pj.sample.trading_days} trading days and ${pj.sample.trades} trades. Resampling cannot ` +
+        `manufacture information the sample doesn't contain: if these weeks weren't representative, ` +
+        `neither is the fan. It widens honestly with time, and that is the only cure.`,
+    ],
+    [
+      "Blocks, not shuffled days",
+      `Days are drawn in ${pj.block_days}-day runs so losing streaks survive. This is what makes ` +
+        `the drawdown figures believable — shuffling days independently would roughly halve them.`,
+    ],
+    [
+      "The strategy is frozen",
+      `The kill-switch rung and the daily target re-fit are baked into the resampled days as they ` +
+        `were actually taken. A future change to the rules isn't modelled here.`,
+    ],
+    [
+      "Tax is the simple case",
+      `${(cfg.cgt_rate * 100).toFixed(0)}% CGT above £${cfg.cgt_annual_exempt_gbp}, one flat ` +
+        `£/$ rate of ${Number(PAYLOAD.gbpusd_rate).toFixed(2)}, no loss carry-forward. If HMRC ever ` +
+        `treated this as trading income the rate would be closer to 45% and every year on the ramp ` +
+        `gets longer.`,
+    ],
+    [
+      "The day rate is net of a guess",
+      `£${cfg.day_rate_gbp}/day × ${cfg.day_rate_days_per_year} days, times a ` +
+        `${(cfg.day_rate_net_fraction * 100).toFixed(0)}% take-home fraction for an inside-IR35 ` +
+        `umbrella. That fraction is a setting, not a tax calculation — change it and the gold rule moves.`,
+    ],
+  ];
+  return items
+    .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`)
+    .join("");
+}
+
+function renderProjection(book) {
+  const pj = book.projection;
+  const wrap = el("pj-view");
+  if (!pj || !pj.available) {
+    wrap.innerHTML =
+      `<section class="panel"><h2 class="panel-h">Projection</h2><p class="muted">` +
+      esc((pj && pj.reason) || "No projection in this payload yet — it is built at the end-of-day report.") +
+      `</p></section>`;
+    return;
+  }
+  const cfg = PAYLOAD.config;
+  el("pj-tiles").innerHTML = projectionTiles(pj);
+  el("pj-dd-tiles").innerHTML = drawdownTiles(pj);
+  el("pj-pay-tiles").innerHTML = payoutTiles2(pj);
+  el("pj-verdict").innerHTML = verdictHtml(pj, cfg);
+  el("pj-ladder").innerHTML = ladderRows(pj);
+  el("pj-assumptions").innerHTML = assumptionRows(pj, cfg);
+  // When the growth rate is a small-sample artifact the ladder is arithmetic on a meaningless
+  // input. The verdict says so in words; dim the table so the words and the picture agree,
+  // rather than leaving a crisp-looking $551 for the reader to take at face value.
+  el("pj-ladder-wrap").classList.toggle("pj-void", !!pj.growth_implausible);
+
+  setNote(
+    "pj-fan-note",
+    `${pj.paths} simulated years, each one built by resampling this book's own trading days in ` +
+      `${pj.block_days}-day blocks (so losing runs stay runs). Costs, CGT and withdrawals are ` +
+      `settled by the same ledgers as the book itself.`
+  );
+  setNote(
+    "pj-dd-note",
+    `Measured on trading P&amp;L, so a scheduled withdrawal never counts as a drawdown. These are ` +
+      `deeper than the book's realised max DD by construction — a year gives the strategy far more ` +
+      `chances to hit a bad run than the ${pj.sample.days} days collected so far did.`
+  );
+  setNote(
+    "pj-pay-note",
+    `Withdrawals pay ${(cfg.withdraw_fraction * 100).toFixed(0)}% of profit above the high-water ` +
+      `mark every ${cfg.withdraw_cadence_months} months, never below ${usd(cfg.withdraw_floor_usd)}. ` +
+      `CGT is ${(cfg.cgt_rate * 100).toFixed(0)}% above £${cfg.cgt_annual_exempt_gbp}, settled at 6 April.`
+  );
+  setNote(
+    "pj-ramp-note",
+    `What the account could pay you each year if you stopped reinvesting then — capital held flat, ` +
+      `after CGT and running costs. Thick line = median growth, thin = the 25th/75th percentile. ` +
+      `Where the median crosses the gold rule is the answer to the question on the right.`
+  );
+  setNote(
+    "pj-ladder-note",
+    pj.growth_implausible
+      ? `Greyed out on purpose: at ${fmtGrowth(pj.growth.p50)} the capital column is a division by ` +
+          `a number this sample can't support. See the panel above.`
+      : `Steady state: the account earns, pays its costs and CGT, and hands over the rest without ` +
+          `shrinking. Built from <strong>${pj.sample.trading_days} trading days / ${pj.sample.trades} ` +
+          `trades</strong> — a sample that small is the dominant uncertainty in every figure here, ` +
+          `and none of it is a forecast.`
   );
 }
 
@@ -654,9 +1143,17 @@ function renderStateNotes(book) {
   document.querySelector(".pf").classList.toggle("pf-single", !has && !hasRisk);
 }
 
-// Drawn last, after every panel is in the DOM: each chart is sized from the box its
-// panel ended up with, which only exists once the rest of the rail has laid out.
+// Drawn last, after every panel is in the DOM AND its view is visible: each chart is sized from
+// the box its panel ended up with, and a hidden region measures 0 — so a chart drawn before the
+// swap would be built for a zero-width box and stay that way until the next resize.
 function drawCharts(book) {
+  if (VIEW === "projection") {
+    const pj = book.projection;
+    if (!pj || !pj.available) return;
+    el("pj-fan").innerHTML = fanSvg(pj, chartBox(el("pj-fan"), 2.1));
+    el("pj-ramp").innerHTML = rampSvg(pj.income_ramp, chartBox(el("pj-ramp"), 1.5));
+    return;
+  }
   el("pf-chart-wrap").innerHTML = equitySvg(
     book.equity_curve,
     PAYLOAD.start_equity,
@@ -673,18 +1170,33 @@ function drawCharts(book) {
 
 // Resizing the window (or dragging it between monitors) changes every chart's box, and a
 // box-sized chart drawn for the old one would be stretched by the browser. Redraw instead.
+// Both views' left regions are observed: the hidden one reports 0×0 and fires on reveal, which
+// is precisely the moment its charts become measurable.
 let pending = 0;
-new ResizeObserver(() => {
+const redraw = new ResizeObserver(() => {
   if (pending || !PAYLOAD) return;
   pending = requestAnimationFrame(() => {
     pending = 0;
     if (PAYLOAD) drawCharts(PAYLOAD.books[BOOK]);
   });
-}).observe(document.querySelector(".pf-left"));
+});
+document.querySelectorAll(".pf-left").forEach((n) => redraw.observe(n));
 
 function render() {
   const book = PAYLOAD.books[BOOK];
   el("pf-meta").innerHTML = metaLine(book);
+  el("pf-view").hidden = VIEW !== "book";
+  el("pj-view").hidden = VIEW !== "projection";
+  if (VIEW === "projection") {
+    renderProjection(book);
+    drawCharts(book);
+    const pj = book.projection;
+    setStatusPage(
+      `projection · book ${esc(BOOK === "adaptive" ? "adaptive" : BOOK + "R")} · ` +
+        (pj && pj.available ? `${pj.paths} paths over ${pj.sessions} sessions` : "unavailable")
+    );
+    return;
+  }
   el("pf-tiles").innerHTML = statTiles(book, PAYLOAD.start_equity);
   renderToday(book);
   renderStateNotes(book);
