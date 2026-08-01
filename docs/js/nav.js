@@ -11,6 +11,7 @@ export const PAGES = [
   { label: "Results",   file: "results.html" },
   { label: "Portfolio", file: "portfolio.html" },
   { label: "Reports",   file: "reports.html" },
+  { label: "Plan",      file: "plan.html" },
 ];
 
 function currentFile() {

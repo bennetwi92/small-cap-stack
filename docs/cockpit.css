@@ -1114,3 +1114,409 @@ body.review{
   .rp-tbl td.r::after{ content:" words"; }
   .md-body{ font-size:12px; }
 }
+
+/* ---------- plan (#410) ----------
+   The discipline screen: a spine of three phase cards across the top, then
+   three columns — where we are (data), what this phase forbids (the standing
+   orders), and what unlocks the next one (the gates). On a desktop the grid is
+   pinned to the viewport and never scrolls; the columns own their overflow.
+   Below 1000px it becomes one stacked column and the body scrolls like a
+   normal page. The session accent runs through it: the live phase, the ring
+   and the heatmap all wear gold pre-market and cyan from the open. */
+.plan{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.1fr);
+  grid-template-rows:auto minmax(0,1fr);
+  gap:8px;
+  padding:8px 10px;
+  height:calc(100vh - var(--chrome-v));
+  min-height:0;
+}
+.plan-spine{
+  grid-column:1 / -1;
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:8px;
+  min-width:0;
+}
+.plan-col{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  min-width:0;
+  min-height:0;
+  overflow-y:auto;          /* safety valve on a short window — the page still can't scroll */
+}
+/* Panels grow into whatever height the viewport has (a 1080p screen has ~300px
+   more than a laptop) and never shrink below their content — so the three
+   columns always end on the same line, and a window too short for the content
+   gets a scrollbar on the column rather than on the page. */
+.plan-col > .panel{ flex:1 0 auto; display:flex; flex-direction:column; min-height:0; }
+.plan-progress .plan-ring-row{ flex:1 1 auto; }
+.plan-heat{ flex:1 1 auto; align-content:center; }
+.plan-evidence .plan-note{ margin-top:auto; padding-top:5px; }
+/* the two long lists CAN shrink, because they scroll inside themselves */
+.plan-col > .panel.plan-orders-panel,
+.plan-col > .panel.plan-gates-panel{ flex:1 1 auto; }
+/* spare height goes into the rows, which keeps the gate ladder's rail unbroken
+   (a gap between rows would cut it into segments) */
+.plan-orders,
+.plan-gates{ display:flex; flex-direction:column; }
+.plan-order,
+.plan-gate{ flex:1 0 auto; }
+
+/* --- the phase spine --- */
+.plan-phase{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:3px;
+  padding:7px 9px 7px 11px;
+  min-width:0;
+  overflow:hidden;
+}
+/* the phase we're actually in wears the session accent and a lit edge */
+.plan-phase-live{
+  border-color:var(--acc);
+  background:color-mix(in srgb, var(--acc) 6%, var(--panel));
+}
+.plan-phase-live::before{
+  content:"";
+  position:absolute;
+  left:0; top:0; bottom:0;
+  width:2px;
+  background:var(--acc);
+}
+/* the ones ahead: same shape, dashed, deliberately quieter */
+.plan-phase-locked{ border-style:dashed; }
+.plan-phase-locked .plan-phase-name{ color:var(--dim); }
+.plan-phase-h{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  min-width:0;
+}
+.plan-phase-n{
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.08em;
+  color:var(--dim);
+  border:1px solid var(--line-2);
+  border-radius:2px;
+  padding:1px 4px;
+  line-height:1.2;
+}
+.plan-phase-live .plan-phase-n{ color:var(--acc); border-color:var(--acc); }
+.plan-phase-name{
+  font-size:13px;
+  font-weight:600;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+.plan-phase-tag{
+  font-size:10px;
+  color:var(--dim);
+  letter-spacing:.04em;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.plan-phase-badge{ margin-left:auto; flex:0 0 auto; }
+.plan-phase-live .plan-phase-badge{ color:var(--acc); border-color:var(--acc); }
+.plan-phase-win{ margin:0; font-size:10px; letter-spacing:.03em; }
+.plan-phase-obj{ margin:1px 0 0; font-size:11px; line-height:1.4; }
+.plan-phase-list{ margin:1px 0 0; padding:0; list-style:none; }
+.plan-phase-list li{
+  position:relative;
+  padding-left:11px;
+  font-size:10px;
+  line-height:1.45;
+  color:var(--dim);
+}
+.plan-phase-list li::before{
+  content:"›";
+  position:absolute;
+  left:1px;
+  color:var(--line-2);
+}
+.plan-phase-live .plan-phase-list li::before{ color:var(--acc); }
+.plan-phase-exit{
+  margin:4px 0 0;
+  padding-top:4px;
+  border-top:1px dashed var(--line);
+  font-size:10px;
+  line-height:1.45;
+  color:var(--dim);
+}
+.plan-phase-live .plan-phase-exit{ color:var(--gold); }
+.plan-bar{
+  height:4px;
+  margin-top:4px;
+  background:var(--inset);
+  border:1px solid var(--line);
+  border-radius:2px;
+  overflow:hidden;
+}
+.plan-bar-fill{
+  display:block;
+  height:100%;
+  background:var(--acc);
+  transition:width .6s ease;
+}
+
+/* --- column 1: the countdown --- */
+.plan-ring-row{ display:flex; align-items:center; gap:9px; min-width:0; }
+.plan-ring{ flex:0 0 78px; }
+.plan-ring-svg{ width:78px; height:78px; display:block; }
+.plan-ring-track{ fill:none; stroke:var(--line); stroke-width:8; }
+.plan-ring-arc{
+  fill:none;
+  stroke:var(--acc);
+  stroke-width:8;
+  transition:stroke-dasharray .6s ease;
+}
+.plan-ring-pct{
+  fill:var(--ink);
+  font-family:var(--mono);
+  font-size:17px;
+  font-weight:600;
+  text-anchor:middle;
+}
+.plan-ring-sub{
+  fill:var(--dim);
+  font-family:var(--mono);
+  font-size:7px;
+  letter-spacing:.1em;
+  text-anchor:middle;
+}
+.plan-ring-tiles{
+  flex:1 1 auto;
+  min-width:0;
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:1px;
+  background:var(--line);
+  border:1px solid var(--line);
+  border-radius:3px;
+  overflow:hidden;
+}
+.plan-ring-tiles .tile-v{ font-size:13px; }
+
+/* --- column 1: the session heatmap ---
+   One square per weekday, Mon–Fri down each column, one column per week — so
+   the streak of collected sessions reads as a block and the gap left to run
+   reads as the empty space after it. */
+.plan-heat{
+  display:grid;
+  grid-template-rows:repeat(5, 10px);
+  grid-auto-flow:column;
+  grid-auto-columns:10px;
+  gap:2px;
+  justify-content:start;
+}
+.plan-cell{
+  width:10px;
+  height:10px;
+  border-radius:1px;
+  border:1px solid transparent;
+  background:var(--inset);
+}
+.plan-cell-todo{ border-color:var(--line); }
+.plan-cell-off{ background:none; }
+.plan-cell-holiday{ background:none; border-color:var(--line); border-style:dashed; }
+/* opportunity density, in the session accent */
+.plan-cell-l1{ background:color-mix(in srgb, var(--acc) 30%, var(--inset)); }
+.plan-cell-l2{ background:color-mix(in srgb, var(--acc) 52%, var(--inset)); }
+.plan-cell-l3{ background:color-mix(in srgb, var(--acc) 74%, var(--inset)); }
+.plan-cell-l4{ background:var(--acc); }
+.plan-cell-today{ outline:1px solid var(--gold); outline-offset:1px; }
+.plan-cap{ margin:5px 0 0; font-size:10px; line-height:1.5; }
+.plan-key{ display:inline-flex; align-items:center; gap:2px; vertical-align:middle; }
+.plan-key i{ display:inline-block; margin:0 1px; }
+.plan-note{ margin:5px 0 0; font-size:10px; line-height:1.5; }
+.plan-hot{ color:var(--lime); }
+
+/* --- column 2: the standing orders --- */
+.plan-orders-panel,
+.plan-gates-panel{
+  flex:1 1 auto;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+}
+.plan-orders,
+.plan-gates{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  list-style:none;
+  margin:4px 0 0;
+  padding:0;
+}
+/* on a short window these lists are the ones that scroll — show a thin thumb so
+   a clipped last row reads as "there's more", not as a broken layout */
+.plan-col, .plan-orders, .plan-gates{ scrollbar-width:thin; }
+.plan-col::-webkit-scrollbar,
+.plan-orders::-webkit-scrollbar,
+.plan-gates::-webkit-scrollbar{ width:4px; }
+.plan-col::-webkit-scrollbar-thumb,
+.plan-orders::-webkit-scrollbar-thumb,
+.plan-gates::-webkit-scrollbar-thumb{ background:var(--line-2); border-radius:2px; }
+.plan-orders{ counter-reset:plan-ord; }
+.plan-order{
+  position:relative;
+  counter-increment:plan-ord;
+  padding:6px 0 7px 23px;
+  border-top:1px solid var(--line);
+}
+.plan-order:first-child{ border-top:0; padding-top:2px; }
+.plan-order::before{
+  content:counter(plan-ord);
+  position:absolute;
+  left:0;
+  top:7px;
+  width:16px;
+  line-height:14px;
+  text-align:center;
+  font-size:10px;
+  font-weight:600;
+  color:var(--acc);
+  border:1px solid var(--line-2);
+  border-radius:2px;
+}
+.plan-order:first-child::before{ top:3px; }
+.plan-order-rule{ margin:0 0 2px; font-size:12px; font-weight:600; line-height:1.35; }
+.plan-order-why{ margin:0; font-size:10px; line-height:1.55; }
+
+/* --- column 3: the gate ladder --- */
+.plan-gate{
+  position:relative;
+  display:flex;
+  gap:8px;
+  padding:5px 0 6px;
+  border-top:1px solid var(--line);
+}
+.plan-gate:first-child{ border-top:0; }
+/* the rail that makes eight rows read as one ladder */
+.plan-gate::before{
+  content:"";
+  position:absolute;
+  left:8px;
+  top:0;
+  bottom:0;
+  width:1px;
+  background:var(--line);
+}
+.plan-gate:last-child::before{ bottom:auto; height:14px; }
+.plan-gate-n{
+  position:relative;         /* sits over the rail */
+  flex:0 0 17px;
+  height:16px;
+  margin-top:1px;
+  line-height:14px;
+  text-align:center;
+  font-size:10px;
+  font-weight:600;
+  color:var(--dim);
+  background:var(--panel);
+  border:1px solid var(--line-2);
+  border-radius:2px;
+}
+.plan-gate-body{ min-width:0; flex:1 1 auto; }
+.plan-gate-h{ margin:0; display:flex; align-items:center; gap:6px; min-width:0; }
+.plan-gate-name{ font-size:11px; font-weight:600; }
+.plan-gate-iss{ font-size:10px; }
+.plan-gate-pill{ margin-left:auto; flex:0 0 auto; font-size:9px; }
+.plan-gate-note{ margin:1px 0 0; font-size:10px; line-height:1.45; }
+/* open now = workable today; running = the countdown; blocked = waiting on another gate */
+.plan-gate-open .plan-gate-n{ color:var(--lime); border-color:var(--lime); }
+.plan-gate-open .plan-gate-pill{ color:var(--lime); border-color:var(--lime); }
+.plan-gate-running .plan-gate-n{ color:var(--acc); border-color:var(--acc); }
+.plan-gate-running .plan-gate-pill{ color:var(--acc); border-color:var(--acc); }
+.plan-gate-running .plan-gate-n::after{
+  content:"";
+  position:absolute;
+  inset:-3px;
+  border:1px solid var(--acc);
+  border-radius:3px;
+  opacity:0;
+  animation:plan-pulse 2.4s ease-out infinite;
+}
+.plan-gate-blocked{ opacity:.72; }
+@keyframes plan-pulse{
+  0%{ opacity:.55; transform:scale(.9); }
+  70%{ opacity:0; transform:scale(1.25); }
+  100%{ opacity:0; transform:scale(1.25); }
+}
+@media (prefers-reduced-motion:reduce){
+  .plan-gate-running .plan-gate-n::after{ animation:none; }
+  .plan-bar-fill, .plan-ring-arc{ transition:none; }
+}
+
+/* --- tall desktop window (1080p and up): spend the extra height on the two
+       things worth looking at — the countdown ring and the session grid --- */
+@media (min-width:1001px) and (min-height:880px){
+  .plan-ring{ flex:0 0 98px; }
+  .plan-ring-svg{ width:98px; height:98px; }
+  .plan-heat{ grid-template-rows:repeat(5, 14px); grid-auto-columns:14px; gap:3px; }
+  .plan-heat .plan-cell{ width:14px; height:14px; }
+}
+
+/* --- short desktop window (a 768p screen leaves ~660px of viewport): tighten
+       everything by a few pixels rather than let a column start scrolling --- */
+@media (min-width:1001px) and (max-height:820px){
+  .plan-ring{ flex:0 0 70px; }
+  .plan-ring-svg{ width:70px; height:70px; }
+  .plan-ring-tiles .tile{ padding:3px 7px 4px; }
+  .plan-ring-tiles .tile-v{ font-size:12px; }
+  .plan-heat{ grid-template-rows:repeat(5, 9px); grid-auto-columns:9px; }
+  .plan-heat .plan-cell{ width:9px; height:9px; }
+  .plan-cap, .plan-note{ font-size:9.5px; line-height:1.45; margin-top:4px; }
+  .plan-phase-list li{ line-height:1.4; }
+  .plan-order{ padding-top:5px; padding-bottom:5px; }
+  .plan-order-why{ line-height:1.5; }
+  .plan-gate{ padding:4px 0 5px; }
+}
+/* Shorter still (a 1366×768 laptop with browser chrome is ~660px of viewport):
+   squeeze the spine too. Below this the left column keeps its own scrollbar
+   rather than the page growing one — three panels of state don't compress
+   further without dropping something worth reading. */
+@media (min-width:1001px) and (max-height:740px){
+  .plan-phase{ gap:2px; padding:6px 8px 6px 10px; }
+  .plan-phase-name{ font-size:12px; }
+  .plan-phase-obj{ font-size:10.5px; }
+  .plan-phase-exit{ margin-top:3px; padding-top:3px; }
+  .plan-ring-tiles .tile{ padding:2px 7px 3px; }
+  .plan-evidence .tile{ padding:2px 7px 3px; }
+  .plan-cap, .plan-note{ font-size:9px; }
+}
+
+/* --- narrow window / phone: stack it and let the body scroll --- */
+@media (max-width:1000px){
+  .plan{
+    display:flex;
+    flex-direction:column;
+    height:auto;
+    min-height:0;
+    padding-bottom:calc(23px + 12px);   /* clear the fixed status bar */
+  }
+  .plan-spine{ grid-template-columns:minmax(0,1fr); }
+  /* a phone opens on the check-in question — how far in am I, how much is left —
+     and reads the phase cards underneath it */
+  .plan-col:first-of-type{ order:-1; }
+  .plan-col{ overflow-y:visible; }
+  .plan-orders-panel,
+  .plan-gates-panel{ flex:0 0 auto; }
+  .plan-orders,
+  .plan-gates{ overflow-y:visible; }
+  /* a phone gets fewer, larger squares' worth of width — let the grid breathe */
+  .plan-heat{ grid-template-rows:repeat(5, 12px); grid-auto-columns:12px; }
+  .plan-heat .plan-cell{ width:12px; height:12px; }
+  /* 2×2 beats 3+1 with an empty cell */
+  .plan-evidence .tiles{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+  .plan-ring{ flex:0 0 76px; }
+  .plan-ring-svg{ width:76px; height:76px; }
+}

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>small-cap-stack · plan</title>
+    <meta name="robots" content="noindex" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="cockpit.css" />
+  </head>
+  <body>
+    <!-- Cockpit chrome (#288): app bar + options bar render themselves; the
+         status bar self-mounts at the bottom. Everything between is the plan
+         grid — a spine of three phases across the top, then three columns:
+         where we are (data), what the current phase forbids (discipline), and
+         what unlocks the next one (the gates). Desktop never scrolls; each
+         column owns its own overflow. -->
+    <header id="appbar" class="appbar"></header>
+    <div id="optbar"></div>
+    <p id="pl-error" class="error" hidden></p>
+
+    <main class="plan">
+      <!-- the three phases, left to right -->
+      <section id="pl-spine" class="plan-spine"></section>
+
+      <!-- column 1 — where we are, from the published data -->
+      <div class="plan-col">
+        <section class="panel plan-progress">
+          <h2 class="panel-h">Phase 1 · collection</h2>
+          <div class="plan-ring-row">
+            <div id="pl-ring" class="plan-ring"></div>
+            <div id="pl-ring-tiles" class="plan-ring-tiles"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2 class="panel-h">Sessions collected</h2>
+          <div id="pl-heat" class="plan-heat"></div>
+          <p id="pl-heat-cap" class="plan-cap muted"></p>
+        </section>
+
+        <section class="panel plan-evidence">
+          <h2 class="panel-h">The case for waiting</h2>
+          <div id="pl-evidence" class="tiles"></div>
+          <p id="pl-evidence-note" class="plan-note muted"></p>
+        </section>
+      </div>
+
+      <!-- column 2 — the rules of the phase we are actually in -->
+      <div class="plan-col">
+        <section class="panel plan-orders-panel">
+          <h2 class="panel-h">Standing orders · Phase 1</h2>
+          <p class="plan-cap muted">
+            The five rules that decide whether this works. They are not
+            suggestions and they do not change because a chart looks good.
+          </p>
+          <ol id="pl-orders" class="plan-orders"></ol>
+        </section>
+      </div>
+
+      <!-- column 3 — what unlocks the next phase -->
+      <div class="plan-col">
+        <section class="panel plan-gates-panel">
+          <h2 class="panel-h">The road to Phase 2</h2>
+          <p id="pl-gates-cap" class="plan-cap muted"></p>
+          <ol id="pl-gates" class="plan-gates"></ol>
+        </section>
+      </div>
+    </main>
+
+    <script type="module" src="plan.js"></script>
+  </body>
+</html>
