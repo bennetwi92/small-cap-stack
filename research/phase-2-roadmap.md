@@ -51,7 +51,10 @@ Gates 0–2 are unblocked today and need no data subscription. Gate 3 is a calen
 are the build and start whenever Gate 4 lands.
 
 > This table is **mirrored on the dashboard's Plan page** (`docs/plan.js`, `GATES`), which is where
-> the trader reads it. Change a gate here and change it there in the same PR.
+> the trader reads it. The mirror carries each gate's **name, issue numbers and dependencies** only
+> — its *status* is derived from whether those issues are closed on GitHub (#414), so a merged gate
+> closes on the page by itself. Change a gate's name, issues or blockers here and change them there
+> in the same PR; don't add a status field back.
 
 ## The three things that will actually bite
 

@@ -142,7 +142,7 @@
       <div class="pf-left">
         <div class="pf-rail">
           <section class="panel">
-            <h2 class="panel-h">A year from here — where the balance lands</h2>
+            <h2 class="panel-h">A year from here</h2>
             <div id="pj-tiles" class="tiles"></div>
           </section>
           <section class="panel pf-grow">
@@ -155,12 +155,12 @@
           <!-- The drawdown question, on its own, because it's the one that decides
                whether the plan is survivable rather than whether it's profitable. -->
           <section class="panel">
-            <h2 class="panel-h">Drawdowns you'd have to sit through</h2>
+            <h2 class="panel-h">Drawdowns</h2>
             <div id="pj-dd-tiles" class="tiles"></div>
             <p id="pj-dd-note" class="muted pf-note"></p>
           </section>
           <section class="panel">
-            <h2 class="panel-h">When it starts paying — withdrawals &amp; CGT</h2>
+            <h2 class="panel-h">First payout &amp; tax</h2>
             <div id="pj-pay-tiles" class="tiles"></div>
             <p id="pj-pay-note" class="muted pf-note"></p>
           </section>
@@ -173,12 +173,17 @@
       </div>
 
       <div class="pf-right">
+        <!-- The day-rate question as numbers: a derived status pill and the four figures
+             it is read from. The reasoning — why a growth rate this size can't be
+             extrapolated, what the capital column assumes — lives in a report (#414). -->
         <section class="panel pj-verdict">
-          <h2 class="panel-h">Can this replace the day rate?</h2>
-          <p id="pj-verdict"></p>
+          <h2 class="panel-h">
+            Day rate replacement <span id="pj-verdict-pill" class="pill"></span>
+          </h2>
+          <div id="pj-verdict-tiles" class="tiles"></div>
         </section>
         <section class="panel pj-ladder-panel">
-          <h2 class="panel-h">What each income level costs in capital</h2>
+          <h2 class="panel-h">Capital needed per income level</h2>
           <div id="pj-ladder-wrap" class="tbl-wrap">
             <table class="tbl">
               <thead>
@@ -197,12 +202,24 @@
           </div>
           <p id="pj-ladder-note" class="muted pf-note"></p>
         </section>
-        <!-- Every number on this page rests on assumptions the data cannot check. They go here,
-             in full, rather than under a three-line clamp — a projection that hides what it
-             assumed is just a confident-looking guess. -->
-        <section class="panel pj-assume-panel">
-          <h2 class="panel-h">What this assumes — and where it breaks</h2>
-          <dl id="pj-assumptions" class="pj-assume"></dl>
+        <!-- The inputs every number above was computed from, as values rather than prose:
+             what the model was fed, what tax and cost settings applied, how big the sample
+             is. Where these assumptions break is a report, not a panel. -->
+        <section class="panel pj-inputs-panel">
+          <h2 class="panel-h">Model inputs</h2>
+          <div class="tbl-wrap pj-inputs-wrap">
+            <table class="tbl pj-inputs">
+              <tbody id="pj-inputs">
+                <tr><td colspan="2" class="muted">loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="muted pf-note">
+            What these assumptions buy, and where they break:
+            <a href="reports.html?r=2026-08-01-the-plan-and-what-the-projection-assumes"
+              >The plan, and what the projection assumes</a
+            >.
+          </p>
         </section>
       </div>
     </div>

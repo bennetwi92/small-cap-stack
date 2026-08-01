@@ -513,19 +513,21 @@ function rampSvg(ramp, box) {
   );
 }
 
-/* --- Tiles, verdict, ladder --- */
+/* --- Tiles, verdict, ladder ---
+   Tooltips here define what a figure IS (so a number is never ambiguous); they don't argue
+   about what it means. The reasoning about this projection lives in a report (#414). */
 
 function projectionTiles(pj) {
   const e = pj.end_equity;
   const grew = e.p50 >= pj.start_equity;
   const ret = pj.start_equity > 0 ? e.p50 / pj.start_equity - 1 : null;
   return (
-    tile("Median balance", usd(e.p50), grew ? "pf-pos" : "pf-neg", `A year out, half the simulated futures end above this and half below. Today: ${usd(pj.start_equity)}.`) +
-    tile("Median return", fmtPct(ret, 0), grew ? "pf-pos" : "pf-neg", "The median year's total return on today's balance, after every cost, tax reserve and payout.") +
-    tile("Bad year (5th %ile)", usd(e.p5), "pf-neg", "One year in twenty ends at or below this.") +
-    tile("Good year (95th %ile)", usd(e.p95), "pf-pos", "One year in twenty ends at or above this.") +
-    tile("Ends up", (pj.p_profit * 100).toFixed(0) + "%", pj.p_profit >= 0.5 ? "pf-pos" : "pf-neg", "Share of simulated years that finish above today's balance.") +
-    tile("Growth", fmtGrowth(pj.growth.p50), grew ? "pf-pos" : "pf-neg", `Median compound annual growth, reinvesting everything. Quartiles: ${fmtGrowth(pj.growth.p25)} to ${fmtGrowth(pj.growth.p75)}.`)
+    tile("Median balance", usd(e.p50), grew ? "pf-pos" : "pf-neg", `50th percentile balance a year out. Today: ${usd(pj.start_equity)}.`) +
+    tile("Median return", fmtPct(ret, 0), grew ? "pf-pos" : "pf-neg", "Median year's total return on today's balance, after costs, tax reserve and payouts.") +
+    tile("Bad year (5th %ile)", usd(e.p5), "pf-neg", "5th percentile ending balance — one year in twenty ends at or below it.") +
+    tile("Good year (95th %ile)", usd(e.p95), "pf-pos", "95th percentile ending balance — one year in twenty ends at or above it.") +
+    tile("Ends up", (pj.p_profit * 100).toFixed(0) + "%", pj.p_profit >= 0.5 ? "pf-pos" : "pf-neg", "Share of simulated years finishing above today's balance.") +
+    tile("Growth", fmtGrowth(pj.growth.p50), grew ? "pf-pos" : "pf-neg", `Median compound annual growth, reinvesting everything. Quartiles ${fmtGrowth(pj.growth.p25)} to ${fmtGrowth(pj.growth.p75)}.`)
   );
 }
 
@@ -533,9 +535,9 @@ function drawdownTiles(pj) {
   const d = pj.drawdown;
   const pctOf = (v) => "-" + (v * 100).toFixed(0) + "%";
   return (
-    tile("Typical year", pctOf(d.p50), "pf-neg", "Median worst peak-to-trough within a year. Half of all years are deeper than this.") +
-    tile("1 year in 10", pctOf(d.p90), "pf-neg", "90th percentile of the worst peak-to-trough — the bad year you should plan to be able to hold through.") +
-    tile("Worst drawn", pctOf(d.max), "pf-neg", "The deepest drawdown in any simulated path. Not a floor — just the worst this run happened to draw.") +
+    tile("Typical year", pctOf(d.p50), "pf-neg", "Median worst peak-to-trough within a year.") +
+    tile("1 year in 10", pctOf(d.p90), "pf-neg", "90th percentile of the worst peak-to-trough.") +
+    tile("Worst drawn", pctOf(d.max), "pf-neg", "Deepest drawdown in any simulated path.") +
     tile("Halves at least once", (d.p_halved * 100).toFixed(0) + "%", d.p_halved > 0.1 ? "pf-neg" : "", "Share of years containing a 50% peak-to-trough drawdown.")
   );
 }
@@ -543,69 +545,49 @@ function drawdownTiles(pj) {
 function payoutTiles2(pj) {
   const w = pj.first_withdrawal, t = pj.first_tax;
   return (
-    tile("First withdrawal", isoDay(w.median_date), w.probability > 0 ? "pf-pos" : "pf-neg", `Median date of the first payout, across the ${(w.probability * 100).toFixed(0)}% of years that reach one. Withdrawals stay dormant until the balance clears the floor.`) +
-    tile("Any payout at all", odds(w.probability), w.probability > 0.5 ? "pf-pos" : "", "How often a simulated year produces any withdrawal at all — the date beside this is conditional on it happening.") +
-    tile("First CGT bill", isoDay(t.median_date), t.probability > 0 ? "pf-neg" : "", `CGT settles at the 6-April tax-year boundary, on gains above the annual allowance. Reached in ${(t.probability * 100).toFixed(0)}% of years.`) +
-    tile("Take-home, yr 1", gbp(pj.take_home_gbp.p50), pj.take_home_gbp.p50 > 0 ? "pf-pos" : "", `Median total paid out to you over the year. Quartiles: ${gbp(pj.take_home_gbp.p25)} to ${gbp(pj.take_home_gbp.p75)}.`)
+    tile("First withdrawal", isoDay(w.median_date), w.probability > 0 ? "pf-pos" : "pf-neg", `Median date of the first payout, across the ${(w.probability * 100).toFixed(0)}% of years that reach one.`) +
+    tile("Any payout at all", odds(w.probability), w.probability > 0.5 ? "pf-pos" : "", "Share of simulated years producing any withdrawal at all.") +
+    tile("First CGT bill", isoDay(t.median_date), t.probability > 0 ? "pf-neg" : "", `CGT settles at the 6-April boundary on gains above the allowance. Reached in ${(t.probability * 100).toFixed(0)}% of years.`) +
+    tile("Take-home, yr 1", gbp(pj.take_home_gbp.p50), pj.take_home_gbp.p50 > 0 ? "pf-pos" : "", `Median total paid out over the year. Quartiles ${gbp(pj.take_home_gbp.p25)} to ${gbp(pj.take_home_gbp.p75)}.`)
   );
 }
 
-// The paragraph the whole view is for. It has to be as willing to say "not on this evidence" as
-// it is to name a date — a projection that can only ever answer "when" isn't an answer.
-function verdictHtml(pj, cfg) {
-  const dr = pj.day_rate;
-  const baseline =
-    `Replacing <strong>£${dr.gbp_per_day}/day</strong> at ${dr.days_per_year} days a year means ` +
-    `${gbp(dr.gross_annual_gbp, 0)} gross — about <strong>${gbp(dr.net_annual_gbp, 0)}/yr</strong> ` +
-    `(${gbp(dr.net_annual_gbp / 12, 0)}/mo) in the bank once an inside-IR35 umbrella has taken its ` +
-    `${((1 - dr.net_fraction) * 100).toFixed(0)}%.`;
+// The day-rate question, answered as a status and five figures rather than a paragraph. The
+// four states are all derived from the payload: no growth to compound, a growth rate the
+// sample can't support (`growth_implausible` — dividing by it collapses the capital column
+// toward zero), a horizon past a working lifetime, or a real answer.
+function verdictState(pj) {
   const g = pj.growth.p50;
-  if (!(g > 0)) {
-    return (
-      `<span class="pf-neg"><strong>Not on this evidence.</strong></span> The median projected growth is ` +
-      `${fmtGrowth(g)}, so there is no balance this book compounds to and no date to give — the ` +
-      `question stops being "when" and becomes whether the edge is real. ${baseline}`
-    );
-  }
-  // A rate this high is a lucky month amplified by fixed-fractional compounding, and dividing by
-  // it makes the capital requirement collapse toward zero. Quoting "£91k/yr needs $0 of capital"
-  // with a straight face is a worse failure than admitting the sample can't support the question.
-  if (pj.growth_implausible) {
-    return (
-      `${baseline} <span class="warn"><strong>The sample is too good to extrapolate.</strong></span> ` +
-      `These ${pj.sample.trading_days} trading days annualise to <strong>${fmtGrowth(g)}</strong>, ` +
-      `which no account sustains — it is a short lucky run amplified by compounding a fixed ` +
-      `fraction of a growing balance. Every capital and years figure below divides by that rate, ` +
-      `so they collapse toward zero and mean nothing. The drawdown and payout numbers on the left ` +
-      `still stand; come back to this panel when there are months of history behind it.`
-    );
-  }
+  const target = pj.ladder[pj.ladder.length - 1];
+  if (!(g > 0)) return { label: "No growth to compound", cls: "pf-neg", reachable: false };
+  if (pj.growth_implausible) return { label: "Sample too small", cls: "warn", reachable: false };
+  if (target.years == null || target.years > 50)
+    return { label: "Beyond a lifetime", cls: "pf-neg", reachable: false };
+  return { label: `Reachable · ${fmtYears(target.years)}`, cls: "pf-pos", reachable: true };
+}
+
+function verdictTiles(pj, v) {
+  const dr = pj.day_rate;
   const target = pj.ladder[pj.ladder.length - 1];
   const yrs = pj.day_rate_years;
-  const need =
-    `At the median projected growth of <strong>${fmtGrowth(g)}</strong>, that income needs about ` +
-    `<strong>${usd(target.capital_usd, 0)}</strong> of capital, from today's ${usd(pj.start_equity)}.`;
-  // A positive-but-tiny edge still returns a number of years, and it can be six hundred of them.
-  // Printing "687.7 yr of reinvesting everything" as though it were a plan is the failure mode
-  // this branch exists to avoid — say no, and say what would have to change.
-  if (target.years == null || target.years > 50) {
-    return (
-      `${baseline} <span class="pf-neg"><strong>Not within a working lifetime.</strong></span> ` +
-      `${need} Compounding there at this rate takes longer than you have, so the lever isn't ` +
-      `patience — it's a bigger edge, more capital in, or both.`
-    );
-  }
+  const dim = v.reachable ? "" : "muted";
+  const na = (value) => (v.reachable ? value : "—");
   const range =
-    yrs.p25 != null && yrs.p75 != null
-      ? ` The growth quartiles bracket it between <strong>${fmtYears(yrs.p75)}</strong> and ` +
-        `<strong>${fmtYears(yrs.p25)}</strong>.`
+    yrs && yrs.p25 != null && yrs.p75 != null
+      ? ` Growth quartiles bracket it between ${fmtYears(yrs.p75)} and ${fmtYears(yrs.p25)}.`
       : "";
   return (
-    `${baseline} ${need} That is roughly ` +
-    `<strong class="pf-pos">${fmtYears(target.years)}</strong> of reinvesting everything.${range} ` +
-    `At that size one position carries <strong>${usd(target.position_usd, 0)}</strong> of notional; ` +
-    `whether these entries still fill like that is the assumption the whole table rests on, and it ` +
-    `is not one this data can settle.`
+    tile("Day rate, net", gbp(dr.net_annual_gbp, 0), "",
+      `£${dr.gbp_per_day}/day × ${dr.days_per_year} days at a ${(dr.net_fraction * 100).toFixed(0)}% take-home fraction — ${gbp(dr.net_annual_gbp / 12, 0)}/mo, from ${gbp(dr.gross_annual_gbp, 0)} gross.`) +
+    tile("Balance today", usd(pj.start_equity), "", "The book's current balance — where the compounding starts.") +
+    tile("Growth used", fmtGrowth(pj.growth.p50), pj.growth.p50 > 0 ? "pf-pos" : "pf-neg",
+      `Median compound annual growth from the projection. Quartiles ${fmtGrowth(pj.growth.p25)} to ${fmtGrowth(pj.growth.p75)}.`) +
+    tile("Capital needed", na(usd(target.capital_usd, 0)), dim,
+      "Account size whose annual profit sustains that income indefinitely — capital held flat, after CGT and running costs.") +
+    tile("Years to there", na(fmtYears(target.years)), dim,
+      `Years of reinvesting everything to compound from today's balance to that capital.${range}`) +
+    tile("Position at target", na(usd(target.position_usd, 0)), dim,
+      "Notional one position would carry at that capital, at the 50% position cap.")
   );
 }
 
@@ -631,50 +613,36 @@ function ladderRows(pj) {
     .join("");
 }
 
-// The assumptions, stated plainly and in the order they'd bite. Not decoration: the first one is
-// why the capital column is an upper bound, and the second is why none of it is a forecast.
-function assumptionRows(pj, cfg) {
-  const items = [
+// What the model was fed, as values. Every row is read straight out of the payload or the
+// config it was built with, so this panel can't drift from the numbers above it. Where these
+// inputs stop being safe is a report, not a panel — the link under the table goes there.
+function inputRows(pj, cfg) {
+  const rows = [
+    ["Sample", `${pj.sample.trading_days} trading days · ${pj.sample.trades} trades`],
+    ["Horizon", `${pj.sessions} sessions · ${isoDay(pj.start_date)} → ${isoDay(pj.end_date)}`],
+    ["Paths", `${pj.paths} · resampled in ${pj.block_days}-day blocks`],
+    ["Start balance", usd(pj.start_equity)],
+    ["Risk / trade", `${pct(cfg.risk_fraction)} · ladder ${(cfg.risk_ladder || []).map(pct).join(" / ")}`],
+    ["Trades / day", `≤ ${cfg.max_trades_per_day} · ${pct(cfg.position_fraction)} position cap`],
     [
-      "Returns don't shrink with size",
-      `Every projected day replays a historical day as a <em>percentage</em> of the balance. This ` +
-        `book trades a few hundred dollars a clip; the capital column asks whether the same ` +
-        `bull-flag entries fill the same way at ${usd(pj.ladder[pj.ladder.length - 1].position_usd, 0)} ` +
-        `on a sub-20M-float name. On thin small-cap tape they almost certainly won't — which makes ` +
-        `every income figure here a ceiling, not a target.`,
+      "Withdrawals",
+      `${pct(cfg.withdraw_fraction)} of profit above the high-water mark · every ` +
+        `${cfg.withdraw_cadence_months} mo · floor ${usd(cfg.withdraw_floor_usd, 0)}`,
+    ],
+    ["CGT", `${pct(cfg.cgt_rate)} above ${gbp(cfg.cgt_annual_exempt_gbp, 0)} · settled 6 April`],
+    ["FX", `£1 = $${Number(PAYLOAD.gbpusd_rate).toFixed(2)}`],
+    [
+      "Day rate",
+      `£${cfg.day_rate_gbp}/day × ${cfg.day_rate_days_per_year} days · ` +
+        `${pct(cfg.day_rate_net_fraction)} net`,
     ],
     [
-      "The sample is tiny",
-      `${pj.sample.trading_days} trading days and ${pj.sample.trades} trades. Resampling cannot ` +
-        `manufacture information the sample doesn't contain: if these weeks weren't representative, ` +
-        `neither is the fan. It widens honestly with time, and that is the only cure.`,
-    ],
-    [
-      "Blocks, not shuffled days",
-      `Days are drawn in ${pj.block_days}-day runs so losing streaks survive. This is what makes ` +
-        `the drawdown figures believable — shuffling days independently would roughly halve them.`,
-    ],
-    [
-      "The strategy is frozen",
-      `The kill-switch rung and the daily target re-fit are baked into the resampled days as they ` +
-        `were actually taken. A future change to the rules isn't modelled here.`,
-    ],
-    [
-      "Tax is the simple case",
-      `${(cfg.cgt_rate * 100).toFixed(0)}% CGT above £${cfg.cgt_annual_exempt_gbp}, one flat ` +
-        `£/$ rate of ${Number(PAYLOAD.gbpusd_rate).toFixed(2)}, no loss carry-forward. If HMRC ever ` +
-        `treated this as trading income the rate would be closer to 45% and every year on the ramp ` +
-        `gets longer.`,
-    ],
-    [
-      "The day rate is net of a guess",
-      `£${cfg.day_rate_gbp}/day × ${cfg.day_rate_days_per_year} days, times a ` +
-        `${(cfg.day_rate_net_fraction * 100).toFixed(0)}% take-home fraction for an inside-IR35 ` +
-        `umbrella. That fraction is a setting, not a tax calculation — change it and the gold rule moves.`,
+      "Running costs",
+      `${gbp(cfg.vps_gbp_per_month)}/mo box · ${usd(cfg.market_data_usd_per_month, 0)}/mo market data`,
     ],
   ];
-  return items
-    .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`)
+  return rows
+    .map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td class="r">${esc(v)}</td></tr>`)
     .join("");
 }
 
@@ -689,50 +657,44 @@ function renderProjection(book) {
     return;
   }
   const cfg = PAYLOAD.config;
+  const v = verdictState(pj);
   el("pj-tiles").innerHTML = projectionTiles(pj);
   el("pj-dd-tiles").innerHTML = drawdownTiles(pj);
   el("pj-pay-tiles").innerHTML = payoutTiles2(pj);
-  el("pj-verdict").innerHTML = verdictHtml(pj, cfg);
+  el("pj-verdict-pill").textContent = v.label;
+  el("pj-verdict-pill").className = "pill " + v.cls;
+  el("pj-verdict-tiles").innerHTML = verdictTiles(pj, v);
   el("pj-ladder").innerHTML = ladderRows(pj);
-  el("pj-assumptions").innerHTML = assumptionRows(pj, cfg);
+  el("pj-inputs").innerHTML = inputRows(pj, cfg);
   // When the growth rate is a small-sample artifact the ladder is arithmetic on a meaningless
-  // input. The verdict says so in words; dim the table so the words and the picture agree,
-  // rather than leaving a crisp-looking $551 for the reader to take at face value.
+  // input, so dim it — the status pill and the table then say the same thing.
   el("pj-ladder-wrap").classList.toggle("pj-void", !!pj.growth_implausible);
 
+  // The captions below are legends: what a mark means, not what to think of it.
   setNote(
     "pj-fan-note",
-    `${pj.paths} simulated years, each one built by resampling this book's own trading days in ` +
-      `${pj.block_days}-day blocks (so losing runs stay runs). Costs, CGT and withdrawals are ` +
-      `settled by the same ledgers as the book itself.`
+    `${pj.paths} paths · ${pj.block_days}-day blocks · median line, 25–75 and 5–95 bands · ` +
+      `costs, CGT and withdrawals settled by the book's own ledgers.`
   );
-  setNote(
-    "pj-dd-note",
-    `Measured on trading P&amp;L, so a scheduled withdrawal never counts as a drawdown. These are ` +
-      `deeper than the book's realised max DD by construction — a year gives the strategy far more ` +
-      `chances to hit a bad run than the ${pj.sample.days} days collected so far did.`
-  );
+  setNote("pj-dd-note", "Peak-to-trough on trading P&amp;L within one year; scheduled withdrawals excluded.");
   setNote(
     "pj-pay-note",
-    `Withdrawals pay ${(cfg.withdraw_fraction * 100).toFixed(0)}% of profit above the high-water ` +
-      `mark every ${cfg.withdraw_cadence_months} months, never below ${usd(cfg.withdraw_floor_usd)}. ` +
-      `CGT is ${(cfg.cgt_rate * 100).toFixed(0)}% above £${cfg.cgt_annual_exempt_gbp}, settled at 6 April.`
+    `${pct(cfg.withdraw_fraction)} of profit above the high-water mark · every ` +
+      `${cfg.withdraw_cadence_months} mo · floor ${usd(cfg.withdraw_floor_usd, 0)} · ` +
+      `CGT ${pct(cfg.cgt_rate)} above ${gbp(cfg.cgt_annual_exempt_gbp, 0)} at 6 April.`
   );
   setNote(
     "pj-ramp-note",
-    `What the account could pay you each year if you stopped reinvesting then — capital held flat, ` +
-      `after CGT and running costs. Thick line = median growth, thin = the 25th/75th percentile. ` +
-      `Where the median crosses the gold rule is the answer to the question on the right.`
+    "Take-home per year if reinvesting stopped that year — capital flat, after CGT and costs. " +
+      "Thick line = median growth, thin = 25th/75th percentile, gold rule = the day rate."
   );
   setNote(
     "pj-ladder-note",
     pj.growth_implausible
-      ? `Greyed out on purpose: at ${fmtGrowth(pj.growth.p50)} the capital column is a division by ` +
-          `a number this sample can't support. See the panel above.`
-      : `Steady state: the account earns, pays its costs and CGT, and hands over the rest without ` +
-          `shrinking. Built from <strong>${pj.sample.trading_days} trading days / ${pj.sample.trades} ` +
-          `trades</strong> — a sample that small is the dominant uncertainty in every figure here, ` +
-          `and none of it is a forecast.`
+      ? `Greyed out: the capital column divides by a median growth of ${fmtGrowth(pj.growth.p50)}, ` +
+          `which ${pj.sample.trading_days} trading days can't support.`
+      : `Steady state: capital held flat, after CGT and running costs. Built from ` +
+          `${pj.sample.trading_days} trading days / ${pj.sample.trades} trades.`
   );
 }
 

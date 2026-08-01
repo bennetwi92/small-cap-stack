@@ -501,45 +501,39 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
    equal specificity — so the hidden region needs saying again, louder. */
 .pf[hidden]{ display:none; }
 .pj-verdict{ flex:0 0 auto; }
-.pj-verdict p{
-  margin:0;
-  font-size:13px;
-  line-height:1.65;
-  color:var(--ink);
-}
+/* the derived answer, next to the panel title: colour carries the state */
+.pj-verdict .panel-h .pill{ margin-left:6px; font-size:9px; vertical-align:middle; }
+.pj-verdict .panel-h .pf-pos{ color:var(--win); border-color:var(--win); }
+.pj-verdict .panel-h .pf-neg{ color:var(--loss); border-color:var(--loss); }
+.pj-verdict .panel-h .warn{ color:var(--gold); border-color:var(--gold); }
 /* The day-rate rung is the row the whole table is walking toward — mark it rather than
    leaving the reader to find it by reading the labels. */
 .pj-target-row{ background:rgba(227,180,82,.07); }
 .pj-target-row td{ border-top:1px solid var(--line-2); font-weight:600; }
-/* The ladder is a handful of rows, so it sizes to content; the assumptions take the leftover
+/* The ladder is a handful of rows, so it sizes to content; the model inputs take the leftover
    height and scroll inside their own panel if the window is short. */
 .pj-ladder-panel{ flex:0 0 auto; }
 /* A table whose inputs the page has just disowned: keep it visible (the shape is still the
    answer) but stop it looking like a figure to act on. */
 .pj-void{ opacity:.4; filter:saturate(.4); }
-.pj-assume-panel{
+.pj-inputs-panel{
   flex:1 1 0;
   display:flex;
   flex-direction:column;
   min-height:0;
 }
-.pj-assume{
-  margin:0;
-  overflow-y:auto;
-  min-height:0;
-  flex:1 1 auto;
-  font-size:12px;
-  line-height:1.55;
+.pj-inputs-wrap{ overflow-y:auto; min-height:0; flex:1 1 auto; }
+/* label / value, two columns: the row header is the input's name, never a sentence */
+.pj-inputs th{
+  text-align:left;
+  font-weight:500;
+  font-size:10px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--dim);
+  white-space:nowrap;
 }
-.pj-assume dt{
-  margin-top:9px;
-  color:var(--ink);
-  font-weight:600;
-  letter-spacing:.02em;
-}
-.pj-assume dt:first-child{ margin-top:0; }
-.pj-assume dd{ margin:1px 0 0; color:var(--dim); }
-.pj-assume em{ color:var(--ink); font-style:normal; }
+.pj-inputs td{ white-space:normal; }
 
 /* --- wide monitor (#397): the left region becomes two rails, one screen, no scroll ---
    The left region is capped rather than a bare percentage: 38% of an ultrawide would
@@ -615,10 +609,10 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
   .pf-trades-panel{ flex:0 0 auto; }
   .pf-fill{ max-height:52vh; }
   /* Same trap as .pf-trades-panel above (#373): flex:1 1 0 + min-height:0 collapses to zero
-     once .pf becomes a height:auto column, so the assumptions would vanish entirely on a phone.
-     Pin it to content and let the body scroll, which is this breakpoint's whole contract. */
-  .pj-assume-panel{ flex:0 0 auto; }
-  .pj-assume{ overflow-y:visible; }
+     once .pf becomes a height:auto column, so the model inputs would vanish entirely on a
+     phone. Pin it to content and let the body scroll, which is this breakpoint's contract. */
+  .pj-inputs-panel{ flex:0 0 auto; }
+  .pj-inputs-wrap{ overflow-y:visible; }
 }
 
 /* ---------- error strip ---------- */
@@ -1115,10 +1109,11 @@ body.review{
   .md-body{ font-size:12px; }
 }
 
-/* ---------- plan (#410) ----------
-   The discipline screen: a spine of three phase cards across the top, then
-   three columns — where we are (data), what this phase forbids (the standing
-   orders), and what unlocks the next one (the gates). On a desktop the grid is
+/* ---------- plan (#410, rebuilt #414) ----------
+   The status board: a spine of three phase cards across the top, each carrying
+   its own counters, then three columns — collection progress, the Phase-1
+   checks, and the gate ladder. Every value is computed from the published data
+   or from issue state; no panel here holds prose. On a desktop the grid is
    pinned to the viewport and never scrolls; the columns own their overflow.
    Below 1000px it becomes one stacked column and the body scrolls like a
    normal page. The session accent runs through it: the live phase, the ring
@@ -1154,15 +1149,14 @@ body.review{
 .plan-col > .panel{ flex:1 0 auto; display:flex; flex-direction:column; min-height:0; }
 .plan-progress .plan-ring-row{ flex:1 1 auto; }
 .plan-heat{ flex:1 1 auto; align-content:center; }
-.plan-evidence .plan-note{ margin-top:auto; padding-top:5px; }
 /* the two long lists CAN shrink, because they scroll inside themselves */
-.plan-col > .panel.plan-orders-panel,
+.plan-col > .panel.plan-checks-panel,
 .plan-col > .panel.plan-gates-panel{ flex:1 1 auto; }
 /* spare height goes into the rows, which keeps the gate ladder's rail unbroken
    (a gap between rows would cut it into segments) */
-.plan-orders,
+.plan-checks,
 .plan-gates{ display:flex; flex-direction:column; }
-.plan-order,
+.plan-check,
 .plan-gate{ flex:1 0 auto; }
 
 /* --- the phase spine --- */
@@ -1227,31 +1221,43 @@ body.review{
 .plan-phase-badge{ margin-left:auto; flex:0 0 auto; }
 .plan-phase-live .plan-phase-badge{ color:var(--acc); border-color:var(--acc); }
 .plan-phase-win{ margin:0; font-size:10px; letter-spacing:.03em; }
-.plan-phase-obj{ margin:1px 0 0; font-size:11px; line-height:1.4; }
-.plan-phase-list{ margin:1px 0 0; padding:0; list-style:none; }
-.plan-phase-list li{
-  position:relative;
-  padding-left:11px;
-  font-size:10px;
-  line-height:1.45;
+/* a phase already behind us: quiet, but not dashed like the ones ahead */
+.plan-phase-done{ opacity:.8; }
+.plan-phase-done .plan-phase-n,
+.plan-phase-done .plan-phase-badge{ color:var(--win); border-color:var(--win); }
+/* the phase's own counters — the only thing a phase card carries besides its name */
+.plan-metrics{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:1px;
+  margin-top:3px;
+  background:var(--line);
+  border:1px solid var(--line);
+  border-radius:3px;
+  overflow:hidden;
+}
+.plan-metric{
+  background:var(--inset);
+  padding:3px 6px 4px;
+  min-width:0;
+}
+.plan-metric-l{
+  display:block;
+  font-size:9px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
   color:var(--dim);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }
-.plan-phase-list li::before{
-  content:"›";
-  position:absolute;
-  left:1px;
-  color:var(--line-2);
+.plan-metric-v{
+  display:block;
+  font-size:13px;
+  font-weight:600;
+  line-height:1.25;
 }
-.plan-phase-live .plan-phase-list li::before{ color:var(--acc); }
-.plan-phase-exit{
-  margin:4px 0 0;
-  padding-top:4px;
-  border-top:1px dashed var(--line);
-  font-size:10px;
-  line-height:1.45;
-  color:var(--dim);
-}
-.plan-phase-live .plan-phase-exit{ color:var(--gold); }
+.plan-phase-live .plan-metric-v{ color:var(--acc); }
 .plan-bar{
   height:4px;
   margin-top:4px;
@@ -1325,6 +1331,9 @@ body.review{
   background:var(--inset);
 }
 .plan-cell-todo{ border-color:var(--line); }
+/* a session that came and went without landing in the store — the one heatmap state
+   that is a fault rather than a count */
+.plan-cell-gap{ background:none; border-color:var(--loss); border-style:dotted; }
 .plan-cell-off{ background:none; }
 .plan-cell-holiday{ background:none; border-color:var(--line); border-style:dashed; }
 /* opportunity density, in the session accent */
@@ -1336,18 +1345,16 @@ body.review{
 .plan-cap{ margin:5px 0 0; font-size:10px; line-height:1.5; }
 .plan-key{ display:inline-flex; align-items:center; gap:2px; vertical-align:middle; }
 .plan-key i{ display:inline-block; margin:0 1px; }
-.plan-note{ margin:5px 0 0; font-size:10px; line-height:1.5; }
-.plan-hot{ color:var(--lime); }
 
-/* --- column 2: the standing orders --- */
-.plan-orders-panel,
+/* --- column 2: the Phase-1 checks --- */
+.plan-checks-panel,
 .plan-gates-panel{
   flex:1 1 auto;
   display:flex;
   flex-direction:column;
   min-height:0;
 }
-.plan-orders,
+.plan-checks,
 .plan-gates{
   flex:1 1 auto;
   min-height:0;
@@ -1358,38 +1365,52 @@ body.review{
 }
 /* on a short window these lists are the ones that scroll — show a thin thumb so
    a clipped last row reads as "there's more", not as a broken layout */
-.plan-col, .plan-orders, .plan-gates{ scrollbar-width:thin; }
+.plan-col, .plan-checks, .plan-gates{ scrollbar-width:thin; }
 .plan-col::-webkit-scrollbar,
-.plan-orders::-webkit-scrollbar,
+.plan-checks::-webkit-scrollbar,
 .plan-gates::-webkit-scrollbar{ width:4px; }
 .plan-col::-webkit-scrollbar-thumb,
-.plan-orders::-webkit-scrollbar-thumb,
+.plan-checks::-webkit-scrollbar-thumb,
 .plan-gates::-webkit-scrollbar-thumb{ background:var(--line-2); border-radius:2px; }
-.plan-orders{ counter-reset:plan-ord; }
-.plan-order{
+/* One check per row: label + status pill, then the number, then one line of detail.
+   A row is a reading of the data — never a sentence about it. */
+.plan-check{
   position:relative;
-  counter-increment:plan-ord;
-  padding:6px 0 7px 23px;
+  padding:5px 0 6px 9px;
   border-top:1px solid var(--line);
 }
-.plan-order:first-child{ border-top:0; padding-top:2px; }
-.plan-order::before{
-  content:counter(plan-ord);
+.plan-check:first-child{ border-top:0; }
+/* the state rail: colour is the whole status vocabulary, so it never needs words */
+.plan-check::before{
+  content:"";
   position:absolute;
-  left:0;
-  top:7px;
-  width:16px;
-  line-height:14px;
-  text-align:center;
-  font-size:10px;
-  font-weight:600;
-  color:var(--acc);
-  border:1px solid var(--line-2);
-  border-radius:2px;
+  left:0; top:5px; bottom:6px;
+  width:2px;
+  border-radius:1px;
+  background:var(--line-2);
 }
-.plan-order:first-child::before{ top:3px; }
-.plan-order-rule{ margin:0 0 2px; font-size:12px; font-weight:600; line-height:1.35; }
-.plan-order-why{ margin:0; font-size:10px; line-height:1.55; }
+.plan-check-ok::before{ background:var(--win); }
+.plan-check-warn::before{ background:var(--gold); }
+.plan-check-bad::before{ background:var(--loss); }
+.plan-check-run::before{ background:var(--acc); }
+.plan-check-h{ display:flex; align-items:center; gap:6px; min-width:0; }
+.plan-check-l{
+  font-size:10px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--dim);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.plan-check-pill{ margin-left:auto; flex:0 0 auto; font-size:9px; }
+.plan-check-ok .plan-check-pill{ color:var(--win); border-color:var(--win); }
+.plan-check-warn .plan-check-pill{ color:var(--gold); border-color:var(--gold); }
+.plan-check-bad .plan-check-pill{ color:var(--loss); border-color:var(--loss); }
+.plan-check-run .plan-check-pill{ color:var(--acc); border-color:var(--acc); }
+.plan-check-v{ font-size:17px; font-weight:600; line-height:1.2; margin-top:1px; }
+.plan-check-s{ font-size:10px; line-height:1.4; }
+.plan-check-bar{ margin-top:4px; }
 
 /* --- column 3: the gate ladder --- */
 .plan-gate{
@@ -1428,10 +1449,30 @@ body.review{
 .plan-gate-body{ min-width:0; flex:1 1 auto; }
 .plan-gate-h{ margin:0; display:flex; align-items:center; gap:6px; min-width:0; }
 .plan-gate-name{ font-size:11px; font-weight:600; }
-.plan-gate-iss{ font-size:10px; }
+.plan-gate-iss{ margin:2px 0 0; display:flex; flex-wrap:wrap; gap:4px; }
 .plan-gate-pill{ margin-left:auto; flex:0 0 auto; font-size:9px; }
-.plan-gate-note{ margin:1px 0 0; font-size:10px; line-height:1.45; }
-/* open now = workable today; running = the countdown; blocked = waiting on another gate */
+.plan-gate-bar{ margin-top:4px; }
+/* one chip per issue, carrying its own state — this is where "done" is actually read from */
+.plan-iss{
+  font-size:9.5px;
+  line-height:1.3;
+  padding:1px 4px;
+  border:1px solid var(--line-2);
+  border-radius:2px;
+  color:var(--dim);
+  text-decoration:none;
+  white-space:nowrap;
+}
+.plan-iss:hover{ border-color:var(--acc); color:var(--ink); }
+.plan-iss-m{ margin-left:3px; }
+.plan-iss-done{ color:var(--win); border-color:color-mix(in srgb, var(--win) 45%, var(--line-2)); }
+.plan-iss-open{ color:var(--ink); }
+.plan-iss-unknown{ opacity:.6; }
+/* done = its issues are closed; open now = workable today; running = the countdown;
+   blocked = waiting on another gate */
+.plan-gate-done .plan-gate-n,
+.plan-gate-done .plan-gate-pill{ color:var(--win); border-color:var(--win); }
+.plan-gate-done .plan-gate-name{ color:var(--dim); }
 .plan-gate-open .plan-gate-n{ color:var(--lime); border-color:var(--lime); }
 .plan-gate-open .plan-gate-pill{ color:var(--lime); border-color:var(--lime); }
 .plan-gate-running .plan-gate-n{ color:var(--acc); border-color:var(--acc); }
@@ -1474,10 +1515,9 @@ body.review{
   .plan-ring-tiles .tile-v{ font-size:12px; }
   .plan-heat{ grid-template-rows:repeat(5, 9px); grid-auto-columns:9px; }
   .plan-heat .plan-cell{ width:9px; height:9px; }
-  .plan-cap, .plan-note{ font-size:9.5px; line-height:1.45; margin-top:4px; }
-  .plan-phase-list li{ line-height:1.4; }
-  .plan-order{ padding-top:5px; padding-bottom:5px; }
-  .plan-order-why{ line-height:1.5; }
+  .plan-cap{ font-size:9.5px; line-height:1.45; margin-top:4px; }
+  .plan-check{ padding-top:4px; padding-bottom:5px; }
+  .plan-check-v{ font-size:15px; }
   .plan-gate{ padding:4px 0 5px; }
 }
 /* Shorter still (a 1366×768 laptop with browser chrome is ~660px of viewport):
@@ -1487,11 +1527,12 @@ body.review{
 @media (min-width:1001px) and (max-height:740px){
   .plan-phase{ gap:2px; padding:6px 8px 6px 10px; }
   .plan-phase-name{ font-size:12px; }
-  .plan-phase-obj{ font-size:10.5px; }
-  .plan-phase-exit{ margin-top:3px; padding-top:3px; }
+  .plan-metric{ padding:2px 6px 3px; }
+  .plan-metric-v{ font-size:12px; }
   .plan-ring-tiles .tile{ padding:2px 7px 3px; }
-  .plan-evidence .tile{ padding:2px 7px 3px; }
-  .plan-cap, .plan-note{ font-size:9px; }
+  .plan-book .tile{ padding:2px 7px 3px; }
+  .plan-cap{ font-size:9px; }
+  .plan-check-v{ font-size:14px; }
 }
 
 /* --- narrow window / phone: stack it and let the body scroll --- */
@@ -1508,15 +1549,15 @@ body.review{
      and reads the phase cards underneath it */
   .plan-col:first-of-type{ order:-1; }
   .plan-col{ overflow-y:visible; }
-  .plan-orders-panel,
+  .plan-checks-panel,
   .plan-gates-panel{ flex:0 0 auto; }
-  .plan-orders,
+  .plan-checks,
   .plan-gates{ overflow-y:visible; }
   /* a phone gets fewer, larger squares' worth of width — let the grid breathe */
   .plan-heat{ grid-template-rows:repeat(5, 12px); grid-auto-columns:12px; }
   .plan-heat .plan-cell{ width:12px; height:12px; }
   /* 2×2 beats 3+1 with an empty cell */
-  .plan-evidence .tiles{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+  .plan-book .tiles{ grid-template-columns:repeat(2, minmax(0,1fr)); }
   .plan-ring{ flex:0 0 76px; }
   .plan-ring-svg{ width:76px; height:76px; }
 }
