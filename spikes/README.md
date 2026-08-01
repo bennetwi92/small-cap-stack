@@ -25,6 +25,7 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`review_meta_sweep.py`](#review_meta_sweeppy) | #173 | Replay candidate gate/param changes over the reviewed day-set |
 | [`warrior_library.py`](#warrior_librarypy) | #304 | Warrior Trading transcript corpus for rule provenance |
 | [`portfolio_cutoff_sweep.py`](#portfolio_cutoff_sweeppy) | #379 | Replay the virtual book under different selection filters |
+| [`portfolio_slot_split.py`](#portfolio_slot_splitpy) | #416 | Replay the virtual book under different per-slot notional caps |
 
 ### `viz_engine.py`
 
@@ -159,3 +160,26 @@ execution).
 **A: this gate is load-bearing.** Confirmed live — a scanner hit (CBRG) came back **BLOCKED**
 (PRIIPs/KID restriction) while the rest were TRADABLE. Re-validate verdicts on a **live** account in
 Phase 3; paper may not perfectly mirror restrictions.
+
+### `portfolio_slot_split.py` — issue #416
+
+**Q:** Does the 2/day trade cap waste capital on days with only one setup, and would a **75/25**
+first-trade / second-trade notional split deploy more of the book?
+
+**A: no to both.** Over 2026-07 (25 sessions, 11 setups) the cap dropped **zero** trades — it has
+never been the binding constraint under any configuration the book has run. A slot split leaves
+**total R unchanged** by construction and moves end equity by ~±1.5% in *opposite directions* in the
+adaptive and fixed-2R books. The real limiter is the 5% risk budget, which binds before the notional
+cap on 8 of 11 trades. Full write-up:
+`docs/reports/2026-08-01-the-2-trade-a-day-cap-is-it-wasting-capital.md`.
+
+Unlike the other portfolio spikes this replays the **published payload** (`portfolio.json` +
+`charts/` from the `dashboard-data` branch) rather than the Parquet store, so it runs from a cloud
+session with no box access. `--validate` re-runs the published configuration through the harness and
+refuses to report anything unless it reproduces all eight published books trade-for-trade.
+
+```bash
+git show origin/dashboard-data:portfolio.json > data/spikes/portfolio.json
+python spikes/portfolio_slot_split.py --payload data/spikes/portfolio.json \
+    --charts data/spikes/charts --validate --json data/spikes/slot-split.json
+```

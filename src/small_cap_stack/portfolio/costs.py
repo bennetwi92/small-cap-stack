@@ -47,10 +47,16 @@ def size_position(
     **Which one binds is the opposite of the intuition** (and of what this module's docs claimed
     until #286): ``risk_qty < cap_qty ⟺ (entry − stop) / entry > risk_fraction /
     max_position_fraction``, so the risk target binds on a **wide** stop and the notional cap binds
-    on a **tight** one — at the 5%/50% default, any stop within 10% of entry is cap-bound. Bull-flag
-    stops sit a few percent below entry, so the cap is the *usual* constraint, not the edge case,
-    and a cap-bound position risks ``max_position_fraction × (entry − stop) / entry`` of equity —
-    well under the configured ``risk_fraction``. Hence :class:`SizedPosition`, not a bare int.
+    on a **tight** one — at the 5%/50% default, any stop within 10% of entry is cap-bound. A
+    cap-bound position risks ``max_position_fraction × (entry − stop) / entry`` of equity — well
+    under the configured ``risk_fraction``. Hence :class:`SizedPosition`, not a bare int.
+
+    Which one binds *in practice* was stated here as "the cap is the usual constraint, bull-flag
+    stops sit a few percent below entry" until #416 measured it: over the book's realised
+    candidates (2026-07, 11 trades) stops run 2.8%–18.2% with a **13.9% median**, and the **risk
+    target binds on 8 of 11**. The mechanism above is unchanged; only the claim about which side of
+    the 10% crossover this strategy's setups actually land on. Small sample — it is a description
+    of the record, not a law. See ``docs/reports/2026-08-01-the-2-trade-a-day-cap-…md``.
 
     ``sized_by`` is ``"cap"`` only when the cap strictly *reduced* the size below what the risk
     budget wanted (``cap_qty < risk_qty``). On a tie the risk target got exactly what it asked for,
