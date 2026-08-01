@@ -50,6 +50,9 @@ below are greenfield.
 Gates 0–2 are unblocked today and need no data subscription. Gate 3 is a calendar wait. Gates 5–7
 are the build and start whenever Gate 4 lands.
 
+> This table is **mirrored on the dashboard's Plan page** (`docs/plan.js`, `GATES`), which is where
+> the trader reads it. Change a gate here and change it there in the same PR.
+
 ## The three things that will actually bite
 
 ### 1. The exit-limit fill policy (Gate 6)
