@@ -109,6 +109,11 @@ hours, not authoring speed (see the remote-work limits above).
   source path may only be `/` or `/docs`, so renaming it takes the live dashboard offline. Docs live
   in `research/`; only root keeps `README`/`CLAUDE`/`CONTRIBUTING`/`DISCLAIMER` (#300).
   `docs/reports/` is the one exception that *is* prose: published reports (see below).
+  - **`docs/plan.html` / `plan.js` is the plan mirror (#410)** — the phase spine, the Phase-1
+    standing orders and the Phase-2 gate ladder, rendered for the trader. Its `PHASES` / `ORDERS` /
+    `GATES` constants restate `research/decisions.md` and `research/phase-2-roadmap.md`: when a
+    phase boundary, a locked rule or a gate changes, change it there in the same PR or the page
+    starts lying. The counts on it are live (`index.json` / `portfolio.json`); the words are not.
 - `data/` — local runtime data (gitignored).
 - `scripts/` — repo helpers (e.g. `board.sh`).
 - `deploy/` — host runbook + systemd units.
