@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-08-01T08:15:13+00:00",
+  "generated_utc": "2026-08-01T08:36:41+00:00",
   "reports": [
     {
       "slug": "2026-08-01-the-plan-and-what-the-projection-assumes",
@@ -13,6 +13,19 @@
       ],
       "author": "Claude",
       "words": 1503
+    },
+    {
+      "slug": "2026-08-01-the-2-trade-a-day-cap-is-it-wasting-capital",
+      "file": "2026-08-01-the-2-trade-a-day-cap-is-it-wasting-capital.md",
+      "title": "The 2-trade-a-day cap: is it wasting capital?",
+      "published": "2026-08-01",
+      "summary": "It has never dropped a setup, and a 75/25 first/second split changes almost nothing — because the notional cap is not what limits position size.",
+      "tags": [
+        "strategy",
+        "portfolio"
+      ],
+      "author": "Claude",
+      "words": 2036
     },
     {
       "slug": "2026-07-31-time-of-day-when-the-entry-fires-and-what-it-s-worth",
