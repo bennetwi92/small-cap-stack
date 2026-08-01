@@ -14,21 +14,22 @@
     <link rel="stylesheet" href="cockpit.css" />
   </head>
   <body>
-    <!-- Cockpit chrome (#288): app bar + options bar render themselves; the
-         status bar self-mounts at the bottom. Everything between is the plan
-         grid — a spine of three phases across the top, then three columns:
-         where we are (data), what the current phase forbids (discipline), and
-         what unlocks the next one (the gates). Desktop never scrolls; each
-         column owns its own overflow. -->
+    <!-- Cockpit chrome (#288): app bar + options bar render themselves; the status bar
+         self-mounts at the bottom. Everything between is the plan board — a spine of three
+         phases across the top, each carrying its own live counters, then three columns:
+         collection progress, the Phase-1 checks, and the Phase-2 gate ladder.
+         Every value on this page is computed at render time from the published data or
+         from GitHub issue state (#414); nothing here is a hand-written status. Desktop
+         never scrolls; each column owns its own overflow. -->
     <header id="appbar" class="appbar"></header>
     <div id="optbar"></div>
     <p id="pl-error" class="error" hidden></p>
 
     <main class="plan">
-      <!-- the three phases, left to right -->
+      <!-- the three phases, left to right; counters filled per phase from the data -->
       <section id="pl-spine" class="plan-spine"></section>
 
-      <!-- column 1 — where we are, from the published data -->
+      <!-- column 1 — collection progress -->
       <div class="plan-col">
         <section class="panel plan-progress">
           <h2 class="panel-h">Phase 1 · collection</h2>
@@ -44,31 +45,33 @@
           <p id="pl-heat-cap" class="plan-cap muted"></p>
         </section>
 
-        <section class="panel plan-evidence">
-          <h2 class="panel-h">The case for waiting</h2>
-          <div id="pl-evidence" class="tiles"></div>
-          <p id="pl-evidence-note" class="plan-note muted"></p>
+        <section class="panel plan-book">
+          <h2 class="panel-h">Paper book</h2>
+          <div id="pl-book" class="tiles"></div>
         </section>
       </div>
 
-      <!-- column 2 — the rules of the phase we are actually in -->
+      <!-- column 2 — the Phase-1 checks, all derived from the published data -->
       <div class="plan-col">
-        <section class="panel plan-orders-panel">
-          <h2 class="panel-h">Standing orders · Phase 1</h2>
+        <section class="panel plan-checks-panel">
+          <h2 class="panel-h">Phase 1 · checks</h2>
+          <ul id="pl-checks" class="plan-checks"></ul>
+          <!-- The one piece of prose the page keeps: where the prose went. -->
           <p class="plan-cap muted">
-            The five rules that decide whether this works. They are not
-            suggestions and they do not change because a chart looks good.
+            The standing orders, and the reasoning behind each phase and gate:
+            <a href="reports.html?r=2026-08-01-the-plan-and-what-the-projection-assumes"
+              >The plan, and what the projection assumes</a
+            >.
           </p>
-          <ol id="pl-orders" class="plan-orders"></ol>
         </section>
       </div>
 
-      <!-- column 3 — what unlocks the next phase -->
+      <!-- column 3 — what unlocks the next phase; status read from the issues -->
       <div class="plan-col">
         <section class="panel plan-gates-panel">
-          <h2 class="panel-h">The road to Phase 2</h2>
-          <p id="pl-gates-cap" class="plan-cap muted"></p>
+          <h2 class="panel-h">Phase 2 gates <span id="pl-gates-count" class="muted"></span></h2>
           <ol id="pl-gates" class="plan-gates"></ol>
+          <p id="pl-gates-src" class="plan-cap muted"></p>
         </section>
       </div>
     </main>

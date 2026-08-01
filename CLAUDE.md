@@ -109,11 +109,21 @@ hours, not authoring speed (see the remote-work limits above).
   source path may only be `/` or `/docs`, so renaming it takes the live dashboard offline. Docs live
   in `research/`; only root keeps `README`/`CLAUDE`/`CONTRIBUTING`/`DISCLAIMER` (#300).
   `docs/reports/` is the one exception that *is* prose: published reports (see below).
-  - **`docs/plan.html` / `plan.js` is the plan mirror (#410)** — the phase spine, the Phase-1
-    standing orders and the Phase-2 gate ladder, rendered for the trader. Its `PHASES` / `ORDERS` /
-    `GATES` constants restate `research/decisions.md` and `research/phase-2-roadmap.md`: when a
-    phase boundary, a locked rule or a gate changes, change it there in the same PR or the page
-    starts lying. The counts on it are live (`index.json` / `portfolio.json`); the words are not.
+  - ⚠️ **Dashboard pages carry numbers, statuses and instructional text — never commentary
+    (#414).** A label, a unit, a legend, a tooltip that says what a metric *is*, a line that says
+    what a control does: yes. Anything that argues, justifies or interprets — why a rule exists,
+    what a result means, what to conclude — goes in a **report**, where it is dated and can be
+    superseded. Prose on a page has to be re-read and re-approved every time the data moves;
+    that is how the pre-#414 Plan page and Projection view went stale. If a panel can't be
+    rendered from the published data, ask whether it belongs on a page at all.
+  - **`docs/plan.html` / `plan.js` is the plan board (#410, rebuilt #414)** — the phase spine, the
+    Phase-1 checks and the Phase-2 gate ladder. Every value is computed at render time from
+    `index.json` / `portfolio.json` / `status.json`; each gate's status is **derived from GitHub
+    issue state** (`docs/js/gh.js`, unauthenticated REST, cached 30 min in sessionStorage, falling
+    back to the dependency graph when unreachable). The committed constants are labels only:
+    `PHASES` (name, tag, window) and `GATES` (name, issue numbers, `after` dependencies) mirror
+    `research/phase-2-roadmap.md` — change a gate's *name, issues or dependencies* there and here
+    in the same PR; its *status* looks after itself.
 - `data/` — local runtime data (gitignored).
 - `scripts/` — repo helpers (e.g. `board.sh`).
 - `deploy/` — host runbook + systemd units.
@@ -124,6 +134,8 @@ hours, not authoring speed (see the remote-work limits above).
 ## Reports (published analyses)
 Ask for an analysis — *"write me a report on how often the float gate kills a runner"* — and it gets
 published to the dashboard's **Reports** tab. The **`publish-report`** skill is the procedure.
+**Reports are also where all commentary lives** (#414): the dashboard's other pages are status
+boards, so any writing that explains, justifies or concludes belongs here rather than in a panel.
 - A report is markdown in **`docs/reports/<published>-<slug>.md`** with front matter (`title`,
   `published` required; `summary`, `tags`, `author` optional). `src/small_cap_stack/reports.py`
   parses it into **`docs/reports/index.json`**, which `docs/reports.js` renders as the list

@@ -1,6 +1,19 @@
 {
-  "generated_utc": "2026-07-31T17:19:53+00:00",
+  "generated_utc": "2026-08-01T08:15:13+00:00",
   "reports": [
+    {
+      "slug": "2026-08-01-the-plan-and-what-the-projection-assumes",
+      "file": "2026-08-01-the-plan-and-what-the-projection-assumes.md",
+      "title": "The plan, and what the projection assumes",
+      "published": "2026-08-01",
+      "summary": "The commentary that used to live on the Plan page and the Projection view: the five standing orders and why each exists, and the assumptions every projected number rests on.",
+      "tags": [
+        "strategy",
+        "process"
+      ],
+      "author": "Claude",
+      "words": 1503
+    },
     {
       "slug": "2026-07-31-time-of-day-when-the-entry-fires-and-what-it-s-worth",
       "file": "2026-07-31-time-of-day-when-the-entry-fires-and-what-it-s-worth.md",
