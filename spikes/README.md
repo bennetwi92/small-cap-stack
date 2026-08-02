@@ -26,6 +26,7 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`warrior_library.py`](#warrior_librarypy) | #304 | Warrior Trading transcript corpus for rule provenance |
 | [`portfolio_cutoff_sweep.py`](#portfolio_cutoff_sweeppy) | #379 | Replay the virtual book under different selection filters |
 | [`portfolio_slot_split.py`](#portfolio_slot_splitpy) | #416 | Replay the virtual book under different per-slot notional caps |
+| [`open_drive_sweep.py`](#open_drive_sweeppy) | #418 | Quantify a second strategy: a 10-min ORB with a consolidation requirement |
 
 ### `viz_engine.py`
 
@@ -110,6 +111,45 @@ the numbers were re-pinned against that fix and are now stable run-to-run.
 ```bash
 .venv/bin/python spikes/portfolio_cutoff_sweep.py --store /path/to/store-copy
 .venv/bin/python spikes/portfolio_cutoff_sweep.py --store /data --json data/spikes/sweep.json
+```
+
+---
+
+### `open_drive_sweep.py` — issue #418
+
+**Q:** The engine only trades the pre-market. Is there a second strategy at the 09:30 open — the
+09:30–09:35 bar as an opening range, the 09:35–09:40 bar as a consolidation, entry a tick above the
+consolidation high — and what is it worth?
+
+**A: the setup is real, the money is not — at $500.** Over 2026-07 (22 trading days with bars, 46
+candidates on 13 days) the 1-trade/day book returns **+5.67R over 13 trades at 54% win, +0.436R per
+trade**. But standing it up on its own $500 ends at **$497.67 — a −0.5% return on +5.67R.** The
+stops are tight (1–7% of entry), so the 50% notional cap sizes **10 of 13** trades and each risks
+**2.46%** of equity against a configured 5%. Cranking risk to 20% / cap to 100% still only reaches
++7.1% for a 21.5% drawdown. This is a capital constraint, not a strategy failure.
+
+Two further results. **Not one of the ten pre-registered contrasts survives Holm** on the 215-setup
+ungated population — all four gates point the right way (body-dominant +0.30R, cons-lower-volume
++0.22R) and none is separable from noise. **No fitted threshold earns its place** either: every
+grid row's CI covers the permissive default. And the owner's 5/5 split is the best of four ORB
+lengths tested (+0.44R vs +0.23R at 10/5 and **−0.79R** at 15/5).
+
+⚠️ The **universe is symbols on the scanner strictly before the trigger fires** — applied at
+extraction, and never relaxed by any variant. Each ORB length carries its own cutoff matched to its
+own trigger, so the lengths sit on different (each legitimately tradable) populations.
+
+Replays from the **Parquet store**, so it needs the box. `--validate` replays the current book
+through the production `simulate_portfolio_adaptive` and refuses to report anything unless it
+reproduces the published `portfolio.json` trade-for-trade.
+
+```bash
+git show origin/dashboard-data:portfolio.json > /tmp/portfolio.json
+scp -i ~/.ssh/oracle_scs spikes/open_drive_sweep.py /tmp/portfolio.json root@<box>:/tmp/
+ssh -i ~/.ssh/oracle_scs root@<box> \
+  'docker cp /tmp/open_drive_sweep.py small-cap-stack-app-1:/tmp/ && \
+   docker cp /tmp/portfolio.json small-cap-stack-app-1:/tmp/ && \
+   docker exec small-cap-stack-app-1 python /tmp/open_drive_sweep.py \
+       --store /data --payload /tmp/portfolio.json --validate --json /tmp/open-drive.json'
 ```
 
 ---
