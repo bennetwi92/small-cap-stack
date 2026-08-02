@@ -7,6 +7,25 @@ This is the table of contents for the `research/` folder, a consolidated reusabl
 
 ---
 
+## 0. Later additions (this file is dated 2026-06-29 — the record kept growing)
+
+The specs and standing reports written since the research phase closed. Added so the index stays
+the way into `research/`, rather than only the pre-design snapshot below.
+
+| Doc | What it is |
+|---|---|
+| [`bull-flag.md`](./bull-flag.md) | The *what* of the live strategy — pattern grammar, feature areas, entry/stop. |
+| [`engine-v2.md`](./engine-v2.md) | The *how* — module layout, stages, settings, rollout. |
+| [`open-drive.md`](./open-drive.md) | **The second strategy (#418):** a 10-minute opening-range breakout with a consolidation requirement, for the 09:30 open. **Specified and measured, not trading** — positive in R (+5.67R/13 trades) but unmonetisable at $500, no individual rule separable from noise, and costly to the adaptive book if merged. Measured in `docs/reports/2026-08-02-the-0930-open-a-second-strategy.md`. |
+| [`phase-2-roadmap.md`](./phase-2-roadmap.md) | The sequence from tracker to paper-live (epic #308). |
+
+⚠️ **`open-drive.md` borrows the opening-range vocabulary from [`entresys_light.md`](./entresys_light.md)
+— but not its signal.** §1 below discarded entresys's ORB as a strategy mismatch in 2026-06, and
+that still stands: what #418 specifies is a small-cap momentum setup that happens to be framed as a
+range breakout, not entresys's system pointed at a new universe.
+
+---
+
 ## 1. Per-file summaries
 
 ### [`tradepilot.md`](./tradepilot.md) — prior repo (actually traded this strategy)
