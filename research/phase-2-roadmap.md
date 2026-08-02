@@ -76,6 +76,14 @@ so live and replay disagreeing would **silently invalidate the sim as a predicto
 Gate 5 is log-only and comes *before* any order code precisely to measure this: detect live, diff
 against the EOD replay, and either prove they agree or characterise where they can't.
 
+> **The second strategy is immune to this (#418).** `open-drive.md`'s two candles are fixed by the
+> clock — the opening range is 09:30–09:35, the consolidation 09:35–09:40 — so both are final at
+> 09:40 and the entry/stop levels never move. There is no growing prefix and nothing to re-segment,
+> so live and replay cannot diverge. If prefix stability turns out to be expensive to prove for the
+> bull-flag, that is a point in Open Drive's favour that has nothing to do with its expectancy.
+> It would also be the first strategy able to use **broker-native brackets**, trading after the bell
+> rather than under the pre-market limit-only constraint (#37).
+
 Use `reqHistoricalData(..., keepUpToDate=True)` for the live bars (the path `tradepilot.md`
 already proved). Second-order benefit: those are **IBKR's own bars**, identical to the stored
 history — aggregating our own from ticks would add a live-vs-replay *bar* mismatch on top of the
@@ -100,6 +108,16 @@ At ≤2 positions, two fast feeds cost nothing. Keep both.
 The line budget bites at the **armed** tier, not the position tier: `ibkr-integration.md:178` — max
 msgs/sec = lines ÷ 2, default 100 lines → 50 msg/sec, against a scanner returning ≤50 rows. That
 tier needs a budget and an eviction policy.
+
+## Gates 5–7 assume one strategy (#418)
+
+`live_detect.py`, `ibkr/orders.py`, the OMS and the ≤2-concurrent guard are all written in the
+singular. #418 specified a second strategy, and although it concluded **not to trade it**, the
+shape of the problem is now on the record: a second strategy either shares those gates (and needs a
+strategy tag on the candidate, the analysis row and the order, so attribution survives) or forks
+them. It also must **not** share the adaptive book — the daily target re-fit and the risk ladder see
+the merged candidate stream, which cost the bull-flag leg $218 in replay. Nothing to build now;
+worth knowing before Gate 6 is designed as if there were only ever one signal.
 
 ## Open questions
 
