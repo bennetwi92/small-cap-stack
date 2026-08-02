@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-08-02T09:47:03+00:00",
+  "generated_utc": "2026-08-02T12:02:52+00:00",
   "reports": [
     {
       "slug": "2026-08-02-the-0930-open-a-second-strategy",
@@ -14,6 +14,20 @@
       ],
       "author": "Claude",
       "words": 1859
+    },
+    {
+      "slug": "2026-08-02-open-drive-picking-the-days-stock",
+      "file": "2026-08-02-open-drive-picking-the-days-stock.md",
+      "title": "\"Open Drive: picking the day's stock\"",
+      "published": "2026-08-02",
+      "summary": "The 09:30 strategy lost money by picking the wrong stock each day — its \"first to trigger\" rule is an alphabetical lottery landing on cap-crushed 1%-risk trades. A sizing-aware pick turns the same month positive at half the drawdown.",
+      "tags": [
+        "strategy",
+        "portfolio",
+        "research"
+      ],
+      "author": "Claude",
+      "words": 1085
     },
     {
       "slug": "2026-08-01-the-plan-and-what-the-projection-assumes",

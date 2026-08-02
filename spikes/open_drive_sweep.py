@@ -18,7 +18,15 @@ in `extract_open_candidates` before anything is counted, and **no variant relaxe
 longer range moves the trigger to 09:50, the cutoff moves with it (`OrbLength.trigger_from`).
 
 ⚠️ Variants must be **decidable at trigger time** (the standing rule from #379). "First to trigger
-today" is; "the best of today's candidates" is not.
+today" is. **"Best of today's candidates" is too — for this strategy only**: every OD-5/5
+consolidation closes at 09:40 and the universe cutoff is the same instant, so the ranking set is
+complete before any entry can fire. The selection arm (`extract_open_setups` /
+`select_commit_widest`) exploits exactly that: rank the day's setups by planned stop width inside
+the sizing band, keep ONE order working, roll to the next setup when the working one's stop is
+breached before it fills. It exists because "first to trigger" is really an alphabetical lottery —
+nearly every candidate fills on the same 09:40 bar — and because the tight-stop picks it lands on
+are cap-bound into risking ~1% of equity (#416's crossover), which is how a +5.67R month lost
+money.
 
 ⚠️ This replays from the **Parquet store**, so it runs on the box or a machine with a store copy:
 
@@ -317,6 +325,156 @@ def extract_open_candidates(
     # A total order (#381) — trigger_at alone is a stable sort over upstream row order.
     out.sort(key=lambda c: (c.trade.trigger_at, c.trade.symbol, c.trade.seg_id))
     return out
+
+
+# --------------------------------------------------------------------------------------------
+# Setups — the pre-fill view the commit-selection arm needs
+# --------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class OdSetup:
+    """A gate-passing setup known in full at ``orb.trigger_from`` — whether or not it ever fills.
+
+    The commit-selection arm ranks setups *before* any entry fires, so it must also carry the
+    ones that never fill: a committed order that never fills is a day the rule pays for, and
+    dropping those days would flatter it. ``planned_risk_pct`` is the stop distance against the
+    conservative 3-tick fill — what a live trader knows at commit time (the realised entry can
+    gap wider, never tighter)."""
+
+    trading_date: date
+    symbol: str
+    oid: str
+    bars: tuple[Bar, ...]
+    entry_trigger: float
+    entry_fill: float
+    stop: float
+    planned_risk_pct: float
+
+
+def extract_open_setups(
+    store: Store,
+    s: Settings,
+    trading_date: date,
+    *,
+    orb: OrbLength = PRIMARY,
+) -> list[OdSetup]:
+    """Every gate-passing setup for one day, filled or not, sorted by symbol (a total order).
+
+    Same universe cutoff and geometry as `extract_open_candidates`; the only difference is that
+    the trigger scan is deferred to selection time."""
+    opps = day_opportunities(store, trading_date)
+    if opps.is_empty():
+        return []
+    bars_df = store.read("bars", dt=trading_date)
+    excluded = {sym.upper() for sym in s.portfolio_exclude_symbols}
+    tick = s.tick_size
+
+    out: list[OdSetup] = []
+    for row in opps.iter_rows(named=True):
+        if str(row["symbol"]).upper() in excluded:
+            continue
+        first_seen = row["first_seen_utc"]
+        if first_seen is None or first_seen.astimezone(ET).time() >= orb.trigger_from:
+            continue
+        oid = row["opportunity_id"]
+        day_bars = day_chart_bars(bars_df, oid, s)
+        if not day_bars:
+            continue
+        rng = aggregate(window(day_bars, MARKET_OPEN, orb.cons_start))
+        cons = aggregate(window(day_bars, orb.cons_start, orb.trigger_from))
+        if rng is None or cons is None or rng.range <= 0 or cons.range <= 0:
+            continue
+        if not all(_gates(rng, cons).values()):
+            continue
+        entry_fill = cons.high + 3 * tick
+        if entry_fill <= cons.low:
+            continue
+        out.append(
+            OdSetup(
+                trading_date=trading_date,
+                symbol=str(row["symbol"]),
+                oid=oid,
+                bars=tuple(day_bars),
+                entry_trigger=cons.high + tick,
+                entry_fill=entry_fill,
+                stop=cons.low,
+                planned_risk_pct=(entry_fill - cons.low) / entry_fill,
+            )
+        )
+    out.sort(key=lambda x: (x.symbol, x.oid))
+    return out
+
+
+def select_commit_widest(
+    setups: Sequence[OdSetup],
+    *,
+    floor: float,
+    ceiling: float,
+    orb: OrbLength = PRIMARY,
+) -> CandidateTrade | None:
+    """One working order at a time, widest planned stop first, re-committing on a kill.
+
+    **Why ranking is legal here and not for the bull-flag:** every OD-5/5 consolidation closes
+    at 09:40 — the candles are clock-fixed and the universe cutoff is the same instant, so the
+    ranking set is complete and final before any entry can fire (the same property
+    `research/phase-2-roadmap.md` records for prefix-stability). #379 forbids *look-ahead*, not
+    ranking; "best of today's candidates" is undecidable for a strategy whose setups arrive all
+    day, and fully decidable for one whose setups all exist at 09:40.
+
+    **Why one order, not an OCA basket:** with several orders working, which same-bar fill you
+    get is unknowable from 5-min bars — replayed under different same-bar tie-breaks a top-2
+    basket swings by more than its alleged edge (see the tie-break table in the results). A
+    single working order has no tie to break: commit to the widest in-band setup at 09:40; if
+    its stop is breached before it fills, the setup is dead (observable live) and the next
+    ranked setup takes over from the *next* bar; the first fill is the day's trade. A setup
+    whose stop or entry was already crossed while it wasn't active is skipped, not chased.
+
+    The band: ``floor`` guarantees a cap-bound trade still deploys ``position_fraction × floor``
+    of equity (the ~1%-risk picks are what it exists to refuse); ``ceiling`` is the sizing
+    crossover ``risk_fraction / position_fraction`` — above it a wider stop buys no more size,
+    and the >10% bucket measured negative anyway."""
+    ranked = sorted(
+        (x for x in setups if floor <= x.planned_risk_pct < ceiling),
+        key=lambda x: (-x.planned_risk_pct, x.symbol, x.oid),
+    )
+    activated_from = orb.trigger_from
+    for x in ranked:
+        live = [b for b in x.bars if b.start.astimezone(ET).time() >= orb.trigger_from]
+        before = [b for b in live if b.start.astimezone(ET).time() < activated_from]
+        if any(b.low <= x.stop for b in before) or any(b.high >= x.entry_trigger for b in before):
+            continue  # already dead, or already ran without us — don't chase
+        killed_at: time | None = None
+        for b in live:
+            et = b.start.astimezone(ET).time()
+            if et < activated_from:
+                continue
+            if b.low <= x.stop:  # stop-first, mirroring _find_trigger
+                killed_at = et
+                break
+            if b.high >= x.entry_trigger:
+                entry_price = max(x.entry_fill, b.open)
+                risk = entry_price - x.stop
+                if risk <= 0:
+                    return None
+                return CandidateTrade(
+                    trading_date=x.trading_date,
+                    symbol=x.symbol,
+                    seg_id=x.oid,
+                    run=1,
+                    trigger_at=b.start,
+                    entry_price=entry_price,
+                    entry_fill=x.entry_fill,
+                    stop=x.stop,
+                    risk=risk,
+                    entry_index=list(x.bars).index(b),
+                    bars=x.bars,
+                    float_shares=None,
+                )
+        if killed_at is None:
+            return None  # order still working at the close — the day is over
+        activated_from = _shift(killed_at, 5)  # next bar; the kill is only knowable at bar close
+    return None
 
 
 # --------------------------------------------------------------------------------------------
@@ -626,6 +784,121 @@ def fit_thresholds(
 
 
 # --------------------------------------------------------------------------------------------
+# The selection arm — does picking the day's stock by deployable risk monetise the R?
+# --------------------------------------------------------------------------------------------
+
+
+def _book_row(
+    picks: dict[date, CandidateTrade | None], s: Settings, *, target_r: float
+) -> dict[str, Any]:
+    """One selection rule's standalone book plus the sizing facts that motivate the arm."""
+    day_list: list[tuple[date, Sequence[CandidateTrade]]] = [
+        (d, [t] if t is not None else []) for d, t in sorted(picks.items())
+    ]
+    res = simulate_portfolio(day_list, s, target_r=target_r)
+    per_day = {t.trading_date: [t.realized_r] for t in res.trades}
+    mean, lo, hi = day_block_bootstrap(per_day) if res.trades else (float("nan"),) * 3
+    n = max(1, len(res.trades))
+    return {
+        **_book_stats(res),
+        "expectancy_r": round(mean, 3) if res.trades else None,
+        "expectancy_ci": [round(lo, 3), round(hi, 3)] if res.trades else None,
+        "cap_bound": sum(1 for t in res.trades if t.sized_by == "cap"),
+        "avg_risk_pct": round(sum(t.risk_pct for t in res.trades) / n, 4),
+        "min_risk_pct": round(min((t.risk_pct for t in res.trades), default=0.0), 4),
+        "trades": [
+            {"date": t.trading_date.isoformat(), "symbol": t.symbol, "r": round(t.realized_r, 3)}
+            for t in res.trades
+        ],
+    }
+
+
+def _first_to_trigger(
+    cands: Sequence[OdCandidate], *, reverse_symbol: bool = False
+) -> OdCandidate | None:
+    """The baseline pick — and, with ``reverse_symbol``, its same-bar mirror image.
+
+    Nearly every candidate fills on the very first bar after the consolidation closes, so
+    "first to trigger" is decided by the alphabetical tie-break far more often than by the
+    market. The mirror keeps the earliest trigger *bar* and takes the last symbol instead of
+    the first: the spread between the two books is the part of the baseline that is lottery,
+    not strategy."""
+    if not cands:
+        return None
+    if not reverse_symbol:
+        return cands[0]
+    first_t = cands[0].trade.trigger_at
+    same_bar = [c for c in cands if c.trade.trigger_at == first_t]
+    return same_bar[-1]
+
+
+def selection_arm(
+    setups_by_day: dict[date, list[OdSetup]],
+    od_by_day: dict[date, list[OdCandidate]],
+    s: Settings,
+    *,
+    target_r: float,
+) -> dict[str, Any]:
+    """Baseline lottery, floor-only filter, and the banded sequential commit, side by side.
+
+    The commit rule's band is derived, not fitted: the ceiling is the sizing crossover
+    ``risk_fraction / position_fraction`` (above it a wider stop buys no extra size), and the
+    floor is the narrowest stop whose cap-bound trade still deploys a meaningful fraction of
+    equity (``position_fraction × floor``). The floor grid below is reported to show the
+    plateau, and the no-ceiling column to show what the ceiling refuses."""
+    crossover = s.portfolio_risk_fraction / s.portfolio_position_fraction
+    out: dict[str, Any] = {"ceiling_crossover": crossover}
+
+    out["baseline_first_to_trigger"] = _book_row(
+        {d: (p.trade if (p := _first_to_trigger(v)) else None) for d, v in od_by_day.items()},
+        s,
+        target_r=target_r,
+    )
+    out["baseline_reverse_tiebreak"] = _book_row(
+        {
+            d: (p.trade if (p := _first_to_trigger(v, reverse_symbol=True)) else None)
+            for d, v in od_by_day.items()
+        },
+        s,
+        target_r=target_r,
+    )
+
+    grid: list[dict[str, Any]] = []
+    for floor in (0.02, 0.025, 0.03, 0.035, 0.04):
+        for ceiling in (crossover, float("inf")):
+            picks = {
+                d: select_commit_widest(v, floor=floor, ceiling=ceiling)
+                for d, v in setups_by_day.items()
+            }
+            committed = sum(
+                1
+                for v in setups_by_day.values()
+                if any(floor <= x.planned_risk_pct < ceiling for x in v)
+            )
+            grid.append(
+                {
+                    "floor": floor,
+                    "ceiling": None if ceiling == float("inf") else round(ceiling, 4),
+                    "days_committed": committed,
+                    **_book_row(picks, s, target_r=target_r),
+                }
+            )
+    out["commit_grid"] = grid
+    out["primary"] = next(
+        row for row in grid if row["floor"] == 0.03 and row["ceiling"] is not None
+    )
+    out["note"] = (
+        "floor/ceiling are fractions of the planned entry; a cap-bound trade risks "
+        "position_fraction × stop_pct of equity, so the floor is a deployable-risk guarantee. "
+        "The baseline pair shares one strategy and differs only in same-bar tie-break — their "
+        "spread is measurement noise the 5-min store cannot resolve, and any rule that leaves "
+        "several orders working at once (an OCA basket) inherits it. The sequential commit "
+        "keeps ONE order working and is tie-break-free by construction."
+    )
+    return out
+
+
+# --------------------------------------------------------------------------------------------
 # The combined book — reserving slot 2
 # --------------------------------------------------------------------------------------------
 
@@ -918,6 +1191,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         "symbols the scanner surfaced at 09:47 — so a longer range showing a larger n is expected "
         "and is not evidence it is better."
     )
+
+    # Selection arm — the day's stock picked by deployable risk, not by the alphabet.
+    print("\n--- selection arm: banded sequential commit ---")
+    setups_by_day = {d: extract_open_setups(store, s, d) for d in days}
+    n_setups = sum(len(v) for v in setups_by_day.values())
+    print(f"  gate-passing setups (filled or not): {n_setups}")
+    result["selection"] = selection_arm(setups_by_day, od_by_day, s, target_r=args.target_r)
+    for name in ("baseline_first_to_trigger", "baseline_reverse_tiebreak", "primary"):
+        row = result["selection"][name]
+        print(
+            f"  {name:28s} n={row['n_trades']:2d} totR={row['total_r']:+7.2f} "
+            f"equity={row['end_equity']:8.2f} dd={row['max_drawdown_pct']:.4f} "
+            f"cap={row['cap_bound']}/{row['n_trades']} avg_risk={row['avg_risk_pct']}"
+        )
+    for row in result["selection"]["commit_grid"]:
+        print(
+            f"    floor={row['floor']:.3f} ceiling={row['ceiling']} "
+            f"days={row['days_committed']:2d} n={row['n_trades']:2d} "
+            f"totR={row['total_r']:+7.2f} equity={row['end_equity']:8.2f} "
+            f"dd={row['max_drawdown_pct']:.4f}"
+        )
 
     # Combined book.
     print("\n--- combined book ---")
