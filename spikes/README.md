@@ -138,6 +138,17 @@ lengths tested (+0.44R vs +0.23R at 10/5 and **−0.79R** at 15/5).
 extraction, and never relaxed by any variant. Each ORB length carries its own cutoff matched to its
 own trigger, so the lengths sit on different (each legitimately tradable) populations.
 
+**Selection arm (follow-up, 2026-08-02):** "first to trigger" is really an alphabetical lottery —
+nearly every candidate fills on the same 09:40 bar, and replaying the same book with the same-bar
+tie-break reversed swings the month by more than the strategy's whole edge. Because every OD-5/5
+setup is final at 09:40 (clock-fixed candles + the cutoff), ranking the day's setups **is**
+decidable at trigger time here, unlike the bull-flag. The refined rule — commit to the widest
+planned stop inside the sizing band `[3%, risk/pos = 10%)`, one working order, roll to the next
+setup on a pre-fill stop breach — turns the same month from **$497.67 (−0.5%, 10.4% dd)** into
+**$529.80 (+6.0%, 4.2% dd)** with every trade deploying ≥ ~1.5% of equity instead of the ~1% the
+cap squeezed out of the tight-stop picks. See
+`docs/reports/2026-08-02-open-drive-picking-the-days-stock.md`.
+
 Replays from the **Parquet store**, so it needs the box. `--validate` replays the current book
 through the production `simulate_portfolio_adaptive` and refuses to report anything unless it
 reproduces the published `portfolio.json` trade-for-trade.
