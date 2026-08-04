@@ -118,3 +118,18 @@ def test_harvest_script_runs_its_own_container_not_the_trackers() -> None:
     # job is how the CX23 thrashes past sshd (#264).
     assert '--memory="$MEM_LIMIT"' in sh and '--memory-swap="$MEM_LIMIT"' in sh
     assert "--oom-score-adj=800" in sh  # the kernel's preferred victim, box-wide
+
+
+def test_harvest_script_reasserts_the_container_data_path_over_the_env_file() -> None:
+    """`.env` on the box is a copy of `.env.example`, which carries the LOCAL-dev
+    `DATA_DIR=./data`. Passed through `--env-file` that overrides the image's `/data`, so the whole
+    harvest would land inside the container's working directory and be deleted with it on `--rm` —
+    a night's API budget written to a tmpfs. `-e` takes precedence over `--env-file`, so the
+    container paths are re-asserted after it."""
+    sh = (ROOT / "scripts" / "harvest.sh").read_text()
+    env_file_at = sh.index("--env-file")
+    for override in ("-e DATA_DIR=/data", "-e DUCKDB_PATH=/data/small_cap_stack.duckdb"):
+        assert override in sh, override
+        assert sh.index(override) > env_file_at, f"{override} must come AFTER --env-file to win"
+    # A stalled harvest must never page as a tracker outage (#431).
+    assert "-e HEALTHCHECKS_PING_URL=" in sh

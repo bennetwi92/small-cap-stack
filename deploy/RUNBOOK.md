@@ -245,12 +245,48 @@ Ingest is #430's decision — the vendor's **free tier**, no purchase — so the
 years. It runs newest-first and lands whole sessions as it goes, so the deliverable is a deeper
 sample every morning rather than a backtest in six weeks. **Stopping it early is always safe.**
 
+### The vendor key — set up from a phone, no SSH
+
+The key ends up in **the box's `.env`**, because the nightly timer fires outside GitHub and cannot
+be handed a secret at run time. But you never have to put it there by hand:
+
+1. **[YOU, once]** Add `MASSIVE_API_KEY` as a **repository Actions secret** — github.com → the repo
+   → Settings → Secrets and variables → Actions → New repository secret. That page is ordinary
+   responsive web, so a phone browser does it. This is the only step that must be you: nothing in
+   this repo, and no Claude session, should ever handle the key (a cloud session has no secret
+   store — env vars are plaintext).
+2. Run the **`harvest`** workflow with `command: install-key`. It executes on the box's self-hosted
+   runner and writes the secret into `/opt/small-cap-stack/.env`, replacing any previous line, and
+   `chmod 600`s the file. It prints the key's *length and last four characters* — never the key.
+3. From then on the systemd timer works. Deploys don't disturb it: `deploy-app` only rewrites the
+   `IMAGE_TAG=` line.
+
+Ad-hoc runs work even *before* step 2: the workflow injects the secret into the run, and
+`scripts/harvest.sh` prefers an ambient key over the stored one. So `install-key` is specifically
+about the unattended nightly job.
+
+(`spike-massive.yml` from #428 uses the same secret name. It runs on `ubuntu-latest`, has no
+`/data`, and is unrelated — if you already added the secret for it, step 1 is done.)
+
+**Rotating the key** is the same two steps: update the repo secret, re-run `install-key`. It
+replaces rather than appends, so the old key cannot linger and silently win.
+
+Then run the **`harvest`** workflow once with `command: install-units`. It installs
+`scs-harvest.{service,timer}` from the dispatched ref and enables the timer, on the box's own
+runner — so the whole setup, key included, is three dispatches and no SSH. Re-run it after any
+change to the units; it is idempotent, and that is the upgrade path.
+
+The equivalent by hand, if you happen to be on the box anyway:
+
 ```bash
-# [YOU] one-time: put the vendor key in the box's .env (never in a cloud session — no secret store)
-echo 'MASSIVE_API_KEY=…' >> /opt/small-cap-stack/.env
 cp deploy/scs-harvest.{service,timer} /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now scs-harvest.timer
 ```
+
+> ⚠️ Both bootstrap commands run the **checked-out** wrapper, not the box's deployed copy, so they
+> work on a ref that has not been deployed yet. Everything else (`status`, `daily`, `run`) starts a
+> container from the **deployed image**, so those need the change merged, built and deployed first —
+> otherwise the image has no `small_cap_stack.harvest` module in it.
 
 **Order of operations — phase 1 first, and it is not optional.** #428 established the previous
 daily close as a *required* input: without it the appearance reconstruction fires a median 18 min
