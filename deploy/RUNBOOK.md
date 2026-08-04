@@ -292,16 +292,21 @@ systemctl daemon-reload && systemctl enable --now scs-harvest.timer
 daily close as a *required* input: without it the appearance reconstruction fires a median 18 min
 early, so every session harvested before phase 1 has run is wrong rather than merely incomplete.
 
+`status`, `sweep` and `prefilter` touch no vendor and spend nothing, so they run at **any** hour —
+checking on the harvest must not itself require waiting until 17:00. `daily` and `run` are the two
+that cost API budget and wall clock, and both refuse outside the window.
+
 ```bash
 cd /opt/small-cap-stack
-./scripts/harvest.sh status                    # what is done, what is left, is the window open
-./scripts/harvest.sh sweep                     # BEFORE the first full night: see §13.1
+./scripts/harvest.sh status                    # any hour: what is done, what is left
+./scripts/harvest.sh sweep                     # any hour. BEFORE the first full night: see §13.1
 ./scripts/harvest.sh daily                     # phase 1: ~500 calls, under 2h — run this first
 ./scripts/harvest.sh run --limit 1             # phase 2 smoke test: ONE session, watch free -m
 ./scripts/harvest.sh run                       # phase 2: a night's worth (the timer does this)
 ```
 
-- ⚠️ **It refuses to start outside 17:00–03:00 ET** and stops itself at 03:00, clear of the 03:45
+- ⚠️ **Both vendor-spending commands (`daily` and `run`) refuse to start outside 17:00–03:00 ET**
+  and stop themselves at 03:00, clear of the 03:45
   `eod_backfill` and the 04:00 scan window. Overriding takes two flags (`--ignore-window --force`)
   — don't, during market hours. Being *launched* at the right time and *refusing* the wrong one are
   different guarantees; only the second survives a late timer.

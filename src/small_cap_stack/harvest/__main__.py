@@ -83,6 +83,11 @@ def cmd_status(s: Settings, args: argparse.Namespace) -> int:
 
 
 def cmd_daily(s: Settings, args: argparse.Namespace) -> int:
+    # Phase 1 is cheaper than phase 2 but not cheap: ~500 calls is ~2 hours at the free tier's
+    # fixed sleep, which is long enough to run from the scan window into the 16:20 EOD batch.
+    blocked = _window_blocks(s, args)
+    if blocked is not None:
+        return blocked
     store = harvest_store(s)
     cp = Checkpoint.load(checkpoint_path(s))
     today = args.today or now_et().date()
@@ -110,7 +115,14 @@ def cmd_daily(s: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_run(s: Settings, args: argparse.Namespace) -> int:
+def _window_blocks(s: Settings, args: argparse.Namespace) -> int | None:
+    """The window check both vendor-spending commands share. Returns an exit code, or None to go.
+
+    It lives here rather than only in ``run_harvest`` because ``daily`` never went through that
+    function: it computed a *deadline* but never asked whether the window was open at all, so a
+    dispatch at 05:00 ET would have started ~500 calls and two hours of work straight through the
+    scan window. A guard that covers one of two vendor-spending commands is not a guard.
+    """
     if args.ignore_window and not args.force:
         print(
             "error: --ignore-window also needs --force. Running outside 17:00-03:00 ET puts a "
@@ -118,6 +130,22 @@ def cmd_run(s: Settings, args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    win = _window(s)
+    now = datetime.now(ET)
+    if not args.ignore_window and not win.is_open(now):
+        print(
+            f"refusing to start at {now:%H:%M} ET — the harvest window is {win.describe()}. "
+            f"It next opens at {s.harvest_start_et:%H:%M} ET.",
+            file=sys.stderr,
+        )
+        return 3
+    return None
+
+
+def cmd_run(s: Settings, args: argparse.Namespace) -> int:
+    blocked = _window_blocks(s, args)
+    if blocked is not None:
+        return blocked
     store = harvest_store(s)
     cp = Checkpoint.load(checkpoint_path(s))
     today = args.today or now_et().date()

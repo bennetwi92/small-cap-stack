@@ -842,6 +842,19 @@ def test_massive_source_from_env_refuses_without_a_key(monkeypatch: Any) -> None
 # ================================================================================================
 
 
+def _at_et(monkeypatch: Any, hh: int, mm: int = 0) -> None:
+    """Pin the CLI's wall clock. The window guard reads `datetime.now(ET)` directly, so this is
+    what makes "would it refuse at 05:00?" testable rather than a claim in a docstring."""
+    fixed = datetime.combine(DAY, time(hh, mm), tzinfo=ET)
+
+    class _Now(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:  # type: ignore[override]
+            return fixed.astimezone(tz) if tz else fixed
+
+    monkeypatch.setattr(cli_mod, "datetime", _Now)
+
+
 def _cli(monkeypatch: Any, s: Settings, argv: list[str]) -> int:
     """Run the CLI against a temp store, with logging left alone and no vendor key needed."""
     monkeypatch.setattr(cli_mod, "get_settings", lambda: s)
@@ -913,6 +926,10 @@ def test_cli_reports_a_missing_key_as_operator_error_not_a_traceback(
 ) -> None:
     monkeypatch.delenv("MASSIVE_API_KEY", raising=False)
     s = _settings(tmp_path, harvest_lookback_days=10)
+    # Pinned inside the window: without this the test passes only when the suite happens to run
+    # between 17:00 and 03:00 ET, because `daily` now refuses outside it before ever looking for
+    # a key. A time-dependent test is a test that lies about which failure it is asserting.
+    _at_et(monkeypatch, 22, 0)
     assert _cli(monkeypatch, s, ["daily", "--today", "2026-07-10", "--limit", "1"]) == 2
     assert "MASSIVE_API_KEY" in capsys.readouterr().err
 
@@ -941,3 +958,50 @@ def test_massive_source_retries_a_429_then_gives_up_without_leaking_the_key(
     assert attempts == 3  # the initial call plus max_retries
     assert "SECRET" not in str(exc.value)
     assert "429" in str(exc.value)
+
+
+@pytest.mark.parametrize("command", ["run", "daily"])
+def test_cli_refuses_both_vendor_spending_commands_inside_the_scan_window(
+    monkeypatch: Any, tmp_path: Path, capsys: Any, command: str
+) -> None:
+    """`daily` used to compute a deadline but never ask whether the window was OPEN, so a 05:00
+    dispatch would have started ~500 calls and ~2h of work straight through the scan window. A
+    guard that covers one of the two vendor-spending commands is not a guard."""
+    s = _settings(tmp_path, harvest_lookback_days=10)
+    _at_et(monkeypatch, 5, 0)  # the tracker's morning
+    assert _cli(monkeypatch, s, [command, "--today", "2026-07-10", "--limit", "1"]) == 3
+    err = capsys.readouterr().err
+    assert "refusing to start at 05:00 ET" in err
+    assert "17:00" in err
+
+
+@pytest.mark.parametrize("command", ["run", "daily"])
+def test_cli_lets_both_through_inside_the_window(
+    monkeypatch: Any, tmp_path: Path, capsys: Any, command: str
+) -> None:
+    """Past the guard, the next thing either hits is the missing key — which proves the refusal
+    above was the window and not something incidental."""
+    monkeypatch.delenv("MASSIVE_API_KEY", raising=False)
+    s = _settings(tmp_path, harvest_lookback_days=10)
+    _at_et(monkeypatch, 22, 0)
+    assert _cli(monkeypatch, s, [command, "--today", "2026-07-10", "--limit", "1"]) == 2
+    assert "MASSIVE_API_KEY" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", ["run", "daily"])
+def test_cli_override_still_needs_two_flags_on_both(
+    monkeypatch: Any, tmp_path: Path, capsys: Any, command: str
+) -> None:
+    s = _settings(tmp_path, harvest_lookback_days=10)
+    _at_et(monkeypatch, 5, 0)
+    assert _cli(monkeypatch, s, [command, "--ignore-window"]) == 2
+    assert "--force" in capsys.readouterr().err
+
+
+def test_cli_read_only_commands_are_safe_at_any_hour(monkeypatch: Any, tmp_path: Path) -> None:
+    """status/sweep/prefilter touch no vendor and spend nothing, so they are never window-gated —
+    checking what the harvest is doing must not itself require waiting until 17:00."""
+    s = _settings(tmp_path, harvest_lookback_days=10)
+    _at_et(monkeypatch, 5, 0)
+    for command in ("status", "sweep", "prefilter"):
+        assert _cli(monkeypatch, s, [command, "--today", "2026-07-10"]) == 0
