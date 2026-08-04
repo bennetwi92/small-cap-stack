@@ -628,3 +628,76 @@ an unseeded fan would drift between publishes, reading as news when it was noise
 **Cost.** ~0.5 s per book, ~5 s per payload build across all nine. Tests dial
 `portfolio_projection_paths` down — at production settings the portfolio suite went 4.5 s → 57 s,
 which is an order of magnitude of CI spent re-running a simulation those tests assert nothing about.
+
+## 2026-08-04 — The 2-year harvest runs on the FREE tier, delivered nightly (#430)
+
+**Decision: ingest path 1 — Massive free tier, REST, no purchase.** #430 laid out three paths and
+expected this one to be a non-starter, recorded only so the arithmetic was on the record. It is
+what we are building. The owner's call, made with the cost known: **~363 h of wall clock ≈ 45
+nights** at the free tier's 5 calls/min, versus 4 nights for $29 (Starter, polite 60/min) or ~1 for
+flat files.
+
+**Why 45 nights is acceptable — the harvest is incremental, not a batch job.** The number that
+made this look prohibitive was time-to-*completion*. That is the wrong metric for a job whose
+output is a growing sample rather than a single artifact. The harvest runs **newest-first,
+backwards in time**, one whole session at a time, and each completed day lands in the store as soon
+as it is done. So the deliverable is not "a backtest in 45 nights", it is **a slightly deeper
+sample every single morning** — ~11 trading days per 8-hour night (2,400 calls ÷ ~218 calls/day:
+one grouped-daily call plus a mean 217 candidates). Nothing is gated on the harvest finishing, and
+stopping it early leaves a complete, contiguous, usable history rather than a partial one.
+
+Two ordering rules follow from that and are part of the decision:
+
+- **Grouped-daily for the whole window first** (~500 calls, under two hours). #428 established the
+  previous close is a *required* input, not a prefilter nicety — it is the one scan gate a single
+  day of bars cannot decide, and without it reconstruction fires a median 18 min early. Pulling all
+  of them up front means every subsequent night's minute-bar work is immediately correct.
+- **Then minute bars, newest-first.** The most recent history is the most relevant to a strategy
+  being validated now, and it is contiguous with the live collection window, so the combined book
+  has no hole in the middle.
+
+**The virtual portfolio publishes live and reconstructed side by side, never merged in place.**
+This is the constraint that made the decision safe to take. `books` stays live-only and
+byte-identical to what it was; the reconstructed days appear in a second set, `books_all`, spliced
+in date order, selected by a `DATA: Live | + History` control on the portfolio page. Every trade,
+skip and cached candidate carries a `source` of `"live"` or `"recon"`, and each book reports a
+`by_source` split.
+
+The reason for parallel books rather than one longer curve is that the book is **path-dependent
+twice over**: the adaptive re-fit chooses each day's target and risk rung from a trailing window,
+and every position sizes off running equity. Splicing ~500 reconstructed days in front of the live
+ones does not *extend* the live record — it *replaces* it, with a live segment starting from
+whatever equity the reconstruction ended at and trading targets chosen by vendor-derived trades.
+Phase-1's deliverable is what the tracker actually saw, so it is preserved as-is.
+
+Consequences of the same reasoning:
+
+- **The forward projection stays live-only.** It answers "what will *my account* do", so it must
+  resample observed returns. #428 proved the reconstruction cannot reproduce the IBKR 50-row rank
+  cap per-symbol (SNDQ passed every gate from 04:27 at a *higher* price than at its 08:35 live
+  appearance — only capacity explains that), so a reconstructed-heavy history describes a universe
+  we never had. It also keeps a second 500-path × 252-day Monte Carlo per target off the 2-vCPU box.
+- **Live wins on any overlapping date.** The #428 calibration days sit in both stores; live is the
+  ground truth the reconstruction is measured against, so the harvested copy is dropped (and the
+  drop is counted in the payload's `coverage` block, not silently swallowed).
+- **A separate store root** (`data/recon`, `Settings.recon_subdir`), not a `source` column in the
+  live partitions. The two are date-disjoint, and separate trees mean no existing reader — the EOD
+  report, charts, the canary, `collected_dates` — can start returning vendor rows by accident. Only
+  code that explicitly opts in (`build_portfolio_payload(recon_store=…)`) ever sees them.
+
+**One lever could cut 45 nights materially, and it is measurable before spending a night on it.**
+The candidate count (mean 217/day) is what sets the budget, and it comes from a prefilter whose
+volume floor is *day volume > 100k* — chosen because a name clearing a 100k trailing 5-min sum must
+by definition trade at least 100k on the day. That is airtight but very loose. Measured against the
+only ground truth available — the 25 committed review cases, every one a name the live scanner
+actually surfaced — the **minimum captured-window volume is 1.25M** (p10 2.5M, median 17.5M);
+**none** is under 1M. A floor of 500k would therefore retain 25/25 with 2.5× headroom while cutting
+the candidate set by whatever share of the >10%/$1–50 population sits between 100k and 500k. That
+share is unmeasured, so **no floor is being changed on this decision** — but re-running the
+prefilter at several thresholds costs ~3 grouped-daily calls and belongs in #431 before the first
+full night runs.
+
+**Not chosen, and why:** Starter at $29 was rejected on the owner's stated preference for $0, not
+on the merits — it remains the correct escape hatch if the sample is wanted sooner, and flat files
+remain the right answer for any future harvest wider than two years. Nothing here forecloses
+either: the store layout and the portfolio's provenance split are the same whichever path fills them.

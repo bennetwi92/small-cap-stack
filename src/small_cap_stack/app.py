@@ -52,7 +52,11 @@ from .monitoring import (
     metric_value,
     start_metrics_server,
 )
-from .portfolio import build_portfolio_payload, portfolio_candidate_cache_dir
+from .portfolio import (
+    build_portfolio_payload,
+    open_recon_store,
+    portfolio_candidate_cache_dir,
+)
 from .report import EodReport, analysis_records, build_eod_report
 from .scanner import Scanner
 from .scheduler import build_scheduler
@@ -434,6 +438,10 @@ class Application:
                 now_utc,
                 cache_dir=portfolio_candidate_cache_dir(self.settings),
                 force_dates={now_et().date()},
+                # Whatever the harvest (#430/#431) landed overnight joins the book here, so each
+                # morning's page carries one more slice of reconstructed history than the last.
+                recon_store=open_recon_store(self.settings),
+                recon_cache_dir=portfolio_candidate_cache_dir(self.settings, "recon"),
             )
             write_json(self.settings.data_dir / "dashboard" / "portfolio.json", payload)
         except Exception:  # noqa: BLE001 — a dashboard write must never break the caller

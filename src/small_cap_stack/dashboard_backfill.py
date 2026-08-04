@@ -37,6 +37,7 @@ from .logging import configure_logging, get_logger
 from .portfolio import (
     build_portfolio_payload,
     collected_dates,
+    open_recon_store,
     portfolio_candidate_cache_dir,
 )
 from .report import build_eod_report
@@ -87,6 +88,8 @@ def regenerate(
             now_utc,
             cache_dir=portfolio_candidate_cache_dir(settings),
             force_dates={trading_date},
+            recon_store=open_recon_store(settings),
+            recon_cache_dir=portfolio_candidate_cache_dir(settings, "recon"),
         ),
     )
 
@@ -142,7 +145,12 @@ def regenerate_archive(
     write_json(
         out / "portfolio.json",
         build_portfolio_payload(
-            store, settings, now_utc, cache_dir=portfolio_candidate_cache_dir(settings)
+            store,
+            settings,
+            now_utc,
+            cache_dir=portfolio_candidate_cache_dir(settings),
+            recon_store=open_recon_store(settings),
+            recon_cache_dir=portfolio_candidate_cache_dir(settings, "recon"),
         ),
     )
 

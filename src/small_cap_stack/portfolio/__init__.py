@@ -105,7 +105,9 @@ from .payload import (
     _read_candidate_cache,
     build_portfolio_payload,
     collected_dates,
+    open_recon_store,
     portfolio_candidate_cache_dir,
+    recon_store_dir,
 )
 from .projection import (
     DaySample,
@@ -153,7 +155,9 @@ __all__ = [
     "future_sessions",
     "income_from_capital",
     "income_ramp",
+    "open_recon_store",
     "portfolio_candidate_cache_dir",
+    "recon_store_dir",
     "risk_ladder",
     "simulate_exit",
     "simulate_portfolio",
