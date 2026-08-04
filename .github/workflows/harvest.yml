@@ -1,0 +1,90 @@
+name: harvest
+
+# Phone-triggerable control for the overnight pre-market harvest (#431), on the box.
+#
+# The harvest's PRIMARY mechanism is `scs-harvest.timer` (systemd, 18:00 ET nightly — RUNBOOK §13).
+# This workflow is the mobile hand on it: check status, run the day-volume sweep, advance phase 1,
+# or drive the single-session smoke test the issue's acceptance list calls for. It is not how a
+# night's work normally happens.
+#
+# ⚠️ Bounded on purpose. Every command here is short, and `run` is capped at `--limit` sessions with
+# a job timeout on top. A full night's harvest would occupy the self-hosted `vps` runner for eight
+# hours — and a busy runner means CI silently queues behind it, which is one keystroke from the
+# 5h37m outage of #264. Long work belongs to the timer, which runs outside Actions entirely.
+#
+# The real guards live in the app, not here: it refuses to start outside 17:00-03:00 ET and
+# hard-stops at 03:00, so dispatching this at 09:00 does nothing rather than competing with the
+# scan window. `scripts/harvest.sh` puts it in its own 1 GB container — never `docker exec` into the
+# app, which would spend the tracker's cgroup.
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Harvest subcommand"
+        type: choice
+        required: true
+        default: status
+        options:
+          - status # what is harvested, what is left, is the window open now
+          - sweep # candidates retained at each day-volume floor (no API calls) — RUNBOOK §13.1
+          - prefilter # what one session would fetch, from stored rows
+          - daily # phase 1: grouped-daily universe + previous closes (REQUIRED before `run`)
+          - run # phase 2: minute bars, newest-first — capped by `limit` here
+      limit:
+        description: "Sessions (daily/run) or dates (sweep). Keep small — this holds the CI runner."
+        required: false
+        default: "1"
+      ref:
+        description: "Git ref to run the wrapper from (branch/tag/SHA)"
+        required: false
+        default: main
+
+concurrency:
+  # Never two harvests at once: they would double-spend a rate-limited budget and race on the
+  # checkpoint. The systemd timer takes the same lock by way of the container name (`scs-harvest`).
+  group: harvest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  harvest:
+    name: harvest ${{ inputs.command }}
+    # Repository guard: box jobs run only in THIS repo, never a fork (#333, A1 lockdown).
+    if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
+    runs-on: [self-hosted, vps]
+    # A hard ceiling on how long this can hold the runner, whatever `limit` says. One session is
+    # ~218 calls x 13s ~= 47 min at the free tier, so this admits a smoke test and little more.
+    timeout-minutes: 75
+    steps:
+      - name: Check out the wrapper at the requested ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Run the harvest command
+        env:
+          IN_COMMAND: ${{ inputs.command }}
+          IN_LIMIT: ${{ inputs.limit }}
+        run: |
+          set -euo pipefail
+          case "$IN_COMMAND" in
+            status|sweep|prefilter|daily|run) ;;
+            *) echo "unknown command: $IN_COMMAND" >&2; exit 1 ;;
+          esac
+          case "$IN_LIMIT" in
+            ''|*[!0-9]*) echo "limit must be a whole number: $IN_LIMIT" >&2; exit 1 ;;
+          esac
+
+          args=("$IN_COMMAND")
+          if [ "$IN_COMMAND" != "status" ] && [ "$IN_COMMAND" != "prefilter" ]; then
+            args+=(--limit "$IN_LIMIT")
+          fi
+          # The box's own copy, so the wrapper and the systemd unit are always the same file.
+          /opt/small-cap-stack/scripts/harvest.sh "${args[@]}"
+
+      - name: Free memory on the box after the run
+        if: always()
+        run: free -m

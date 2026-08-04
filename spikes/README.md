@@ -194,8 +194,17 @@ review cases (real bars, real logged appearance times):
   **25/25** — so the reconstruction risk is concentrated entirely in *appearance time*, not in
   detection. That is the useful decomposition: buy the previous closes, and the rest follows.
 
+> **The reconstruction itself has moved (#431).** `rolling_window_volume` / `reconstruct_hit` and
+> the 1-min → 5-min fold now live in `small_cap_stack.harvest.reconstruct`, and the REST client in
+> `small_cap_stack.harvest.source` — they became a *producer* (the overnight harvest writes ~500
+> sessions into the paper book's store through them), and spikes are exempt from mypy and the test
+> suite. These harnesses **import them back** rather than keeping a copy, so the calibration below
+> measures exactly the code the box runs. A second copy is how #428's numbers would quietly stop
+> describing #431's output. What stays here is the calibration: `Case`, `implied_prev_close`,
+> `calibrate_case`, and the CLI.
+
 Vendor-agnostic by construction (bars in, appearance out), so it serves both the calibration above
-and the Massive harvest next door. Needs no API key and no store:
+and the harvest next door. Needs no API key and no store:
 
 ```bash
 python spikes/scanner_reconstruct.py --fixtures

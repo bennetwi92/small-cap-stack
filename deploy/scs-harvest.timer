@@ -1,0 +1,17 @@
+[Unit]
+Description=Nightly small-cap-stack pre-market harvest
+Documentation=https://github.com/bennetwi92/small-cap-stack/blob/main/deploy/RUNBOOK.md
+
+[Timer]
+# 18:00 ET nightly — an hour into the 17:00-03:00 ET window, well clear of the 16:30 EOD report on
+# one side and the 02:30 backup / 03:45 eod_backfill on the other. The job carries its OWN 03:00
+# hard stop, so a late or catch-up fire cannot run into the tracker's morning.
+OnCalendar=*-*-* 18:00:00 America/New_York
+# Persistent=false ON PURPOSE, unlike the backup timer: a missed night is not work to catch up on
+# at boot (the harvest resumes from its checkpoint whenever it next runs), and a boot-time fire
+# could land at 04:00 with the scan window opening.
+Persistent=false
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

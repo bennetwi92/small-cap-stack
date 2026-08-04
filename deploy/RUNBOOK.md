@@ -108,6 +108,9 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
   docker compose -f /opt/small-cap-stack/docker-compose.yml create   # makes the volume
   docker run --rm -v small-cap-stack_scs-data:/d -v /restore:/r alpine sh -c 'cp -a /r/_data/. /d/'
   ```
+- The reconstructed-history store `/data/recon` (#430/#431) lives in the same volume and is backed
+  up with it. It is re-purchasable rather than collected, so a restore that loses it costs API
+  budget, not the Phase-1 record — see §13.
 - **Monitoring:** the backup pings a dedicated Healthchecks check (`HEALTHCHECKS_BACKUP_URL`) on
   start/success and `/fail` on error — so a silently-failing backup alerts you. Grafana's node
   metrics also show disk usage on the box.
@@ -231,3 +234,65 @@ is fine — but if you use the pull-based image path, build **`linux/arm64`** an
 match. Caveats: free A1 capacity is heavily contended ("Out of host capacity" — upgrading to
 **Pay-As-You-Go**, still $0 within limits, plus a smaller shape / cycling Availability Domains usually
 clears it), and Oracle reclaims idle free VMs (add a weekly keep-alive cron).
+
+## 13. Overnight pre-market harvest (#431)
+Rebuilds pre-market sessions the tracker never saw from purchased vendor minute bars, into the
+**second** store `/data/recon` (#430). The paper book publishes them as `books_all` beside the
+untouched live `books`; nothing that reads the live store can return vendor rows by accident.
+
+Ingest is #430's decision — the vendor's **free tier**, no purchase — so the job is priced by a
+**5 calls/min** limit: ~218 calls a session, ~11 sessions an 8-hour night, ~45 nights for two
+years. It runs newest-first and lands whole sessions as it goes, so the deliverable is a deeper
+sample every morning rather than a backtest in six weeks. **Stopping it early is always safe.**
+
+```bash
+# [YOU] one-time: put the vendor key in the box's .env (never in a cloud session — no secret store)
+echo 'MASSIVE_API_KEY=…' >> /opt/small-cap-stack/.env
+cp deploy/scs-harvest.{service,timer} /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now scs-harvest.timer
+```
+
+**Order of operations — phase 1 first, and it is not optional.** #428 established the previous
+daily close as a *required* input: without it the appearance reconstruction fires a median 18 min
+early, so every session harvested before phase 1 has run is wrong rather than merely incomplete.
+
+```bash
+cd /opt/small-cap-stack
+./scripts/harvest.sh status                    # what is done, what is left, is the window open
+./scripts/harvest.sh sweep                     # BEFORE the first full night: see §13.1
+./scripts/harvest.sh daily                     # phase 1: ~500 calls, under 2h — run this first
+./scripts/harvest.sh run --limit 1             # phase 2 smoke test: ONE session, watch free -m
+./scripts/harvest.sh run                       # phase 2: a night's worth (the timer does this)
+```
+
+- ⚠️ **It refuses to start outside 17:00–03:00 ET** and stops itself at 03:00, clear of the 03:45
+  `eod_backfill` and the 04:00 scan window. Overriding takes two flags (`--ignore-window --force`)
+  — don't, during market hours. Being *launched* at the right time and *refusing* the wrong one are
+  different guarantees; only the second survives a late timer.
+- ⚠️ **Memory.** The container gets a hard `--memory=1g` with **no swap**, `nice -n 19`, `ionice`
+  idle, one CPU, and `--oom-score-adj=800` so the kernel prefers it over everything else on the
+  box. It is a separate `docker run`, **not** `docker exec` into the app — sharing the tracker's
+  cgroup would spend the tracker's headroom and OOM the tracker instead of the harvest (#264/#273).
+  The job also checks host headroom between sessions and stops cleanly when the box gets tight.
+- **Resuming.** A checkpoint at `/data/recon/harvest-checkpoint.json` records completed sessions;
+  every run resumes from it. A session is written as **one parquet file per dataset at the end**, so
+  a kill leaves the date with no files and the checkpoint never claims it; the next run discards any
+  leftovers for an unmarked date before redoing it. Never hand-edit the checkpoint — it is the
+  record of up to 45 nights of API budget, and `Checkpoint.load` refuses a version it doesn't know
+  rather than silently starting over.
+- **Watching it.** `journalctl -u scs-harvest -f` shows a per-session line with candidate count,
+  opportunities, calls and **peak RSS** — that last number is the early-warning signal for a memory
+  regression. It is deliberately NOT wired to the tracker's Healthchecks dead-man's switch: a
+  stalled harvest must never page as a tracker outage.
+- **Disk.** ~36M rows of 1-min bars over the full harvest. `harvest.sh status` and `df -h` are the
+  check; `HARVEST_STORE_MINUTE_BARS=false` in `.env` drops the raw minute series (the 5-min bars the
+  engine reads are written either way) at the cost of a full re-fetch if the reconstruction rules
+  ever change.
+
+### 13.1 Before the first full night: sweep the day-volume floor
+The harvest's whole calendar comes from one number — ~217 candidates a session — and that comes
+from a **day volume > 100k** prefilter that is airtight but ~12× looser than the loosest of the 25
+committed review cases. `./scripts/harvest.sh sweep` re-runs the filter at several floors against
+already-stored phase-1 rows, costing **no API calls**, and reports candidates/day and sessions/night
+at each. If a tighter floor halves the candidate set, 45 nights becomes ~23. Change it by setting
+`HARVEST_MIN_DAY_VOLUME` in `.env` — and record the measurement on the issue before you do.
