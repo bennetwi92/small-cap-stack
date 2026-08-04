@@ -27,6 +27,7 @@ on:
         default: status
         options:
           - status # what is harvested, what is left, is the window open now
+          - install-key # ONE-TIME: put the vendor key on the box, from Actions secrets, no SSH
           - sweep # candidates retained at each day-volume floor (no API calls) — RUNBOOK §13.1
           - prefilter # what one session would fetch, from stored rows
           - daily # phase 1: grouped-daily universe + previous closes (REQUIRED before `run`)
@@ -68,10 +69,16 @@ jobs:
         env:
           IN_COMMAND: ${{ inputs.command }}
           IN_LIMIT: ${{ inputs.limit }}
+          # Injected from Actions secrets rather than read off the box. Two things follow: an
+          # ad-hoc run works on a box that has never been given the key (scripts/harvest.sh prefers
+          # an ambient key over the stored one), and `install-key` can place it for the systemd
+          # timer — which fires outside GitHub and so cannot be handed a secret at run time. That
+          # is what makes the whole harvest operable from a phone, with no SSH.
+          MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
         run: |
           set -euo pipefail
           case "$IN_COMMAND" in
-            status|sweep|prefilter|daily|run) ;;
+            status|install-key|sweep|prefilter|daily|run) ;;
             *) echo "unknown command: $IN_COMMAND" >&2; exit 1 ;;
           esac
           case "$IN_LIMIT" in
@@ -79,9 +86,9 @@ jobs:
           esac
 
           args=("$IN_COMMAND")
-          if [ "$IN_COMMAND" != "status" ] && [ "$IN_COMMAND" != "prefilter" ]; then
-            args+=(--limit "$IN_LIMIT")
-          fi
+          case "$IN_COMMAND" in
+            sweep|daily|run) args+=(--limit "$IN_LIMIT") ;;
+          esac
           # The box's own copy, so the wrapper and the systemd unit are always the same file.
           /opt/small-cap-stack/scripts/harvest.sh "${args[@]}"
 

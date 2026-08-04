@@ -245,17 +245,35 @@ Ingest is #430's decision — the vendor's **free tier**, no purchase — so the
 years. It runs newest-first and lands whole sessions as it goes, so the deliverable is a deeper
 sample every morning rather than a backtest in six weeks. **Stopping it early is always safe.**
 
-The key lives in **the box's `.env`**, not in Actions secrets. The nightly timer runs entirely
-outside GitHub, and `harvest.yml` shells to `scripts/harvest.sh` on the box rather than handling the
-key itself — so nothing in Actions ever needs it. (`spike-massive.yml` from #428 is the separate
-case that *does* use `secrets.MASSIVE_API_KEY`: it runs on `ubuntu-latest`, has no `/data`, and is
-unrelated to the harvest.) Deploys don't disturb it — `deploy-app` only rewrites the `IMAGE_TAG=`
-line.
+### The vendor key — set up from a phone, no SSH
+
+The key ends up in **the box's `.env`**, because the nightly timer fires outside GitHub and cannot
+be handed a secret at run time. But you never have to put it there by hand:
+
+1. **[YOU, once]** Add `MASSIVE_API_KEY` as a **repository Actions secret** — github.com → the repo
+   → Settings → Secrets and variables → Actions → New repository secret. That page is ordinary
+   responsive web, so a phone browser does it. This is the only step that must be you: nothing in
+   this repo, and no Claude session, should ever handle the key (a cloud session has no secret
+   store — env vars are plaintext).
+2. Run the **`harvest`** workflow with `command: install-key`. It executes on the box's self-hosted
+   runner and writes the secret into `/opt/small-cap-stack/.env`, replacing any previous line, and
+   `chmod 600`s the file. It prints the key's *length and last four characters* — never the key.
+3. From then on the systemd timer works. Deploys don't disturb it: `deploy-app` only rewrites the
+   `IMAGE_TAG=` line.
+
+Ad-hoc runs work even *before* step 2: the workflow injects the secret into the run, and
+`scripts/harvest.sh` prefers an ambient key over the stored one. So `install-key` is specifically
+about the unattended nightly job.
+
+(`spike-massive.yml` from #428 uses the same secret name. It runs on `ubuntu-latest`, has no
+`/data`, and is unrelated — if you already added the secret for it, step 1 is done.)
+
+**Rotating the key** is the same two steps: update the repo secret, re-run `install-key`. It
+replaces rather than appends, so the old key cannot linger and silently win.
 
 ```bash
-# [YOU] one-time: put the vendor key in the box's .env (never in a cloud session — no secret store).
-# No inline comment on that line: `docker run --env-file` takes the rest of the line as the value.
-echo 'MASSIVE_API_KEY=…' >> /opt/small-cap-stack/.env
+# [YOU] on the box, once — the units themselves still need installing (this part does need SSH,
+# or the deploy workflow; it is one-time and unrelated to the key).
 cp deploy/scs-harvest.{service,timer} /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now scs-harvest.timer
 ```
