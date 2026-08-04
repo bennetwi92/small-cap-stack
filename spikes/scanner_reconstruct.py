@@ -58,7 +58,7 @@ import statistics
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -250,13 +250,48 @@ def reconstruct_hit(
 
 @dataclass(frozen=True)
 class Case:
-    """One symbol-day of ground truth: the bars we saw and the appearance we actually logged."""
+    """One symbol-day of ground truth: the bars we saw and the appearance we actually logged.
+
+    ``hit_quantum_sec`` records how precisely ``first_hit`` is known. Zero (the default) means it is
+    the raw ``scanner_hits.ts_utc`` to the microsecond. A positive value means the source floored it
+    to a grid — the published dashboard payload snaps the appearance marker to the START of the bar
+    containing it (``charts.py::_bar_containing``), so the true appearance lies in
+    ``[first_hit, first_hit + hit_quantum_sec)``. Carrying the number rather than pretending to a
+    precision we do not have is what lets the calibration report an appearance delta as a bounded
+    interval instead of a falsely exact point.
+    """
 
     symbol: str
     trading_date: date
     first_hit: datetime
     bars: list[Bar]
     prev_close: float | None = None
+    hit_quantum_sec: int = 0
+
+    @property
+    def hit_lo(self) -> datetime:
+        """Earliest instant the true appearance could have occurred."""
+        return self.first_hit
+
+    @property
+    def hit_hi(self) -> datetime:
+        """Exclusive upper bound on the true appearance."""
+        return self.first_hit + timedelta(seconds=self.hit_quantum_sec)
+
+    @property
+    def gating_hit(self) -> datetime:
+        """The ``first_hit`` to hand :func:`compute_r_metrics` — mid-quantum, not the floor.
+
+        This is exact, not an approximation, and the distinction is load-bearing. ``detect_day``
+        gates the entry on ``bar.start >= first_hit`` and bar starts all sit on the 5-min grid, so
+        *every* instant strictly inside the marker bar produces the identical trade; only the bar
+        start itself — which the true appearance can never equal, since the scanner samples on a
+        60s cadence *within* the bar — flips bars that opened exactly at the marker from
+        "couldn't have taken it" to "took it". Measured on 2026-08-03, where the raw microsecond
+        appearance is also published: mid-quantum reproduces the true trade on 61/61 cases, while
+        the bar start gets 19/61 wrong.
+        """
+        return self.first_hit + timedelta(seconds=self.hit_quantum_sec / 2.0)
 
 
 def _et(ts: datetime | None) -> str:
@@ -536,6 +571,136 @@ def load_fixture_cases(directory: Path = FIXTURE_DIR) -> list[Case]:
                 trading_date=date.fromisoformat(str(raw["date"])),
                 first_hit=datetime.fromisoformat(str(raw["first_hit"])),
                 bars=_bars_from_rows(raw["bars"]),
+            )
+        )
+    return cases
+
+
+#: The published dashboard payload snaps the appearance marker to the start of its 5-min bar.
+DASHBOARD_HIT_QUANTUM_SEC = 300
+
+
+def load_dashboard_cases(
+    charts_dir: Path,
+    *,
+    dates: Sequence[date] | None = None,
+    stats: Path | None = None,
+) -> list[Case]:
+    """Cases from the published ``dashboard-data`` payloads — the ground truth a cloud session can
+    actually reach.
+
+    ``box-data`` (the documented route) dispatches the ``data-export`` Action on the box's
+    self-hosted runner; a web session whose proxy blocks ``/actions/*`` cannot drive it, and the
+    2026-08-04 run of this validation could not. The ``dashboard-data`` branch is the fallback: the
+    scheduled publisher force-pushes ``charts/<date>.json`` for every collected day, each carrying
+    the full-day 5-min bars and the appearance marker. Two properties of that payload matter and
+    are handled here rather than assumed away:
+
+    1. **The appearance is bar-floored** (``DASHBOARD_HIT_QUANTUM_SEC``) — see :class:`Case`.
+       ``stats.json`` carries the raw microsecond ``first_hit``, but only for the single latest
+       trading date, so pass ``stats=`` to upgrade that one day to exact and leave the rest bounded.
+    2. **Only run 1** of a re-entering symbol is kept. A symbol-day has one *first* scanner
+       appearance, which is what the reconstruction predicts; later runs are re-appearances of a
+       symbol already surfaced, so scoring them would double-count the same prediction.
+    """
+    want = None if dates is None else {d.isoformat() for d in dates}
+    # Keyed by DATE as well as symbol: `stats.json` covers one trading date, but a symbol that runs
+    # on several days would otherwise inherit that day's appearance on every other day too.
+    exact: dict[tuple[str, str, int], datetime] = {}
+    if stats is not None and stats.exists():
+        for row in json.loads(stats.read_text()).get("opportunities", []):
+            key = (str(row["trading_date"]), str(row["symbol"]), int(row.get("run", 1)))
+            exact[key] = datetime.fromisoformat(str(row["first_hit"]))
+
+    cases: list[Case] = []
+    for path in sorted(charts_dir.glob("*.json")):
+        payload = json.loads(path.read_text())
+        day = str(payload.get("trading_date") or path.stem)
+        if want is not None and day not in want:
+            continue
+        for chart in payload.get("charts", []):
+            if int(chart.get("run", 1)) != 1:
+                continue
+            marker = chart.get("markers", {}).get("first_hit")
+            if marker is None or not chart.get("bars"):
+                continue
+            precise = exact.get((day, str(chart["symbol"]), 1))
+            cases.append(
+                Case(
+                    symbol=str(chart["symbol"]),
+                    trading_date=date.fromisoformat(day),
+                    first_hit=precise or datetime.fromtimestamp(int(marker), tz=UTC).astimezone(ET),
+                    bars=[
+                        Bar(
+                            start=datetime.fromtimestamp(int(b["t"]), tz=UTC),
+                            open=float(b["o"]),
+                            high=float(b["h"]),
+                            low=float(b["l"]),
+                            close=float(b["c"]),
+                            volume=float(b.get("v") or 0.0),
+                        )
+                        for b in chart["bars"]
+                    ],
+                    hit_quantum_sec=0 if precise else DASHBOARD_HIT_QUANTUM_SEC,
+                )
+            )
+    return cases
+
+
+def load_export_cases(export_dir: Path, *, dates: Sequence[date] | None = None) -> list[Case]:
+    """Cases from a ``data-export`` slice — the same shape :func:`load_store_cases` builds, but off
+    the parquet files the Action commits to the ``data-export`` branch rather than a live ``Store``.
+
+    Expects ``opportunities``, ``scanner_hits`` and ``bars`` exports in ``export_dir`` (matched by
+    filename prefix, since the exporter names them ``<dataset>_<run_id>.parquet``). The appearance
+    is the first ``scanner_hits.ts_utc`` for the opportunity — exact, so ``hit_quantum_sec`` stays
+    zero — matching how the committed review fixtures were built.
+    """
+    import polars as pl
+
+    def _one(dataset: str) -> pl.DataFrame:
+        hits = sorted(export_dir.glob(f"{dataset}*.parquet"))
+        if not hits:
+            raise FileNotFoundError(f"no {dataset}*.parquet in {export_dir}")
+        return pl.concat([pl.read_parquet(p) for p in hits], how="vertical_relaxed")
+
+    opps, scans, bars = _one("opportunities"), _one("scanner_hits"), _one("bars")
+    want = None if dates is None else set(dates)
+    cases: list[Case] = []
+    for row in opps.unique(subset="opportunity_id", keep="first", maintain_order=True).iter_rows(
+        named=True
+    ):
+        day = row["trading_date"]
+        day = day if isinstance(day, date) else date.fromisoformat(str(day))
+        if want is not None and day not in want:
+            continue
+        oid = str(row["opportunity_id"])
+        sub = (
+            bars.filter(pl.col("opportunity_id") == oid)
+            .unique(subset="bar_start_utc", keep="first", maintain_order=True)
+            .sort("bar_start_utc")
+        )
+        if sub.is_empty():
+            continue
+        hits = sorted(scans.filter(pl.col("opportunity_id") == oid)["ts_utc"].to_list())
+        if not hits:
+            continue
+        cases.append(
+            Case(
+                symbol=str(row["symbol"]),
+                trading_date=day,
+                first_hit=hits[0],
+                bars=[
+                    Bar(
+                        start=r["bar_start_utc"],
+                        open=float(r["open"]),
+                        high=float(r["high"]),
+                        low=float(r["low"]),
+                        close=float(r["close"]),
+                        volume=float(r["volume"]),
+                    )
+                    for r in sub.iter_rows(named=True)
+                ],
             )
         )
     return cases
