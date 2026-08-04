@@ -231,6 +231,55 @@ MASSIVE_API_KEY=… python spikes/massive_replay.py universe --date 2026-07-02 -
 from 04:00 ET, delisted tickers resolving, `adjusted=false` really returning as-traded prices, and
 the 1-min → 5-min fold landing on the grid with volume preserved.
 
+### `massive_calibration.py` — issue #428
+
+**Q:** Run the *whole* chain off vendor bars — Massive minute data in, appearance out, `detect_day`
+over it, R out — and does it reproduce the pre-market opportunities the live tracker actually
+recorded?
+
+**A: yes, to within about a minute, on 7 of 8 — and the 8th is not a data problem.** Measured over
+the pre-market session (04:00–09:30 ET, the window the paper book actually trades) against the 25
+review cases, 8 of which carry a live pre-market appearance. 31 vendor calls on the free tier.
+
+- **Appearance timing:** median **−0.34 min**, and 6 of 7 land within 5 minutes (excluding SNDQ,
+  below). Reconstructing on the **minute** series beats the 5-min grid on every single case
+  (median −0.34 vs +3.16 min) — which is the empirical case for buying minute data rather than
+  5-min aggregates.
+- **Trades:** **6/8 reproduce the same trade** (same decision, same entry bar time, same stop to the
+  cent) and **8/8 agree on takeable**; 4 takeable live, 4 takeable from vendor data. ΣMax R 12.27
+  live vs 10.24 reconstructed.
+- **Prices agree, volume does not.** Closes match to a median **$0.005** (max $0.033), but Massive's
+  consolidated volume runs a median **1.10×** IBKR's (mean 1.18×, max 2.29×). Massive also omits
+  no-trade minutes where the IBKR series is dense, so the two sources disagree on *bar count* as
+  well as volume — which is why entry bars must be compared by wall-clock time, never by index.
+- **The prev-close inversion validated out of sample:** intervals predicted before the data was
+  bought contained the true previous close in **6 of 8** (MSTZ predicted 10.99–11.19, actual 11.11).
+
+**The two divergences are separate mechanisms, and only one is fixable.**
+
+1. **OKLL — IBKR's change-percent reference is not the consolidated previous close.** It surfaced
+   OKLL at 06:04, when the price implies only 9.6% against Massive's 4.91 close. For IBKR to have
+   seen >10%, its reference must be **≥0.39% lower**. A systematic, correctable offset.
+2. **SNDQ — the 50-row rank cap, and this is provable rather than guessed.** SNDQ passed every gate
+   from 04:27 (10.3% change, 114k 5-min volume; IBKR's own volume was 1.88M at 04:00, so volume is
+   not the constraint), yet the tracker first saw it at 08:35 — when the price was *lower* (2.14)
+   than at 04:27 (2.15). **No fixed change reference can produce that ordering**, so no gate
+   explains it; only capacity can. `TOP_PERC_GAIN` returns 50 rows, and on a busy morning a name up
+   "only" 10% does not make the list.
+
+That second one is the real limit on transferability, and it is a **ranking** effect, not a gate:
+a per-symbol reconstruction cannot see it at all. Reproducing it needs the whole market ranked at
+each moment — which the Stage-3 shape (grouped-daily for everything, minute bars for candidates)
+is already positioned to do, and which a per-symbol harvest would silently get wrong.
+
+Fetch and analysis are split so the free tier's 5-calls/min budget is spent once:
+
+```bash
+MASSIVE_API_KEY=… python spikes/massive_calibration.py --fetch --cache data/spikes/massive
+python spikes/massive_calibration.py --cache data/spikes/massive --json out.json
+python spikes/massive_calibration.py --cache data/spikes/massive --regular-hours   # contrast
+```
+
 ---
 
 ## Answered

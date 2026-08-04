@@ -142,6 +142,12 @@ class VendorRow:
     actual: RMetrics  # our bars, the live appearance
     vendor: RMetrics  # Massive bars, the reconstructed appearance
     ibkr_recon: RMetrics  # our bars, the reconstructed appearance (isolates data from method)
+    # Entry bar START times, resolved against each source's OWN bar list. Comparing `entry_index`
+    # across sources would be meaningless: Massive omits minutes with no trades while the IBKR
+    # series is dense, so the same clock time sits at a different index in each. The wall clock is
+    # the only shared coordinate.
+    actual_entry_at: datetime | None
+    vendor_entry_at: datetime | None
 
     @property
     def delta_vendor_min(self) -> float | None:
@@ -155,24 +161,32 @@ class VendorRow:
             return None
         return round((self.ibkr_hit - self.actual_hit).total_seconds() / 60.0, 2)
 
-    @staticmethod
-    def _same(a: RMetrics, b: RMetrics) -> bool:
+    @property
+    def same_trade(self) -> bool:
+        """End to end: Massive bars + reconstructed appearance reproduce the live trade.
+
+        Same decision, same entry *bar time*, same stop to the cent — the three things that decide
+        whether a backtested trade is the trade we actually had.
+        """
+        a, b = self.actual, self.vendor
         return (
             a.takeable == b.takeable
             and a.triggered == b.triggered
-            and a.entry_index == b.entry_index
+            and self.actual_entry_at == self.vendor_entry_at
             and round(a.stop or 0, 2) == round(b.stop or 0, 2)
         )
-
-    @property
-    def same_trade(self) -> bool:
-        """End to end: Massive bars + reconstructed appearance reproduce the live trade."""
-        return self._same(self.actual, self.vendor)
 
     @property
     def same_decision(self) -> bool:
         """The weaker, and for a backtest more important, claim: same take/no-take verdict."""
         return self.actual.takeable == self.vendor.takeable
+
+
+def _entry_at(bars: Sequence[Bar], m: RMetrics) -> datetime | None:
+    """The entry bar's start time in ``bars`` — the cross-source-comparable coordinate."""
+    if m.entry_index is None or m.entry_index >= len(bars):
+        return None
+    return bars[m.entry_index].start
 
 
 def _five_min_vendor(minute: Sequence[Bar], window: tuple[time, time]) -> list[Bar]:
@@ -231,6 +245,8 @@ def analyse(
             window_minutes=5,
         )
         ratio, matched, max_diff = _volume_comparison(ibkr_bars, vendor_bars)
+        actual_m = compute_r_metrics(ibkr_bars, settings, first_hit=actual_hit)
+        vendor_m = compute_r_metrics(vendor_bars, settings, first_hit=vendor_recon.hit_time)
         rows.append(
             VendorRow(
                 symbol=case.symbol,
@@ -244,9 +260,11 @@ def analyse(
                 volume_ratio=ratio,
                 matched_bars=matched,
                 ohlc_max_diff=max_diff,
-                actual=compute_r_metrics(ibkr_bars, settings, first_hit=actual_hit),
-                vendor=compute_r_metrics(vendor_bars, settings, first_hit=vendor_recon.hit_time),
+                actual=actual_m,
+                vendor=vendor_m,
                 ibkr_recon=compute_r_metrics(ibkr_bars, settings, first_hit=ibkr_recon.hit_time),
+                actual_entry_at=_entry_at(ibkr_bars, actual_m),
+                vendor_entry_at=_entry_at(vendor_bars, vendor_m),
             )
         )
     return rows
@@ -353,7 +371,7 @@ def _print_table(rows: Sequence[VendorRow]) -> None:
     head = (
         f"{'symbol':<7}{'date':<12}{'prevC':>8}{'seen':>7}{'ibkr':>7}{'mssv':>7}"
         f"{'Δv':>7}{'vol×':>7}{'Δclose':>8}{'bars i/v':>10}"
-        f"{'maxR(a)':>9}{'maxR(v)':>9}  same"
+        f"{'ent(a)':>8}{'ent(v)':>8}{'maxR(a)':>9}{'maxR(v)':>9}  same"
     )
     print(head)
     print("-" * len(head))
@@ -366,6 +384,7 @@ def _print_table(rows: Sequence[VendorRow]) -> None:
             f"{'-' if r.volume_ratio is None else f'{r.volume_ratio:.2f}':>7}"
             f"{'-' if r.ohlc_max_diff is None else f'{r.ohlc_max_diff:.2f}':>8}"
             f"{f'{r.ibkr_bars}/{r.vendor_bars}':>10}"
+            f"{_et(r.actual_entry_at):>8}{_et(r.vendor_entry_at):>8}"
             f"{'-' if r.actual.max_r is None else f'{r.actual.max_r:.2f}':>9}"
             f"{'-' if r.vendor.max_r is None else f'{r.vendor.max_r:.2f}':>9}"
             f"  {'yes' if r.same_trade else ('n/a' if r.actual_hit is None else 'NO')}"
@@ -389,6 +408,8 @@ def _row_dict(r: VendorRow) -> dict[str, Any]:
         "actual": {"takeable": r.actual.takeable, "max_r": r.actual.max_r, "stop": r.actual.stop},
         "vendor": {"takeable": r.vendor.takeable, "max_r": r.vendor.max_r, "stop": r.vendor.stop},
         "ibkr_recon": {"takeable": r.ibkr_recon.takeable, "max_r": r.ibkr_recon.max_r},
+        "actual_entry_et": _et(r.actual_entry_at),
+        "vendor_entry_et": _et(r.vendor_entry_at),
         "same_trade": r.same_trade,
         "same_decision": r.same_decision,
     }
