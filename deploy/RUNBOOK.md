@@ -292,6 +292,11 @@ systemctl daemon-reload && systemctl enable --now scs-harvest.timer
 daily close as a *required* input: without it the appearance reconstruction fires a median 18 min
 early, so every session harvested before phase 1 has run is wrong rather than merely incomplete.
 
+⚠️ **`sweep` also comes AFTER `daily`, not before it.** It measures the floor against phase 1's
+*stored* rows, so on a box that has never run `daily` it reports `dates: 0` and empty tables — a
+pre-flight that looks like it ran and measured nothing. The timer's `auto` sequences the phases
+itself; only a hand-run needs to care.
+
 `status`, `sweep` and `prefilter` touch no vendor and spend nothing, so they run at **any** hour —
 checking on the harvest must not itself require waiting until 17:00. `daily` and `run` are the two
 that cost API budget and wall clock, and both refuse outside the window.
@@ -299,10 +304,10 @@ that cost API budget and wall clock, and both refuse outside the window.
 ```bash
 cd /opt/small-cap-stack
 ./scripts/harvest.sh status                    # any hour: what is done, what is left
-./scripts/harvest.sh sweep                     # any hour. BEFORE the first full night: see §13.1
-./scripts/harvest.sh daily                     # phase 1: ~500 calls, under 2h — run this first
+./scripts/harvest.sh daily                     # phase 1 FIRST: ~500 calls, under 2h
+./scripts/harvest.sh sweep                     # ...THEN sweep — it reads phase 1's stored rows
 ./scripts/harvest.sh run --limit 1             # phase 2 smoke test: ONE session, watch free -m
-./scripts/harvest.sh run                       # phase 2: a night's worth (the timer does this)
+./scripts/harvest.sh auto                      # what the timer runs: phase 1 if needed, then 2
 ```
 
 - ⚠️ **Both vendor-spending commands (`daily` and `run`) refuse to start outside 17:00–03:00 ET**

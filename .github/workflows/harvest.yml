@@ -27,6 +27,7 @@ on:
         default: status
         options:
           - status # what is harvested, what is left, is the window open now
+          - auto # what the nightly timer runs: phase 1 if outstanding, then phase 2
           - install-key # ONE-TIME: put the vendor key on the box, from Actions secrets, no SSH
           - install-units # ONE-TIME: install + enable the nightly systemd timer, no SSH
           - sweep # candidates retained at each day-volume floor (no API calls) — RUNBOOK §13.1
@@ -79,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$IN_COMMAND" in
-            status|install-key|install-units|sweep|prefilter|daily|run) ;;
+            status|install-key|install-units|sweep|prefilter|auto|daily|run) ;;
             *) echo "unknown command: $IN_COMMAND" >&2; exit 1 ;;
           esac
           case "$IN_LIMIT" in
@@ -88,7 +89,7 @@ jobs:
 
           args=("$IN_COMMAND")
           case "$IN_COMMAND" in
-            sweep|daily|run) args+=(--limit "$IN_LIMIT") ;;
+            sweep|auto|daily|run) args+=(--limit "$IN_LIMIT") ;;
           esac
           # The CHECKED-OUT copy, not the box's deployed one: dispatching a ref should run that
           # ref's wrapper. It also means the two bootstrap commands work before this lands on main

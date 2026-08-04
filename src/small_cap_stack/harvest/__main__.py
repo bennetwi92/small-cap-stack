@@ -1,5 +1,6 @@
 """CLI for the overnight harvest (#431): ``python -m small_cap_stack.harvest <command>``.
 
+    auto     what the nightly timer runs: fill phase 1 if needed, then spend the night on 2
     daily    phase 1 — grouped-daily universe + previous closes for the window (~500 calls)
     run      phase 2 — minute bars per candidate, newest-first, until the night runs out
     sweep    the pre-flight measurement: candidates retained at each day-volume floor
@@ -38,6 +39,17 @@ from .runner import (
 from .source import HarvestError, MassiveSource
 
 
+def _now(s: Settings) -> datetime:
+    """The CLI's clock, in one place.
+
+    ``run_harvest`` takes a ``now_fn`` and defaults it to its own ``datetime.now(UTC)``. Letting it
+    do that means the window the CLI checked and the window the runner enforces are read from two
+    different call sites — fine in production, but it is exactly the kind of split that hides a
+    timezone or DST bug until a night is wasted. Pass this everywhere instead.
+    """
+    return datetime.now(ET)
+
+
 def _window(s: Settings) -> RunWindow:
     return RunWindow(start=s.harvest_start_et, stop=s.harvest_stop_et)
 
@@ -59,7 +71,7 @@ def cmd_status(s: Settings, args: argparse.Namespace) -> int:
     daily_pending = plan_sessions(
         s, today=today, done=sorted(cp.daily_done), live_dates=_live_dates(s)
     )
-    now = datetime.now(ET)
+    now = _now(s)
     win = _window(s)
     _print(
         {
@@ -100,8 +112,10 @@ def cmd_daily(s: Settings, args: argparse.Namespace) -> int:
         return 0
     source = MassiveSource.from_env(rate_sleep_sec=s.harvest_rate_sleep_sec)
     win = _window(s)
-    deadline = None if args.ignore_window else win.deadline(datetime.now(ET))
-    results = harvest_daily(source, store, s, todo, checkpoint=cp, deadline=deadline)
+    deadline = None if args.ignore_window else win.deadline(_now(s))
+    results = harvest_daily(
+        source, store, s, todo, checkpoint=cp, deadline=deadline, now_fn=lambda: _now(s)
+    )
     _print(
         {
             "phase": "daily",
@@ -131,7 +145,7 @@ def _window_blocks(s: Settings, args: argparse.Namespace) -> int | None:
         )
         return 2
     win = _window(s)
-    now = datetime.now(ET)
+    now = _now(s)
     if not args.ignore_window and not win.is_open(now):
         print(
             f"refusing to start at {now:%H:%M} ET — the harvest window is {win.describe()}. "
@@ -160,6 +174,7 @@ def cmd_run(s: Settings, args: argparse.Namespace) -> int:
         window=_window(s),
         ignore_window=args.ignore_window,
         max_sessions=args.limit,
+        now_fn=lambda: _now(s),
         on_session=lambda r: print(r.line(), file=sys.stderr),
     )
     _print(
@@ -169,6 +184,69 @@ def cmd_run(s: Settings, args: argparse.Namespace) -> int:
             "completed": [d.isoformat() for d in run.completed],
             "stopped_because": run.stopped_because,
             "calls": run.calls,
+            "peak_rss_mb": round(run.peak_rss_mb, 1),
+        }
+    )
+    return 0
+
+
+def cmd_auto(s: Settings, args: argparse.Namespace) -> int:
+    """Advance the harvest by whatever it needs next — what the nightly timer runs.
+
+    The two phases are an implementation detail of the vendor's data, not something an operator
+    should have to sequence by hand at 18:00. Before this, the timer ran ``run`` unconditionally:
+    on a box where phase 1 had never happened that skipped **every** session with "no universe",
+    spent nothing, and reported success — a job that looks like it is working and is not.
+
+    So: fill phase 1 first (it is a hard prerequisite — #428 measured the previous close as a
+    required input, not a nicety), then spend whatever is left of the night on phase 2. On night one
+    that is ~1.8 h of grouped-daily followed by ~6 h of minute bars; on every night after, phase 1
+    is already complete and it goes straight to phase 2.
+    """
+    blocked = _window_blocks(s, args)
+    if blocked is not None:
+        return blocked
+    today = args.today or now_et().date()
+    cp = Checkpoint.load(checkpoint_path(s))
+    live = _live_dates(s)
+    store = harvest_store(s)
+    source = MassiveSource.from_env(rate_sleep_sec=s.harvest_rate_sleep_sec)
+    win = _window(s)
+    deadline = win.deadline(_now(s))
+
+    daily_todo = sorted(plan_sessions(s, today=today, done=sorted(cp.daily_done), live_dates=live))
+    daily_results = []
+    if daily_todo:
+        print(f"phase 1: {len(daily_todo)} sessions need a universe", file=sys.stderr)
+        daily_results = harvest_daily(
+            source, store, s, daily_todo, checkpoint=cp, deadline=deadline, now_fn=lambda: _now(s)
+        )
+
+    # Re-plan against the checkpoint phase 1 just updated, so a session whose universe landed
+    # moments ago is eligible tonight rather than waiting for tomorrow.
+    pending = plan_sessions(s, today=today, done=sorted(cp.done), live_dates=live)
+    run = run_harvest(
+        source,
+        store,
+        s,
+        pending,
+        checkpoint=cp,
+        window=win,
+        ignore_window=args.ignore_window,
+        max_sessions=args.limit,
+        now_fn=lambda: _now(s),
+        on_session=lambda r: print(r.line(), file=sys.stderr),
+    )
+    _print(
+        {
+            "phase": "auto",
+            "daily_sessions": len(daily_results),
+            "daily_remaining": len(
+                plan_sessions(s, today=today, done=sorted(cp.daily_done), live_dates=live)
+            ),
+            "harvested": [d.isoformat() for d in run.completed],
+            "stopped_because": run.stopped_because,
+            "calls": source.calls,
             "peak_rss_mb": round(run.peak_rss_mb, 1),
         }
     )
@@ -249,7 +327,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("command", choices=["status", "daily", "run", "sweep", "prefilter"])
+    p.add_argument("command", choices=["status", "auto", "daily", "run", "sweep", "prefilter"])
     p.add_argument("--limit", type=int, default=0, help="cap sessions (daily/run) or rows (sweep)")
     p.add_argument("--today", type=date.fromisoformat, help="override 'today' (testing/backdating)")
     p.add_argument("--dates", nargs="*", help="explicit dates for sweep")
@@ -270,6 +348,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     configure_logging(level=s.log_level, json_logs=s.json_logs)
     handlers = {
         "status": cmd_status,
+        "auto": cmd_auto,
         "daily": cmd_daily,
         "run": cmd_run,
         "sweep": cmd_sweep,

@@ -855,6 +855,13 @@ def _at_et(monkeypatch: Any, hh: int, mm: int = 0) -> None:
     monkeypatch.setattr(cli_mod, "datetime", _Now)
 
 
+def _json_out(capsys: Any) -> Any:
+    """The CLI's JSON payload, ignoring any structlog lines sharing stdout."""
+    out = capsys.readouterr().out
+    start = out.index("\n{\n") + 1 if "\n{\n" in out else out.index("{")
+    return json.loads(out[start:])
+
+
 def _cli(monkeypatch: Any, s: Settings, argv: list[str]) -> int:
     """Run the CLI against a temp store, with logging left alone and no vendor key needed."""
     monkeypatch.setattr(cli_mod, "get_settings", lambda: s)
@@ -879,7 +886,7 @@ def test_cli_status_reports_the_window_and_what_is_left(
     cp = Checkpoint.load(checkpoint_path(s))
     cp.mark_session(DAY)
     assert _cli(monkeypatch, s, ["status", "--today", "2026-07-10"]) == 0
-    payload = json.loads(capsys.readouterr().out)
+    payload = _json_out(capsys)
     assert payload["sessions_done"] == 1
     assert payload["window"] == "17:00–03:00 ET"
     assert DAY.isoformat() not in payload["next_sessions"]
@@ -901,7 +908,7 @@ def test_cli_sweep_measures_the_floors_from_stored_rows_without_calling_the_vend
         partition_date=DAY,
     )
     assert _cli(monkeypatch, s, ["sweep", "--floors", "100000,500000"]) == 0
-    payload = json.loads(capsys.readouterr().out)
+    payload = _json_out(capsys)
     assert payload["dates"] == 1
     assert payload["mean_candidates_per_day"] == {"100000": 4.0, "500000": 2.0}
     # Fewer candidates a session => more sessions a night. That is the whole decision.
@@ -915,7 +922,7 @@ def test_cli_prefilter_costs_nothing_and_shows_what_a_session_would_fetch(
     store = harvest_store(s)
     store.append("daily_universe", [_daily("AAAA").as_record()], partition_date=DAY)
     assert _cli(monkeypatch, s, ["prefilter", "--today", DAY.isoformat()]) == 0
-    payload = json.loads(capsys.readouterr().out)
+    payload = _json_out(capsys)
     assert payload["candidates"] == 1
     assert payload["estimated_minutes"] == pytest.approx(13.0 / 60.0, abs=0.1)
     assert payload["top"][0]["symbol"] == "AAAA"
@@ -1005,3 +1012,88 @@ def test_cli_read_only_commands_are_safe_at_any_hour(monkeypatch: Any, tmp_path:
     _at_et(monkeypatch, 5, 0)
     for command in ("status", "sweep", "prefilter"):
         assert _cli(monkeypatch, s, [command, "--today", "2026-07-10"]) == 0
+
+
+# ================================================================================================
+# auto: what the nightly timer actually runs
+# ================================================================================================
+
+
+def test_run_alone_does_nothing_on_a_box_where_phase_1_never_ran(tmp_path: Path) -> None:
+    """The failure this whole command exists for: `run` skips every session with "no universe",
+    spends nothing, and exits cleanly — a nightly job that looks like it works and does not."""
+    s = _settings(tmp_path, harvest_rate_sleep_sec=0.0)
+    store = harvest_store(s)  # no daily_universe anywhere
+    source = FakeSource(minutes={("AAAA", DAY): _runner_minutes()})
+    cp = Checkpoint.load(checkpoint_path(s))
+    run = run_harvest(
+        source,
+        store,
+        s,
+        [DAY],
+        checkpoint=cp,
+        window=RunWindow(),
+        now_fn=_clock(datetime.combine(DAY, time(22, 0), tzinfo=ET)),
+    )
+    assert run.completed == () and source.calls == 0 and cp.done == set()
+
+
+def test_auto_fills_phase_1_then_harvests_in_the_same_night(
+    monkeypatch: Any, tmp_path: Path, capsys: Any
+) -> None:
+    """Night one end to end: no universe on disk, and `auto` lands both phases — the session whose
+    universe was written minutes earlier is harvested tonight, not left for tomorrow."""
+    s = _settings(tmp_path, harvest_rate_sleep_sec=0.0, harvest_lookback_days=6)
+    today = date(2026, 7, 9)
+    sessions = trading_sessions(today - timedelta(days=6), today - timedelta(days=1), s)
+    grouped = {
+        d: [_grouped_row("AAAA", high=6.0, close=6.0, volume=9e6)]
+        for d in [*sessions, date(2026, 7, 1), date(2026, 7, 2)]
+    }
+    grouped[date(2026, 7, 2)] = [_grouped_row("AAAA", high=1.5, close=1.5, volume=9e6)]
+    source = FakeSource(
+        grouped=grouped, minutes={("AAAA", d): _runner_minutes(d) for d in sessions}
+    )
+    monkeypatch.setattr(cli_mod, "MassiveSource", type("F", (), {"from_env": lambda **_: source}))
+    _at_et(monkeypatch, 22, 0)
+
+    assert _cli(monkeypatch, s, ["auto", "--today", today.isoformat()]) == 0
+    payload = _json_out(capsys)
+    assert payload["daily_sessions"] == len(sessions)  # phase 1 filled
+    assert payload["daily_remaining"] == 0
+    assert payload["harvested"], "phase 2 never ran against the universe phase 1 had just written"
+    cp = Checkpoint.load(checkpoint_path(s))
+    assert cp.daily_done and cp.done
+
+
+def test_auto_skips_phase_1_once_it_is_complete(
+    monkeypatch: Any, tmp_path: Path, capsys: Any
+) -> None:
+    """Every night after the first: straight to phase 2, no grouped-daily calls re-spent."""
+    s = _settings(tmp_path, harvest_rate_sleep_sec=0.0, harvest_lookback_days=6)
+    store = harvest_store(s)
+    today = date(2026, 7, 9)
+    sessions = trading_sessions(today - timedelta(days=6), today - timedelta(days=1), s)
+    cp = Checkpoint.load(checkpoint_path(s))
+    for d in sessions:
+        store.append("daily_universe", [_daily("AAAA").as_record()], partition_date=d)
+        cp.mark_daily(d)
+    source = FakeSource(minutes={("AAAA", d): _runner_minutes(d) for d in sessions})
+    monkeypatch.setattr(cli_mod, "MassiveSource", type("F", (), {"from_env": lambda **_: source}))
+    _at_et(monkeypatch, 22, 0)
+
+    assert _cli(monkeypatch, s, ["auto", "--today", today.isoformat(), "--limit", "1"]) == 0
+    payload = _json_out(capsys)
+    assert payload["daily_sessions"] == 0
+    assert len(payload["harvested"]) == 1
+    # Only minute-bar calls: nothing was re-spent on a universe already on disk.
+    assert all(sym == "AAAA" for sym, _ in source.requested)
+
+
+def test_auto_refuses_outside_the_window_like_the_others(
+    monkeypatch: Any, tmp_path: Path, capsys: Any
+) -> None:
+    s = _settings(tmp_path)
+    _at_et(monkeypatch, 5, 0)
+    assert _cli(monkeypatch, s, ["auto"]) == 3
+    assert "refusing to start at 05:00 ET" in capsys.readouterr().err
