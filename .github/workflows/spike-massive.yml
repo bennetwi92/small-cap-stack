@@ -34,7 +34,8 @@ on:
           - probe # Stage 1: verify the vendor's claims before paying
           - day # replay one symbol-day end to end
           - universe # Stage 3 prefilter: candidate symbol-days for a session
-          - calibrate # Stage 2: reconstruction vs the live tracker, over the review fixtures
+          - calibrate # Stage 2, bars-only: reconstruction vs the live tracker (no key needed)
+          - vendor-calibrate # Stage 2, end to end: Massive bars vs the live tracker, pre-market
       symbol:
         description: "Ticker (probe / day)"
         required: false
@@ -105,6 +106,10 @@ jobs:
           # interpolated into the shell, so a stray quote in a symbol can't break out.
           if [ "$IN_COMMAND" = "calibrate" ]; then
             python spikes/scanner_reconstruct.py --fixtures --json "out/$name" | tee out/run.log
+          elif [ "$IN_COMMAND" = "vendor-calibrate" ]; then
+            # 31 vendor calls at the free tier's 5/min: ~7 min of deliberate pacing.
+            python spikes/massive_calibration.py --fetch --cache out/massive-cache \
+              --rate-sleep "$IN_RATE_SLEEP" --json "out/$name" | tee out/run.log
           else
             # `if` blocks, not `[ -n x ] && …`: under `set -e` a false test as a bare statement
             # exits the step, so the first blank input would kill the run.

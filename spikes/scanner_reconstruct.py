@@ -58,7 +58,7 @@ import statistics
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +103,19 @@ def rolling_window_volume(bars: Sequence[Bar], minutes: int = 5) -> list[float]:
             start += 1
         out.append(sum(b.volume for b in bars[start : i + 1]))
     return out
+
+
+#: The pre-market session: 04:00 ET (the scan window opens) up to the 09:30 bell. The engine's own
+#: paper book only ever trades here, so restricting the analysis to it is not a filter over the
+#: strategy — it *is* the strategy's session.
+PREMARKET = (time(4, 0), time(9, 30))
+
+
+def trim_window(bars: Sequence[Bar], window: tuple[time, time]) -> list[Bar]:
+    """Bars whose START falls in ``[lo, hi)`` ET. Half-open at the top: the 09:25 bar is the last
+    pre-market candle, and a bar starting exactly at 09:30 belongs to the regular session."""
+    lo, hi = window
+    return [b for b in bars if lo <= b.start.astimezone(ET).time() < hi]
 
 
 @dataclass(frozen=True)
