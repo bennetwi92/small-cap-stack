@@ -245,8 +245,16 @@ Ingest is #430's decision — the vendor's **free tier**, no purchase — so the
 years. It runs newest-first and lands whole sessions as it goes, so the deliverable is a deeper
 sample every morning rather than a backtest in six weeks. **Stopping it early is always safe.**
 
+The key lives in **the box's `.env`**, not in Actions secrets. The nightly timer runs entirely
+outside GitHub, and `harvest.yml` shells to `scripts/harvest.sh` on the box rather than handling the
+key itself — so nothing in Actions ever needs it. (`spike-massive.yml` from #428 is the separate
+case that *does* use `secrets.MASSIVE_API_KEY`: it runs on `ubuntu-latest`, has no `/data`, and is
+unrelated to the harvest.) Deploys don't disturb it — `deploy-app` only rewrites the `IMAGE_TAG=`
+line.
+
 ```bash
-# [YOU] one-time: put the vendor key in the box's .env (never in a cloud session — no secret store)
+# [YOU] one-time: put the vendor key in the box's .env (never in a cloud session — no secret store).
+# No inline comment on that line: `docker run --env-file` takes the rest of the line as the value.
 echo 'MASSIVE_API_KEY=…' >> /opt/small-cap-stack/.env
 cp deploy/scs-harvest.{service,timer} /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now scs-harvest.timer

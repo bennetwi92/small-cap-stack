@@ -31,6 +31,14 @@ IMAGE="ghcr.io/bennetwi92/small-cap-stack:${IMAGE_TAG:-latest}"
 # job is how the CX23 thrashes past sshd (#264).
 MEM_LIMIT="${HARVEST_MEM_LIMIT:-1g}"
 
+# --env-file carries MASSIVE_API_KEY and any HARVEST_* overrides. It also carries `DATA_DIR=./data`
+# and `DUCKDB_PATH=./data/...` — the LOCAL-dev values from .env.example, which would override the
+# image's `/data` and land the whole harvest inside the container's working directory, to be
+# deleted with it on --rm. So re-assert the container paths afterwards: `-e` takes precedence over
+# --env-file, and these are properties of the container, not of the host's config.
+#
+# HEALTHCHECKS_PING_URL is blanked for the same reason it is never constructed in the harvest code:
+# a stalled harvest must never page as a tracker outage (#431).
 exec nice -n 19 ionice -c 3 \
   docker run --rm \
     --name scs-harvest \
@@ -39,6 +47,9 @@ exec nice -n 19 ionice -c 3 \
     --oom-score-adj=800 \
     --cpus=1 \
     --env-file "$ENV_FILE" \
+    -e DATA_DIR=/data \
+    -e DUCKDB_PATH=/data/small_cap_stack.duckdb \
+    -e HEALTHCHECKS_PING_URL= \
     -v "$DATA_VOLUME":/data \
     "$IMAGE" \
     python -m small_cap_stack.harvest "$@"
