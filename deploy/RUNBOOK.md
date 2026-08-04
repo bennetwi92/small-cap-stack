@@ -271,12 +271,22 @@ about the unattended nightly job.
 **Rotating the key** is the same two steps: update the repo secret, re-run `install-key`. It
 replaces rather than appends, so the old key cannot linger and silently win.
 
+Then run the **`harvest`** workflow once with `command: install-units`. It installs
+`scs-harvest.{service,timer}` from the dispatched ref and enables the timer, on the box's own
+runner — so the whole setup, key included, is three dispatches and no SSH. Re-run it after any
+change to the units; it is idempotent, and that is the upgrade path.
+
+The equivalent by hand, if you happen to be on the box anyway:
+
 ```bash
-# [YOU] on the box, once — the units themselves still need installing (this part does need SSH,
-# or the deploy workflow; it is one-time and unrelated to the key).
 cp deploy/scs-harvest.{service,timer} /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now scs-harvest.timer
 ```
+
+> ⚠️ Both bootstrap commands run the **checked-out** wrapper, not the box's deployed copy, so they
+> work on a ref that has not been deployed yet. Everything else (`status`, `daily`, `run`) starts a
+> container from the **deployed image**, so those need the change merged, built and deployed first —
+> otherwise the image has no `small_cap_stack.harvest` module in it.
 
 **Order of operations — phase 1 first, and it is not optional.** #428 established the previous
 daily close as a *required* input: without it the appearance reconstruction fires a median 18 min

@@ -28,6 +28,7 @@ on:
         options:
           - status # what is harvested, what is left, is the window open now
           - install-key # ONE-TIME: put the vendor key on the box, from Actions secrets, no SSH
+          - install-units # ONE-TIME: install + enable the nightly systemd timer, no SSH
           - sweep # candidates retained at each day-volume floor (no API calls) — RUNBOOK §13.1
           - prefilter # what one session would fetch, from stored rows
           - daily # phase 1: grouped-daily universe + previous closes (REQUIRED before `run`)
@@ -78,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$IN_COMMAND" in
-            status|install-key|sweep|prefilter|daily|run) ;;
+            status|install-key|install-units|sweep|prefilter|daily|run) ;;
             *) echo "unknown command: $IN_COMMAND" >&2; exit 1 ;;
           esac
           case "$IN_LIMIT" in
@@ -89,8 +90,11 @@ jobs:
           case "$IN_COMMAND" in
             sweep|daily|run) args+=(--limit "$IN_LIMIT") ;;
           esac
-          # The box's own copy, so the wrapper and the systemd unit are always the same file.
-          /opt/small-cap-stack/scripts/harvest.sh "${args[@]}"
+          # The CHECKED-OUT copy, not the box's deployed one: dispatching a ref should run that
+          # ref's wrapper. It also means the two bootstrap commands work before this lands on main
+          # and is deployed — which is the whole point of them, since the alternative is SSH.
+          # (The nightly timer independently runs the deployed copy, as it should.)
+          "$GITHUB_WORKSPACE/scripts/harvest.sh" "${args[@]}"
 
       - name: Free memory on the box after the run
         if: always()

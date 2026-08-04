@@ -40,6 +40,10 @@ set -euo pipefail
 REPO_DIR="${REPO_DIR:-/opt/small-cap-stack}"
 ENV_FILE="${ENV_FILE:-$REPO_DIR/.env}"
 DATA_VOLUME="${DATA_VOLUME:-small-cap-stack_scs-data}"
+# Where THIS copy of the script lives — the workflow runs the checked-out one, so `install-units`
+# installs the units from the same ref you dispatched rather than whatever the box last deployed.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 
 # ------------------------------------------------------------------------------------------------
 # Read .env ourselves rather than handing it to `docker run --env-file`
@@ -101,6 +105,33 @@ if [ "${1:-}" = "install-key" ]; then
   rm -f "$tmp"
   # Never echo the key. Length + last 4 is enough to tell "it landed" from "it landed truncated".
   echo "install-key: wrote MASSIVE_API_KEY to $ENV_FILE (${#AMBIENT_KEY} chars, ends …${AMBIENT_KEY: -4})"
+  exit 0
+fi
+
+# ------------------------------------------------------------------------------------------------
+# install-units: enable the nightly timer, also without SSH
+# ------------------------------------------------------------------------------------------------
+# The last step that used to need a laptop. Installs the units from THIS checkout, so dispatching a
+# ref installs that ref's units. Idempotent — re-running after a unit changes is the upgrade path.
+if [ "${1:-}" = "install-units" ]; then
+  units_src="$(dirname "$SCRIPT_DIR")/deploy"
+  for unit in scs-harvest.service scs-harvest.timer; do
+    if [ ! -f "$units_src/$unit" ]; then
+      echo "install-units: $units_src/$unit not found" >&2
+      exit 2
+    fi
+    install -m 644 "$units_src/$unit" "$SYSTEMD_DIR/$unit"
+    echo "install-units: installed $SYSTEMD_DIR/$unit"
+  done
+  if [ -n "${HARVEST_DRY_RUN:-}" ]; then
+    echo "install-units: dry run — not touching systemd"
+    exit 0
+  fi
+  systemctl daemon-reload
+  systemctl enable --now scs-harvest.timer
+  # The timer is the thing to verify, not the service: a service that never fires is the failure
+  # mode, and `is-enabled` on a oneshot service says nothing about whether it is scheduled.
+  systemctl list-timers scs-harvest.timer --no-pager || true
   exit 0
 fi
 

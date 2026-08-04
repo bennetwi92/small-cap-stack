@@ -222,3 +222,33 @@ def test_install_key_refuses_an_empty_secret_with_a_useful_message(tmp_path: Pat
 def test_install_key_locks_down_the_env_file(tmp_path: Path) -> None:
     _install_key(tmp_path, "k", env_text=BOX_ENV)
     assert oct((tmp_path / ".env").stat().st_mode)[-3:] == "600"
+
+
+def test_install_units_installs_from_this_checkout(tmp_path: Path) -> None:
+    """The workflow runs the CHECKED-OUT script, so dispatching a ref installs that ref's units —
+    and both bootstrap commands work before the change is merged and deployed, which is the whole
+    reason they exist (the alternative is SSH)."""
+    systemd = tmp_path / "systemd"
+    systemd.mkdir()
+    proc = subprocess.run(
+        ["bash", str(SCRIPT), "install-units"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "HARVEST_DRY_RUN": "1",  # stop before systemctl; the copy is what's under test
+            "SYSTEMD_DIR": str(systemd),
+        },
+    )
+    installed = sorted(p.name for p in systemd.iterdir())
+    assert installed == ["scs-harvest.service", "scs-harvest.timer"]
+    assert "OnCalendar" in (systemd / "scs-harvest.timer").read_text()
+    assert "not touching systemd" in proc.stdout
+    # Idempotent: re-running is how a changed unit is rolled out, so it must not fail on existing.
+    subprocess.run(
+        ["bash", str(SCRIPT), "install-units"],
+        check=True,
+        capture_output=True,
+        env={"PATH": "/usr/bin:/bin", "HARVEST_DRY_RUN": "1", "SYSTEMD_DIR": str(systemd)},
+    )
