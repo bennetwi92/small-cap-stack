@@ -27,6 +27,8 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`portfolio_cutoff_sweep.py`](#portfolio_cutoff_sweeppy) | #379 | Replay the virtual book under different selection filters |
 | [`portfolio_slot_split.py`](#portfolio_slot_splitpy) | #416 | Replay the virtual book under different per-slot notional caps |
 | [`open_drive_sweep.py`](#open_drive_sweeppy) | #418 | Quantify a second strategy: a 10-min ORB with a consolidation requirement |
+| [`scanner_reconstruct.py`](#scanner_reconstructpy) | #428 | Rebuild a scanner appearance from bars alone, and calibrate it against what we actually saw |
+| [`massive_replay.py`](#massive_replaypy) | #428 | Massive (ex-Polygon) adapter: vendor minute bars → 5-min grid → detector → R |
 
 ### `viz_engine.py`
 
@@ -162,6 +164,71 @@ ssh -i ~/.ssh/oracle_scs root@<box> \
    docker exec small-cap-stack-app-1 python /tmp/open_drive_sweep.py \
        --store /data --payload /tmp/portfolio.json --validate --json /tmp/open-drive.json'
 ```
+
+---
+
+### `scanner_reconstruct.py` — issue #428
+
+**Q:** Nobody sells historical scanner output. If all we have is bars, can we rebuild *when the
+scanner would have surfaced a symbol* — closely enough that a multi-year backtest measures the same
+thing the live tracker measures?
+
+**A: yes, but only with the previous daily close.** The three hard scan gates are price-derived
+(`scan_min_price`/`scan_max_price`, `scan_change_pct`, `scan_min_5m_volume`; float and news are
+collected, never gated), so an appearance is reconstructible — except the change gate needs the
+prior session's close, which a single day of bars does not carry. Measured over the 25 committed
+review cases (real bars, real logged appearance times):
+
+- **Bars alone:** the reconstruction fires a **median 18 min early**, and on 6 of 25 it fires on the
+  very first bar of the day. Only **11/25** reproduce the same trade. The change gate is not a
+  detail — it is what holds a symbol back until it has actually run.
+- **With the change gate resolvable:** **20/25** appearances are explained — 10 already land within
+  one bar-grid of the logged time, and 10 more are explained by a *feasible* previous close (the
+  harness inverts the gate and solves for the interval of prior closes consistent with the observed
+  appearance, so the missing input is falsifiable rather than assumed).
+- **5/25 are unexplained** by any previous close (FATE, FWDI, CIFR, IREN, OPEN) — these bound how
+  far a reconstructed universe transfers, and point at the two known biases: the IBKR 50-row cap on
+  a busy morning, and a vendor volume basis that disagrees with `stVolume5minAbove`.
+- Given the right appearance bar, the **engine reproduces the trade 24/25** and agrees on takeable
+  **25/25** — so the reconstruction risk is concentrated entirely in *appearance time*, not in
+  detection. That is the useful decomposition: buy the previous closes, and the rest follows.
+
+Vendor-agnostic by construction (bars in, appearance out), so it serves both the calibration above
+and the Massive harvest next door. Needs no API key and no store:
+
+```bash
+python spikes/scanner_reconstruct.py --fixtures
+python spikes/scanner_reconstruct.py --fixtures --json data/spikes/recon-fixtures.json
+python spikes/scanner_reconstruct.py --store /data --date 2026-07-02   # box/Mac only
+```
+
+### `massive_replay.py` — issue #428
+
+The vendor half: Massive (ex-Polygon) REST → 1-min bars → the IBKR-aligned :00/:05 5-min grid →
+`scanner_reconstruct` → `detect_day` → R-metrics. Stdlib-only HTTP (no new dependency), unadjusted
+prices by default (a split-adjusted feed silently breaks the $1–50 gate for any pre-split year),
+and `next_url` pagination.
+
+The appearance is reconstructed on the **minute** series — a true trailing 5-min rolling sum, the
+closest analogue to IBKR's continuously-updated `stVolume5minAbove` — while detection runs on the
+**5-min** series. That split is the whole reason to pull minute data rather than 5-min aggregates.
+
+⚠️ **`MASSIVE_API_KEY` lives in GitHub Actions secrets only.** A cloud session has no secret store,
+so the key never goes there. Drive it with **`.github/workflows/spike-massive.yml`**, which runs on
+`ubuntu-latest` — deliberately *not* the self-hosted `vps` runner, keeping vendor pulls off the 4 GB
+box — and publishes curated JSON to the orphan `spike-massive-data` branch. Raw bars stay in the
+runner's workspace and die with it.
+
+```bash
+python spikes/massive_replay.py selftest             # no key: aggregation + grid alignment
+MASSIVE_API_KEY=… python spikes/massive_replay.py probe --symbol ARCT --date 2026-07-02
+MASSIVE_API_KEY=… python spikes/massive_replay.py day --symbol ARCT --date 2026-07-02
+MASSIVE_API_KEY=… python spikes/massive_replay.py universe --date 2026-07-02 --prev-date 2026-07-01
+```
+
+`probe` is the Stage-1 go/no-go on the vendor itself, before a penny is spent: extended-hours bars
+from 04:00 ET, delisted tickers resolving, `adjusted=false` really returning as-traded prices, and
+the 1-min → 5-min fold landing on the grid with volume preserved.
 
 ---
 
