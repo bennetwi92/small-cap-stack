@@ -45,11 +45,18 @@ def _qualify(
     return s.portfolio_premarket_earliest <= trigger_time < s.portfolio_premarket_cutoff
 
 
-def extract_day_trades(store: Store, s: Settings, trading_date: date) -> list[CandidateTrade]:
+def extract_day_trades(
+    store: Store, s: Settings, trading_date: date, *, source: str = "live"
+) -> list[CandidateTrade]:
     """Qualifying pre-market engine-v2 trades for one day, in trigger-time order.
 
     Reuses the EOD report's segmentation + R-metrics so the paper book never drifts from the
-    review/results pages: same runs, same detector, same appearance/staleness/exhaustion gating."""
+    review/results pages: same runs, same detector, same appearance/staleness/exhaustion gating.
+
+    ``source`` stamps provenance onto every candidate (#430). It is a property of the *store* being
+    read, not of anything in the rows, which is exactly why it has to be passed in: a reconstructed
+    partition is byte-identical in shape to a captured one, so nothing downstream could tell them
+    apart on inspection. Pass ``"recon"`` when reading the harvested store."""
     opps = day_opportunities(store, trading_date)
     if opps.is_empty():
         return []
@@ -104,6 +111,7 @@ def extract_day_trades(store: Store, s: Settings, trading_date: date) -> list[Ca
                     float_shares=float_shares,
                     max_r=rm.max_r,
                     max_gain_pct=rm.max_gain_pct,
+                    source=source,
                 )
             )
     # A **total** order (#381). Sorting on trigger_at alone is a stable sort over an upstream row

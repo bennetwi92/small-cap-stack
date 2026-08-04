@@ -124,7 +124,11 @@ hours, not authoring speed (see the remote-work limits above).
     `PHASES` (name, tag, window) and `GATES` (name, issue numbers, `after` dependencies) mirror
     `research/phase-2-roadmap.md` — change a gate's *name, issues or dependencies* there and here
     in the same PR; its *status* looks after itself.
-- `data/` — local runtime data (gitignored).
+- `data/` — local runtime data (gitignored). `data/recon/` is a **second store with the same dataset
+  layout** (#430) holding pre-market days rebuilt from purchased vendor minute bars. Separate root
+  on purpose: nothing that reads `data/` can return vendor rows by accident — only
+  `build_portfolio_payload(recon_store=…)` opts in, publishing them as `books_all` alongside the
+  untouched live `books`. Every trade carries `source: "live" | "recon"`.
 - `scripts/` — repo helpers (e.g. `board.sh`).
 - `deploy/` — host runbook + systemd units.
 
