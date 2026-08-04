@@ -58,20 +58,36 @@ import statistics
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 
 from small_cap_stack.capture import Bar, bar_interval
-from small_cap_stack.clock import ET, within_window
+from small_cap_stack.clock import ET
 from small_cap_stack.config import Settings
+from small_cap_stack.harvest.reconstruct import (
+    PREMARKET,
+    SCAN_GATES,
+    GateTrace,
+    Reconstruction,
+    _gate_trace,
+    reconstruct_hit,
+    rolling_window_volume,
+    trim_session,
+)
 from small_cap_stack.rmetrics import RMetrics, compute_r_metrics
 
 FIXTURE_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "review_cases"
 
-# The gates the scanner itself applies, in the order they are reported. `float` and `news` are
-# deliberately absent: they are collected downstream and never filter the IBKR scan (see #428).
-SCAN_GATES = ("price", "change_pct", "volume_5m", "trading_window")
+__all__ = [  # re-exported for the sibling spikes that import them from here
+    "PREMARKET",
+    "SCAN_GATES",
+    "GateTrace",
+    "Reconstruction",
+    "reconstruct_hit",
+    "rolling_window_volume",
+    "trim_window",
+]
 
 # How close a bars-only appearance has to land to count as "already right". One 5-min bar plus the
 # 60s live scan cadence is the irreducible grid error (module doc, points 2 and 3), so anything
@@ -80,167 +96,19 @@ BLIND_TOLERANCE_MIN = 5.0
 
 
 # ------------------------------------------------------------------------------------------------
-# Reconstruction
+# Reconstruction — promoted to the package (#431)
 # ------------------------------------------------------------------------------------------------
-
-
-def rolling_window_volume(bars: Sequence[Bar], minutes: int = 5) -> list[float]:
-    """Trailing ``minutes`` of volume as at each bar's END, one value per bar.
-
-    Generic over the bar grid on purpose (see the module doc, point 2): on 5-min bars each value is
-    just that bar's volume; on 1-min bars it is a true 5-bar rolling sum, which is the closest a
-    replay gets to IBKR's continuously-updated ``stVolume5minAbove``. A bar contributes when its
-    whole span lies inside the window ending at the current bar's close, so a gap in the tape
-    shrinks the window's contents rather than reaching further back in time for them.
-    """
-    window = timedelta(minutes=minutes)
-    interval = bar_interval(bars)
-    out: list[float] = []
-    start = 0
-    for i, bar in enumerate(bars):
-        end = bar.start + interval
-        while start < i and bars[start].start < end - window:
-            start += 1
-        out.append(sum(b.volume for b in bars[start : i + 1]))
-    return out
-
-
-#: The pre-market session: 04:00 ET (the scan window opens) up to the 09:30 bell. The engine's own
-#: paper book only ever trades here, so restricting the analysis to it is not a filter over the
-#: strategy — it *is* the strategy's session.
-PREMARKET = (time(4, 0), time(9, 30))
+# These functions used to live here. They now live in `small_cap_stack.harvest.reconstruct`, because
+# #431 turned them into a *producer*: the overnight harvest writes 500 sessions into the paper
+# book's store through them, and spikes are exempt from mypy and the test suite. Re-exported rather
+# than copied so the calibration below — the evidence the harvest rests on — measures exactly the
+# code the box runs. A second copy here is how #428's numbers would quietly stop describing #431's
+# output.
 
 
 def trim_window(bars: Sequence[Bar], window: tuple[time, time]) -> list[Bar]:
-    """Bars whose START falls in ``[lo, hi)`` ET. Half-open at the top: the 09:25 bar is the last
-    pre-market candle, and a bar starting exactly at 09:30 belongs to the regular session."""
-    lo, hi = window
-    return [b for b in bars if lo <= b.start.astimezone(ET).time() < hi]
-
-
-@dataclass(frozen=True)
-class GateTrace:
-    """One bar's worth of scan-gate evaluation — the audit trail behind an appearance time."""
-
-    idx: int
-    hit_time: datetime  # the bar's END: the earliest instant this bar's volume is knowable
-    price: float  # bar close
-    change_pct: float | None  # None when the previous daily close is unknown
-    volume_5m: float
-    price_ok: bool
-    change_ok: bool | None
-    volume_ok: bool
-    window_ok: bool
-
-    @property
-    def all_ok(self) -> bool:
-        """Every *decidable* gate passes. An undecidable change gate abstains, it does not fail."""
-        return self.price_ok and self.volume_ok and self.window_ok and self.change_ok is not False
-
-
-@dataclass(frozen=True)
-class Reconstruction:
-    """What a bars-only scanner would have surfaced for one symbol-day."""
-
-    symbol: str
-    trading_date: date
-    hit_idx: int | None
-    hit_time: datetime | None
-    binding_gate: str | None  # the last gate to come true — what actually delayed the appearance
-    first_pass: dict[str, int | None]  # per-gate, the first bar index at which it passes
-    change_decidable: bool
-    n_bars: int
-    trace: tuple[GateTrace, ...]
-
-    @property
-    def found(self) -> bool:
-        return self.hit_idx is not None
-
-
-def _gate_trace(
-    bars: Sequence[Bar], settings: Settings, *, prev_close: float | None, window_minutes: int
-) -> list[GateTrace]:
-    vols = rolling_window_volume(bars, minutes=window_minutes)
-    interval = bar_interval(bars)
-    traces: list[GateTrace] = []
-    for i, bar in enumerate(bars):
-        end = bar.start + interval
-        change = None if prev_close in (None, 0) else (bar.close / float(prev_close) - 1.0) * 100.0
-        traces.append(
-            GateTrace(
-                idx=i,
-                hit_time=end,
-                price=bar.close,
-                change_pct=change,
-                volume_5m=vols[i],
-                price_ok=settings.scan_min_price <= bar.close <= settings.scan_max_price,
-                change_ok=None if change is None else change > settings.scan_change_pct,
-                volume_ok=vols[i] > settings.scan_min_5m_volume,
-                # The window is tested at the appearance instant, matching `trading_window_gate`.
-                window_ok=within_window(end.astimezone(ET), settings.scan_start, settings.scan_end),
-            )
-        )
-    return traces
-
-
-def reconstruct_hit(
-    bars: Sequence[Bar],
-    settings: Settings,
-    *,
-    symbol: str = "",
-    trading_date: date | None = None,
-    prev_close: float | None = None,
-    window_minutes: int = 5,
-) -> Reconstruction:
-    """The first bar at which every decidable scan gate passes — the reconstructed appearance.
-
-    ``prev_close`` is the previous session's daily close; without it the change gate abstains (see
-    the module doc, point 4). ``window_minutes`` is the trailing volume window (5, matching
-    ``stVolume5minAbove``) — it is a parameter only so the sensitivity can be swept, not tuned.
-    """
-    trace = _gate_trace(bars, settings, prev_close=prev_close, window_minutes=window_minutes)
-    hit = next((t for t in trace if t.all_ok), None)
-    flags = {
-        "price": [t.price_ok for t in trace],
-        "change_pct": [t.change_ok is not False for t in trace],
-        "volume_5m": [t.volume_ok for t in trace],
-        "trading_window": [t.window_ok for t in trace],
-    }
-    first_pass: dict[str, int | None] = {
-        name: next((i for i, ok in enumerate(oks) if ok), None) for name, oks in flags.items()
-    }
-    # The binding gate is the one whose first *sustained-to-the-hit* pass lands latest: with the hit
-    # bar in hand, ask which gates were still false on the bar before it. That is the honest answer
-    # to "what delayed the appearance", and it is what decides whether the missing change gate
-    # matters (module doc, point 4).
-    binding: str | None = None
-    if hit is not None:
-        prior = trace[hit.idx - 1] if hit.idx > 0 else None
-        if prior is None:
-            binding = "none"  # gates were already true at the first bar we can see
-        else:
-            still_false = [
-                name
-                for name, ok in (
-                    ("price", prior.price_ok),
-                    ("change_pct", prior.change_ok is not False),
-                    ("volume_5m", prior.volume_ok),
-                    ("trading_window", prior.window_ok),
-                )
-                if not ok
-            ]
-            binding = "+".join(still_false) if still_false else "none"
-    return Reconstruction(
-        symbol=symbol,
-        trading_date=trading_date or (bars[0].start.astimezone(ET).date() if bars else date.min),
-        hit_idx=hit.idx if hit else None,
-        hit_time=hit.hit_time if hit else None,
-        binding_gate=binding,
-        first_pass=first_pass,
-        change_decidable=prev_close is not None,
-        n_bars=len(bars),
-        trace=tuple(trace),
-    )
+    """Bars whose START falls in ``[lo, hi)`` ET, over a single day's fixture series."""
+    return trim_session(bars, None, window[0], window[1])
 
 
 # ------------------------------------------------------------------------------------------------

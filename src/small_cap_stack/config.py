@@ -38,6 +38,40 @@ class Settings(BaseSettings):
     # behaves exactly as it did before.
     recon_subdir: str = "recon"
 
+    # --- Overnight pre-market harvest (#431) — the producer that fills the recon store above. ---
+    # Ingest is #430's decision: the vendor's FREE tier, REST, no purchase. That makes a 5 calls/min
+    # rate limit — not lookback, not bytes — the thing that prices the whole job, so every knob here
+    # is really a knob on "how many trading days does a night buy".
+    harvest_lookback_days: int = 730  # ~2 years: the free tier's measured lookback (#428)
+    # Sleep between vendor calls. 13s ≈ 4.6/min, inside the free tier's 5/min with headroom. Raise
+    # it to be politer; lowering it below ~12 earns 429s, and a blocked key has no second copy.
+    harvest_rate_sleep_sec: float = 13.0
+    # The harvest-only day-volume floor on the candidate prefilter (see harvest/prefilter.py). It is
+    # a loose proxy for the real trailing-5-min gate, which a daily bar cannot evaluate — airtight
+    # (a name clearing a 100k 5-min sum must trade >=100k on the day) but ~12x looser than the
+    # loosest of the 25 committed review cases. It sets the ~217 candidates/day that prices the
+    # harvest at ~45 nights. UNCHANGED on this issue: what a tighter floor *cuts* is unmeasured, and
+    # `python -m small_cap_stack.harvest sweep` is the measurement to run before touching it.
+    harvest_min_day_volume: float = 100_000.0
+    harvest_max_candidates: int = 0  # per session; 0 = no cap (a smoke-test lever, not a filter)
+    # Keep the raw 1-min pre-market bars the appearance was reconstructed from (~330 rows per
+    # symbol-day, ~36M rows over the harvest). Store-raw/compute-on-read has a price tag here:
+    # without them a change to the reconstruction rules costs another 45 nights of API budget
+    # rather than a re-read.
+    # Turn off only if disk gets tight — the 5-min `bars` the engine reads are written either way.
+    harvest_store_minute_bars: bool = True
+    # The nightly window the job may run in, ET. The box's day is booked: eod_backfill 03:45, scan
+    # 04:00-11:59, eod_bars_fetch 16:20, eod_report 16:30. The hard stop at 03:00 leaves 45 minutes
+    # of clearance. The job REFUSES to start outside this — being launched at the right time and
+    # refusing the wrong one are different guarantees, and only the second survives a late timer.
+    harvest_start_et: time = time(17, 0)
+    harvest_stop_et: time = time(3, 0)
+    # Host floors checked between sessions. The in-process half of the memory story; the enforced
+    # half is MemoryMax=1G on the systemd scope (deploy/scs-harvest.service). #264 is why both
+    # exist: a promise is not a limit, and a limit alone kills instead of checkpointing.
+    harvest_min_mem_available_mb: float = 800.0
+    harvest_min_disk_free_mb: float = 2000.0
+
     # Monitoring (issue #5)
     healthchecks_ping_url: str = ""
     metrics_enabled: bool = True

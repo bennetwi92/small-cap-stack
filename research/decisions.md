@@ -701,3 +701,57 @@ full night runs.
 on the merits — it remains the correct escape hatch if the sample is wanted sooner, and flat files
 remain the right answer for any future harvest wider than two years. Nothing here forecloses
 either: the store layout and the portfolio's provenance split are the same whichever path fills them.
+
+## 2026-08-04 — The harvest runs as a memory-capped nightly job, not a batch (#431)
+
+**Decision: the producer for #430's store is a systemd-timed, containerised, checkpointed nightly
+run — `src/small_cap_stack/harvest/`, driven by `python -m small_cap_stack.harvest`.** #430 decided
+*what* to buy (free tier, REST, no purchase, newest-first); this decides *how it is allowed to run
+on a box that has already killed itself once*.
+
+**Three guards, in layers, because none of them alone is sufficient.**
+1. **Streaming** — one session, one symbol at a time; bars are derived to rows and dropped before
+   the next symbol. Peak resident set is one symbol-day of minute bars plus one session's rows, and
+   it does not grow with the number of sessions harvested. That is the #273 failure mode designed
+   against rather than promised away.
+2. **A window the job refuses to run outside** — 17:00→03:00 ET, hard-stopping at 03:00, clear of
+   the 03:45 `eod_backfill` and the 04:00 scan window. Being *launched* at the right time and
+   *refusing* the wrong one are different guarantees; a late timer, a manual re-run or an overrun
+   only trips the second. Overriding takes two deliberate flags (#261's principle).
+3. **A cgroup limit the kernel enforces** — a separate `docker run --memory=1g` with swap disabled,
+   `nice -n 19`, `ionice` idle, `--oom-score-adj=800`. Deliberately **not** `docker exec` into the
+   app: sharing the tracker's 2 GB cgroup would spend the tracker's headroom and OOM the tracker
+   instead of the harvest. The in-process host-headroom check stops *at* a checkpoint; the cgroup
+   cap kills *before* the host is at risk. A promise is not a limit.
+
+**A session is atomic.** Each dataset lands in one parquet file written at session end, and the
+checkpoint is marked after. So a kill — hard stop, OOM, hard reboot — leaves the date with no files
+and unclaimed, and the next run discards any leftovers before redoing it. The alternative fails
+silently: a half-written day extracts perfectly well, just from half the symbols, and nothing
+downstream could tell. One file per `dt=` partition is also what keeps read cost sane
+(#318/#319/#321).
+
+**Deviation from the issue, deliberate: the stored 5-min bars span the FULL session, not just
+pre-market.** #431 asked for pre-market only to bound the payload, but the vendor returns a whole
+session per request — so trimming saves storage, not API budget, and the budget is the scarce
+thing. Truncating at 09:30 would have cost accuracy for nothing: `portfolio.exit.simulate_exit`
+marks an unresolved trade to the *last bar it can see*, so every still-open 09:10 entry would close
+at 09:25 and be reported as that trade's result — a silent downward bias on exactly the trades that
+were working. The restriction is kept where it does buy something: the raw **1-min** series is
+stored pre-market only (~330 rows/symbol-day), because that is all the appearance reconstruction
+reads.
+
+**The reconstruction primitives moved from `spikes/` into the package.** They are a producer now —
+500 sessions written into the store the paper book reads — and spikes are exempt from mypy and the
+test suite. The spikes import them back rather than keeping a copy, so #428's calibration measures
+exactly the code the box runs; a second copy is how the evidence quietly stops describing the
+output.
+
+**Still not modelled, and it bounds what the harvest is evidence *for*:** the IBKR 50-row rank cap.
+#428 showed it is real and load-bearing, so a reconstructed day can surface setups the live scanner
+would never have shown. That is precisely why #430 keeps the two stores apart and stamps every
+trade with `source` — the harvest widens the sample, it does not extend the Phase-1 record.
+
+**Unchanged pending measurement:** the day-volume floor stays at 100k. `harvest sweep` measures
+what a tighter floor would cut, against stored rows and for no API calls; run it before the first
+full night (RUNBOOK §13.1). If it halves the candidate set, 45 nights becomes ~23.
