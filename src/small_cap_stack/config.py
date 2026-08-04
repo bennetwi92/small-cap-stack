@@ -28,6 +28,15 @@ class Settings(BaseSettings):
 
     # Storage (DuckDB + Parquet — issue #7). DuckDB is opened in-memory over the Parquet globs.
     data_dir: Path = Path("./data")
+    # Reconstructed history (#430) — a SECOND store, same dataset layout, holding pre-market days
+    # rebuilt from purchased vendor minute bars rather than captured live. It is a separate root on
+    # purpose: the reconstructed dates sit *before* live collection started, so the two are
+    # date-disjoint, and keeping them in separate trees means no existing reader (the EOD report,
+    # charts, the canary, `collected_dates`) silently starts returning vendor rows. Only the code
+    # that explicitly opts in — `build_portfolio_payload(recon_store=…)` — ever sees them.
+    # Empty string disables the feature; a missing directory reads as empty, so an unharvested box
+    # behaves exactly as it did before.
+    recon_subdir: str = "recon"
 
     # Monitoring (issue #5)
     healthchecks_ping_url: str = ""

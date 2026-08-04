@@ -47,6 +47,7 @@ def _skipped(
         float_shares=c.float_shares,
         max_r=c.max_r,
         max_gain_pct=c.max_gain_pct,
+        source=c.source,
     )
 
 
@@ -146,6 +147,7 @@ def _take_day(
                 float_shares=c.float_shares,
                 max_r=c.max_r,
                 max_gain_pct=c.max_gain_pct,
+                source=c.source,
             )
         )
     # Cap-skips come from the day's LAST triggers and unaffordable ones are appended from among its

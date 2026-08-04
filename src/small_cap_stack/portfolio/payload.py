@@ -69,6 +69,8 @@ def _trade_json(t: PaperTrade) -> dict[str, object]:
         "costs": round(t.commission_usd + t.fees_usd, 4),
         "net_pnl": t.net_pnl_usd,
         "equity_after": t.equity_after,
+        # Provenance (#430) — "live" (the tracker saw it) vs "recon" (rebuilt from vendor bars).
+        "source": t.source,
     }
 
 
@@ -89,6 +91,7 @@ def _skipped_json(sk: SkippedTrade) -> dict[str, object]:
         "reason": sk.reason,
         "exit_price": sk.exit_price,
         "skip_reason": sk.skip_reason,
+        "source": sk.source,
     }
 
 
@@ -106,12 +109,41 @@ def _state_json(st: AdaptiveState) -> dict[str, object]:
     }
 
 
+def _by_source_json(res: PortfolioResult) -> dict[str, object]:
+    """Split the book's headline numbers by provenance (#430).
+
+    A combined book splices reconstructed days (earlier) in front of live ones, so its equity curve
+    and its stats are a *blend* of evidence of two different strengths. Path-dependent numbers
+    (equity, drawdown, expectancy in $) cannot be attributed to one source after the fact — they
+    depend on the whole ordering — so this reports only the size-independent, per-trade ones, which
+    can: how many trades each source contributed, and what they returned in R. That is enough to
+    answer "is the combined result being carried by the reconstruction?" without inventing a
+    per-source equity curve that never existed."""
+    out: dict[str, object] = {}
+    for src in ("live", "recon"):
+        trades = [t for t in res.trades if t.source == src]
+        wins = sum(1 for t in trades if t.realized_r > 0)
+        n = len(trades)
+        out[src] = {
+            "n_trades": n,
+            "wins": wins,
+            "losses": n - wins,
+            "win_rate": round(wins / n, 4) if n else None,
+            "total_r": round(sum(t.realized_r for t in trades), 4),
+            "avg_r": round(sum(t.realized_r for t in trades) / n, 4) if n else None,
+            "n_days": len({t.trading_date for t in trades}),
+        }
+    return out
+
+
 def _book_json(
     res: PortfolioResult,
     s: Settings,
     daily_targets: list[tuple[date, float]] | None,
     daily_risk: list[tuple[date, float]] | None = None,
     state: AdaptiveState | None = None,
+    *,
+    with_projection: bool = True,
 ) -> dict[str, object]:
     # The realised risk the book actually took, vs the ceiling the header advertises (#286). The
     # mean is over taken trades only — a skipped setup risked nothing and would drag it toward 0.
@@ -150,6 +182,9 @@ def _book_json(
             "skipped_count": sum(1 for sk in res.skipped if sk.skip_reason == "cap"),
             "skipped_total_r": res.skipped_total_r,
             "unaffordable_count": sum(1 for sk in res.skipped if sk.skip_reason == "unaffordable"),
+            # Live vs reconstructed, kept apart so a combined book can never be read as if every
+            # trade were equally well evidenced (#430). All-live books carry a zeroed "recon" half.
+            "by_source": _by_source_json(res),
         },
         "equity_curve": [{"date": d.isoformat(), "equity": e} for d, e in res.equity_curve],
         "trades": [_trade_json(t) for t in res.trades],
@@ -162,7 +197,14 @@ def _book_json(
         # the drawdown you'd have to sit through and the date the payouts start. Per book, because
         # every book has its own return distribution — projecting the adaptive one and labelling it
         # "5R" would answer a question nobody asked.
-        "projection": build_projection(res, s),
+        #
+        # Deliberately live-only (#430). The projection answers "what will *my account* do", so it
+        # has to resample the return distribution the tracker actually observed; bootstrapping it
+        # from a history dominated by reconstructed days would forecast an account that trades a
+        # universe we know differs from the live one (the 50-row rank cap, #428/#432). Skipping it
+        # on the combined books also keeps the EOD build off a second 500-path × 252-day Monte Carlo
+        # per target on a 2-vCPU box.
+        "projection": build_projection(res, s) if with_projection else None,
     }
     if daily_targets is not None:
         book["daily_targets"] = [{"date": d.isoformat(), "target": t} for d, t in daily_targets]
@@ -197,9 +239,30 @@ _CANDIDATE_CACHE_SUBDIR = ("cache", "portfolio_candidates")
 _EXTRACT_DATASETS = ("opportunities", "bars", "scanner_hits", "fundamentals")
 
 
-def portfolio_candidate_cache_dir(s: Settings) -> Path:
-    """Directory holding the per-day extracted-candidate cache — off the published dashboard dir."""
-    return s.data_dir.joinpath(*_CANDIDATE_CACHE_SUBDIR)
+def portfolio_candidate_cache_dir(s: Settings, source: str = "live") -> Path:
+    """Directory holding the per-day extracted-candidate cache — off the published dashboard dir.
+
+    Keyed by ``source`` (#430) because the cache filename is the date alone. The two stores are
+    *expected* to be date-disjoint, but "expected" is not "enforced": one overlap day — a
+    calibration date harvested into both — would otherwise have the live and reconstructed
+    extractions overwrite each other under the same path, and each rebuild would flip which one the
+    book saw. Separate directories make that impossible rather than unlikely."""
+    root = s.data_dir.joinpath(*_CANDIDATE_CACHE_SUBDIR)
+    return root if source == "live" else root.with_name(f"{root.name}_{source}")
+
+
+def recon_store_dir(s: Settings) -> Path | None:
+    """Root of the reconstructed-history store (#430), or None when the feature is switched off.
+
+    The directory need not exist: :meth:`Store.read` on a missing tree returns an empty frame, so a
+    box that has not harvested anything yet produces a payload identical to today's."""
+    return s.data_dir / s.recon_subdir if s.recon_subdir else None
+
+
+def open_recon_store(s: Settings) -> Store | None:
+    """The reconstructed-history :class:`Store`, or None when disabled — for payload call sites."""
+    d = recon_store_dir(s)
+    return None if d is None else Store(d)
 
 
 def _settings_fingerprint(s: Settings) -> str:
@@ -253,6 +316,7 @@ def _candidate_to_json(c: CandidateTrade) -> dict[str, Any]:
         "float_shares": c.float_shares,
         "max_r": c.max_r,
         "max_gain_pct": c.max_gain_pct,
+        "source": c.source,
         "bars": [_bar_to_json(b) for b in c.bars],
     }
 
@@ -279,6 +343,7 @@ def _candidate_from_json(d: dict[str, Any]) -> CandidateTrade:
         float_shares=None if d["float_shares"] is None else int(d["float_shares"]),
         max_r=_opt_float(d["max_r"]),
         max_gain_pct=_opt_float(d["max_gain_pct"]),
+        source=str(d["source"]),
         bars=tuple(_bar_from_json(b) for b in d["bars"]),
     )
 
@@ -319,22 +384,63 @@ def _extract_day_trades_cached(
     settings_fp: str,
     *,
     force: bool,
+    source: str = "live",
 ) -> list[CandidateTrade]:
     """:func:`extract_day_trades` with a fingerprinted on-disk cache (``cache_dir=None`` disables).
 
     On a cache hit the day is not re-read/re-computed at all; ``force`` skips the read so a date the
     caller knows just changed is always re-extracted (and its fingerprint refreshed)."""
     if cache_dir is None:
-        return extract_day_trades(store, s, trading_date)
+        return extract_day_trades(store, s, trading_date, source=source)
     fingerprint = _day_fingerprint(store, s, trading_date, settings_fp)
     path = cache_dir / f"{trading_date.isoformat()}.json"
     if not force:
         cached = _read_candidate_cache(path, fingerprint)
         if cached is not None:
             return cached
-    cands = extract_day_trades(store, s, trading_date)
+    cands = extract_day_trades(store, s, trading_date, source=source)
     _write_candidate_cache(path, fingerprint, cands)
     return cands
+
+
+def _coverage_json(by_day: Sequence[tuple[date, list[CandidateTrade]]]) -> dict[str, object]:
+    """Span + volume of one provenance's contribution, for the page's coverage line."""
+    days = [d for d, _ in by_day]
+    return {
+        "from": min(days).isoformat() if days else None,
+        "to": max(days).isoformat() if days else None,
+        "days": len(days),
+        "candidates": sum(len(c) for _, c in by_day),
+    }
+
+
+def _books_json(
+    by_day: Sequence[tuple[date, list[CandidateTrade]]],
+    s: Settings,
+    targets: Sequence[float],
+    *,
+    with_projection: bool,
+) -> dict[str, object]:
+    """One full set of books — the adaptive re-fit plus a fixed book per selectable target."""
+    adaptive = simulate_portfolio_adaptive(list(by_day), s)
+    books: dict[str, object] = {
+        "adaptive": _book_json(
+            adaptive.result,
+            s,
+            adaptive.daily_targets,
+            adaptive.daily_risk,
+            adaptive.state,
+            with_projection=with_projection,
+        )
+    }
+    for t in targets:
+        books[f"{t:g}"] = _book_json(
+            simulate_portfolio(list(by_day), s, target_r=t),
+            s,
+            None,
+            with_projection=with_projection,
+        )
+    return books
 
 
 def build_portfolio_payload(
@@ -344,6 +450,8 @@ def build_portfolio_payload(
     *,
     cache_dir: Path | None = None,
     force_dates: Iterable[date] | None = None,
+    recon_store: Store | None = None,
+    recon_cache_dir: Path | None = None,
 ) -> dict[str, object]:
     """Build the ``portfolio.json`` the web page reads: the adaptive book plus a fixed-target sweep.
 
@@ -353,7 +461,22 @@ def build_portfolio_payload(
 
     ``cache_dir`` enables the per-day candidate cache (see :func:`portfolio_candidate_cache_dir`) so
     a single-date backfill re-extracts only the day(s) in ``force_dates`` and reads the rest from
-    cache instead of re-doing the whole archive; leave it None to always extract fresh."""
+    cache instead of re-doing the whole archive; leave it None to always extract fresh.
+
+    **Reconstructed history (#430).** ``recon_store`` is an optional second store holding days
+    rebuilt from purchased vendor minute bars (see :func:`recon_store_dir`). When it carries days,
+    the payload grows a *second* set of books under ``books_all``, simulated over the reconstructed
+    days spliced in front of the live ones in date order — the deepening sample the nightly harvest
+    exists to produce.
+
+    ``books`` itself stays **live-only and byte-identical to before**, and that is the load-bearing
+    part. The book is path-dependent twice over: the adaptive re-fit chooses each day's target and
+    risk rung from a trailing window, and every position sizes off the running equity. Splicing ~500
+    reconstructed days in front of the live ones therefore does not *extend* the live record, it
+    *replaces* it — the live segment would start from whatever equity the reconstruction ended at
+    and trade targets chosen by vendor-derived trades. Phase-1's deliverable is what the tracker
+    actually saw, so the two are published side by side rather than merged in place.
+    """
     settings_fp = _settings_fingerprint(s)
     force = set(force_dates or ())
     by_day = [
@@ -363,17 +486,30 @@ def build_portfolio_payload(
         )
         for d in collected_dates(store)
     ]
-    adaptive = simulate_portfolio_adaptive(by_day, s)
+    live_dates = {d for d, _ in by_day}
+    # A date the tracker watched live is never taken from the reconstruction, even if the harvest
+    # also covered it (the #428 calibration days are exactly that overlap). Live is the ground
+    # truth the reconstruction is *calibrated against*; preferring it keeps the combined book from
+    # double-counting a day, and from quietly substituting vendor bars for observed ones.
+    recon_all = collected_dates(recon_store) if recon_store is not None else []
+    recon_by_day = (
+        [
+            (
+                d,
+                _extract_day_trades_cached(
+                    recon_store, s, d, recon_cache_dir, settings_fp, force=False, source="recon"
+                ),
+            )
+            for d in recon_all
+            if d not in live_dates
+        ]
+        if recon_store is not None
+        else []
+    )
     # Selectable fixed targets: the adaptive grid widened with a couple of extremes for exploration.
     targets = sorted(set(s.portfolio_target_grid) | {1.0, 4.0, 5.0})
-    books: dict[str, object] = {
-        "adaptive": _book_json(
-            adaptive.result, s, adaptive.daily_targets, adaptive.daily_risk, adaptive.state
-        )
-    }
-    for t in targets:
-        books[f"{t:g}"] = _book_json(simulate_portfolio(by_day, s, target_r=t), s, None)
-    return {
+    books = _books_json(by_day, s, targets, with_projection=True)
+    payload: dict[str, object] = {
         "generated_utc": generated_utc.isoformat(),
         "start_equity": s.portfolio_start_equity_usd,
         "gbpusd_rate": s.portfolio_gbpusd_rate,
@@ -425,3 +561,17 @@ def build_portfolio_payload(
         "targets": [f"{t:g}" for t in targets],
         "books": books,
     }
+    # What each provenance contributed, so the page can state its own span rather than inferring it
+    # from the trade log (a day with no qualifying setup contributes coverage but no trade).
+    recon_cov = _coverage_json(recon_by_day)
+    if recon_store is not None:
+        # Overlap is dropped in favour of live above; report the count whenever a recon store was
+        # consulted — including when *every* harvested day overlapped and nothing survived. Tying
+        # this to `recon_by_day` instead would make a fully-overlapping harvest look like an
+        # unharvested box, which is the one case where the reader most needs to know why.
+        recon_cov["overlap_days_dropped"] = len([d for d in recon_all if d in live_dates])
+    payload["coverage"] = {"live": _coverage_json(by_day), "recon": recon_cov}
+    if recon_by_day:
+        combined = sorted([*recon_by_day, *by_day], key=lambda item: item[0])
+        payload["books_all"] = _books_json(combined, s, targets, with_projection=False)
+    return payload

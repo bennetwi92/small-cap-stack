@@ -37,6 +37,15 @@ class CandidateTrade:
     float_shares: int | None = None  # merged across sources by `report._funds_for` (fmp first)
     max_r: float | None = None  # peak favourable excursion in R — the ceiling `realized_r` chased
     max_gain_pct: float | None = None  # that same peak as a fraction of the entry price
+    # Provenance (#430). ``"live"`` = the tracker watched this day happen and captured the bars from
+    # the scanner in real time. ``"recon"`` = the day was rebuilt after the fact from purchased
+    # vendor minute bars, with the scanner appearance *reconstructed* rather than observed. The two
+    # are not interchangeable evidence — #428 measured the reconstruction's appearance timing at a
+    # median −0.34 min but found the IBKR 50-row rank cap (SNDQ) unreproducible per-symbol, so a
+    # reconstructed day can surface setups the live scanner would never have shown. Carrying the
+    # label on the trade is what lets the book report the two populations apart instead of quietly
+    # averaging them into one win rate.
+    source: str = "live"  # "live" | "recon"
 
     def exit_under(self, s: Settings, target_r: float, breakeven_r: float) -> ExitOutcome:
         return simulate_exit(
@@ -88,6 +97,7 @@ class PaperTrade:
     float_shares: int | None = None
     max_r: float | None = None
     max_gain_pct: float | None = None
+    source: str = "live"  # "live" | "recon" — carried from the candidate, see CandidateTrade
 
 
 @dataclass(frozen=True)
@@ -127,6 +137,7 @@ class SkippedTrade:
     float_shares: int | None = None
     max_r: float | None = None
     max_gain_pct: float | None = None
+    source: str = "live"  # "live" | "recon" — carried from the candidate, see CandidateTrade
 
 
 @dataclass(frozen=True)

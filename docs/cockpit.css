@@ -492,6 +492,20 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
 }
 .pf-reason-target{ color:var(--win); border-color:var(--win); }
 .pf-reason-stop{ color:var(--loss); border-color:var(--loss); }
+/* Provenance tag on a trade/skip row (#430): the day was reconstructed from vendor minute bars,
+   not captured live. Deliberately quiet — it marks an exception, and live rows carry no tag. */
+.pf-src{
+  display:inline-block;
+  font-size:9px;
+  font-weight:600;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  line-height:1;
+  padding:1px 3px;
+  border-radius:2px;
+  border:1px dashed var(--line-2);
+  color:var(--dim);
+}
 
 /* --- forward projection: a SECOND `.pf` region, swapped in by the VIEW control ---
    It reuses every layout rule above, which is the point: the book view is already

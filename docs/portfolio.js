@@ -41,6 +41,13 @@ const pct = (r) => (r * 100).toFixed(2).replace(/\.?0+$/, "") + "%"; // 0.025 ->
 let PAYLOAD = null; // the whole portfolio.json
 let BOOK = "adaptive"; // selected book key
 let VIEW = "book"; // "book" (the record) | "projection" (the forward Monte-Carlo)
+let SCOPE = "live"; // "live" (captured only) | "all" (+ reconstructed history, #430)
+
+// Which set of books the scope selects. `books` is always the live-only record; `books_all` exists
+// only once the harvest (#430) has landed reconstructed days, so the selector is hidden until then
+// and every payload published before it simply has no second scope to offer.
+const hasRecon = () => !!(PAYLOAD && PAYLOAD.books_all);
+const booksFor = () => (SCOPE === "all" && hasRecon() ? PAYLOAD.books_all : PAYLOAD.books);
 
 /* ---------- options bar: view + book selector + refresh; meta line under ··· ---------- */
 
@@ -69,6 +76,21 @@ function buildOptbar() {
       // The book selector drives BOTH views — every book carries its own projection, since
       // each has its own return distribution to resample.
       { type: "seg", id: "pf-book", label: "BOOK", value: BOOK, options: books },
+      // Provenance scope (#430). Only offered once the harvest has landed reconstructed days.
+      ...(hasRecon()
+        ? [
+            {
+              type: "seg",
+              id: "pf-scope",
+              label: "DATA",
+              value: SCOPE,
+              options: [
+                { value: "live", label: "Live", title: "Days the tracker captured in real time" },
+                { value: "all", label: "+ History", title: "Live days plus reconstructed history" },
+              ],
+            },
+          ]
+        : []),
       { type: "btn", id: "pf-refresh", label: "Refresh", title: "Refresh now" },
     ],
     extra: [{ type: "note", id: "pf-meta", value: "loading…" }],
@@ -76,6 +98,7 @@ function buildOptbar() {
       if (id === "pf-refresh") return load();
       if (id === "pf-viewsel") VIEW = value;
       if (id === "pf-book") BOOK = value;
+      if (id === "pf-scope") SCOPE = value;
       render();
     },
   });
@@ -650,9 +673,17 @@ function renderProjection(book) {
   const pj = book.projection;
   const wrap = el("pj-view");
   if (!pj || !pj.available) {
+    // A combined book carries no projection by construction (#430): the forward view resamples the
+    // returns the tracker actually observed, so it is built for the live scope only. Say that,
+    // rather than falling through to "not built yet", which would be wrong here.
+    const reason =
+      SCOPE === "all" && hasRecon()
+        ? "The projection is built from live days only. Switch DATA to Live to see it."
+        : (pj && pj.reason) ||
+          "No projection in this payload yet — it is built at the end-of-day report.";
     wrap.innerHTML =
       `<section class="panel"><h2 class="panel-h">Projection</h2><p class="muted">` +
-      esc((pj && pj.reason) || "No projection in this payload yet — it is built at the end-of-day report.") +
+      esc(reason) +
       `</p></section>`;
     return;
   }
@@ -912,6 +943,16 @@ function maxRCell(t, realized) {
 const maxPctCell = (t) =>
   `<td class="r ${t.max_pct == null ? "muted" : ""}">${t.max_pct == null ? "—" : fmtPct(t.max_pct)}</td>`;
 
+// The date cell, tagged when the row came from reconstructed history rather than live capture
+// (#430). Absent `source` — every payload published before the harvest — reads as live.
+function dateCell(t) {
+  const tag =
+    t.source === "recon"
+      ? ` <span class="pf-src" title="Reconstructed from vendor minute bars, not captured live">recon</span>`
+      : "";
+  return `<td>${esc(t.date)}${tag}</td>`;
+}
+
 function tradeRows(book) {
   if (!book.trades.length) return '<tr><td colspan="15" class="muted">No qualifying pre-market trades yet.</td></tr>';
   return book.trades
@@ -922,7 +963,7 @@ function tradeRows(book) {
       const rev = `review.html?date=${encodeURIComponent(t.date)}&sym=${encodeURIComponent(t.symbol)}`;
       return (
         "<tr>" +
-        `<td>${esc(t.date)}</td>` +
+        dateCell(t) +
         `<td><a href="${rev}"><strong>${esc(t.symbol)}</strong></a></td>` +
         floatCell(t) +
         `<td>${etClockIso(t.trigger_at)}</td>` +
@@ -993,7 +1034,7 @@ function skippedRows(book) {
       const rev = `review.html?date=${encodeURIComponent(t.date)}&sym=${encodeURIComponent(t.symbol)}`;
       return (
         "<tr>" +
-        `<td>${esc(t.date)}</td>` +
+        dateCell(t) +
         `<td><a href="${rev}"><strong>${esc(t.symbol)}</strong></a></td>` +
         floatCell(t) +
         `<td>${SKIP_LBL[t.skip_reason] || SKIP_LBL.cap}</td>` +
@@ -1072,6 +1113,30 @@ function premarketWindow(c) {
   return `${c.premarket_earliest_et.slice(0, 5)}–${cutoff}`;
 }
 
+// What each provenance contributes, straight from the payload's `coverage` block (#430). Stated as
+// spans and counts rather than a conclusion about what the mix is worth — that belongs in a report.
+function coverageLine() {
+  const cov = PAYLOAD.coverage;
+  if (!cov) return "";
+  const span = (c) => (c && c.days ? `${isoDay(c.from)}→${isoDay(c.to)} (${c.days}d)` : "none");
+  const recon = cov.recon || {};
+  const reconPart = recon.days
+    ? ` · reconstructed ${span(recon)}${SCOPE === "all" ? "" : " — not in this book"}`
+    : "";
+  return ` · Data: live ${span(cov.live)}${reconPart}`;
+}
+
+// The live/reconstructed split of the book on screen. Size-independent numbers only — see
+// `_by_source_json`: an equity curve cannot be attributed to one source after a splice.
+function sourceSplit(book) {
+  const bs = (book.stats || {}).by_source;
+  if (!bs || !bs.recon || !bs.recon.n_trades) return "";
+  const one = (k, l) =>
+    `${l} ${fmtInt(bs[k].n_trades)} trades / ${fmtR(bs[k].total_r)}` +
+    (bs[k].win_rate == null ? "" : ` / ${(bs[k].win_rate * 100).toFixed(0)}% win`);
+  return ` · <strong>Split:</strong> ${one("live", "live")} · ${one("recon", "reconstructed")}`;
+}
+
 // The per-book config/meta line, under the options bar's ··· expander.
 function metaLine(book) {
   const c = PAYLOAD.config;
@@ -1085,7 +1150,9 @@ function metaLine(book) {
     `${c.withdraw_cadence_months}mo · ${(c.cgt_rate * 100).toFixed(0)}% CGT &gt; £${c.cgt_annual_exempt_gbp} · ` +
     `£/$ ${Number(PAYLOAD.gbpusd_rate).toFixed(2)} · ` +
     `Not advice, not real orders — computed on-read from the tracker's own data. ` +
-    `Small samples: a wiring/sanity view, not an edge estimate.`
+    `Small samples: a wiring/sanity view, not an edge estimate.` +
+    coverageLine() +
+    sourceSplit(book)
   );
 }
 
@@ -1139,13 +1206,13 @@ const redraw = new ResizeObserver(() => {
   if (pending || !PAYLOAD) return;
   pending = requestAnimationFrame(() => {
     pending = 0;
-    if (PAYLOAD) drawCharts(PAYLOAD.books[BOOK]);
+    if (PAYLOAD) drawCharts(booksFor()[BOOK]);
   });
 });
 document.querySelectorAll(".pf-left").forEach((n) => redraw.observe(n));
 
 function render() {
-  const book = PAYLOAD.books[BOOK];
+  const book = booksFor()[BOOK];
   el("pf-meta").innerHTML = metaLine(book);
   el("pf-view").hidden = VIEW !== "book";
   el("pj-view").hidden = VIEW !== "projection";

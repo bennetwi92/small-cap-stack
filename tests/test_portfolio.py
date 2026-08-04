@@ -7,6 +7,7 @@ capacity / opening-equity sizing rules.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -1527,7 +1528,7 @@ def test_cache_busted_by_settings_change(tmp_path: Path, monkeypatch: object) ->
     calls: list[date] = []
     real = pf.extract_day_trades
 
-    def _spy(store: object, s: object, d: date) -> list[CandidateTrade]:
+    def _spy(store: object, s: object, d: date, *, source: str = "live") -> list[CandidateTrade]:
         calls.append(d)
         return real(store, s, d)  # type: ignore[arg-type]
 
@@ -1570,7 +1571,7 @@ def test_cache_busted_by_new_partition(tmp_path: Path, monkeypatch: object) -> N
     calls: list[date] = []
     real = pf.extract_day_trades
 
-    def _spy(store: object, s: object, d: date) -> list[CandidateTrade]:
+    def _spy(store: object, s: object, d: date, *, source: str = "live") -> list[CandidateTrade]:
         calls.append(d)
         return real(store, s, d)  # type: ignore[arg-type]
 
@@ -1593,7 +1594,7 @@ def test_force_dates_bypasses_cache(tmp_path: Path, monkeypatch: object) -> None
     calls: list[date] = []
     real = pf.extract_day_trades
 
-    def _spy(store: object, s: object, d: date) -> list[CandidateTrade]:
+    def _spy(store: object, s: object, d: date, *, source: str = "live") -> list[CandidateTrade]:
         calls.append(d)
         return real(store, s, d)  # type: ignore[arg-type]
 
@@ -1820,3 +1821,183 @@ def test_skipped_is_returned_in_trigger_order() -> None:
 
     triggers = [sk.trigger_at for sk in skipped]
     assert triggers == sorted(triggers)
+
+
+# --------------------------------------------------------------------------------------------
+# Reconstructed history (#430) — a second store of days rebuilt from purchased vendor minute bars,
+# spliced into the book as a *parallel* scope so the live Phase-1 record is never overwritten.
+# --------------------------------------------------------------------------------------------
+
+
+def _recon_payload(tmp_path: Path, *, live_day: datetime, recon_days: list[datetime]) -> dict:  # type: ignore[type-arg]
+    """Seed a live store + a recon store and build the payload over both."""
+    import small_cap_stack.portfolio as pf
+    from small_cap_stack.storage import Store
+
+    live = Store(tmp_path / "live")
+    _seed_premarket(live, oid_time_utc=live_day)
+    recon = Store(tmp_path / "recon")
+    for d in recon_days:
+        _seed_premarket(recon, oid_time_utc=d)
+    return pf.build_portfolio_payload(
+        live, _s(), datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC), recon_store=recon
+    )
+
+
+def test_recon_store_absent_leaves_the_payload_untouched(tmp_path: Path) -> None:
+    """The whole feature is inert until the harvest lands something (#430).
+
+    A box that has never run the harvest must publish exactly what it published before — no second
+    book set, and a coverage block whose reconstructed half is empty rather than missing."""
+    import small_cap_stack.portfolio as pf
+    from small_cap_stack.storage import Store
+
+    store = Store(tmp_path / "live")
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))
+    now = datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC)
+
+    plain = pf.build_portfolio_payload(store, _s(), now)
+    # An empty recon store (the directory does not even exist) must be indistinguishable from none.
+    empty = pf.build_portfolio_payload(
+        store, _s(), now, recon_store=Store(tmp_path / "nothing-here")
+    )
+
+    assert "books_all" not in plain
+    assert "books_all" not in empty
+    assert plain["books"] == empty["books"]
+    assert plain["coverage"]["recon"]["days"] == 0  # type: ignore[index,call-overload]
+    assert plain["coverage"]["live"]["days"] == 1  # type: ignore[index,call-overload]
+
+
+def test_recon_days_extend_the_combined_book_only(tmp_path: Path) -> None:
+    """The deepening sample the harvest exists to produce — but in `books_all`, never in `books`.
+
+    `books` is path-dependent twice over (the adaptive re-fit reads a trailing window; every
+    position sizes off running equity), so splicing ~500 reconstructed days in front of the live
+    ones would not extend the live record, it would replace it. The two are published side by
+    side."""
+    payload = _recon_payload(
+        tmp_path,
+        live_day=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC),
+        recon_days=[
+            datetime(2026, 6, 25, 12, 0, tzinfo=ET_UTC),
+            datetime(2026, 6, 26, 12, 0, tzinfo=ET_UTC),
+        ],
+    )
+
+    live_trades = payload["books"]["adaptive"]["trades"]  # type: ignore[index,call-overload]
+    all_trades = payload["books_all"]["adaptive"]["trades"]  # type: ignore[index,call-overload]
+
+    # The live book is untouched: one seeded day, one trade, all of it live.
+    assert len(live_trades) == 1
+    assert {t["source"] for t in live_trades} == {"live"}
+    # The combined book carries the reconstructed days too, and they sort *before* the live one.
+    assert len(all_trades) == 3
+    assert [t["source"] for t in all_trades] == ["recon", "recon", "live"]
+    assert [t["date"] for t in all_trades] == ["2026-06-25", "2026-06-26", "2026-06-29"]
+
+
+def test_live_wins_when_a_date_exists_in_both_stores(tmp_path: Path) -> None:
+    """The #428 calibration days are exactly this overlap: harvested *and* watched live.
+
+    Live is the ground truth the reconstruction is calibrated against, so it wins — the day must
+    appear once, as live, and the drop must be reported rather than silently swallowed."""
+    same_day = datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC)
+    payload = _recon_payload(tmp_path, live_day=same_day, recon_days=[same_day])
+
+    # The overlap day is the ONLY day either store has, so there is no combined book to build.
+    assert "books_all" not in payload
+    assert payload["coverage"]["recon"]["days"] == 0  # type: ignore[index,call-overload]
+    assert payload["coverage"]["recon"]["overlap_days_dropped"] == 1  # type: ignore[index,call-overload]
+    assert {t["source"] for t in payload["books"]["adaptive"]["trades"]} == {"live"}  # type: ignore[index,call-overload]
+
+
+def test_by_source_split_keeps_the_two_populations_apart(tmp_path: Path) -> None:
+    """A combined book must never read as if every trade were equally well evidenced (#430)."""
+    payload = _recon_payload(
+        tmp_path,
+        live_day=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC),
+        recon_days=[datetime(2026, 6, 25, 12, 0, tzinfo=ET_UTC)],
+    )
+
+    live_split = payload["books"]["adaptive"]["stats"]["by_source"]  # type: ignore[index,call-overload]
+    all_split = payload["books_all"]["adaptive"]["stats"]["by_source"]  # type: ignore[index,call-overload]
+
+    # An all-live book still carries the key, zeroed — so the page renders one shape regardless.
+    assert live_split["live"]["n_trades"] == 1
+    assert live_split["recon"] == {
+        "n_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": None,
+        "total_r": 0.0,
+        "avg_r": None,
+        "n_days": 0,
+    }
+    # The combined book attributes each trade to the store it came from.
+    assert all_split["live"]["n_trades"] == 1
+    assert all_split["recon"]["n_trades"] == 1
+    assert all_split["recon"]["n_days"] == 1
+    assert all_split["live"]["total_r"] + all_split["recon"]["total_r"] == pytest.approx(
+        payload["books_all"]["adaptive"]["stats"]["total_r"]  # type: ignore[index,call-overload]
+    )
+
+
+def test_combined_books_carry_no_projection(tmp_path: Path) -> None:
+    """The forward view resamples what the tracker OBSERVED, so it stays live-only (#430).
+
+    Bootstrapping it from a reconstructed-heavy history would forecast an account trading a
+    universe we know differs from the live one (the 50-row rank cap, #428/#432)."""
+    payload = _recon_payload(
+        tmp_path,
+        live_day=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC),
+        recon_days=[datetime(2026, 6, 25, 12, 0, tzinfo=ET_UTC)],
+    )
+
+    assert payload["books"]["adaptive"]["projection"] is not None  # type: ignore[index,call-overload]
+    for key, book in payload["books_all"].items():  # type: ignore[union-attr]
+        assert book["projection"] is None, key
+
+
+def test_recon_and_live_candidate_caches_cannot_collide(tmp_path: Path) -> None:
+    """The cache filename is the date alone, so the two stores need separate directories (#430).
+
+    Sharing one would let an overlap day's live and reconstructed extractions overwrite each other,
+    flipping which one the book saw on every rebuild."""
+    import small_cap_stack.portfolio as pf
+
+    s = _s(data_dir=tmp_path)
+    assert pf.portfolio_candidate_cache_dir(s) != pf.portfolio_candidate_cache_dir(s, "recon")
+    # The live path is unchanged, so caches primed before #430 are still found.
+    assert pf.portfolio_candidate_cache_dir(s) == tmp_path / "cache" / "portfolio_candidates"
+
+
+def test_recon_store_dir_follows_settings(tmp_path: Path) -> None:
+    """`recon_subdir=""` switches the feature off entirely — no second store is even opened."""
+    import small_cap_stack.portfolio as pf
+
+    assert pf.recon_store_dir(_s(data_dir=tmp_path)) == tmp_path / "recon"
+    assert pf.recon_store_dir(_s(data_dir=tmp_path, recon_subdir="")) is None
+    assert pf.open_recon_store(_s(data_dir=tmp_path, recon_subdir="")) is None
+    opened = pf.open_recon_store(_s(data_dir=tmp_path))
+    assert opened is not None and opened.data_dir == tmp_path / "recon"
+
+
+def test_cached_candidates_round_trip_their_provenance(tmp_path: Path) -> None:
+    """Provenance must survive the on-disk candidate cache, or the second rebuild loses the label.
+
+    A cache written before #430 has no `source` key at all; `_candidate_from_json` indexes rather
+    than `.get()`s it (the #390 convention) so that raises and forces one correct re-extract —
+    rather than silently relabelling every reconstructed day as live, permanently."""
+    import small_cap_stack.portfolio as pf
+
+    cand = _cand("AZI", 8, 10.0, 9.0, [_bar(10, 12.5, 9.95, 12.3)])
+    recon = replace(cand, source="recon")
+
+    assert pf._candidate_from_json(pf._candidate_to_json(recon)).source == "recon"
+    assert pf._candidate_from_json(pf._candidate_to_json(cand)).source == "live"
+
+    stale = pf._candidate_to_json(recon)
+    del stale["source"]  # a pre-#430 cache entry
+    with pytest.raises(KeyError):
+        pf._candidate_from_json(stale)
