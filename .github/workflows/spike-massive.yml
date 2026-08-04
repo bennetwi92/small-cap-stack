@@ -1,0 +1,165 @@
+name: spike-massive
+
+# Spike #428: historical scanner-hit reconstruction + backtest replay via Massive (ex-Polygon).
+#
+# Venue decision (issue #428, first comment): this spike talks to a PUBLIC HTTPS API, so the
+# Mac-only constraint that governs IBKR spikes does not apply. It runs from a Claude Code
+# web/mobile session instead — the session authors the harness and dispatches this workflow, the
+# workflow does the data pull, and the results come back on a data branch the session can read.
+#
+# Two constraints are load-bearing and deliberate:
+#
+#  1. `runs-on: ubuntu-latest` — a GitHub-HOSTED runner, explicitly NOT the self-hosted `vps`
+#     runner. The box is a 2 vCPU / 4 GB CX23 that CLAUDE.md documents OOM-ing on a single-date
+#     dashboard backfill; a multi-year vendor pull has no business anywhere near it. This also
+#     means no `/data` access here, which is fine: this workflow never reads the live store.
+#  2. `MASSIVE_API_KEY` comes from Actions secrets ONLY. A cloud session has no secret store (env
+#     vars are plaintext), so the key must never be handed to one. One-time manual setup:
+#     repo Settings -> Secrets and variables -> Actions -> New repository secret.
+#
+# Results land on the orphan `spike-massive-data` branch, mirroring the proven `data-export`
+# pattern — small curated JSON only (probe verdicts, candidate lists, replay results). Raw minute
+# bars stay in the runner's workspace and die with it: never on `main`, never in git.
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Harness subcommand"
+        type: choice
+        required: true
+        default: selftest
+        options:
+          - selftest # no key needed: aggregation + grid alignment on synthetic bars
+          - probe # Stage 1: verify the vendor's claims before paying
+          - day # replay one symbol-day end to end
+          - universe # Stage 3 prefilter: candidate symbol-days for a session
+          - calibrate # Stage 2, bars-only: reconstruction vs the live tracker (no key needed)
+          - vendor-calibrate # Stage 2, end to end: Massive bars vs the live tracker, pre-market
+      symbol:
+        description: "Ticker (probe / day)"
+        required: false
+        default: "ARCT"
+      date:
+        description: "Trading date YYYY-MM-DD (probe / day / universe)"
+        required: false
+        default: ""
+      prev_date:
+        description: "Previous session YYYY-MM-DD (universe — supplies the change gate's prev close)"
+        required: false
+        default: ""
+      prev_close:
+        description: "Previous daily close (day — makes the change gate decidable)"
+        required: false
+        default: ""
+      rate_sleep:
+        description: "Seconds between API calls (free tier is 5/min — keep >= 13)"
+        required: false
+        default: "13"
+
+concurrency:
+  group: spike-massive
+  cancel-in-progress: false
+
+permissions:
+  contents: write # push results to the spike-massive-data branch
+
+jobs:
+  replay:
+    name: "massive: ${{ inputs.command }}"
+    # Repository guard, matching data-export.yml: never runs in a fork, so a fork PR can never
+    # reach the secret.
+    if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run the harness
+        id: run
+        env:
+          # Only the two vendor-facing commands get the secret. `selftest` and `calibrate` are pure
+          # replays over data we already own, so they never see it.
+          MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
+          IN_COMMAND: ${{ inputs.command }}
+          IN_SYMBOL: ${{ inputs.symbol }}
+          IN_DATE: ${{ inputs.date }}
+          IN_PREV_DATE: ${{ inputs.prev_date }}
+          IN_PREV_CLOSE: ${{ inputs.prev_close }}
+          IN_RATE_SLEEP: ${{ inputs.rate_sleep }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          name="${IN_COMMAND}_${GITHUB_RUN_ID}.json"
+          echo "RESULT_NAME=$name" >> "$GITHUB_ENV"
+
+          # Inputs are read from the environment inside python-land argument arrays, never
+          # interpolated into the shell, so a stray quote in a symbol can't break out.
+          if [ "$IN_COMMAND" = "calibrate" ]; then
+            python spikes/scanner_reconstruct.py --fixtures --json "out/$name" | tee out/run.log
+          elif [ "$IN_COMMAND" = "vendor-calibrate" ]; then
+            # 31 vendor calls at the free tier's 5/min: ~7 min of deliberate pacing.
+            python spikes/massive_calibration.py --fetch --cache out/massive-cache \
+              --rate-sleep "$IN_RATE_SLEEP" --json "out/$name" | tee out/run.log
+          else
+            # `if` blocks, not `[ -n x ] && …`: under `set -e` a false test as a bare statement
+            # exits the step, so the first blank input would kill the run.
+            args=( "$IN_COMMAND" --rate-sleep "$IN_RATE_SLEEP" --json "out/$name" )
+            if [ -n "$IN_SYMBOL" ]; then args+=( --symbol "$IN_SYMBOL" ); fi
+            if [ -n "$IN_DATE" ]; then args+=( --date "$IN_DATE" ); fi
+            if [ -n "$IN_PREV_DATE" ]; then args+=( --prev-date "$IN_PREV_DATE" ); fi
+            if [ -n "$IN_PREV_CLOSE" ]; then args+=( --prev-close "$IN_PREV_CLOSE" ); fi
+            python spikes/massive_replay.py "${args[@]}" | tee out/run.log
+          fi
+
+      - name: Publish the result to the spike-massive-data branch
+        if: ${{ inputs.command != 'selftest' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          authrepo="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          pub="$(mktemp -d)"
+          if git ls-remote --exit-code --heads "$authrepo" spike-massive-data >/dev/null 2>&1; then
+            git clone --depth 1 --single-branch --branch spike-massive-data "$authrepo" "$pub"
+          else
+            # First run: start an orphan, data-only branch (never merged to main).
+            git clone --depth 1 --single-branch "$authrepo" "$pub"
+            git -C "$pub" checkout --orphan spike-massive-data
+            git -C "$pub" rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          dest="$pub/runs/${GITHUB_RUN_ID}"
+          mkdir -p "$dest"
+          cp "out/$RESULT_NAME" "$dest/" 2>/dev/null || true
+          cp out/run.log "$dest/run.log"
+
+          git -C "$pub" add runs
+          git -C "$pub" \
+            -c user.name='github-actions[bot]' \
+            -c user.email='github-actions[bot]@users.noreply.github.com' \
+            commit -m "spike: massive ${{ inputs.command }} run ${GITHUB_RUN_ID}"
+          git -C "$pub" push origin HEAD:spike-massive-data
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### spike-massive — \`${{ inputs.command }}\`"
+            echo ""
+            echo "- run: \`${GITHUB_RUN_ID}\`"
+            echo "- branch path: \`runs/${GITHUB_RUN_ID}/${RESULT_NAME:-<failed>}\` on \`spike-massive-data\`"
+            echo ""
+            echo '```'
+            tail -c 8000 out/run.log 2>/dev/null || echo "(no output — see step logs)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -27,6 +27,9 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`portfolio_cutoff_sweep.py`](#portfolio_cutoff_sweeppy) | #379 | Replay the virtual book under different selection filters |
 | [`portfolio_slot_split.py`](#portfolio_slot_splitpy) | #416 | Replay the virtual book under different per-slot notional caps |
 | [`open_drive_sweep.py`](#open_drive_sweeppy) | #418 | Quantify a second strategy: a 10-min ORB with a consolidation requirement |
+| [`scanner_reconstruct.py`](#scanner_reconstructpy) | #428 | Rebuild a scanner appearance from bars alone, and calibrate it against what we actually saw |
+| [`massive_replay.py`](#massive_replaypy) | #428 | Massive (ex-Polygon) adapter: vendor minute bars → 5-min grid → detector → R |
+| [`massive_calibration.py`](#massive_calibrationpy) | #428 | Does Massive data alone recreate the pre-market opportunities we actually saw? |
 
 ### `viz_engine.py`
 
@@ -161,6 +164,120 @@ ssh -i ~/.ssh/oracle_scs root@<box> \
    docker cp /tmp/portfolio.json small-cap-stack-app-1:/tmp/ && \
    docker exec small-cap-stack-app-1 python /tmp/open_drive_sweep.py \
        --store /data --payload /tmp/portfolio.json --validate --json /tmp/open-drive.json'
+```
+
+---
+
+### `scanner_reconstruct.py` — issue #428
+
+**Q:** Nobody sells historical scanner output. If all we have is bars, can we rebuild *when the
+scanner would have surfaced a symbol* — closely enough that a multi-year backtest measures the same
+thing the live tracker measures?
+
+**A: yes, but only with the previous daily close.** The three hard scan gates are price-derived
+(`scan_min_price`/`scan_max_price`, `scan_change_pct`, `scan_min_5m_volume`; float and news are
+collected, never gated), so an appearance is reconstructible — except the change gate needs the
+prior session's close, which a single day of bars does not carry. Measured over the 25 committed
+review cases (real bars, real logged appearance times):
+
+- **Bars alone:** the reconstruction fires a **median 18 min early**, and on 6 of 25 it fires on the
+  very first bar of the day. Only **11/25** reproduce the same trade. The change gate is not a
+  detail — it is what holds a symbol back until it has actually run.
+- **With the change gate resolvable:** **20/25** appearances are explained — 10 already land within
+  one bar-grid of the logged time, and 10 more are explained by a *feasible* previous close (the
+  harness inverts the gate and solves for the interval of prior closes consistent with the observed
+  appearance, so the missing input is falsifiable rather than assumed).
+- **5/25 are unexplained** by any previous close (FATE, FWDI, CIFR, IREN, OPEN) — these bound how
+  far a reconstructed universe transfers, and point at the two known biases: the IBKR 50-row cap on
+  a busy morning, and a vendor volume basis that disagrees with `stVolume5minAbove`.
+- Given the right appearance bar, the **engine reproduces the trade 24/25** and agrees on takeable
+  **25/25** — so the reconstruction risk is concentrated entirely in *appearance time*, not in
+  detection. That is the useful decomposition: buy the previous closes, and the rest follows.
+
+Vendor-agnostic by construction (bars in, appearance out), so it serves both the calibration above
+and the Massive harvest next door. Needs no API key and no store:
+
+```bash
+python spikes/scanner_reconstruct.py --fixtures
+python spikes/scanner_reconstruct.py --fixtures --json data/spikes/recon-fixtures.json
+python spikes/scanner_reconstruct.py --store /data --date 2026-07-02   # box/Mac only
+```
+
+### `massive_replay.py` — issue #428
+
+The vendor half: Massive (ex-Polygon) REST → 1-min bars → the IBKR-aligned :00/:05 5-min grid →
+`scanner_reconstruct` → `detect_day` → R-metrics. Stdlib-only HTTP (no new dependency), unadjusted
+prices by default (a split-adjusted feed silently breaks the $1–50 gate for any pre-split year),
+and `next_url` pagination.
+
+The appearance is reconstructed on the **minute** series — a true trailing 5-min rolling sum, the
+closest analogue to IBKR's continuously-updated `stVolume5minAbove` — while detection runs on the
+**5-min** series. That split is the whole reason to pull minute data rather than 5-min aggregates.
+
+⚠️ **`MASSIVE_API_KEY` lives in GitHub Actions secrets only.** A cloud session has no secret store,
+so the key never goes there. Drive it with **`.github/workflows/spike-massive.yml`**, which runs on
+`ubuntu-latest` — deliberately *not* the self-hosted `vps` runner, keeping vendor pulls off the 4 GB
+box — and publishes curated JSON to the orphan `spike-massive-data` branch. Raw bars stay in the
+runner's workspace and die with it.
+
+```bash
+python spikes/massive_replay.py selftest             # no key: aggregation + grid alignment
+MASSIVE_API_KEY=… python spikes/massive_replay.py probe --symbol ARCT --date 2026-07-02
+MASSIVE_API_KEY=… python spikes/massive_replay.py day --symbol ARCT --date 2026-07-02
+MASSIVE_API_KEY=… python spikes/massive_replay.py universe --date 2026-07-02 --prev-date 2026-07-01
+```
+
+`probe` is the Stage-1 go/no-go on the vendor itself, before a penny is spent: extended-hours bars
+from 04:00 ET, delisted tickers resolving, `adjusted=false` really returning as-traded prices, and
+the 1-min → 5-min fold landing on the grid with volume preserved.
+
+### `massive_calibration.py` — issue #428
+
+**Q:** Run the *whole* chain off vendor bars — Massive minute data in, appearance out, `detect_day`
+over it, R out — and does it reproduce the pre-market opportunities the live tracker actually
+recorded?
+
+**A: yes, to within about a minute, on 7 of 8 — and the 8th is not a data problem.** Measured over
+the pre-market session (04:00–09:30 ET, the window the paper book actually trades) against the 25
+review cases, 8 of which carry a live pre-market appearance. 31 vendor calls on the free tier.
+
+- **Appearance timing:** median **−0.34 min**, and 6 of 7 land within 5 minutes (excluding SNDQ,
+  below). Reconstructing on the **minute** series beats the 5-min grid on every single case
+  (median −0.34 vs +3.16 min) — which is the empirical case for buying minute data rather than
+  5-min aggregates.
+- **Trades:** **6/8 reproduce the same trade** (same decision, same entry bar time, same stop to the
+  cent) and **8/8 agree on takeable**; 4 takeable live, 4 takeable from vendor data. ΣMax R 12.27
+  live vs 10.24 reconstructed.
+- **Prices agree, volume does not.** Closes match to a median **$0.005** (max $0.033), but Massive's
+  consolidated volume runs a median **1.10×** IBKR's (mean 1.18×, max 2.29×). Massive also omits
+  no-trade minutes where the IBKR series is dense, so the two sources disagree on *bar count* as
+  well as volume — which is why entry bars must be compared by wall-clock time, never by index.
+- **The prev-close inversion validated out of sample:** intervals predicted before the data was
+  bought contained the true previous close in **6 of 8** (MSTZ predicted 10.99–11.19, actual 11.11).
+
+**The two divergences are separate mechanisms, and only one is fixable.**
+
+1. **OKLL — IBKR's change-percent reference is not the consolidated previous close.** It surfaced
+   OKLL at 06:04, when the price implies only 9.6% against Massive's 4.91 close. For IBKR to have
+   seen >10%, its reference must be **≥0.39% lower**. A systematic, correctable offset.
+2. **SNDQ — the 50-row rank cap, and this is provable rather than guessed.** SNDQ passed every gate
+   from 04:27 (10.3% change, 114k 5-min volume; IBKR's own volume was 1.88M at 04:00, so volume is
+   not the constraint), yet the tracker first saw it at 08:35 — when the price was *lower* (2.14)
+   than at 04:27 (2.15). **No fixed change reference can produce that ordering**, so no gate
+   explains it; only capacity can. `TOP_PERC_GAIN` returns 50 rows, and on a busy morning a name up
+   "only" 10% does not make the list.
+
+That second one is the real limit on transferability, and it is a **ranking** effect, not a gate:
+a per-symbol reconstruction cannot see it at all. Reproducing it needs the whole market ranked at
+each moment — which the Stage-3 shape (grouped-daily for everything, minute bars for candidates)
+is already positioned to do, and which a per-symbol harvest would silently get wrong.
+
+Fetch and analysis are split so the free tier's 5-calls/min budget is spent once:
+
+```bash
+MASSIVE_API_KEY=… python spikes/massive_calibration.py --fetch --cache data/spikes/massive
+python spikes/massive_calibration.py --cache data/spikes/massive --json out.json
+python spikes/massive_calibration.py --cache data/spikes/massive --regular-hours   # contrast
 ```
 
 ---
