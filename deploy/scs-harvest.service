@@ -20,7 +20,10 @@ CPUWeight=20
 # budget. Give it a moment to finish the parquet write it may be inside.
 TimeoutStopSec=120
 KillSignal=SIGTERM
-ExecStart=/opt/small-cap-stack/scripts/harvest.sh run
+# `auto`, not `run`: `run` alone does nothing at all on a box where phase 1 has never happened —
+# it skips every session with "no universe", spends nothing, and exits 0. The nightly job has to
+# advance whichever phase is actually outstanding.
+ExecStart=/opt/small-cap-stack/scripts/harvest.sh auto
 # Deliberately no Restart=: a failed night is not an emergency (the next one resumes from the
 # checkpoint), and a restart loop against a rate-limited vendor is how the API key gets blocked.
 
