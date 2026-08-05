@@ -79,21 +79,51 @@ def test_env_example_has_no_committed_secrets() -> None:
             assert value.strip() == "", f"{key} must be an empty placeholder in .env.example"
 
 
-def test_harvest_unit_is_capped_and_deprioritised() -> None:
-    """The kernel-enforced half of #431's memory story. The in-process guard is a promise; this is
-    the limit — #264 is what happens when only the promise exists."""
-    # Directives only: the unit's comments explain the choices and would otherwise match.
-    unit = [
+def _directives(name: str) -> list[str]:
+    """A unit's directives, comments stripped — the comments explain the choices and would
+    otherwise match the very strings these tests assert are absent."""
+    return [
         ln.strip()
-        for ln in (ROOT / "deploy" / "scs-harvest.service").read_text().splitlines()
+        for ln in (ROOT / "deploy" / name).read_text().splitlines()
         if ln.strip() and not ln.strip().startswith("#")
     ]
-    assert any(d.startswith("MemoryMax=") for d in unit)
-    assert "MemorySwapMax=0" in unit
-    assert "Nice=19" in unit and "IOSchedulingClass=idle" in unit
+
+
+def test_harvest_limits_live_on_the_slice_where_they_reach_the_container() -> None:
+    """The kernel-enforced half of #431's memory story, fixed in #452.
+
+    These directives were on the SERVICE, where they bounded a ~15 MB docker client and nothing
+    else: `docker run` hands container creation to the daemon, which places it in Docker's own
+    scope under system.slice. Measured on the box — default placement
+    `/system.slice/docker-….scope`, versus `/scs.slice/scs-harvest.slice/docker-….scope` with
+    --cgroup-parent. The in-process guard is a promise; this is the limit, and #264 is what
+    happens when only the promise exists."""
+    slice_unit = _directives("scs-harvest.slice")
+    assert any(d.startswith("MemoryMax=") for d in slice_unit)
+    assert "MemorySwapMax=0" in slice_unit
+    # Weights, not Nice/IOSchedulingClass: on cgroup v2 these are what reach a child cgroup.
+    assert any(d.startswith("CPUWeight=") for d in slice_unit)
+    assert any(d.startswith("IOWeight=") for d in slice_unit)
+
+    unit = _directives("scs-harvest.service")
+    assert "Slice=scs-harvest.slice" in unit, "the wrapper must share the container's envelope"
+    # The directives that used to be here did nothing; keeping them would re-assert the fiction.
+    assert not any(d.startswith(("Nice=", "IOSchedulingClass=", "MemoryMax=")) for d in unit)
     # A restart loop against a rate-limited vendor is how the API key gets blocked; a failed night
     # costs nothing because the next one resumes from the checkpoint.
     assert not any(d.startswith("Restart=") for d in unit)
+
+
+def test_the_harvest_container_is_placed_in_that_slice() -> None:
+    """The limits above are inert without this flag — and it must be a `.slice`, because Docker
+    here uses the systemd cgroup driver on cgroup v2, which rejects a `foo.service` parent."""
+    script = (ROOT / "scripts" / "harvest.sh").read_text()
+    assert "--cgroup-parent=scs-harvest.slice" in script
+    # `nice`/`ionice` would deprioritise this shell and the docker client, never the daemon's
+    # child. Removed in #452; assert on the exec line itself so the comment explaining that cannot
+    # satisfy the test.
+    exec_line = next(ln for ln in script.splitlines() if ln.startswith("exec "))
+    assert exec_line == 'exec "${CMD[@]}"'
 
 
 def test_harvest_timer_fires_inside_the_window_and_never_catches_up_at_boot() -> None:

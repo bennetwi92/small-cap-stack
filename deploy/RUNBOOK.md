@@ -315,11 +315,22 @@ cd /opt/small-cap-stack
   `eod_backfill` and the 04:00 scan window. Overriding takes two flags (`--ignore-window --force`)
   — don't, during market hours. Being *launched* at the right time and *refusing* the wrong one are
   different guarantees; only the second survives a late timer.
-- ⚠️ **Memory.** The container gets a hard `--memory=1g` with **no swap**, `nice -n 19`, `ionice`
-  idle, one CPU, and `--oom-score-adj=800` so the kernel prefers it over everything else on the
-  box. It is a separate `docker run`, **not** `docker exec` into the app — sharing the tracker's
-  cgroup would spend the tracker's headroom and OOM the tracker instead of the harvest (#264/#273).
-  The job also checks host headroom between sessions and stops cleanly when the box gets tight.
+- ⚠️ **Memory.** The container gets a hard `--memory=1g` with **no swap**, one CPU, and
+  `--oom-score-adj=800` so the kernel prefers it over everything else on the box. It is a separate
+  `docker run`, **not** `docker exec` into the app — sharing the tracker's cgroup would spend the
+  tracker's headroom and OOM the tracker instead of the harvest (#264/#273). The job also checks
+  host headroom between sessions and stops cleanly when the box gets tight.
+- ⚠️ **The limits live on `scs-harvest.slice`, not on the service (#452).** `docker run` hands
+  container creation to the daemon, so the container lands in Docker's own scope under
+  `system.slice` — measured: `/system.slice/docker-….scope` by default, versus
+  `/scs.slice/scs-harvest.slice/docker-….scope` with `--cgroup-parent`. Before #452 the service's
+  `MemoryMax`/`Nice`/`IOSchedulingClass` bounded a ~15 MB docker client and nothing else, and the
+  wrapper's `nice`/`ionice` prefix deprioritised a process that spends its life blocked on a
+  socket. The slice's `MemoryMax=1200M` is now the real backstop — it binds even a container given
+  no `--memory` of its own, so a mis-set `HARVEST_MEM_LIMIT` in `.env` can no longer exceed it.
+  Check it with `systemctl show scs-harvest.slice -p MemoryMax` and
+  `systemd-cgls /scs.slice/scs-harvest.slice` while a harvest runs. Re-run the `harvest` workflow
+  with `command: install-units` after changing any of the three units.
 - ⚠️ **The vendor's window is shorter than the one you plan (#440).** `HARVEST_LOOKBACK_DAYS` (730)
   says how far back to *ask*; the free tier's ~2-year entitlement says how far back you *get*. Phase
   1 walks ascending and pays one extra call for the session **before** the oldest planned one, to
