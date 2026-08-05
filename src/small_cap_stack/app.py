@@ -22,6 +22,7 @@ from .dashboard import (
     build_stats,
     build_status,
     charts_path,
+    harvest_progress,
     read_json,
     upsert_index_date,
     write_json,
@@ -275,6 +276,9 @@ class Application:
                 deployed_commit=self.settings.deployed_commit or None,
                 scan_ticks_total=int(metric_value("scs_scan_ticks_total")),
                 jobs=[(j.id, j.next_run_time) for j in self.scheduler.get_jobs()],
+                # The overnight harvest lives in its own store and its own container, so the tick
+                # is the only thing that reports on it (#450). Reads one small JSON file.
+                harvest=harvest_progress(self.settings, now=now.astimezone(UTC)),
             )
             t0 = time.perf_counter()
             payload = build_status(self.store, inputs)
