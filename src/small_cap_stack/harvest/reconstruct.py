@@ -237,7 +237,14 @@ def _gate_trace(
     traces: list[GateTrace] = []
     for i, bar in enumerate(bars):
         end = bar.start + interval
-        change = None if prev_close in (None, 0) else (bar.close / float(prev_close) - 1.0) * 100.0
+        # Spelled out rather than `prev_close in (None, 0)`: that form leans on __eq__ to do the
+        # narrowing and newer mypy declines to follow it. Same meaning — a zero close is as
+        # undecidable as a missing one, and dividing by it would be worse than abstaining.
+        change = (
+            None
+            if prev_close is None or prev_close == 0
+            else (bar.close / prev_close - 1.0) * 100.0
+        )
         traces.append(
             GateTrace(
                 idx=i,

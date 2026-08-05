@@ -16,6 +16,7 @@ The schema tests are the other half: the harvest's whole value is that
 
 from __future__ import annotations
 
+import io
 import json
 import urllib.error
 from collections.abc import Sequence
@@ -55,7 +56,7 @@ from small_cap_stack.harvest import (
 from small_cap_stack.harvest import __main__ as cli_mod
 from small_cap_stack.harvest.checkpoint import CHECKPOINT_VERSION
 from small_cap_stack.harvest.runner import checkpoint_path
-from small_cap_stack.harvest.source import HarvestError
+from small_cap_stack.harvest.source import HarvestEntitlementError, HarvestError
 from small_cap_stack.portfolio import extract_day_trades
 from small_cap_stack.storage import Store
 
@@ -158,20 +159,36 @@ class FakeSource:
         grouped: dict[date, list[dict[str, Any]]] | None = None,
         minutes: dict[tuple[str, date], list[dict[str, Any]]] | None = None,
         fail_on: set[str] | None = None,
+        entitled_from: date | None = None,
     ) -> None:
         self._grouped = grouped or {}
         self._minutes = minutes or {}
         self._fail_on = fail_on or set()
+        #: Dates before this are refused the way the real vendor refuses them (#440) — a 403 whose
+        #: body says the plan does not reach that far back, not a transport failure.
+        self._entitled_from = entitled_from
         self.calls = 0
         self.requested: list[tuple[str, date]] = []
+        self.grouped_requested: list[date] = []
+
+    def _entitlement_check(self, day: date) -> None:
+        if self._entitled_from is not None and day < self._entitled_from:
+            raise HarvestEntitlementError(
+                f"HTTP 403 on .../{day.isoformat()}: "
+                '{"status":"NOT_AUTHORIZED","message":"Attempted to request data past historical '
+                'entitlements. Please upgrade your plan at https://polygon.io/pricing"}'
+            )
 
     def grouped_daily(self, day: date) -> list[dict[str, Any]]:
         self.calls += 1
+        self.grouped_requested.append(day)
+        self._entitlement_check(day)
         return list(self._grouped.get(day, []))
 
     def minute_bars(self, symbol: str, day: date) -> list[dict[str, Any]]:
         self.calls += 1
         self.requested.append((symbol, day))
+        self._entitlement_check(day)
         if symbol in self._fail_on:
             raise RuntimeError(f"vendor blew up on {symbol}")
         return list(self._minutes.get((symbol, day), []))
@@ -1097,3 +1114,213 @@ def test_auto_refuses_outside_the_window_like_the_others(
     _at_et(monkeypatch, 5, 0)
     assert _cli(monkeypatch, s, ["auto"]) == 3
     assert "refusing to start at 05:00 ET" in capsys.readouterr().err
+
+
+# ================================================================================================
+# The entitlement floor (#440): the vendor's window is shorter than the one we planned
+# ================================================================================================
+#
+# The bug this section pins down took the harvest from "45 nights" to "never": phase 1 walks
+# ascending and pays one extra call for the session BEFORE the oldest planned one, which sits one
+# session past a lookback set at the entitlement edge. The HarvestError propagated straight out to
+# `main`, so a single unbuyable date at the far end of a 477-session window cost 100% of the job,
+# every night, for as long as it ran.
+
+
+def _entitlement_window(s: Settings, today: date) -> list[date]:
+    """The sessions `plan_sessions` would hand phase 1 for ``today``, ascending."""
+    return sorted(plan_sessions(s, today=today))
+
+
+def test_a_seed_call_past_the_entitlement_no_longer_kills_the_night(tmp_path: Path) -> None:
+    """The production failure of 2026-08-04, in miniature.
+
+    The oldest planned session is servable; the previous close it needs is not. That must cost the
+    one session it actually blocks, not the whole run.
+    """
+    s = _settings(tmp_path, harvest_lookback_days=6)
+    store = harvest_store(s)
+    today = date(2026, 7, 10)
+    sessions = _entitlement_window(s, today)
+    assert sessions[0] == date(2026, 7, 6)  # its prior is 2026-07-02 (the 3rd is the holiday)
+    grouped = {
+        d: [_grouped_row("RUNNER", high=6.0, close=5.0, volume=9e6)]
+        for d in [*sessions, date(2026, 7, 2)]
+    }
+    source = FakeSource(grouped=grouped, entitled_from=date(2026, 7, 6))
+    cp = Checkpoint.load(checkpoint_path(s))
+
+    results = harvest_daily(source, store, s, sessions, checkpoint=cp)
+
+    harvested = [r.trading_date for r in results]
+    assert harvested == sessions[1:], "everything reachable should have been harvested"
+    assert cp.entitlement_floor == date(2026, 7, 2)  # the date actually refused
+    assert stored_universe(store, sessions[1])  # and its universe really landed
+
+
+def test_the_unseedable_session_does_not_cascade_into_the_whole_window(tmp_path: Path) -> None:
+    """The trap in the obvious fix.
+
+    Session D is skipped because its *prior* is unbuyable. Recording D as the floor too would make
+    D+1 unseedable (its prior is D), then D+2, and so on — the floor would walk the length of the
+    window and the harvest would report a clean run having stored nothing.
+    """
+    s = _settings(tmp_path, harvest_lookback_days=6)
+    store = harvest_store(s)
+    today = date(2026, 7, 10)
+    sessions = _entitlement_window(s, today)
+    grouped = {
+        d: [_grouped_row("RUNNER", high=6.0, close=5.0, volume=9e6)]
+        for d in [*sessions, date(2026, 7, 2)]
+    }
+    source = FakeSource(grouped=grouped, entitled_from=date(2026, 7, 6))
+    cp = Checkpoint.load(checkpoint_path(s))
+
+    harvest_daily(source, store, s, sessions, checkpoint=cp)
+
+    assert cp.entitlement_floor == date(2026, 7, 2), "the floor walked forward off a derived skip"
+    assert len(cp.daily_done) == len(sessions) - 1
+
+
+def test_the_floor_is_persisted_so_the_next_night_neither_replans_nor_reprobes(
+    tmp_path: Path,
+) -> None:
+    """A refusal costs a call. Paying it once a night forever is a slow leak, and a backlog that
+    counts dates nobody can buy is a progress bar that never reaches the end."""
+    s = _settings(tmp_path, harvest_lookback_days=6)
+    store = harvest_store(s)
+    today = date(2026, 7, 10)
+    sessions = _entitlement_window(s, today)
+    grouped = {
+        d: [_grouped_row("RUNNER", high=6.0, close=5.0, volume=9e6)]
+        for d in [*sessions, date(2026, 7, 2)]
+    }
+    source = FakeSource(grouped=grouped, entitled_from=date(2026, 7, 6))
+    cp = Checkpoint.load(checkpoint_path(s))
+    harvest_daily(source, store, s, sessions, checkpoint=cp)
+
+    reloaded = Checkpoint.load(checkpoint_path(s))
+    assert reloaded.entitlement_floor == date(2026, 7, 2)  # survived the process boundary
+
+    # Night two plans against it: the refused date is gone from the window entirely.
+    planned = plan_sessions(
+        s, today=today, done=sorted(reloaded.done), not_before=reloaded.entitlement_floor
+    )
+    assert date(2026, 7, 2) not in planned
+    assert all(d > date(2026, 7, 2) for d in planned)
+
+    # ...and re-running phase 1 asks the vendor nothing about the dates it already knows are dead.
+    second = FakeSource(grouped=grouped, entitled_from=date(2026, 7, 6))
+    harvest_daily(second, store, s, sessions, checkpoint=reloaded)
+    assert date(2026, 7, 2) not in second.grouped_requested
+
+
+def test_a_plain_403_still_stops_the_night_rather_than_trimming_the_window(tmp_path: Path) -> None:
+    """A revoked key is also a 403. Misreading it as an entitlement edge would trim the plan to
+    nothing every night while reporting a clean run — worse than the crash being fixed here."""
+    s = _settings(tmp_path, harvest_lookback_days=6)
+    store = harvest_store(s)
+    sessions = _entitlement_window(s, date(2026, 7, 10))
+
+    class KeyRevoked(FakeSource):
+        def grouped_daily(self, day: date) -> list[dict[str, Any]]:
+            self.calls += 1
+            raise HarvestError(
+                'HTTP 403 on .../x: {"status":"NOT_AUTHORIZED","message":"Unknown API Key"}'
+            )
+
+    cp = Checkpoint.load(checkpoint_path(s))
+    with pytest.raises(HarvestError, match="Unknown API Key"):
+        harvest_daily(KeyRevoked(), store, s, sessions, checkpoint=cp)
+    assert cp.entitlement_floor is None
+
+
+def test_phase_2_never_marks_an_entitlement_blocked_session_done(tmp_path: Path) -> None:
+    """`_accumulate_symbol` swallows per-symbol failures, which for a wholly unbuyable date would
+    mean an empty session marked complete — indistinguishable ever after from a quiet day."""
+    s = _settings(tmp_path, harvest_rate_sleep_sec=0.0)
+    store = harvest_store(s)
+    newer, older = DAY, date(2026, 7, 1)
+    for d in (newer, older):
+        store.append("daily_universe", [_daily("AAAA").as_record()], partition_date=d)
+    source = FakeSource(
+        minutes={("AAAA", d): _runner_minutes(d) for d in (newer, older)},
+        entitled_from=newer,
+    )
+    cp = Checkpoint.load(checkpoint_path(s))
+
+    run = run_harvest(
+        source,
+        store,
+        s,
+        [newer, older],  # newest-first, as plan_sessions returns them
+        checkpoint=cp,
+        window=RunWindow(),
+        now_fn=_clock(datetime.combine(newer, time(22, 0), tzinfo=ET)),
+    )
+
+    assert run.completed == (newer,)
+    assert cp.done == {newer}, "the unbuyable date must stay pending, not be recorded as harvested"
+    assert cp.entitlement_floor == older
+    assert "entitlement-floor" in run.stopped_because
+    for dataset in HARVEST_DATASETS:
+        assert not (store.data_dir / dataset / f"dt={older.isoformat()}").exists()
+
+
+def test_note_entitlement_floor_only_ever_moves_forward(tmp_path: Path) -> None:
+    """The entitlement is a rolling window, so a date outside it stays outside it. A floor that
+    could move backwards would re-open dates already paid for in refused calls."""
+    cp = Checkpoint.load(tmp_path / "cp.json")
+    assert cp.note_entitlement_floor(date(2024, 8, 2)) is True
+    assert cp.note_entitlement_floor(date(2024, 1, 1)) is False  # older tells us nothing new
+    assert cp.entitlement_floor == date(2024, 8, 2)
+    assert cp.note_entitlement_floor(date(2024, 9, 1)) is True
+    assert Checkpoint.load(cp.path).entitlement_floor == date(2024, 9, 1)
+
+
+def test_a_checkpoint_written_before_the_floor_existed_still_loads(tmp_path: Path) -> None:
+    """The field was added WITHOUT a version bump on purpose: `load` refuses an unknown version,
+    so bumping it would brick the box's existing checkpoint — the record of its spent budget."""
+    path = tmp_path / "cp.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": CHECKPOINT_VERSION,
+                "done": [DAY.isoformat()],
+                "daily_done": [],
+                "calls": 218,
+                "updated_at": "2026-08-04T22:02:00+00:00",
+            }
+        )
+    )
+    cp = Checkpoint.load(path)
+    assert cp.entitlement_floor is None
+    assert cp.done == {DAY} and cp.calls == 218
+
+
+def test_massive_source_tells_an_entitlement_refusal_from_any_other_403(monkeypatch: Any) -> None:
+    """The classification happens at the transport, from the body — the only place it can."""
+    bodies = {
+        "entitled": b'{"status":"NOT_AUTHORIZED","message":"Attempted to request data past '
+        b'historical entitlements. Please upgrade your plan."}',
+        "revoked": b'{"status":"NOT_AUTHORIZED","message":"Unknown API Key"}',
+    }
+
+    def _raise(body: bytes) -> Any:
+        def boom(*_a: Any, **_k: Any) -> Any:
+            raise urllib.error.HTTPError(
+                "https://x/y?apiKey=SECRET", 403, "forbidden", {}, io.BytesIO(body)
+            )  # type: ignore[arg-type]
+
+        return boom
+
+    src = MassiveSource(api_key="SECRET", rate_sleep_sec=0.0, sleep=lambda _: None)
+    monkeypatch.setattr("urllib.request.urlopen", _raise(bodies["entitled"]))
+    with pytest.raises(HarvestEntitlementError) as entitled:
+        src.grouped_daily(DAY)
+    assert "SECRET" not in str(entitled.value)
+
+    monkeypatch.setattr("urllib.request.urlopen", _raise(bodies["revoked"]))
+    with pytest.raises(HarvestError) as revoked:
+        src.grouped_daily(DAY)
+    assert not isinstance(revoked.value, HarvestEntitlementError)
