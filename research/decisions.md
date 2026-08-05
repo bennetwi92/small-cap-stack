@@ -714,15 +714,32 @@ on a box that has already killed itself once*.
    the next symbol. Peak resident set is one symbol-day of minute bars plus one session's rows, and
    it does not grow with the number of sessions harvested. That is the #273 failure mode designed
    against rather than promised away.
-2. **A window the job refuses to run outside** — 17:00→03:00 ET, hard-stopping at 03:00, clear of
-   the 03:45 `eod_backfill` and the 04:00 scan window. Being *launched* at the right time and
-   *refusing* the wrong one are different guarantees; a late timer, a manual re-run or an overrun
-   only trips the second. Overriding takes two deliberate flags (#261's principle).
-3. **A cgroup limit the kernel enforces** — a separate `docker run --memory=1g` with swap disabled,
-   `nice -n 19`, `ionice` idle, `--oom-score-adj=800`. Deliberately **not** `docker exec` into the
-   app: sharing the tracker's 2 GB cgroup would spend the tracker's headroom and OOM the tracker
-   instead of the harvest. The in-process host-headroom check stops *at* a checkpoint; the cgroup
-   cap kills *before* the host is at risk. A promise is not a limit.
+2. **A window the job refuses to run outside** — ⚠️ **AMENDED 2026-08-05 (#455): 12:30→03:00 ET**,
+   from 17:00→03:00. At the free tier the harvest's calendar is set purely by hours-per-day, and
+   12:00–16:20 ET is the only block of the box's day nothing is scheduled in — worth ~4.5 hours,
+   taking ~40 nights to ~27. Still hard-stopping at 03:00, clear of the 03:45 `eod_backfill` and
+   the 04:00 scan window. Being *launched* at the right time and *refusing* the wrong one are
+   different guarantees; a late timer, a manual re-run or an overrun only trips the second.
+   Overriding takes two deliberate flags (#261's principle).
+   **The widened window spans the two EOD jobs, so it needed a third bound: `harvest_eod_recess_et`
+   (16:10).** The reviewed-away assumption was that `HostGuard` would cover this. It cannot — the
+   guard is checked once per *session*, and a session is ~47 min, so a 12:30 start puts session
+   boundaries at 15:38 and 16:25 and the harvest is *inside* a session, holding 1 GB with no swap,
+   across both EOD jobs while `build_portfolio_payload` runs. A deadline is enforced between
+   symbols and by the "don't start what you cannot finish" pre-check, so it bounds where the
+   container can still be *running*; the guard only bounds where a new session may *begin*.
+3. **A cgroup limit the kernel enforces** — a separate `docker run --memory=1g` with swap disabled
+   and `--oom-score-adj=800`. Deliberately **not** `docker exec` into the app: sharing the
+   tracker's 2 GB cgroup would spend the tracker's headroom and OOM the tracker instead of the
+   harvest. The in-process host-headroom check stops *at* a checkpoint; the cgroup cap kills
+   *before* the host is at risk. A promise is not a limit.
+   ⚠️ **AMENDED 2026-08-05 (#452):** the limits live on **`scs-harvest.slice`** with
+   `--cgroup-parent`, not on the service unit, and the deprioritisation is `CPUWeight`/`IOWeight`,
+   not ~~`nice -n 19`/`ionice` idle~~. `docker run` hands container creation to the daemon, so the
+   container landed in `/system.slice/docker-….scope` — the unit's `MemoryMax` bounded a ~15 MB
+   docker client and the `nice` prefix deprioritised a process blocked on a socket. Measured, and
+   verified by having the kernel kill a container given no `--memory` of its own inside a 64 M
+   slice.
 
 **A session is atomic.** Each dataset lands in one parquet file written at session end, and the
 checkpoint is marked after. So a kill — hard stop, OOM, hard reboot — leaves the date with no files

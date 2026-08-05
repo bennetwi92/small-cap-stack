@@ -1,5 +1,5 @@
 [Unit]
-Description=small-cap-stack overnight pre-market harvest (#431)
+Description=small-cap-stack pre-market harvest (#431)
 Documentation=https://github.com/bennetwi92/small-cap-stack/blob/main/deploy/RUNBOOK.md
 After=network-online.target docker.service
 Wants=network-online.target

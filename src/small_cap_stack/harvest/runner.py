@@ -75,6 +75,7 @@ from pathlib import Path
 from typing import Any
 
 from ..capture import bar_record, opportunity_id, opportunity_record, scanner_hit_record
+from ..clock import ET
 from ..config import Settings
 from ..logging import get_logger
 from ..market_calendar import is_trading_day
@@ -400,6 +401,31 @@ def harvest_daily(
     return results
 
 
+def effective_deadline(window: RunWindow, s: Settings, started: datetime) -> datetime:
+    """When this run must be checkpointed and stopped — the window's stop, or the EOD recess (#455).
+
+    The widened 12:30-03:00 window contains the box's two EOD jobs (``eod_bars_fetch`` 16:20,
+    ``eod_report`` 16:30), and ``eod_report`` runs ``build_portfolio_payload`` — the ~1.5 GB,
+    still-growing (#273) job that OOM-killed this box in #264. A run that started in the afternoon
+    must therefore be *finished* before then, not merely willing to stop.
+
+    ``HostGuard`` cannot provide that. It is checked once per session, and a session is ~217
+    candidates x 13 s = 47 minutes, so with a 12:30 start the boundaries fall at 15:38 and 16:25 —
+    the harvest is *inside* a session across both EOD jobs, holding 1 GB with ``MemorySwapMax=0``,
+    with nothing sampling host memory at all. A deadline is enforced between symbols and by the
+    "don't start what you cannot finish" pre-check, so it bounds where the container can still be
+    running; the guard only bounds where a *new session* may begin.
+
+    Evening runs are unaffected: the recess is in the past by then, so the window's own stop wins.
+    """
+    stop = window.deadline(started)
+    et = started.astimezone(ET)
+    if et.time() >= s.harvest_eod_recess_et:
+        return stop  # started after the recess (the evening run) — nothing to duck
+    recess = datetime.combine(et.date(), s.harvest_eod_recess_et, tzinfo=ET)
+    return min(stop, recess)
+
+
 def _note_floor(
     checkpoint: Checkpoint | None, floor: date | None, refused: date, exc: HarvestError
 ) -> date:
@@ -662,7 +688,7 @@ def run_harvest(
 
     The three stop conditions are all *clean*: each leaves the checkpoint accurate and the store
     holding only whole sessions. ``ignore_window`` exists for the on-box smoke test and is the one
-    way to run outside 17:00–03:00 ET — the CLI makes it two deliberate flags, because a
+    way to run outside the configured window — the CLI makes it two deliberate flags, because a
     confirmation the caller auto-answers protects nobody (#261).
     """
     started = now_fn()
@@ -670,7 +696,7 @@ def run_harvest(
         log.warning("harvest.refused", window=window.describe(), now=started.isoformat())
         return HarvestRun((), f"outside-window ({window.describe()})", 0, 0.0, peak_rss_mb())
 
-    deadline = window.deadline(started)
+    deadline = effective_deadline(window, s, started)
     guard = HostGuard(
         min_mem_available_mb=s.harvest_min_mem_available_mb,
         min_disk_free_mb=s.harvest_min_disk_free_mb,
@@ -682,7 +708,7 @@ def run_harvest(
             night.stopped = "max-sessions"
             break
         if now_fn() >= deadline:
-            night.stopped = "hard-stop"
+            night.stopped = "eod-recess" if deadline < window.deadline(started) else "hard-stop"
             break
         headroom = guard.check(str(store.data_dir))
         if not headroom.ok:
@@ -701,7 +727,11 @@ def run_harvest(
         if now_fn() + timedelta(seconds=estimate) > deadline:
             # Don't start what the night cannot finish: an abandoned session writes nothing, so the
             # calls it burned buy nothing either. Stopping here keeps them for tomorrow.
-            night.stopped = "hard-stop (next session would overrun)"
+            night.stopped = (
+                "eod-recess (next session would overrun)"
+                if deadline < window.deadline(started)
+                else "hard-stop (next session would overrun)"
+            )
             break
 
         discard_partial(store, day)  # a previous kill may have left files for an unmarked date

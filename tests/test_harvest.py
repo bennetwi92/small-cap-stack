@@ -55,7 +55,7 @@ from small_cap_stack.harvest import (
 )
 from small_cap_stack.harvest import __main__ as cli_mod
 from small_cap_stack.harvest.checkpoint import CHECKPOINT_VERSION
-from small_cap_stack.harvest.runner import checkpoint_path
+from small_cap_stack.harvest.runner import checkpoint_path, effective_deadline
 from small_cap_stack.harvest.source import HarvestEntitlementError, HarvestError
 from small_cap_stack.portfolio import extract_day_trades
 from small_cap_stack.storage import Store
@@ -958,7 +958,10 @@ def test_cli_status_reports_the_window_and_what_is_left(
     assert _cli(monkeypatch, s, ["status", "--today", "2026-07-10"]) == 0
     payload = _json_out(capsys)
     assert payload["sessions_done"] == 1
-    assert payload["window"] == "17:00–03:00 ET"
+    # Derived, not literal (#455): the window is a setting, and a test that pins the string has to
+    # be edited every time it moves — which is how a test stops asserting anything.
+    window = RunWindow(start=s.harvest_start_et, stop=s.harvest_stop_et)
+    assert payload["window"] == window.describe()
     assert DAY.isoformat() not in payload["next_sessions"]
     assert payload["next_hard_stop"].endswith("03:00:00-04:00")  # ET, not UTC or host-local
 
@@ -982,7 +985,11 @@ def test_cli_sweep_measures_the_floors_from_stored_rows_without_calling_the_vend
     assert payload["dates"] == 1
     assert payload["mean_candidates_per_day"] == {"100000": 4.0, "500000": 2.0}
     # Fewer candidates a session => more sessions a night. That is the whole decision.
-    assert payload["sessions_per_8h_night"]["500000"] > payload["sessions_per_8h_night"]["100000"]
+    # Renamed from `sessions_per_8h_night` (#455): the estimate is derived from the CONFIGURED
+    # window rather than a hardcoded 8 hours, which was already an under-count at 17:00-03:00 and
+    # would have had `sweep` recommend a floor against a day 70% shorter than the real one.
+    assert payload["sessions_per_day"]["500000"] > payload["sessions_per_day"]["100000"]
+    assert payload["window_hours"] == pytest.approx(13.67, abs=0.05)
 
 
 def test_cli_prefilter_costs_nothing_and_shows_what_a_session_would_fetch(
@@ -1049,7 +1056,7 @@ def test_cli_refuses_both_vendor_spending_commands_inside_the_scan_window(
     assert _cli(monkeypatch, s, [command, "--today", "2026-07-10", "--limit", "1"]) == 3
     err = capsys.readouterr().err
     assert "refusing to start at 05:00 ET" in err
-    assert "17:00" in err
+    assert s.harvest_start_et.strftime("%H:%M") in err
 
 
 @pytest.mark.parametrize("command", ["run", "daily"])
@@ -1723,3 +1730,94 @@ def test_a_quiet_symbol_is_a_zero_not_a_failure(tmp_path: Path) -> None:
     assert result.complete, "a session of quiet names is a real, harvested, empty day"
     assert result.failed == 0
     assert result.opportunities == 0
+
+
+# ================================================================================================
+# The widened window and its EOD recess (#455)
+# ================================================================================================
+
+
+def test_run_window_default_mirrors_settings() -> None:
+    """`RunWindow`'s defaults exist only so tests can say `RunWindow()`. They are a SECOND source of
+    truth for a value CLAUDE.md says lives in `config.py`, and before #455 they had silently
+    diverged — ~11 runner tests were exercising a 17:00 window that no longer existed anywhere."""
+    s = _settings(Path("/tmp"))
+    assert RunWindow() == RunWindow(start=s.harvest_start_et, stop=s.harvest_stop_et)
+
+
+def test_an_afternoon_run_stops_clear_of_the_eod_jobs() -> None:
+    """The core of #455, and the thing `HostGuard` cannot do.
+
+    The guard is checked once per SESSION and a session is ~47 minutes, so with a 12:30 start the
+    boundaries fall at 15:38 and 16:25 — the harvest is *inside* a session across both EOD jobs,
+    holding 1 GB with no swap, while `build_portfolio_payload` (~1.5 GB, still growing, #273) runs.
+    A deadline is enforced between symbols, so unlike the guard it bounds where the container can
+    still be running."""
+    s = _settings(Path("/tmp"))
+    win = RunWindow(start=s.harvest_start_et, stop=s.harvest_stop_et)
+    started = datetime.combine(DAY, s.harvest_start_et, tzinfo=ET)
+
+    deadline = effective_deadline(win, s, started)
+
+    assert deadline.astimezone(ET).time() == s.harvest_eod_recess_et
+    assert deadline.astimezone(ET).date() == DAY
+    assert deadline < datetime.combine(DAY, s.eod_bars_fetch, tzinfo=ET)
+    assert deadline < win.deadline(started), "the afternoon run must not inherit the 03:00 stop"
+
+
+def test_the_evening_run_keeps_the_full_window() -> None:
+    """The recess is in the past by 17:15, so the evening run gets its 03:00 stop unchanged —
+    otherwise the widening would have *cost* hours rather than added them."""
+    s = _settings(Path("/tmp"))
+    win = RunWindow(start=s.harvest_start_et, stop=s.harvest_stop_et)
+    started = datetime.combine(DAY, time(17, 15), tzinfo=ET)
+
+    deadline = effective_deadline(win, s, started)
+
+    assert deadline == win.deadline(started)
+    assert deadline.astimezone(ET).time() == s.harvest_stop_et
+    assert deadline.astimezone(ET).date() == DAY + timedelta(days=1)  # 03:00 TOMORROW
+
+
+def test_a_run_after_midnight_is_not_pushed_out_to_the_next_afternoon() -> None:
+    """The boundary the recess could plausibly get wrong: at 00:30 the clock reads earlier than
+    16:10, but the correct stop is 03:00 in three hours, not the recess in sixteen."""
+    s = _settings(Path("/tmp"))
+    win = RunWindow(start=s.harvest_start_et, stop=s.harvest_stop_et)
+    started = datetime.combine(DAY, time(0, 30), tzinfo=ET)
+
+    deadline = effective_deadline(win, s, started)
+
+    assert deadline.astimezone(ET).time() == s.harvest_stop_et
+    assert (deadline - started).total_seconds() / 3600 == pytest.approx(2.5)
+
+
+def test_the_afternoon_run_refuses_a_session_it_cannot_finish_before_the_recess(
+    tmp_path: Path,
+) -> None:
+    """The recess is only worth anything if the 'don't start what you cannot finish' pre-check
+    honours it — otherwise a session begun at 15:50 runs straight through 16:30 anyway."""
+    s = _settings(tmp_path, harvest_rate_sleep_sec=13.0)
+    store = harvest_store(s)
+    for d in (DAY, PREV):
+        store.append(
+            "daily_universe",
+            [_daily(f"S{i:03d}").as_record() for i in range(200)],  # ~43 min of work
+            partition_date=d,
+        )
+    cp = Checkpoint.load(checkpoint_path(s))
+    source = FakeSource(minutes={})
+
+    run = run_harvest(
+        source,
+        store,
+        s,
+        [DAY, PREV],
+        checkpoint=cp,
+        window=RunWindow(start=s.harvest_start_et, stop=s.harvest_stop_et),
+        now_fn=_clock(datetime.combine(DAY, time(15, 50), tzinfo=ET)),
+    )
+
+    assert run.completed == ()
+    assert "eod-recess" in run.stopped_because, run.stopped_because
+    assert source.calls == 0, "it started a session it could not finish before the EOD jobs"

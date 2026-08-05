@@ -1,13 +1,29 @@
 [Unit]
-Description=Nightly small-cap-stack pre-market harvest
+Description=small-cap-stack pre-market harvest (afternoon + evening)
 Documentation=https://github.com/bennetwi92/small-cap-stack/blob/main/deploy/RUNBOOK.md
 
 [Timer]
-# 18:00 ET nightly — an hour into the 17:00-03:00 ET window, well clear of the 16:30 EOD report on
-# one side and the 02:30 backup / 03:45 eod_backfill on the other. The job carries its OWN 03:00
-# hard stop, so a late or catch-up fire cannot run into the tracker's morning.
-OnCalendar=*-*-* 18:00:00 America/New_York
-# Persistent=false ON PURPOSE, unlike the backup timer: a missed night is not work to catch up on
+# FOUR fires a day, all inside the 12:30-03:00 ET window (#455).
+#
+# 12:30 — half an hour after the 11:59 scan close, opening the one block of the box's day that
+# nothing else is scheduled in. At the free tier's 5 calls/min the harvest's calendar is set purely
+# by hours-per-day, so this is ~4.5 extra hours of budget for no extra risk to the tracker.
+#
+# 17:15 — the resumption. `harvest_eod_recess_et` stops the afternoon run at 16:10, clear of
+# `eod_bars_fetch` (16:20) and `eod_report` (16:30), so this fire is the one that does the evening.
+#
+# 20:00, 23:00 — recovery. `HostGuard` ends a WHOLE run when host memory or disk dips below its
+# floor, at whichever session boundary follows the dip; without later fires, a 20:30 dip would cost
+# everything to 03:00 and nothing would notice (the harvest is deliberately off Healthchecks).
+# Extra fires are free: `Type=oneshot` has no `RemainAfterExit`, so while a run is in flight the
+# unit is `activating` and systemd MERGES the duplicate start job — ExecStart is not re-executed
+# and nothing appears in the journal. They cost something only when there is nothing running,
+# which is exactly when they are wanted.
+OnCalendar=*-*-* 12:30:00 America/New_York
+OnCalendar=*-*-* 17:15:00 America/New_York
+OnCalendar=*-*-* 20:00:00 America/New_York
+OnCalendar=*-*-* 23:00:00 America/New_York
+# Persistent=false ON PURPOSE, unlike the backup timer: a missed fire is not work to catch up on
 # at boot (the harvest resumes from its checkpoint whenever it next runs), and a boot-time fire
 # could land at 04:00 with the scan window opening.
 Persistent=false

@@ -89,12 +89,28 @@ class Settings(BaseSettings):
     # rather than a re-read.
     # Turn off only if disk gets tight — the 5-min `bars` the engine reads are written either way.
     harvest_store_minute_bars: bool = True
-    # The nightly window the job may run in, ET. The box's day is booked: eod_backfill 03:45, scan
+    # The window the job may run in, ET. The box's day is booked: eod_backfill 03:45, scan
     # 04:00-11:59, eod_bars_fetch 16:20, eod_report 16:30. The hard stop at 03:00 leaves 45 minutes
     # of clearance. The job REFUSES to start outside this — being launched at the right time and
     # refusing the wrong one are different guarantees, and only the second survives a late timer.
-    harvest_start_et: time = time(17, 0)
+    #
+    # Widened from 17:00 to 12:30 (#455): 12:00-16:20 ET is the one block of the box's day nothing
+    # is scheduled in, and at the free tier's 5 calls/min the harvest's calendar is set purely by
+    # hours-per-day. 12:30 leaves half an hour after the 11:59 scan close. The window therefore
+    # spans the two EOD jobs, and `harvest_eod_recess_et` below — not the host guard — is what
+    # keeps the harvest out of them.
+    harvest_start_et: time = time(12, 30)
     harvest_stop_et: time = time(3, 0)
+    # The afternoon run's OWN stop, 10 minutes before `eod_bars_fetch` (#455). This is what makes
+    # the widened window safe, and it replaces an argument that did not survive review: the claim
+    # was that `HostGuard` would stop the harvest if the EOD jobs made the box tight. It cannot.
+    # The guard runs once per SESSION, and a session is ~217 candidates x 13 s = 47 minutes — so
+    # with a 12:30 start the boundaries land at 15:38 and 16:25, and the harvest sits inside a
+    # session, holding 1 GB with MemorySwapMax=0, straight through `build_portfolio_payload` at
+    # 16:30 — the ~1.5 GB, still-growing (#273) job that OOM-killed this box in #264.
+    # A deadline is enforced BETWEEN symbols and by the "don't start what you cannot finish"
+    # pre-check, so unlike the guard it genuinely bounds where the container can still be running.
+    harvest_eod_recess_et: time = time(16, 10)
     # Host floors checked between sessions. The in-process half of the memory story; the enforced
     # half is MemoryMax=1G on the systemd scope (deploy/scs-harvest.service). #264 is why both
     # exist: a promise is not a limit, and a limit alone kills instead of checkpointing.

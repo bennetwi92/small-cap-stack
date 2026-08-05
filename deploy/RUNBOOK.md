@@ -241,8 +241,8 @@ Rebuilds pre-market sessions the tracker never saw from purchased vendor minute 
 untouched live `books`; nothing that reads the live store can return vendor rows by accident.
 
 Ingest is #430's decision — the vendor's **free tier**, no purchase — so the job is priced by a
-**5 calls/min** limit: ~218 calls a session, ~11 sessions an 8-hour night, ~45 nights for two
-years. It runs newest-first and lands whole sessions as it goes, so the deliverable is a deeper
+**5 calls/min** limit: ~218 calls a session, ~18 sessions across the 12:30-03:00 ET day (#455),
+~27 days for two years. It runs newest-first and lands whole sessions as it goes, so the deliverable is a deeper
 sample every morning rather than a backtest in six weeks. **Stopping it early is always safe.**
 
 ### The vendor key — set up from a phone, no SSH
@@ -310,11 +310,23 @@ cd /opt/small-cap-stack
 ./scripts/harvest.sh auto                      # what the timer runs: phase 1 if needed, then 2
 ```
 
-- ⚠️ **Both vendor-spending commands (`daily` and `run`) refuse to start outside 17:00–03:00 ET**
-  and stop themselves at 03:00, clear of the 03:45
-  `eod_backfill` and the 04:00 scan window. Overriding takes two flags (`--ignore-window --force`)
-  — don't, during market hours. Being *launched* at the right time and *refusing* the wrong one are
-  different guarantees; only the second survives a late timer.
+- ⚠️ **Both vendor-spending commands (`daily` and `run`) refuse to start outside 12:30–03:00 ET**
+  and stop themselves at 03:00, clear of the 03:45 `eod_backfill` and the 04:00 scan window.
+  Overriding takes two flags (`--ignore-window --force`) — don't, during market hours. Being
+  *launched* at the right time and *refusing* the wrong one are different guarantees; only the
+  second survives a late timer.
+- **Why the window starts at 12:30 and the timer fires twice (#455).** At the free tier the
+  harvest's calendar is set purely by hours-per-day, and 12:00–16:20 ET is the one block of the
+  box's day nothing is scheduled in — worth ~4.5 hours, taking ~40 nights to ~27. But it puts
+  `eod_bars_fetch` (16:20) and `eod_report` (16:30) **inside** the window, and `HostGuard` cannot
+  protect them: it is checked once per *session*, and a session is ~47 min, so a 12:30 start puts
+  boundaries at 15:38 and 16:25 — the harvest sits *inside* a session, holding 1 GB with no swap,
+  across both EOD jobs while `build_portfolio_payload` (~1.5 GB, growing, #273) runs. So the
+  afternoon run carries its own **16:10 recess** (`HARVEST_EOD_RECESS_ET`), enforced as a deadline
+  — which, unlike the guard, bounds where the container may still be *running*. The timer then
+  fires at **12:30, 17:15, 20:00 and 23:00**: 17:15 does the evening, and the later two recover a
+  run the guard ended at an arbitrary boundary. Re-fires while a run is in flight cost nothing —
+  systemd merges the duplicate start job, so nothing appears in the journal at all.
 - ⚠️ **Memory.** The container gets a hard `--memory=1g` with **no swap**, one CPU, and
   `--oom-score-adj=800` so the kernel prefers it over everything else on the box. It is a separate
   `docker run`, **not** `docker exec` into the app — sharing the tracker's cgroup would spend the
@@ -377,5 +389,5 @@ The harvest's whole calendar comes from one number — ~217 candidates a session
 from a **day volume > 100k** prefilter that is airtight but ~12× looser than the loosest of the 25
 committed review cases. `./scripts/harvest.sh sweep` re-runs the filter at several floors against
 already-stored phase-1 rows, costing **no API calls**, and reports candidates/day and sessions/night
-at each. If a tighter floor halves the candidate set, 45 nights becomes ~23. Change it by setting
+at each. If a tighter floor halves the candidate set, ~27 days becomes ~14. Change it by setting
 `HARVEST_MIN_DAY_VOLUME` in `.env` — and record the measurement on the issue before you do.

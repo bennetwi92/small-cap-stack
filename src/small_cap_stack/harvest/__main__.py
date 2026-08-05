@@ -6,9 +6,11 @@
     sweep    the pre-flight measurement: candidates retained at each day-volume floor
     status   what is harvested, what is left, and what the next night would do
 
-``run`` refuses to start outside 17:00–03:00 ET and stops itself well clear of the 03:45 ET
-``eod_backfill``. Overriding that takes **two** flags (``--ignore-window --force``), on the #261
-principle that a confirmation the caller can auto-answer protects nobody — and on this box the
+``run`` refuses to start outside 12:30–03:00 ET and stops itself well clear of the 03:45 ET
+``eod_backfill`` — and an afternoon run stops at the 16:10 recess so it is never mid-session
+during the 16:20/16:30 EOD jobs (#455). Overriding that takes **two** flags
+(``--ignore-window --force``), on the #261 principle that a confirmation the caller can
+auto-answer protects nobody — and on this box the
 thing being protected is the live tracker's morning.
 """
 
@@ -18,7 +20,7 @@ import argparse
 import json
 import sys
 from collections.abc import Collection, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from ..clock import ET, now_et
 from ..config import Settings, get_settings
@@ -30,6 +32,7 @@ from .guard import RunWindow
 from .prefilter import candidates, sweep_floors
 from .runner import (
     checkpoint_path,
+    effective_deadline,
     harvest_daily,
     harvest_store,
     plan_sessions,
@@ -80,6 +83,23 @@ def _plan(
         live_dates=live,
         not_before=cp.entitlement_floor,
     )
+
+
+#: Minutes the EOD jobs themselves need after `eod_report` fires, before harvesting may resume.
+#: Only used to estimate usable hours for `sweep`; the real resume is the 17:15 timer fire.
+_EOD_BLOCK_MIN = 30
+
+
+def _eod_gap_hours(s: Settings) -> float:
+    """Hours the day loses to the EOD recess (#455) — the window minus this is usable harvesting.
+
+    The window is one span, but the day is two working periods with the EOD jobs between them.
+    Counting that gap as harvesting time would have `sweep` recommend a day-volume floor against
+    ~an hour a day that does not exist — and recommending the floor is the whole point of `sweep`.
+    """
+    gap_start = datetime.combine(date.min, s.harvest_eod_recess_et)
+    gap_end = datetime.combine(date.min, s.eod_report) + timedelta(minutes=_EOD_BLOCK_MIN)
+    return max(0.0, (gap_end - gap_start).total_seconds() / 3600.0)
 
 
 def _print(payload: object) -> None:
@@ -141,7 +161,7 @@ def cmd_daily(s: Settings, args: argparse.Namespace) -> int:
         return 0
     source = MassiveSource.from_env(rate_sleep_sec=s.harvest_rate_sleep_sec)
     win = _window(s)
-    deadline = None if args.ignore_window else win.deadline(_now(s))
+    deadline = None if args.ignore_window else effective_deadline(win, s, _now(s))
     results = harvest_daily(
         source, store, s, todo, checkpoint=cp, deadline=deadline, now_fn=lambda: _now(s)
     )
@@ -166,14 +186,14 @@ def _window_blocks(s: Settings, args: argparse.Namespace) -> int | None:
     dispatch at 05:00 ET would have started ~500 calls and two hours of work straight through the
     scan window. A guard that covers one of two vendor-spending commands is not a guard.
     """
+    win = _window(s)
     if args.ignore_window and not args.force:
         print(
-            "error: --ignore-window also needs --force. Running outside 17:00-03:00 ET puts a "
-            "45-night job next to the tracker's own morning; two deliberate flags, not one.",
+            f"error: --ignore-window also needs --force. Running outside {win.describe()} puts a "
+            "multi-week job next to the tracker's own morning; two deliberate flags, not one.",
             file=sys.stderr,
         )
         return 2
-    win = _window(s)
     now = _now(s)
     if not args.ignore_window and not win.is_open(now):
         print(
@@ -241,7 +261,7 @@ def cmd_auto(s: Settings, args: argparse.Namespace) -> int:
     store = harvest_store(s)
     source = MassiveSource.from_env(rate_sleep_sec=s.harvest_rate_sleep_sec)
     win = _window(s)
-    deadline = win.deadline(_now(s))
+    deadline = effective_deadline(win, s, _now(s))
 
     daily_todo = sorted(_plan(s, today, cp.daily_done, live, cp))
     daily_results = []
@@ -304,10 +324,16 @@ def cmd_sweep(s: Settings, args: argparse.Namespace) -> int:
             totals[float(entry["floor"])] += int(entry["candidates"])
         per_date.append({"date": d.isoformat(), "universe": len(rows), "floors": table})
     n = len(per_date) or 1
-    # An 8-hour night buys this many calls at the free tier's fixed sleep; a session costs one
-    # grouped-daily call plus one per candidate. Sessions-per-night is the number that decides
-    # whether tightening the floor is worth anything — 45 nights is 500 sessions at ~11/night.
-    night_calls = 8 * 3600 / s.harvest_rate_sleep_sec
+    # How many calls a day's worth of window buys at the fixed sleep; a session costs one
+    # grouped-daily call plus one per candidate. Sessions-per-day is the number that decides
+    # whether tightening the floor is worth anything.
+    #
+    # Derived from the CONFIGURED window, not a hardcoded 8 hours (#455). This said `8 * 3600`
+    # while the window was 17:00-03:00 — already an under-count — and widening the window to
+    # 12:30-03:00 would have left `sweep` recommending a floor against a day 70% shorter than the
+    # one the harvest actually gets, which is precisely the decision this command exists to inform.
+    window_hours = _window(s).length_hours() - _eod_gap_hours(s)
+    night_calls = window_hours * 3600 / s.harvest_rate_sleep_sec
     _print(
         {
             "phase": "sweep",
@@ -316,7 +342,8 @@ def cmd_sweep(s: Settings, args: argparse.Namespace) -> int:
             "mean_candidates_per_day": {
                 str(int(f)): round(totals[f] / n, 1) for f in sorted(totals)
             },
-            "sessions_per_8h_night": {
+            "window_hours": round(window_hours, 2),
+            "sessions_per_day": {
                 str(int(f)): round(night_calls / (totals[f] / n + 1.0), 1)
                 for f in sorted(totals)
                 if totals[f]
@@ -366,7 +393,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument(
         "--ignore-window",
         action="store_true",
-        help="run outside 17:00-03:00 ET (needs --force for `run`)",
+        help="run outside the harvest window (needs --force for `run`)",
     )
     p.add_argument("--force", action="store_true", help="confirm --ignore-window")
     args = p.parse_args(argv)

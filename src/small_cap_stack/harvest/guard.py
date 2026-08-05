@@ -9,8 +9,10 @@ is exactly that shape of job. So the harvest is defensive by construction, in th
    makes peak memory independent of how many sessions are harvested.
 2. **A window the job refuses to run outside** (:class:`RunWindow`). The box's day is booked:
    ``eod_backfill`` 03:45 ET, the scan window 04:00–11:59 ET, ``eod_bars_fetch`` 16:20,
-   ``eod_report`` 16:30. The harvest gets 17:00 → 03:00 ET and checkpoints itself out well clear of
-   03:45. Being *launched* at the right time is not the same as *refusing* to run at the wrong one:
+   ``eod_report`` 16:30. The harvest gets 12:30 → 03:00 ET and checkpoints itself out well clear of
+   03:45. The window spans the two EOD jobs; :func:`~.runner.effective_deadline` — not this guard —
+   is what keeps the harvest out of them (#455), for the reason spelled out in point 3.
+   Being *launched* at the right time is not the same as *refusing* to run at the wrong one:
    a systemd timer that fires late, a manual re-run, or a job that overruns its night all end up
    inside the scan window, and only the second kind of check catches those.
 3. **Host headroom checked before every session** (:class:`HostGuard`). This is the in-process
@@ -29,7 +31,7 @@ import resource
 import shutil
 import sys
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 from ..clock import ET
 from ..monitoring import mem_available_mb
@@ -54,7 +56,12 @@ class RunWindow:
     getting that backwards means the guard silently permits exactly the hours it exists to forbid.
     """
 
-    start: time = time(17, 0)
+    # Defaults MIRROR `Settings.harvest_start_et`/`harvest_stop_et`, which are the source of truth
+    # (CLAUDE.md). They exist only so tests can say `RunWindow()`; production always passes the
+    # settings through `__main__._window`. `test_run_window_default_mirrors_settings` fails if they
+    # drift — before #455 they had, and ~11 runner tests were exercising a window that no longer
+    # existed anywhere.
+    start: time = time(12, 30)
     stop: time = time(3, 0)
 
     @property
@@ -77,6 +84,13 @@ class RunWindow:
         if candidate <= et:
             candidate = datetime.combine(et.date() + timedelta(days=1), self.stop, tzinfo=ET)
         return candidate
+
+    def length_hours(self) -> float:
+        """How long the window is, in hours — correct across the midnight wrap."""
+        span = (
+            datetime.combine(date.min, self.stop) - datetime.combine(date.min, self.start)
+        ).total_seconds() / 3600.0
+        return span + 24.0 if self.wraps else span
 
     def describe(self) -> str:
         return f"{self.start.strftime('%H:%M')}–{self.stop.strftime('%H:%M')} ET"
