@@ -226,18 +226,60 @@ def test_aggregate_anchors_buckets_to_the_et_hour_not_the_first_bar() -> None:
     assert ets[0].strftime("%H:%M") == "09:30"
 
 
-def test_aggregate_preserves_volume_and_extremes_and_never_fills_a_gap() -> None:
+def test_aggregate_preserves_volume_and_extremes_and_fills_a_gap_the_way_ibkr_does() -> None:
+    """This test asserted the opposite until #442 measured it.
+
+    The vendor omits no-trade minutes; IBKR emits a flat zero-volume candle. The engine counts
+    *bars*, so the two are not interchangeable — see
+    ``test_ibkr_fixtures_are_contiguous_with_flat_filler_bars`` for the evidence, and
+    ``test_a_hole_in_the_consolidation_does_not_manufacture_a_shorter_flag`` for what it costs.
+    """
     bars = to_bars(
         [_agg_row(_et(4, 0) + timedelta(minutes=i), 10.0 + i, 100.0 * (i + 1)) for i in range(3)]
-        # a 40-minute hole: IBKR omits no-trade periods, so synthesising flat candles would hand
-        # the detector price action that never happened
         + [_agg_row(_et(4, 40), 12.0, 5.0)]
     )
     five = aggregate(bars, minutes=5)
-    assert len(five) == 2
+
+    ets = [b.start.astimezone(ET).strftime("%H:%M") for b in five]
+    assert ets == ["04:00", "04:05", "04:10", "04:15", "04:20", "04:25", "04:30", "04:35", "04:40"]
+    # Volume is conserved: the filler carries none, so no liquidity is invented.
     assert sum(b.volume for b in five) == sum(b.volume for b in bars)
     assert five[0].high == max(b.high for b in bars[:3])
     assert five[0].low == min(b.low for b in bars[:3])
+    # Each filler is flat at the previous close — a period where nothing printed, not a price move.
+    for filler in five[1:-1]:
+        assert filler.volume == 0.0
+        assert filler.open == filler.high == filler.low == filler.close == five[0].close
+
+
+def test_aggregate_fills_only_the_interior_never_a_tail() -> None:
+    """None of the 25 real fixtures ends on a zero-volume bar, so a tail would be invented."""
+    bars = to_bars([_agg_row(_et(4, 0), 10.0, 100.0), _agg_row(_et(4, 10), 11.0, 100.0)])
+    five = aggregate(bars, minutes=5)
+    assert [b.start.astimezone(ET).strftime("%H:%M") for b in five] == ["04:00", "04:05", "04:10"]
+    assert five[-1].volume == 100.0  # ends on the traded bar, nothing appended past it
+
+
+def test_ibkr_fixtures_are_contiguous_with_flat_filler_bars() -> None:
+    """The measurement that overturned #442's premise, pinned so it cannot drift back.
+
+    `aggregate` used to say "IBKR's historical bars omit periods with no trades". The 25 committed
+    real-market cases in `tests/fixtures/review_cases/` are the ground truth, and they say the
+    opposite. If this ever fails, the fill rule needs revisiting — not the other way round.
+    """
+    cases = sorted(Path("tests/fixtures/review_cases").glob("*.json"))
+    assert len(cases) == 25
+    gaps: set[float] = set()
+    zero_volume = total = 0
+    for path in cases:
+        bars = json.loads(path.read_text())["bars"]
+        starts = [datetime.fromisoformat(b[0]) for b in bars]
+        gaps |= {(b - a).total_seconds() / 60.0 for a, b in zip(starts, starts[1:], strict=False)}
+        zero_volume += sum(1 for b in bars if float(b[5]) == 0.0)
+        total += len(bars)
+        assert float(bars[-1][5]) > 0.0, f"{path.stem} ends on a filler bar"
+    assert gaps == {5.0}, f"IBKR series are not contiguous on the 5-min grid: {sorted(gaps)}"
+    assert zero_volume / total > 0.05, "no flat filler bars — the premise would need re-measuring"
 
 
 def test_rolling_window_volume_is_a_true_trailing_sum_on_minute_bars() -> None:
@@ -1324,3 +1366,115 @@ def test_massive_source_tells_an_entitlement_refusal_from_any_other_403(monkeypa
     with pytest.raises(HarvestError) as revoked:
         src.grouped_daily(DAY)
     assert not isinstance(revoked.value, HarvestEntitlementError)
+
+
+# ================================================================================================
+# Reconstruction fidelity (#442): the bars the engine reads, and the interval it reads them at
+# ================================================================================================
+#
+# Both defects here are invisible downstream: they produce a plausible trade with a real R attached,
+# from a setup that could not have been taken, or an appearance credited minutes late. The tests
+# below are behavioural on purpose — they compare the reconstruction against the IBKR-shaped series
+# the engine was calibrated on, rather than asserting the reconstruction's own output back at it.
+
+
+def _five_min_rows(
+    candles: Sequence[tuple[tuple[int, int], float, float, float, float, float]], day: date = DAY
+) -> list[dict[str, Any]]:
+    """Minute rows that fold to exactly the given 5-min candles — omitting untraded periods."""
+    rows: list[dict[str, Any]] = []
+    for (hh, mm), o, h, low, c, vol in candles:
+        rows.extend(_candle_minutes(_et(hh, mm, day), o, h, low, c, vol))
+    return rows
+
+
+def test_a_hole_in_the_consolidation_does_not_manufacture_a_shorter_flag() -> None:
+    """The #442 failure, end to end through the real detector.
+
+    A pole, then a SEVEN-candle consolidation of which three printed nothing. `bull_flag_max_cons`
+    is 4, so the live engine — which sees IBKR's flat filler for the quiet candles — rejects it.
+    Before the fix the reconstruction deleted those candles and handed the detector a compliant
+    4-candle flag: a trade that never existed, with a real R attached.
+    """
+    from small_cap_stack.bullflag.day import detect_day_with_settings
+
+    s = _settings(Path("/tmp"))
+    traded = [
+        ((7, 0), 3.00, 3.05, 2.98, 3.02, 120_000.0),
+        ((7, 5), 3.05, 3.40, 3.03, 3.38, 300_000.0),
+        ((7, 10), 3.38, 3.80, 3.36, 3.78, 400_000.0),  # pole peak
+        ((7, 15), 3.75, 3.76, 3.60, 3.62, 80_000.0),  # consolidation 1
+        ((7, 20), 3.62, 3.70, 3.58, 3.60, 60_000.0),  # consolidation 2
+        # 07:25, 07:30, 07:35 print nothing at all
+        ((7, 40), 3.60, 3.66, 3.55, 3.58, 40_000.0),  # consolidation 6
+        ((7, 45), 3.58, 3.62, 3.54, 3.56, 30_000.0),  # consolidation 7
+        ((7, 50), 3.56, 4.20, 3.55, 4.15, 500_000.0),  # breakout
+    ]
+    minute_rows = _five_min_rows(traded)
+
+    filled = aggregate(to_bars(minute_rows), minutes=5)  # what the fix produces
+    punctured = aggregate(to_bars(minute_rows), minutes=5, fill=False)  # the old behaviour
+
+    assert len(filled) == len(punctured) + 3, "the three quiet candles should be restored"
+
+    # Anchor the appearance late enough that the 30-minute staleness bound is not what decides
+    # this — the whole point is to isolate the candle COUNT as the difference between the two.
+    first_hit = _et(7, 25)
+    good = detect_day_with_settings(filled, s, first_hit)
+    bad = detect_day_with_settings(punctured, s, first_hit)
+
+    # The consolidation really is 7 candles long and the cap is 4, so the live-shaped series has
+    # no takeable setup...
+    assert good is None or not good.takeable, (
+        f"a 7-candle consolidation must not be takeable at max_cons={s.bull_flag_max_cons}"
+    )
+    # ...and the punctured series is exactly what made it look compliant.
+    assert bad is not None and bad.takeable, (
+        "the old behaviour no longer manufactures a takeable flag — rewrite this test's premise"
+    )
+    # The measurable difference: deleting the quiet candles shortened the flag past the cap.
+    assert bad.segment.cons_len <= s.bull_flag_max_cons
+    assert good is not None and good.segment.cons_len > s.bull_flag_max_cons
+
+
+def test_the_appearance_time_is_not_credited_late_on_a_thin_tape() -> None:
+    """`bar_interval` returns the MODAL gap. A name printing every 3 minutes infers 3 minutes, so
+    every appearance is stamped 2 minutes late and the trailing-volume window collapses."""
+    s = _settings(Path("/tmp"))
+    # Prints every third minute from 04:00; the 04:30 print alone clears the 100k volume gate.
+    rows = [
+        _agg_row(_et(4, 0) + timedelta(minutes=i), 5.0, 150_000.0 if i == 30 else 500.0)
+        for i in range(0, 60, 3)
+    ]
+    bars = to_bars(rows)
+
+    inferred = reconstruct_hit(bars, s, prev_close=1.0)
+    known = reconstruct_hit(bars, s, prev_close=1.0, interval=timedelta(minutes=1))
+
+    assert known.hit_time is not None and inferred.hit_time is not None
+    # The spike bar starts at 04:30; on a minute grid it is knowable at 04:31.
+    assert known.hit_time.astimezone(ET).strftime("%H:%M") == "04:31"
+    assert inferred.hit_time.astimezone(ET).strftime("%H:%M") == "04:33"  # the bug, 2 min late
+    # And the late interval loses hits, which is what `report.symbol_runs` segments a day on.
+    assert len(known.hit_times) > len(inferred.hit_times)
+
+
+def test_the_harvest_passes_the_interval_it_asked_the_vendor_for(tmp_path: Path) -> None:
+    """End to end: the stored appearance must not depend on how densely the symbol happened to
+    trade. This is the plumbing assertion behind the test above."""
+    s = _settings(tmp_path, harvest_rate_sleep_sec=0.0)
+    store = harvest_store(s)
+    # A deliberately sparse pre-market: one print every 3 minutes until the volume spike.
+    sparse = [
+        _agg_row(_et(4, 0) + timedelta(minutes=i), 3.0, 200_000.0 if i == 60 else 400.0)
+        for i in range(0, 200, 3)
+    ]
+    sparse += [_agg_row(_et(9, 30) + timedelta(minutes=i), 3.0, 1000.0) for i in range(390)]
+    source = FakeSource(minutes={("THIN", DAY): sparse})
+    harvest_session(source, store, s, DAY, [_daily("THIN")])
+
+    opps = store.read("opportunities", dt=DAY)
+    assert not opps.is_empty()
+    first_seen = opps.row(0, named=True)["first_seen_utc"]
+    # 04:60 -> the spike bar starts 05:00, knowable at 05:01 on the minute grid it was fetched at.
+    assert first_seen.astimezone(ET).strftime("%H:%M") == "05:01"

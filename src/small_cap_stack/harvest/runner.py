@@ -38,7 +38,9 @@ The vendor returns a **whole session** per request, so trimming the window saves
 budget — and the budget is the scarce thing. That makes the grids independent decisions:
 
 - ``bars`` — **5-min, full session** ``[chart_start, capture_end)``, byte-identical in shape to the
-  live dataset (same :func:`~small_cap_stack.capture.bar_record`). Full session rather than
+  live dataset (same :func:`~small_cap_stack.capture.bar_record`) — including IBKR's flat
+  zero-volume filler candles for no-trade periods, which :func:`.reconstruct.aggregate` synthesises
+  because the engine counts *bars*, not minutes (#442). Full session rather than
   pre-market-only on purpose: the paper book's exit walk marks an unresolved trade to the *last
   bar it can see* (``portfolio.exit.simulate_exit``), so a series truncated at 09:30 would close
   every still-open 09:10 entry at 09:25 and report it as the trade's result. That is a silent
@@ -470,6 +472,11 @@ def _accumulate_symbol(
         trading_date=trading_date,
         prev_close=row.prev_close,
         window_minutes=5,
+        # We ASKED the vendor for minute bars, so say so rather than letting `bar_interval` infer it
+        # back off the data (#442). On a thin pre-market tape — which the 100k day-volume floor
+        # admits a great many of — the modal gap is not one minute, and an over-long interval both
+        # credits the appearance late and collapses the trailing-volume window to a single bar.
+        interval=timedelta(minutes=1),
     )
     if not recon.found or recon.hit_time is None:
         return  # a candidate on the daily bar that never cleared the gates intraday: not an opp
