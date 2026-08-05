@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     # `python -m small_cap_stack.harvest sweep` is the measurement to run before touching it.
     harvest_min_day_volume: float = 100_000.0
     harvest_max_candidates: int = 0  # per session; 0 = no cap (a smoke-test lever, not a filter)
+    # Failure accounting (#446). A day the vendor refused and a day nothing traded both write zero
+    # rows, so without these a truncated API key marked ~11 dates a night as harvested, forever.
+    # The breaker is about SPEED — a failing symbol costs 5 calls and ~95s on the retry ladder, so
+    # discovering an outage 218 times costs the night. The ratio is about DATA: scattered failures
+    # never trip the breaker but still leave a session sampled from a fraction of its universe.
+    harvest_max_consecutive_failures: int = 5
+    harvest_max_failure_ratio: float = 0.2
     # Vendor ticker types dropped from the harvested universe (#443) — the reconstruction's
     # equivalent of the live scan's `scan_exclude_stock_types` ("ETF", "ETN") applied via IBKR's
     # `stkTypes exc:` filter. Kept as a SEPARATE setting rather than reusing that one because these

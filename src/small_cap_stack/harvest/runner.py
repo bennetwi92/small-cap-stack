@@ -98,6 +98,11 @@ HARVEST_DATASETS = ("opportunities", "scanner_hits", "bars", "bars_1m")
 #: uses it to re-request bars from IBKR, which never happens for a reconstructed day).
 RECON_CON_ID = 0
 
+#: Below this many candidates the failure RATIO is not applied — a proportion of a handful is noise,
+#: and a real session carries ~217. Deliberately not a setting: nobody would tune it, and the
+#: total-failure clause covers the small-session case at any size.
+_MIN_CANDIDATES_FOR_RATIO = 10
+
 
 class HarvestConfigError(RuntimeError):
     """The harvest was pointed somewhere it must not write."""
@@ -213,14 +218,18 @@ class SessionResult:
     calls: int
     seconds: float
     peak_rss_mb: float
-    complete: bool = True  # False when the hard stop cut the session short (nothing was written)
+    #: Symbols the vendor could not be reached for (#446). NOT the same as symbols that produced
+    #: nothing: a quiet name is a legitimate zero, a 403 is not, and only counting the second lets
+    #: an outage be told apart from a thin morning after the fact.
+    failed: int = 0
+    complete: bool = True  # False when the session was abandoned (nothing was written)
 
     def line(self) -> str:
         return (
             f"{self.trading_date} cands={self.candidates} opps={self.opportunities} "
             f"hits={self.scanner_hits} bars5={self.bars_5m} bars1={self.bars_1m} "
-            f"calls={self.calls} {self.seconds:.0f}s rss={self.peak_rss_mb:.0f}MB"
-            + ("" if self.complete else " INCOMPLETE(discarded)")
+            f"failed={self.failed} calls={self.calls} {self.seconds:.0f}s "
+            f"rss={self.peak_rss_mb:.0f}MB" + ("" if self.complete else " INCOMPLETE(discarded)")
         )
 
 
@@ -450,6 +459,11 @@ def harvest_session(
     files at all, and the checkpoint (written by the caller, after this returns) never claims it.
     It is also what makes "one file per ``dt=`` partition" true, which for this store *is* the read
     cost (#318/#319/#321).
+
+    **A day with no data and a day the vendor refused look identical on disk** — both write nothing,
+    because ``Store.append`` skips empty records. So failures are counted, not merely logged (#446):
+    without that, a truncated API key produced ~11 dates a night marked harvested with an empty
+    store, permanently, and nothing anywhere said so.
     """
     started = now_fn()
     cands = candidates(rows, min_day_volume=s.harvest_min_day_volume)
@@ -461,25 +475,61 @@ def harvest_session(
     hits: list[dict[str, Any]] = []
     bars5: list[dict[str, Any]] = []
     bars1: list[dict[str, Any]] = []
+    failed = 0
+    consecutive = 0
+
+    def abandon(why: str) -> SessionResult:
+        """Give the session up, writing nothing. The caller must not mark it done."""
+        log.warning(
+            "harvest.session_abandoned",
+            date=trading_date.isoformat(),
+            reason=why,
+            failed=failed,
+            candidates=len(cands),
+        )
+        return SessionResult(
+            trading_date=trading_date,
+            candidates=len(cands),
+            opportunities=0,
+            scanner_hits=0,
+            bars_5m=0,
+            bars_1m=0,
+            calls=source.calls - calls_before,
+            seconds=(now_fn() - started).total_seconds(),
+            peak_rss_mb=peak_rss_mb(),
+            failed=failed,
+            complete=False,
+        )
 
     for rank, row in enumerate(cands, start=1):
         if deadline is not None and now_fn() >= deadline:
             # Out of night mid-session. Return the work as INCOMPLETE and write nothing: a session
             # is the unit that can be resumed, a half-session is not (a partial day extracts
             # perfectly well, just from half the symbols, and nothing downstream could tell).
-            return SessionResult(
-                trading_date=trading_date,
-                candidates=len(cands),
-                opportunities=0,
-                scanner_hits=0,
-                bars_5m=0,
-                bars_1m=0,
-                calls=source.calls - calls_before,
-                seconds=(now_fn() - started).total_seconds(),
-                peak_rss_mb=peak_rss_mb(),
-                complete=False,
-            )
-        _accumulate_symbol(source, s, trading_date, row, rank, opps, hits, bars5, bars1)
+            return abandon("hard-stop")
+        if _accumulate_symbol(source, s, trading_date, row, rank, opps, hits, bars5, bars1):
+            consecutive = 0
+            continue
+        failed += 1
+        consecutive += 1
+        # The circuit breaker. One symbol failing is ordinary — a delisted ticker, a bad print.
+        # Five in a row is the vendor, and every further attempt costs 5 calls and ~95 seconds of
+        # a finite night (the retry ladder) to learn the same thing again.
+        if consecutive >= s.harvest_max_consecutive_failures:
+            return abandon(f"{consecutive} consecutive symbol failures")
+
+    # The quality floor, checked once at the end: scattered failures never trip the breaker but can
+    # still leave a session sampled from a fraction of its universe — which extracts perfectly well
+    # and is indistinguishable, afterwards, from a genuinely thin day.
+    #
+    # Two clauses, because a ratio is meaningless on a tiny candidate list: on a two-name session
+    # one ordinary delisted ticker is 50%, and abandoning that would throw away good work. Total
+    # failure is the signal that survives at any size — it is the shape a revoked key makes.
+    if cands and failed == len(cands):
+        return abandon("every symbol failed")
+    budget = len(cands) * s.harvest_max_failure_ratio
+    if len(cands) >= _MIN_CANDIDATES_FOR_RATIO and failed > budget:
+        return abandon(f"{failed}/{len(cands)} symbols failed")
 
     store.append("opportunities", opps, partition_date=trading_date)
     store.append("scanner_hits", hits, partition_date=trading_date)
@@ -509,11 +559,17 @@ def _accumulate_symbol(
     hits: list[dict[str, Any]],
     bars5: list[dict[str, Any]],
     bars1: list[dict[str, Any]],
-) -> None:
+) -> bool:
     """Fetch one symbol-day, derive its rows, and drop the bars. The streaming step of the loop.
 
     Everything this touches is local and freed on return — the accumulating lists are the only
     thing that survives, and they are one session's worth by construction.
+
+    Returns whether the symbol was *reached*, which is deliberately not the same as whether it
+    produced anything (#446). A name that did not trade pre-market, or never cleared the gates, is
+    a legitimate zero and returns True; only a vendor/transport failure returns False. Conflating
+    the two would make the session's failure count track market quietness instead of vendor health,
+    and the whole point of the count is to tell those apart.
     """
     try:
         raw = source.minute_bars(row.symbol, trading_date)
@@ -525,13 +581,13 @@ def _accumulate_symbol(
         raise
     except Exception:  # noqa: BLE001 — one symbol's failure must never stall a night's session
         log.warning("harvest.symbol_failed", symbol=row.symbol, date=trading_date.isoformat())
-        return
+        return False
     if not raw:
-        return
+        return True
     all_bars = to_bars(raw)
     premarket = trim_session(all_bars, trading_date, PREMARKET[0], PREMARKET[1])
     if not premarket:
-        return
+        return True
 
     # The appearance is reconstructed on the MINUTE series — a true trailing 5-min rolling sum, the
     # closest analogue to IBKR's continuously-updated stVolume5minAbove. #428 measured that at a
@@ -550,13 +606,15 @@ def _accumulate_symbol(
         interval=timedelta(minutes=1),
     )
     if not recon.found or recon.hit_time is None:
-        return  # a candidate on the daily bar that never cleared the gates intraday: not an opp
+        # A candidate on the daily bar that never cleared the gates intraday: not an opportunity,
+        # but the symbol was reached, so it is a zero rather than a failure.
+        return True
 
     session_bars = aggregate(
         trim_session(all_bars, trading_date, s.chart_start, s.capture_end), minutes=5
     )
     if not session_bars:
-        return
+        return True
 
     oid = opportunity_id(trading_date, row.symbol)
     cand = Candidate(
@@ -570,6 +628,7 @@ def _accumulate_symbol(
     bars5.extend(bar_record(oid, row.symbol, b) for b in session_bars)
     if s.harvest_store_minute_bars:
         bars1.extend(bar_record(oid, row.symbol, b) for b in premarket)
+    return True
 
 
 # ------------------------------------------------------------------------------------------------
