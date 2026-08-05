@@ -117,6 +117,8 @@ hours, not authoring speed (see the remote-work limits above).
     that is how the pre-#414 Plan page and Projection view went stale. If a panel can't be
     rendered from the published data, ask whether it belongs on a page at all.
   - **`docs/plan.html` / `plan.js` is the plan board (#410, rebuilt #414)** — the phase spine, the
+    live collection countdown, the historical harvest's progress (#454, from `status.json.harvest`
+    — sessions rebuilt, universe pass, history covered, hours since the checkpoint last moved), the
     Phase-1 checks and the Phase-2 gate ladder. Every value is computed at render time from
     `index.json` / `portfolio.json` / `status.json`; each gate's status is **derived from GitHub
     issue state** (`docs/js/gh.js`, unauthenticated REST, cached 30 min in sessionStorage, falling

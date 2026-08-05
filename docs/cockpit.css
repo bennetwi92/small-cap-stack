@@ -1360,6 +1360,16 @@ body.review{
 .plan-key{ display:inline-flex; align-items:center; gap:2px; vertical-align:middle; }
 .plan-key i{ display:inline-block; margin:0 1px; }
 
+/* --- column 1: the harvest, under the live collection it runs beside ---
+   Three fixed rows, so the panel takes only the height it needs and the ring
+   and the session grid above it keep the column's spare space. Rows borrow the
+   `.plan-check` vocabulary; this list is not a flex column, so they sit at
+   their natural height instead of stretching to fill. */
+.plan-col > .panel.plan-harvest-panel{ flex:0 0 auto; }
+.plan-harvest{ list-style:none; margin:4px 0 0; padding:0; }
+/* a date range is two numbers in one value — it reads at the sub-value size */
+.plan-hv-span{ font-size:13px; }
+
 /* --- column 2: the Phase-1 checks --- */
 .plan-checks-panel,
 .plan-gates-panel{
