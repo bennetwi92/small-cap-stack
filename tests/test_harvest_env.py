@@ -242,7 +242,9 @@ def test_install_units_installs_from_this_checkout(tmp_path: Path) -> None:
         },
     )
     installed = sorted(p.name for p in systemd.iterdir())
-    assert installed == ["scs-harvest.service", "scs-harvest.timer"]
+    # The slice carries the limits that actually reach the container (#452), so a bootstrap that
+    # installed the service and timer without it would enable a harvest with no cap at all.
+    assert installed == ["scs-harvest.service", "scs-harvest.slice", "scs-harvest.timer"]
     assert "OnCalendar" in (systemd / "scs-harvest.timer").read_text()
     assert "not touching systemd" in proc.stdout
     # Idempotent: re-running is how a changed unit is rolled out, so it must not fail on existing.

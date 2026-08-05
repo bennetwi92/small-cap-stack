@@ -1,0 +1,42 @@
+[Unit]
+Description=Resource envelope for the small-cap-stack overnight harvest (#452)
+Documentation=https://github.com/bennetwi92/small-cap-stack/blob/main/deploy/RUNBOOK.md
+Before=slices.target
+
+# Why a slice at all, when scs-harvest.service already had MemoryMax=?
+#
+# Because that limit contained nothing. The harvest runs `docker run`, and the container is created
+# by the Docker DAEMON — so it lands in Docker's own scope under system.slice, not in the invoking
+# unit's cgroup. Measured on the box:
+#
+#     default:                       0::/system.slice/docker-1e3571fb8bfd….scope
+#     --cgroup-parent=scs-harvest.slice:  0::/scs.slice/scs-harvest.slice/docker-be488300e6e6….scope
+#
+# The unit's MemoryMax bounded the docker CLIENT (~15 MB), and its Nice/IOSchedulingClass applied to
+# a process that spends its whole life blocked on a socket. This slice is where the limits actually
+# reach the container — verified by giving a container NO --memory of its own inside a 64M slice and
+# watching the kernel kill it at 64 MB.
+#
+# Docker here uses the SYSTEMD cgroup driver on cgroup v2, which is why this must be a `.slice` and
+# not a `system.slice/scs-harvest.service` path — the latter is rejected outright. The name implies
+# its own parent (`scs.slice`), per systemd's dash-hierarchy convention; systemd creates it.
+
+[Slice]
+# The ceiling that actually binds. Slightly above the container's own --memory=1g so the harvest
+# normally dies inside its own cgroup with a clean OOM attributable to the harvest — this is the
+# backstop for the case the container limit is wrong, absent, or overridden. HARVEST_MEM_LIMIT is
+# read from .env with no clamp, so before this a typo could ask for 4g on a 4 GB box; now it cannot
+# exceed this number whatever it says.
+MemoryMax=1200M
+# No swap, at all. The box has a 2 GB swapfile as an emergency cushion for the TRACKER; letting a
+# background job swap is how the CX23 thrashes past sshd (#264/#320).
+MemorySwapMax=0
+
+# The tracker's latency matters and this job's does not. On cgroup v2 these are the controls that
+# genuinely reach the container, unlike the Nice=/IOSchedulingClass= they replace: weights are
+# relative to sibling cgroups, and the default is 100.
+CPUWeight=20
+IOWeight=20
+
+[Install]
+WantedBy=slices.target

@@ -115,7 +115,7 @@ fi
 # ref installs that ref's units. Idempotent — re-running after a unit changes is the upgrade path.
 if [ "${1:-}" = "install-units" ]; then
   units_src="$(dirname "$SCRIPT_DIR")/deploy"
-  for unit in scs-harvest.service scs-harvest.timer; do
+  for unit in scs-harvest.slice scs-harvest.service scs-harvest.timer; do
     if [ ! -f "$units_src/$unit" ]; then
       echo "install-units: $units_src/$unit not found" >&2
       exit 2
@@ -128,6 +128,10 @@ if [ "${1:-}" = "install-units" ]; then
     exit 0
   fi
   systemctl daemon-reload
+  # Start the slice explicitly so its limits are live now, rather than at the next service start.
+  # Docker will create the cgroup on its own if this is skipped — but an uninstalled slice has
+  # MemoryMax=infinity, which is exactly the silent no-op this change exists to remove.
+  systemctl start scs-harvest.slice
   systemctl enable --now scs-harvest.timer
   # The timer is the thing to verify, not the service: a service that never fires is the failure
   # mode, and `is-enabled` on a oneshot service says nothing about whether it is scheduled.
@@ -188,6 +192,12 @@ MEM_LIMIT="${MEM_LIMIT:-1g}"
 declare -a CMD=(
   docker run --rm
   --name scs-harvest
+  # The container is created by the DAEMON, so without this it lands in Docker's own scope under
+  # system.slice and every limit on scs-harvest.service applies to this client process instead of
+  # to the harvest (#452). Docker here uses the systemd cgroup driver on cgroup v2, so the parent
+  # must be a `.slice` — a `system.slice/foo.service` path is rejected. The slice's MemoryMax is
+  # what makes a mis-set HARVEST_MEM_LIMIT harmless.
+  --cgroup-parent=scs-harvest.slice
   --memory="$MEM_LIMIT"
   --memory-swap="$MEM_LIMIT"
   --oom-score-adj=800
@@ -206,4 +216,6 @@ if [ -n "${HARVEST_DRY_RUN:-}" ]; then
   exit 0
 fi
 
-exec nice -n 19 ionice -c 3 "${CMD[@]}"
+# No `nice`/`ionice` prefix: it would deprioritise this shell and the docker client, never the
+# container, which is a child of the daemon. CPUWeight/IOWeight on the slice are the real controls.
+exec "${CMD[@]}"
