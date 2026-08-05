@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     # Empty string disables the feature; a missing directory reads as empty, so an unharvested box
     # behaves exactly as it did before.
     recon_subdir: str = "recon"
+    # Ceiling on how many reconstructed CANDIDATE-TRADES splice into `books_all` (#448), walked
+    # newest-first. This bounds the #273 failure mode where it can still be bounded:
+    # `build_portfolio_payload` retains every day's bars because it re-simulates the same day list
+    # once per selectable target, so peak memory is linear in days x candidates — which is what
+    # OOM-killed the box at ~25 live days (#264). A finished harvest makes it ~500 days, and recon
+    # days are structurally denser than live ones because the 50-row scanner cap is not modelled.
+    # Budgeted on candidates, not days: days are a proxy, candidates are the cost, and the density
+    # of a reconstructed day is the one number nobody has measured yet. 15k x ~27 KB ~= 400 MB
+    # retained, against the app container's 2 GB cap. 0 disables the cap.
+    portfolio_recon_max_candidates: int = 15_000
 
     # --- Overnight pre-market harvest (#431) — the producer that fills the recon store above. ---
     # Ingest is #430's decision: the vendor's FREE tier, REST, no purchase. That makes a 5 calls/min
