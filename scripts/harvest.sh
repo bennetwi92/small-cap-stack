@@ -12,7 +12,7 @@
 #     /opt/small-cap-stack/scripts/harvest.sh status         # what is done, what is left
 #     /opt/small-cap-stack/scripts/harvest.sh run --limit 1  # the single-session smoke test
 #
-# The job refuses to start outside 17:00-03:00 ET on its own (harvest_start_et/harvest_stop_et), so
+# The job refuses to start outside 12:30-03:00 ET on its own (harvest_start_et/harvest_stop_et), so
 # a timer that fires late, or a hand-run at the wrong hour, stops itself rather than competing with
 # the 04:00 scan window. That check lives in the app, not here, precisely so this script cannot be
 # the thing that gets it wrong.
@@ -186,18 +186,85 @@ IMAGE="ghcr.io/bennetwi92/small-cap-stack:${IMAGE_TAG:-latest}"
 # job is how the CX23 thrashes past sshd (#264).
 MEM_LIMIT="${MEM_LIMIT:-1g}"
 
+# ------------------------------------------------------------------------------------------------
+# The concurrency lock, and why only the spending commands take it (#455)
+# ------------------------------------------------------------------------------------------------
+# `--name scs-harvest` IS the lock: `docker run` refuses a name already in use, so the timer and a
+# workflow dispatch cannot double-spend a rate-limited budget or race on the checkpoint.
+#
+# Two refinements now that the timer fires TWICE a day (12:30 and 17:15 ET, RUNBOOK §13):
+#
+# 1. The second fire is *expected* to find the first still running, and that is success, not
+#    failure. Left alone it would exit 125 and leave scs-harvest.service `failed` — which is
+#    precisely the signal we look at to tell a broken harvest from a working one. Detect it and
+#    exit 0 instead.
+# 2. Read-only commands don't take the lock at all. They spend nothing and race on nothing, and
+#    being unable to run `status` during a 14-hour harvest is an operational annoyance with no
+#    upside. They get a daemon-generated name.
+#
+# The stale-container sweep handles the leak that would otherwise kill the job silently: `--rm` is
+# server-side, so a daemon restart mid-harvest (a deploy, an apt upgrade, a reboot) can leave an
+# `Exited` container holding the name — after which every future night exits 125 in under a second,
+# with no Restart= and no Healthchecks ping to notice. Only a NON-running container is removed, so
+# the lock is never broken by clearing the corpse.
+# Scan EVERY argument, not just $1: argparse takes options before the positional, so
+# `harvest.sh --limit 1 run` is a valid full phase-2 run. Keying the lock on $1 alone would let
+# exactly that invocation spend vendor budget with no lock, no name and no stale sweep, racing the
+# timer's own harvest on the checkpoint.
+SPENDING=""
+for arg in "$@"; do
+  case "$arg" in auto | daily | run) SPENDING=1 ;; esac
+done
+
+declare -a NAME=()
+if [ -n "$SPENDING" ]; then
+  if [ -z "${HARVEST_DRY_RUN:-}" ]; then
+    state="$(docker inspect -f '{{.State.Running}}' scs-harvest 2>/dev/null || true)"
+    if [ "$state" = "true" ]; then
+      # Exit NON-ZERO. This branch is not reached by the timer — systemd merges a second `start`
+      # job into the running one, so ExecStart is never re-executed and the 17:15 fire is a no-op
+      # at the systemd layer, not here. The only caller that gets here is a human or the `harvest`
+      # workflow, and for them "a harvest was already running so I did nothing" must be a RED run.
+      # Exiting 0 would render a phone-dispatched smoke test as a green tick that proved nothing.
+      echo "a harvest is already running (container scs-harvest) — refusing to start a second" >&2
+      exit 1
+    fi
+    if [ -n "$state" ]; then
+      # `--rm` is server-side, so a daemon restart mid-harvest (a deploy, an apt upgrade, a reboot)
+      # can leave an Exited container holding the name — after which every future night exits 125
+      # in under a second, with no Restart= and no Healthchecks ping to notice. Only a NON-running
+      # container is removed, so clearing the corpse never breaks the lock.
+      echo "removing a leaked scs-harvest container (state: not running)" >&2
+      docker rm scs-harvest >/dev/null 2>&1 || true
+    fi
+  fi
+  NAME=(--name scs-harvest)
+fi
+
+# Read-only commands (status/sweep/prefilter) stay OUT of the harvest's cgroup slice and take a
+# smaller cap. They spend no vendor budget and hold no lock, so they may run beside a live harvest
+# — but the slice's MemoryMax is only 200 MB above the harvest's own limit and has MemorySwapMax=0,
+# so joining it would mean a `sweep` during a 900 MB harvest could push the slice over and have the
+# kernel OOM-kill the night it was only meant to look at.
+declare -a CGROUP=(--cgroup-parent=scs-harvest.slice)
+RO_MEM_LIMIT="512m"
+if [ -z "$SPENDING" ]; then
+  CGROUP=()
+  MEM_LIMIT="$RO_MEM_LIMIT"
+fi
+
 # Container-side paths, set here rather than inherited: they are properties of the image and the
 # mount, never of the host's config. HEALTHCHECKS_PING_URL is blanked for the same reason the
 # harvest never constructs a Heartbeat — a stalled harvest must not page as a tracker outage.
 declare -a CMD=(
   docker run --rm
-  --name scs-harvest
+  ${NAME[@]+"${NAME[@]}"}
   # The container is created by the DAEMON, so without this it lands in Docker's own scope under
   # system.slice and every limit on scs-harvest.service applies to this client process instead of
   # to the harvest (#452). Docker here uses the systemd cgroup driver on cgroup v2, so the parent
   # must be a `.slice` — a `system.slice/foo.service` path is rejected. The slice's MemoryMax is
-  # what makes a mis-set HARVEST_MEM_LIMIT harmless.
-  --cgroup-parent=scs-harvest.slice
+  # what makes a mis-set HARVEST_MEM_LIMIT harmless. Empty for read-only commands (see above).
+  ${CGROUP[@]+"${CGROUP[@]}"}
   --memory="$MEM_LIMIT"
   --memory-swap="$MEM_LIMIT"
   --oom-score-adj=800

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -49,12 +50,19 @@ JSON_LOGS=true
 """
 
 
-def _dry_run(tmp_path: Path, env_text: str = BOX_ENV, **env: str) -> list[str]:
-    """Run the script in dry-run mode and return the docker argv it would have executed."""
+def _dry_run(
+    tmp_path: Path, env_text: str = BOX_ENV, command: str = "run", **env: str
+) -> list[str]:
+    """Run the script in dry-run mode and return the docker argv it would have executed.
+
+    Defaults to `run` — the vendor-spending path the timer actually takes nightly, and the one
+    every limit asserted below exists for. Read-only commands deliberately take a different shape
+    (#455: no name lock, no cgroup slice, a smaller cap), so a helper that defaulted to `status`
+    would have quietly stopped testing the container the box really launches."""
     env_file = tmp_path / ".env"
     env_file.write_text(env_text)
     proc = subprocess.run(
-        ["bash", str(SCRIPT), "status"],
+        ["bash", str(SCRIPT), command],
         capture_output=True,
         text=True,
         check=True,
@@ -254,3 +262,99 @@ def test_install_units_installs_from_this_checkout(tmp_path: Path) -> None:
         capture_output=True,
         env={"PATH": "/usr/bin:/bin", "HARVEST_DRY_RUN": "1", "SYSTEMD_DIR": str(systemd)},
     )
+
+
+# ================================================================================================
+# The concurrency lock, exercised rather than grepped (#455)
+# ================================================================================================
+#
+# The first version of these assertions grepped the shell source for three substrings. That cannot
+# catch the bug it was written for: the lock was keyed on `$1`, so `harvest.sh --limit 1 run` — a
+# perfectly valid invocation, since argparse takes options before the positional — spent vendor
+# budget with no lock, no name and no stale sweep, racing the timer's own harvest. A PATH stub for
+# `docker` lets the real code path run with no daemon.
+
+
+def _docker_stub(tmp_path: Path, *, state: str) -> dict[str, str]:
+    """A fake `docker` on PATH. ``state`` is what `docker inspect` reports for scs-harvest:
+    "true" (running), "false" (a leaked corpse), or "" (absent — inspect fails, as the real one
+    does). Every invocation is appended to a log so the test can assert what was called."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    log = tmp_path / "docker.log"
+    inspect = f'printf "%s\\n" "{state}"; exit 0' if state else "exit 1"
+    (bin_dir / "docker").write_text(
+        "#!/usr/bin/env bash\n"
+        f'echo "$@" >> "{log}"\n'
+        'if [ "$1" = "inspect" ]; then\n'
+        f"  {inspect}\n"
+        "fi\n"
+        'if [ "$1" = "run" ]; then echo "RAN"; fi\n'
+        "exit 0\n"
+    )
+    (bin_dir / "docker").chmod(0o755)
+    return {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "ENV_FILE": str(tmp_path / "no-such-env"),
+        "MASSIVE_API_KEY": "k",
+        "DOCKER_LOG": str(log),
+    }
+
+
+def _run(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(SCRIPT), *args], capture_output=True, text=True, env=env, check=False
+    )
+
+
+def test_a_second_spending_run_refuses_while_one_is_live() -> None:
+    """Exit NON-ZERO. The timer never reaches this branch — systemd merges a duplicate start job
+    into the running one — so the only callers are a human and the `harvest` workflow, and for them
+    "a harvest was already running so I did nothing" must render as a red run, not a green tick."""
+    with tempfile.TemporaryDirectory() as td:
+        env = _docker_stub(Path(td), state="true")
+        proc = _run(env, "run", "--limit", "1")
+    assert proc.returncode != 0
+    assert "already running" in proc.stderr
+    assert "RAN" not in proc.stdout, "it started a second harvest anyway"
+
+
+def test_the_lock_is_taken_however_the_arguments_are_ordered() -> None:
+    """argparse accepts `--limit 1 run`, so a lock keyed on $1 alone let a full phase-2 run spend
+    budget unlocked, beside the timer's own harvest."""
+    for args in (("run", "--limit", "1"), ("--limit", "1", "run"), ("auto",), ("daily",)):
+        with tempfile.TemporaryDirectory() as td:
+            env = _docker_stub(Path(td), state="true")
+            proc = _run(env, *args)
+        assert proc.returncode != 0, f"{args} bypassed the lock"
+        assert "already running" in proc.stderr, f"{args} bypassed the lock"
+
+
+def test_read_only_commands_run_beside_a_live_harvest_and_stay_out_of_its_slice() -> None:
+    """They spend nothing and race on nothing, so being unable to check `status` during a 14-hour
+    run is pure cost. But they must NOT join the harvest's cgroup slice: its MemoryMax is only
+    200 MB above the harvest's own limit and it has MemorySwapMax=0, so a `sweep` beside a 900 MB
+    harvest could push the slice over and have the kernel kill the night it came to look at."""
+    for cmd in ("status", "sweep", "prefilter"):
+        with tempfile.TemporaryDirectory() as td:
+            env = _docker_stub(Path(td), state="true")
+            proc = _run(env, cmd)
+            called = Path(env["DOCKER_LOG"]).read_text()
+        assert proc.returncode == 0, f"{cmd} was blocked by a lock it should not take"
+        assert "RAN" in proc.stdout
+        assert "--name scs-harvest" not in called, f"{cmd} took the lock"
+        assert "--cgroup-parent" not in called, f"{cmd} joined the harvest's slice"
+        assert "--memory=512m" in called, f"{cmd} took the harvest's full 1g cap"
+
+
+def test_a_leaked_container_is_cleared_rather_than_blocking_every_future_night() -> None:
+    """`--rm` is server-side, so a daemon restart mid-harvest can leave an Exited container holding
+    the name — after which every night exits 125 in under a second, with no Restart= and no
+    Healthchecks ping to notice. Only a NON-running container is removed, so the lock survives."""
+    with tempfile.TemporaryDirectory() as td:
+        env = _docker_stub(Path(td), state="false")
+        proc = _run(env, "run")
+        called = Path(env["DOCKER_LOG"]).read_text()
+    assert proc.returncode == 0
+    assert "rm scs-harvest" in called
+    assert "RAN" in proc.stdout, "it cleared the corpse but never started the harvest"

@@ -2,7 +2,8 @@ name: harvest
 
 # Phone-triggerable control for the overnight pre-market harvest (#431), on the box.
 #
-# The harvest's PRIMARY mechanism is `scs-harvest.timer` (systemd, 18:00 ET nightly — RUNBOOK §13).
+# The harvest's PRIMARY mechanism is `scs-harvest.timer` (systemd, 12:30/17:15/20:00/23:00 ET —
+# RUNBOOK §13).
 # This workflow is the mobile hand on it: check status, run the day-volume sweep, advance phase 1,
 # or drive the single-session smoke test the issue's acceptance list calls for. It is not how a
 # night's work normally happens.
@@ -12,9 +13,10 @@ name: harvest
 # hours — and a busy runner means CI silently queues behind it, which is one keystroke from the
 # 5h37m outage of #264. Long work belongs to the timer, which runs outside Actions entirely.
 #
-# The real guards live in the app, not here: it refuses to start outside 17:00-03:00 ET and
-# hard-stops at 03:00, so dispatching this at 09:00 does nothing rather than competing with the
-# scan window. `scripts/harvest.sh` puts it in its own 1 GB container — never `docker exec` into the
+# The real guards live in the app, not here: it refuses to start outside 12:30-03:00 ET, recesses
+# at 16:10 to stay out of the EOD jobs, and hard-stops at 03:00 — so dispatching this at 09:00 does
+# nothing rather than competing with the scan window. A dispatch that finds the timer's own harvest
+# running exits NON-ZERO (#455): 'I did nothing' must not render as a green tick. `scripts/harvest.sh` puts it in its own 1 GB container — never `docker exec` into the
 # app, which would spend the tracker's cgroup.
 
 on:

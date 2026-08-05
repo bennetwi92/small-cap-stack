@@ -131,7 +131,8 @@ hours, not authoring speed (see the remote-work limits above).
   untouched live `books`. Every trade carries `source: "live" | "recon"`.
   Its **producer** is `src/small_cap_stack/harvest/` (#431) — `python -m small_cap_stack.harvest`,
   run nightly on the box by `scs-harvest.timer` (RUNBOOK §13). It streams one session at a time,
-  **refuses to start outside 17:00–03:00 ET**, hard-stops at 03:00 clear of the 03:45
+  **refuses to start outside 12:30–03:00 ET**, recesses at 16:10 so it is never inside a session
+  during the 16:20/16:30 EOD jobs (#455), hard-stops at 03:00 clear of the 03:45
   `eod_backfill`, runs in its own `--memory=1g` container (never `docker exec` into the app — that
   spends the tracker's cgroup), and checkpoints per session so a kill costs at most one session.
   Phase 1 (`harvest daily`, grouped-daily + previous closes) must run before phase 2 (`harvest
