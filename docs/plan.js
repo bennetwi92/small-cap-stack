@@ -2,8 +2,9 @@
 //
 // Every value here is computed at render time — collection progress and opportunity counts
 // from `index.json`, the paper book and the risk state in force from `portfolio.json`,
-// publish freshness from `status.json`, and each Phase-2 gate's status from whether the
-// issues it names are closed on GitHub (`js/gh.js`). The only committed text is labels:
+// publish freshness and the historical harvest's progress from `status.json`, and each Phase-2
+// gate's status from whether the issues it names are closed on GitHub (`js/gh.js`). The only
+// committed text is labels:
 // the phase names, the gate names, and the issue numbers they map to
 // (`research/phase-2-roadmap.md`). Nothing on this page states a status a human has to
 // remember to update.
@@ -19,6 +20,12 @@ import { issueStates, issueUrl } from "./js/gh.js";
 import { esc, fmtPct, fmtPctPlain, fmtRSigned } from "./js/fmt.js";
 
 const POLL_MS = 5 * 60_000; // the plan moves in days; poll lazily
+
+// Hours without the harvest checkpoint moving before the panel calls it stalled. The job runs
+// nightly, so anything past ~36h means a night produced nothing — the only failure signal there
+// is, since the harvest is deliberately off the tracker's dead-man's switch and its unit finishing
+// with nothing to do looks identical to its having died (#450). Same threshold as the home page.
+const HARVEST_STALE_H = 36;
 
 /* ============================================================
    The committed skeleton — names, windows, issue numbers
@@ -119,6 +126,7 @@ createOptionsBar("optbar", {
     { type: "readout", id: "pl-phase", label: "PHASE", value: "—" },
     { type: "readout", id: "pl-collected", label: "COLLECTED", value: "—" },
     { type: "readout", id: "pl-countdown", label: "SESSIONS LEFT", value: "—" },
+    { type: "readout", id: "pl-harvestread", label: "HARVESTED", value: "—" },
     { type: "readout", id: "pl-gatesread", label: "GATES DONE", value: "—" },
     { type: "btn", id: "pl-refresh", label: "Refresh", title: "Refresh now" },
   ],
@@ -360,6 +368,120 @@ function renderBook(book) {
 }
 
 /* ============================================================
+   Column 1 — the historical harvest
+   ============================================================ */
+
+// The 2-year pre-market rebuild (#430/#431), read straight off `status.json.harvest` (#450).
+// It is a second collection front running beside the live one: ~500 vendor sessions walked
+// newest-first, a whole session at a time, each landing in the recon store the night it finishes —
+// so "done" and "still to go" are both real numbers at any moment, not a wait for a batch to end.
+//
+// Two things the numbers do NOT say, and the reason the denominator never quite fills:
+// `sessions_in_window` is the calendar count of the harvest's lookback, not reduced by the days
+// the tracker already collected live (that would cost an unscoped store read on every status
+// tick), and not reduced by the vendor's entitlement floor — the dates before it can never be
+// bought at all.
+function harvestState(status) {
+  const h = (status && status.harvest) || null;
+  if (!h) return { live: false };
+  const done = h.sessions_done || 0;
+  const daily = h.daily_done || 0;
+  const total = h.sessions_in_window || 0;
+  const hrs = h.hours_since_progress;
+  return {
+    live: true,
+    done,
+    daily,
+    total,
+    left: Math.max(0, total - done),
+    frac: total ? Math.min(1, done / total) : 0,
+    dailyFrac: total ? Math.min(1, daily / total) : 0,
+    dailyDone: total > 0 && daily >= total,
+    finished: total > 0 && done >= total,
+    calls: h.calls_spent || 0,
+    oldest: h.oldest || null,
+    newest: h.newest || null,
+    floor: h.entitlement_floor || null,
+    // The box's own reading, not a client-side diff against `updated_utc`: the staleness call and
+    // the number shown for it then agree even when the two clocks don't.
+    hours: hrs == null ? null : hrs,
+    stale: hrs != null && hrs > HARVEST_STALE_H,
+  };
+}
+
+function renderHarvest(hv) {
+  el("pl-hv-count").textContent = hv.live ? `${hv.done} / ${hv.total} sessions` : "";
+  el("pl-harvestread").textContent = hv.live ? `${hv.done} / ${hv.total}` : "—";
+
+  if (!hv.live) {
+    el("pl-harvest").innerHTML = checkRow({
+      label: "Sessions rebuilt",
+      value: "—",
+      sub: "no checkpoint published yet",
+      status: "NOT STARTED",
+      title:
+        "The harvest publishes its progress from its checkpoint, which appears once the nightly " +
+        "job has completed its first session.",
+    });
+    el("pl-hv-cap").textContent = "";
+    return;
+  }
+
+  const span =
+    hv.oldest && hv.newest
+      ? `${esc(hv.oldest)} <span class="muted">→</span> ${esc(hv.newest)}`
+      : "—";
+
+  el("pl-harvest").innerHTML = [
+    checkRow({
+      label: "Sessions rebuilt",
+      value: `${hv.done}<span class="muted"> / ${hv.total}</span>`,
+      sub: hv.newest
+        ? `${hv.left} still to go · newest-first from ${hv.newest}`
+        : `${hv.left} still to go · minute bars not started`,
+      status: hv.finished ? "COMPLETE" : hv.stale ? "STALLED" : "RUNNING",
+      tone: hv.finished ? "ok" : hv.stale ? "warn" : "run",
+      bar: hv.frac,
+      title:
+        "Pre-market sessions rebuilt from vendor minute bars, against the calendar sessions in " +
+        "the harvest's lookback window. That window is not reduced by the days already collected " +
+        "live, so the count finishes a little short of the total.",
+    }),
+    checkRow({
+      label: "Universe pass",
+      value: `${hv.daily}<span class="muted"> / ${hv.total}</span>`,
+      sub: "grouped-daily bars + previous closes",
+      status: hv.dailyDone ? "DONE" : "RUNNING",
+      tone: hv.dailyDone ? "ok" : "run",
+      bar: hv.dailyFrac,
+      title:
+        "Phase 1 of the harvest, and a prerequisite of the minute-bar pass: without the previous " +
+        "day's close the reconstruction fires a median 18 minutes early (#428).",
+    }),
+    checkRow({
+      label: "History covered",
+      value: `<span class="plan-hv-span">${span}</span>`,
+      sub: hv.floor
+        ? `${hv.done} sessions deep · vendor history starts ${hv.floor}`
+        : `${hv.done} sessions deep`,
+      title: "The contiguous block of rebuilt sessions, and the oldest date the vendor will sell.",
+    }),
+  ].join("");
+
+  // Calls spent and freshness are one line, not two more rows: the count is a budget reading and
+  // the hours are the failure signal, neither of which is a step of the job.
+  const cap = el("pl-hv-cap");
+  cap.className = `plan-cap ${hv.stale ? "warn" : "muted"}`;
+  cap.textContent =
+    `${hv.calls.toLocaleString("en-US")} vendor calls · last progress ` +
+    (hv.hours == null ? "unknown" : `${hv.hours}h ago`) +
+    (hv.stale ? " — a night was missed" : "");
+  cap.title =
+    "The harvest runs nightly and is deliberately off the tracker's dead-man's switch, so a " +
+    `checkpoint that has not moved in ${HARVEST_STALE_H}h is the only signal that a night was lost.`;
+}
+
+/* ============================================================
    Column 2 — the checks
    ============================================================ */
 
@@ -529,6 +651,7 @@ async function refresh() {
     ]);
     const collection = collectionState(index);
     const book = bookState(pf);
+    const harvest = harvestState(status);
     // Best-effort: a rate-limited or offline GitHub yields an empty map and the ladder
     // falls back to its dependency graph rather than the page failing.
     const states = await issueStates(GATES.flatMap((g) => g.issues)).catch(() => new Map());
@@ -537,12 +660,15 @@ async function refresh() {
     renderSpine(collection, book, gates);
     renderProgress(collection);
     renderBook(book);
+    renderHarvest(harvest);
     renderChecks(collection, book, status);
     renderGates(gates);
 
     el("pl-error").hidden = true;
     setStatusPage(
-      `plan · ${collection.done}/${collection.total} sessions · ${gates.done}/${gates.total} gates`,
+      `plan · ${collection.done}/${collection.total} sessions · ` +
+        (harvest.live ? `harvest ${harvest.done}/${harvest.total} · ` : "") +
+        `${gates.done}/${gates.total} gates`,
     );
   } catch (e) {
     el("pl-error").hidden = false;

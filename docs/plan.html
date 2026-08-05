@@ -17,7 +17,8 @@
     <!-- Cockpit chrome (#288): app bar + options bar render themselves; the status bar
          self-mounts at the bottom. Everything between is the plan board — a spine of three
          phases across the top, each carrying its own live counters, then three columns:
-         collection progress, the Phase-1 checks, and the Phase-2 gate ladder.
+         collection progress (live and reconstructed), the Phase-1 checks, and the Phase-2
+         gate ladder.
          Every value on this page is computed at render time from the published data or
          from GitHub issue state (#414); nothing here is a hand-written status. Desktop
          never scrolls; each column owns its own overflow. -->
@@ -43,6 +44,15 @@
           <h2 class="panel-h">Sessions collected</h2>
           <div id="pl-heat" class="plan-heat"></div>
           <p id="pl-heat-cap" class="plan-cap muted"></p>
+        </section>
+
+        <!-- The historical harvest (#454): the second collection front — the ~45-night rebuild
+             of two years of pre-market sessions (#430/#431), walked newest-first. Rendered from
+             `status.json.harvest`, which does not exist until the job has checkpointed once. -->
+        <section class="panel plan-harvest-panel">
+          <h2 class="panel-h">Historical harvest <span id="pl-hv-count" class="muted"></span></h2>
+          <ul id="pl-harvest" class="plan-harvest"></ul>
+          <p id="pl-hv-cap" class="plan-cap muted"></p>
         </section>
 
         <section class="panel plan-book">
