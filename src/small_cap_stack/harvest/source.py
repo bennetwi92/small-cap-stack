@@ -70,6 +70,9 @@ class HarvestSource(Protocol):
     def grouped_daily(self, day: date) -> list[dict[str, Any]]:
         """Every US equity's daily OHLCV for one session — one request for the whole market."""
 
+    def tickers_of_type(self, ticker_type: str, *, active: bool) -> list[str]:
+        """Every US-stock-market ticker of one vendor type — reference data, not per-date (#443)."""
+
     def minute_bars(self, symbol: str, day: date) -> list[dict[str, Any]]:
         """One symbol's 1-minute bars for one session, extended hours included."""
 
@@ -173,6 +176,26 @@ class MassiveSource:
             page = self._get_url(str(page["next_url"]))
             rows.extend(page.get("results") or [])
         return rows
+
+    def tickers_of_type(self, ticker_type: str, *, active: bool) -> list[str]:
+        """Every US-stock-market ticker of one vendor type (#443).
+
+        ``active`` is queried both ways by the caller: a two-year harvest walks over dates on which
+        ETNs now delisted were very much trading, so the active list alone would let exactly the
+        oldest part of the window through unfiltered.
+        """
+        page = self.get(
+            "/v3/reference/tickers",
+            market="stocks",
+            type=ticker_type,
+            active=str(active).lower(),
+            limit=1000,
+        )
+        out: list[str] = [str(r["ticker"]) for r in (page.get("results") or []) if r.get("ticker")]
+        while page.get("next_url"):
+            page = self._get_url(str(page["next_url"]))
+            out.extend(str(r["ticker"]) for r in (page.get("results") or []) if r.get("ticker"))
+        return out
 
     def minute_bars(self, symbol: str, day: date) -> list[dict[str, Any]]:
         """The session's minute bars.

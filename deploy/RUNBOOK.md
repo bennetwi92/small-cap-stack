@@ -340,6 +340,15 @@ cd /opt/small-cap-stack
   opportunities, calls and **peak RSS** — that last number is the early-warning signal for a memory
   regression. It is deliberately NOT wired to the tracker's Healthchecks dead-man's switch: a
   stalled harvest must never page as a tracker outage.
+- **The universe is filtered to match the live scan (#443).** Phase 1 fetches the ETF/ETN/ETV
+  ticker set from the vendor's reference endpoint once (~10-20 calls, both active *and* delisted —
+  a two-year window covers dates on which now-dead ETNs were trading) and caches it at
+  `/data/recon/excluded-symbols.json`, refreshed every 30 days. Without it the harvest's universe
+  is a different population from the tracker's: leveraged single-stock ETNs are the market's most
+  reliable producers of "+10%, $1-50, >100k shares" days, and the paper book takes the first two
+  triggers of a day, so each one admitted displaces a real candidate. A fetch failure degrades to
+  the cached set and logs `harvest.exclusions_fetch_failed` rather than losing the night — if you
+  see that in `journalctl`, the universe for those sessions was filtered with a stale list.
 - **Disk.** ~36M rows of 1-min bars over the full harvest. `harvest.sh status` and `df -h` are the
   check; `HARVEST_STORE_MINUTE_BARS=false` in `.env` drops the raw minute series (the 5-min bars the
   engine reads are written either way) at the cost of a full re-fetch if the reconstruction rules

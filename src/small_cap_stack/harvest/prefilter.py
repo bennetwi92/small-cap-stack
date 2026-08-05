@@ -31,7 +31,7 @@ wider population is what :func:`sweep_floors` measures; nothing here changes the
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -87,6 +87,7 @@ def universe_rows(
     grouped: Sequence[Mapping[str, Any]],
     prev_close: Mapping[str, float],
     s: Settings,
+    exclude: Collection[str] = (),
 ) -> list[DailyRow]:
     """Grouped-daily rows that clear the strategy's locked price + change gates.
 
@@ -99,6 +100,13 @@ def universe_rows(
     A symbol with **no** previous close is kept: a first-day or relisted symbol is exactly the kind
     of runner the strategy wants, and silently dropping it here would bias the harvest toward names
     that already existed.
+
+    ``exclude`` is the ETF/ETN set (#443). The live scan drops them with IBKR's ``stkTypes``
+    ``exc:`` filter (``scanner.py``); the vendor's grouped-daily is every US-listed ticker, so
+    without this the harvest's universe is a *different population* from the tracker's. That is not
+    a few junk rows: leveraged single-stock ETNs are the market's most reliable producers of
+    "+10%, $1–50, >100k shares" days, and because the paper book takes the first two triggers of a
+    day, every one it admits displaces a real candidate rather than merely adding to it.
     """
     out: list[DailyRow] = []
     for row in grouped:
@@ -106,13 +114,23 @@ def universe_rows(
         high, close = row.get("h"), row.get("c")
         if not sym or high is None or close is None:
             continue
-        if not (s.scan_min_price <= float(high) <= s.scan_max_price):
+        if sym in exclude:
+            continue
+        low = row.get("l")
+        # Band OVERLAP, not containment (#443). The floor on the high is right — if the day's high
+        # never reached $1, no price that day was in band. The ceiling on the high was not: the live
+        # scanner filters on the LAST PRICE at each scan tick, so a name at $38 that runs to $55 is
+        # on the scanner for most of the pre-market. Testing the high against the ceiling deleted it
+        # from the universe entirely — and it deleted precisely the biggest movers, which biases
+        # measured expectancy DOWNWARD, the direction hardest to notice because it looks careful.
+        if float(high) < s.scan_min_price:
+            continue
+        if low is not None and float(low) > s.scan_max_price:
             continue
         pc = prev_close.get(sym)
         change = None if not pc else (float(high) / pc - 1.0) * 100.0
         if change is not None and change <= s.scan_change_pct:
             continue
-        low = row.get("l")
         out.append(
             DailyRow(
                 symbol=sym,
