@@ -1829,7 +1829,9 @@ def test_skipped_is_returned_in_trigger_order() -> None:
 # --------------------------------------------------------------------------------------------
 
 
-def _recon_payload(tmp_path: Path, *, live_day: datetime, recon_days: list[datetime]) -> dict:  # type: ignore[type-arg]
+def _recon_payload(
+    tmp_path: Path, *, live_day: datetime, recon_days: list[datetime], **settings: object
+) -> dict:  # type: ignore[type-arg]
     """Seed a live store + a recon store and build the payload over both."""
     import small_cap_stack.portfolio as pf
     from small_cap_stack.storage import Store
@@ -1840,7 +1842,10 @@ def _recon_payload(tmp_path: Path, *, live_day: datetime, recon_days: list[datet
     for d in recon_days:
         _seed_premarket(recon, oid_time_utc=d)
     return pf.build_portfolio_payload(
-        live, _s(), datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC), recon_store=recon
+        live,
+        _s(**settings),  # type: ignore[arg-type]
+        datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC),
+        recon_store=recon,
     )
 
 
@@ -2001,3 +2006,63 @@ def test_cached_candidates_round_trip_their_provenance(tmp_path: Path) -> None:
     del stale["source"]  # a pre-#430 cache entry
     with pytest.raises(KeyError):
         pf._candidate_from_json(stale)
+
+
+def test_the_recon_candidate_budget_bounds_the_payload_newest_first(tmp_path: Path) -> None:
+    """The #448 bound on #273's failure mode, applied where it can still be applied.
+
+    `build_portfolio_payload` retains every day's bars (it re-simulates the same day list once per
+    selectable target), so peak memory is linear in days x candidates — which is what OOM-killed
+    the box at ~25 live days. A finished harvest makes it ~500, and reconstructed days are denser
+    than live ones because the 50-row scanner cap is not modelled.
+    """
+    payload = _recon_payload(
+        tmp_path,
+        live_day=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC),
+        recon_days=[
+            datetime(2026, 6, 22, 12, 0, tzinfo=ET_UTC),
+            datetime(2026, 6, 23, 12, 0, tzinfo=ET_UTC),
+            datetime(2026, 6, 24, 12, 0, tzinfo=ET_UTC),
+        ],
+        portfolio_recon_max_candidates=2,  # each seeded day contributes one candidate
+    )
+
+    all_trades = payload["books_all"]["adaptive"]["trades"]  # type: ignore[index,call-overload]
+    # Newest-first: the two most recent reconstructed days survive, the oldest is dropped. That
+    # ordering matters — what survives is the segment contiguous with the live record.
+    assert [t["date"] for t in all_trades] == ["2026-06-23", "2026-06-24", "2026-06-29"]
+
+    cov = payload["coverage"]["recon"]  # type: ignore[index,call-overload]
+    # Never silent: a capped payload says so, or "coverage from 06-23" reads as "that is all the
+    # harvest has" rather than "that is all the payload can hold".
+    assert cov["capped_days_dropped"] == 1
+    assert cov["candidate_budget"] == 2
+    assert cov["days"] == 2
+
+
+def test_the_budget_always_yields_at_least_one_reconstructed_day(tmp_path: Path) -> None:
+    """A budget smaller than a single busy session must not produce an empty `books_all` with no
+    explanation — one unusually heavy day would silently disable the whole feature."""
+    payload = _recon_payload(
+        tmp_path,
+        live_day=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC),
+        recon_days=[datetime(2026, 6, 25, 12, 0, tzinfo=ET_UTC)],
+        portfolio_recon_max_candidates=1,
+    )
+    assert payload["coverage"]["recon"]["days"] == 1  # type: ignore[index,call-overload]
+    assert payload["coverage"]["recon"]["capped_days_dropped"] == 0  # type: ignore[index,call-overload]
+
+
+def test_the_budget_is_off_by_default_for_the_sizes_that_exist_today(tmp_path: Path) -> None:
+    """15k candidates is ~400 MB retained; nothing the harvest has produced comes near it, so the
+    cap must be invisible until it is genuinely needed."""
+    payload = _recon_payload(
+        tmp_path,
+        live_day=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC),
+        recon_days=[
+            datetime(2026, 6, 24, 12, 0, tzinfo=ET_UTC),
+            datetime(2026, 6, 25, 12, 0, tzinfo=ET_UTC),
+        ],
+    )
+    assert payload["coverage"]["recon"]["days"] == 2  # type: ignore[index,call-overload]
+    assert payload["coverage"]["recon"]["capped_days_dropped"] == 0  # type: ignore[index,call-overload]

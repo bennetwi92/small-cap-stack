@@ -18,12 +18,15 @@ import polars as pl
 from ..capture import Bar
 from ..clock import ET
 from ..config import Settings
+from ..logging import get_logger
 from ..storage import Store
 from .adaptive import risk_ladder
 from .extract import extract_day_trades
 from .models import CandidateTrade, PaperTrade, PortfolioResult, SkippedTrade
 from .projection import build_projection, day_rate_net_annual_gbp
 from .sim import AdaptiveState, simulate_portfolio, simulate_portfolio_adaptive
+
+log = get_logger(__name__)
 
 
 def collected_dates(store: Store) -> list[date]:
@@ -403,6 +406,64 @@ def _extract_day_trades_cached(
     return cands
 
 
+def _recon_days_within_budget(
+    recon_store: Store,
+    s: Settings,
+    recon_all: Sequence[date],
+    live_dates: set[date],
+    recon_cache_dir: Path | None,
+    settings_fp: str,
+) -> tuple[list[tuple[date, list[CandidateTrade]]], int]:
+    """Reconstructed days, newest-first, up to a candidate budget. Returns (days, days_dropped).
+
+    This function is the bound on #273's failure mode, applied where it can still be applied.
+    ``build_portfolio_payload`` retains every day's ``CandidateTrade``, and each one carries its
+    ``bars`` tuple — the whole 04:00–16:00 chart window — because ``_books_json`` re-simulates the
+    same ``by_day`` list once per selectable target. Peak memory is therefore linear in
+    *days × candidates*, and that is precisely what OOM-killed the box in #264 with ~25 live days.
+    A completed harvest makes it ~500, and reconstructed days are structurally *denser* than live
+    ones: ``reconstruct.py`` does not model IBKR's 50-row scanner cap, so a recon day can surface
+    candidates the live scanner never showed.
+
+    Budgeting on **candidates rather than days** is the point. Days are a proxy; candidates are the
+    thing that costs memory, and the density of a reconstructed day is exactly the number nobody
+    has measured yet (the harvest has produced none). A candidate budget self-adjusts: dense days
+    buy fewer of them, sparse days buy more, and the ceiling holds either way.
+
+    The walk is newest-first and stops **before** extracting a day it cannot afford, so the days it
+    drops cost nothing to skip — the alternative, extracting everything and slicing afterwards, has
+    already spent the memory by the time it decides. Newest-first also matches the harvest's own
+    ordering, so what survives the cap is the segment contiguous with the live record.
+    """
+    budget = s.portfolio_recon_max_candidates
+    kept: list[tuple[date, list[CandidateTrade]]] = []
+    spent = 0
+    dropped = 0
+    for d in sorted(recon_all, reverse=True):
+        if d in live_dates:
+            continue  # live wins on an overlap; not a cap decision, and not counted as dropped
+        trades = _extract_day_trades_cached(
+            recon_store, s, d, recon_cache_dir, settings_fp, force=False, source="recon"
+        )
+        # Always take the first day, whatever it costs: a budget that can yield nothing at all would
+        # turn one unusually busy session into an empty `books_all` with no explanation.
+        if budget > 0 and kept and spent + len(trades) > budget:
+            # `<=`, not `<`: `d` is the day being refused, so it is the newest of the dropped set.
+            dropped = sum(1 for x in recon_all if x <= d and x not in live_dates)
+            log.warning(
+                "portfolio.recon_capped",
+                budget=budget,
+                kept_days=len(kept),
+                dropped_days=dropped,
+                oldest_kept=d.isoformat(),
+            )
+            break
+        kept.append((d, trades))
+        spent += len(trades)
+    kept.reverse()  # callers splice ascending
+    return kept, dropped
+
+
 def _coverage_json(by_day: Sequence[tuple[date, list[CandidateTrade]]]) -> dict[str, object]:
     """Span + volume of one provenance's contribution, for the page's coverage line."""
     days = [d for d, _ in by_day]
@@ -492,19 +553,12 @@ def build_portfolio_payload(
     # truth the reconstruction is *calibrated against*; preferring it keeps the combined book from
     # double-counting a day, and from quietly substituting vendor bars for observed ones.
     recon_all = collected_dates(recon_store) if recon_store is not None else []
-    recon_by_day = (
-        [
-            (
-                d,
-                _extract_day_trades_cached(
-                    recon_store, s, d, recon_cache_dir, settings_fp, force=False, source="recon"
-                ),
-            )
-            for d in recon_all
-            if d not in live_dates
-        ]
+    recon_by_day, recon_capped = (
+        _recon_days_within_budget(
+            recon_store, s, recon_all, live_dates, recon_cache_dir, settings_fp
+        )
         if recon_store is not None
-        else []
+        else ([], 0)
     )
     # Selectable fixed targets: the adaptive grid widened with a couple of extremes for exploration.
     targets = sorted(set(s.portfolio_target_grid) | {1.0, 4.0, 5.0})
@@ -570,6 +624,10 @@ def build_portfolio_payload(
         # this to `recon_by_day` instead would make a fully-overlapping harvest look like an
         # unharvested box, which is the one case where the reader most needs to know why.
         recon_cov["overlap_days_dropped"] = len([d for d in recon_all if d in live_dates])
+        # Never a silent truncation: a capped payload must say so, or "coverage from 2025-02-11"
+        # reads as "that is all the harvest has" rather than "that is all the payload can hold".
+        recon_cov["capped_days_dropped"] = recon_capped
+        recon_cov["candidate_budget"] = s.portfolio_recon_max_candidates
     payload["coverage"] = {"live": _coverage_json(by_day), "recon": recon_cov}
     if recon_by_day:
         combined = sorted([*recon_by_day, *by_day], key=lambda item: item[0])
