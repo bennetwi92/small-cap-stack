@@ -336,8 +336,15 @@ cd /opt/small-cap-stack
   leftovers for an unmarked date before redoing it. Never hand-edit the checkpoint — it is the
   record of up to 45 nights of API budget, and `Checkpoint.load` refuses a version it doesn't know
   rather than silently starting over.
+- ⚠️ **A refused session is never marked done (#446).** `Store.append` writes no file for empty
+  records, so a day the vendor refused and a day nothing traded are byte-identical on disk. The
+  session loop counts *failures* — distinct from symbols that simply produced nothing — and
+  abandons the date, writing nothing and leaving it pending, when every symbol failed, when 5 fail
+  consecutively (the circuit breaker: a failing symbol costs 5 calls and ~95 s on the retry
+  ladder), or when more than 20% of a ≥10-candidate session failed. Look for
+  `harvest.session_abandoned` in `journalctl`; `failed=` is on every per-session line.
 - **Watching it.** `journalctl -u scs-harvest -f` shows a per-session line with candidate count,
-  opportunities, calls and **peak RSS** — that last number is the early-warning signal for a memory
+  opportunities, calls, **failures** and **peak RSS** — that last number is the early-warning signal for a memory
   regression. It is deliberately NOT wired to the tracker's Healthchecks dead-man's switch: a
   stalled harvest must never page as a tracker outage.
 - **The universe is filtered to match the live scan (#443).** Phase 1 fetches the ETF/ETN/ETV

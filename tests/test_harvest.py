@@ -1624,3 +1624,102 @@ def test_a_reference_fetch_failure_degrades_instead_of_losing_the_night(tmp_path
     assert [r.symbol for r in stored_universe(store, sessions[1])] == [
         "REAL"
     ]  # ...and still filters
+
+
+# ================================================================================================
+# Failure accounting (#446): a refused day and a quiet day must not look identical
+# ================================================================================================
+
+
+class _AllFail(FakeSource):
+    """A vendor that is reachable for grouped-daily and broken for every minute-bar request."""
+
+    def minute_bars(self, symbol: str, day: date) -> list[dict[str, Any]]:
+        self.calls += 1
+        self.requested.append((symbol, day))
+        raise HarvestError('HTTP 403: {"status":"NOT_AUTHORIZED","message":"Unknown API Key"}')
+
+
+def _universe(store: Store, day: date, n: int) -> list[DailyRow]:
+    rows = [_daily(f"S{i:03d}", 500.0 - i) for i in range(n)]
+    store.append("daily_universe", [r.as_record() for r in rows], partition_date=day)
+    return rows
+
+
+def test_a_session_the_vendor_refused_is_never_recorded_as_harvested(tmp_path: Path) -> None:
+    """The #446 failure. `Store.append` writes no file for empty records, so a totally-failed
+    session and a genuinely quiet pre-market are byte-identical on disk — and the checkpoint would
+    have claimed the date forever, with `harvest status` reporting it as done."""
+    s = _settings(tmp_path, harvest_rate_sleep_sec=0.0)
+    store = harvest_store(s)
+    rows = _universe(store, DAY, 20)
+    cp = Checkpoint.load(checkpoint_path(s))
+
+    run = run_harvest(
+        _AllFail(),
+        store,
+        s,
+        [DAY],
+        checkpoint=cp,
+        window=RunWindow(),
+        now_fn=_clock(datetime.combine(DAY, time(22, 0), tzinfo=ET)),
+    )
+
+    assert run.completed == ()
+    assert cp.done == set(), "a refused session must stay pending, not be marked harvested"
+    assert run.sessions[0].failed > 0
+    assert not run.sessions[0].complete
+    for dataset in HARVEST_DATASETS:
+        assert not (store.data_dir / dataset / f"dt={DAY.isoformat()}").exists()
+    assert len(rows) == 20  # the universe itself is untouched — phase 1's work is not discarded
+
+
+def test_the_circuit_breaker_stops_after_a_handful_not_a_whole_session(tmp_path: Path) -> None:
+    """A failing symbol costs 5 calls and ~95s on the retry ladder. Learning the vendor is down 218
+    times costs the night; learning it 5 times costs four minutes."""
+    s = _settings(tmp_path, harvest_rate_sleep_sec=0.0)
+    store = harvest_store(s)
+    rows = _universe(store, DAY, 200)
+    source = _AllFail()
+
+    result = harvest_session(source, store, s, DAY, rows)
+
+    assert not result.complete
+    assert result.failed == s.harvest_max_consecutive_failures
+    assert len(source.requested) == s.harvest_max_consecutive_failures, (
+        "the breaker did not stop the session — it walked the whole candidate list"
+    )
+
+
+def test_scattered_failures_past_the_ratio_also_abandon_the_session(tmp_path: Path) -> None:
+    """Scattered failures never trip the consecutive breaker but still leave a session sampled from
+    a fraction of its universe — which extracts perfectly well and looks like a thin day."""
+    s = _settings(tmp_path, harvest_rate_sleep_sec=0.0)
+    store = harvest_store(s)
+    rows = _universe(store, DAY, 20)
+    # Every other symbol fails: 10/20 = 50%, well past the 20% ratio, but never 5 in a row.
+    doomed = {r.symbol for i, r in enumerate(rows) if i % 2 == 0}
+    source = FakeSource(minutes={(r.symbol, DAY): _runner_minutes() for r in rows}, fail_on=doomed)
+
+    result = harvest_session(source, store, s, DAY, rows)
+
+    assert not result.complete and result.failed == 10
+    for dataset in HARVEST_DATASETS:
+        assert not (store.data_dir / dataset / f"dt={DAY.isoformat()}").exists()
+
+
+def test_a_quiet_symbol_is_a_zero_not_a_failure(tmp_path: Path) -> None:
+    """The distinction the whole count rests on. A name that did not trade pre-market, or never
+    cleared the gates, was REACHED — counting it as a failure would make the session's failure rate
+    track market quietness instead of vendor health, and abandon perfectly good quiet days."""
+    s = _settings(tmp_path, harvest_rate_sleep_sec=0.0)
+    store = harvest_store(s)
+    rows = _universe(store, DAY, 20)
+    # Every symbol answers; none of them has any pre-market tape at all.
+    source = FakeSource(minutes={(r.symbol, DAY): [] for r in rows})
+
+    result = harvest_session(source, store, s, DAY, rows)
+
+    assert result.complete, "a session of quiet names is a real, harvested, empty day"
+    assert result.failed == 0
+    assert result.opportunities == 0
