@@ -66,6 +66,7 @@ reconstructed candidate carries ``float_shares=None`` instead of a fabricated nu
 
 from __future__ import annotations
 
+import json
 import shutil
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -125,6 +126,73 @@ def harvest_store(s: Settings) -> Store:
 def checkpoint_path(s: Settings) -> Path:
     """Beside the store it describes, so a restored backup carries its own progress marker."""
     return harvest_store(s).data_dir / "harvest-checkpoint.json"
+
+
+def exclusions_path(s: Settings) -> Path:
+    """Where the cached ETF/ETN symbol set lives — beside the checkpoint, for the same reason."""
+    return harvest_store(s).data_dir / "excluded-symbols.json"
+
+
+def load_exclusions(path: Path) -> frozenset[str]:
+    """The cached exclusion set, or empty when it has never been fetched.
+
+    Empty means *exclude nothing*, which is the pre-#443 behaviour. That is the correct failure
+    direction only because :func:`refresh_exclusions` logs loudly when it cannot fetch — an empty
+    set that nobody announced would silently reinstate the bug it exists to fix.
+    """
+    if not path.exists():
+        return frozenset()
+    raw = json.loads(path.read_text())
+    return frozenset(str(x) for x in raw.get("symbols") or [])
+
+
+def refresh_exclusions(source: HarvestSource, path: Path, s: Settings) -> frozenset[str]:
+    """Fetch the ETF/ETN universe once and cache it. Returns the set to filter with.
+
+    Reference data, not per-date: one fetch covers the whole harvest, at ~10–20 calls against a
+    ~500-session job. Refreshed when older than ``harvest_exclusions_max_age_days`` so a harvest
+    running for weeks eventually notices new listings — though the harvest walks *backwards*, so
+    newly-listed products matter less the longer it runs.
+
+    A fetch failure is **not** fatal. Losing a night of phase 1 because a reference endpoint
+    hiccuped would be a worse trade than filtering with yesterday's list (or, on the very first
+    run, with none) — but it is logged at warning either way, because an unfiltered universe is
+    the defect this function exists to prevent.
+    """
+    cached = load_exclusions(path)
+    # Keyed on the FILE existing, not on the set being non-empty: an empty result is a legitimate
+    # answer (a vendor with no products of these types), and treating it as "never fetched" would
+    # re-spend the reference calls every single night for as long as that stayed true.
+    if path.exists() and not _stale(path, s.harvest_exclusions_max_age_days):
+        return cached
+    symbols: set[str] = set()
+    try:
+        for ticker_type in s.harvest_exclude_ticker_types:
+            for active in (True, False):
+                symbols.update(source.tickers_of_type(ticker_type, active=active))
+    except Exception as exc:  # noqa: BLE001 — see the docstring: degrade, don't lose the night
+        log.warning("harvest.exclusions_fetch_failed", error=str(exc), cached=len(cached))
+        return cached
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "types": list(s.harvest_exclude_ticker_types),
+                "fetched_at": datetime.now(UTC).isoformat(),
+                "symbols": sorted(symbols),
+            },
+            indent=2,
+        )
+    )
+    log.info("harvest.exclusions", symbols=len(symbols), types=s.harvest_exclude_ticker_types)
+    return frozenset(symbols)
+
+
+def _stale(path: Path, max_age_days: int) -> bool:
+    if max_age_days <= 0:
+        return False
+    age = datetime.now(UTC) - datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+    return age > timedelta(days=max_age_days)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -274,6 +342,9 @@ def harvest_daily(
     prev_close: dict[str, float] = {}
     prev_day: date | None = None
     floor = checkpoint.entitlement_floor if checkpoint is not None else None
+    # Fetched here rather than per session: it is reference data, and phase 1 is the only place the
+    # stored universe is decided (#443).
+    exclude = refresh_exclusions(source, exclusions_path(s), s)
     for day in ordered:
         if deadline is not None and now_fn() >= deadline:
             break
@@ -305,7 +376,7 @@ def harvest_daily(
             floor = _note_floor(checkpoint, floor, day, exc)
             prev_day = None
             continue
-        rows = universe_rows(grouped, prev_close, s)
+        rows = universe_rows(grouped, prev_close, s, exclude)
         store.append("daily_universe", [r.as_record() for r in rows], partition_date=day)
         result = DailyResult(day, len(grouped), len(rows), source.calls - before)
         results.append(result)

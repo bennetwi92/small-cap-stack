@@ -160,10 +160,14 @@ class FakeSource:
         minutes: dict[tuple[str, date], list[dict[str, Any]]] | None = None,
         fail_on: set[str] | None = None,
         entitled_from: date | None = None,
+        tickers: dict[tuple[str, bool], list[str]] | None = None,
     ) -> None:
         self._grouped = grouped or {}
         self._minutes = minutes or {}
         self._fail_on = fail_on or set()
+        #: (vendor ticker type, active) -> symbols, for the #443 exclusion fetch.
+        self._tickers = tickers or {}
+        self.ticker_queries: list[tuple[str, bool]] = []
         #: Dates before this are refused the way the real vendor refuses them (#440) — a 403 whose
         #: body says the plan does not reach that far back, not a transport failure.
         self._entitled_from = entitled_from
@@ -184,6 +188,11 @@ class FakeSource:
         self.grouped_requested.append(day)
         self._entitlement_check(day)
         return list(self._grouped.get(day, []))
+
+    def tickers_of_type(self, ticker_type: str, *, active: bool) -> list[str]:
+        self.calls += 1
+        self.ticker_queries.append((ticker_type, active))
+        return list(self._tickers.get((ticker_type, active), []))
 
     def minute_bars(self, symbol: str, day: date) -> list[dict[str, Any]]:
         self.calls += 1
@@ -493,7 +502,9 @@ def test_harvest_daily_reuses_each_response_as_the_next_sessions_previous_close(
     source = FakeSource(grouped=grouped)
     results = harvest_daily(source, store, s, sessions)
     assert len(results) == len(sessions)
-    assert source.calls == len(sessions) + 1  # one extra for the session before the first
+    # Grouped-daily calls specifically: `calls` also carries the one-off #443 reference fetch, and
+    # what this test is about is the per-session economy of phase 1.
+    assert len(source.grouped_requested) == len(sessions) + 1  # +1 for the session before the first
     rows = stored_universe(store, sessions[0])
     assert [r.symbol for r in rows] == ["RUNNER"]
     assert rows[0].prev_close == 2.0  # carried from 2026-07-02, the prior session
@@ -1478,3 +1489,138 @@ def test_the_harvest_passes_the_interval_it_asked_the_vendor_for(tmp_path: Path)
     first_seen = opps.row(0, named=True)["first_seen_utc"]
     # 04:60 -> the spike bar starts 05:00, knowable at 05:01 on the minute grid it was fetched at.
     assert first_seen.astimezone(ET).strftime("%H:%M") == "05:01"
+
+
+# ================================================================================================
+# The harvested universe (#443): who is a candidate at all
+# ================================================================================================
+#
+# Both defects here change the candidate POPULATION rather than any single row, which is why they
+# are more dangerous than they look: `portfolio_max_trades_per_day` takes the first two triggers of
+# a day, so an admitted ETN displaces a real name and a deleted runner is never replaced. Neither
+# shows up as an error anywhere downstream.
+
+
+def _grouped_ohlc(
+    sym: str, *, high: float, low: float, close: float, volume: float = 9e6
+) -> dict[str, Any]:
+    return {"T": sym, "h": high, "l": low, "c": close, "v": volume}
+
+
+def test_the_price_band_admits_a_runner_that_traded_out_of_the_top_of_it() -> None:
+    """The live scanner filters on LAST PRICE at each tick, so a $38 name that runs to $55 is on it
+    for most of the pre-market. Testing the day's HIGH against the ceiling deleted it entirely —
+    and deleted the biggest movers preferentially, biasing expectancy downward."""
+    s = _settings(Path("/tmp"))
+    grouped = [
+        _grouped_ohlc("BIGRUN", high=55.0, low=38.0, close=52.0),  # left the band intraday
+        _grouped_ohlc("OKRUN", high=49.0, low=38.0, close=47.0),  # stayed inside it
+    ]
+    kept = {r.symbol for r in universe_rows(grouped, {"BIGRUN": 40.0, "OKRUN": 40.0}, s)}
+    assert kept == {"BIGRUN", "OKRUN"}
+
+
+def test_the_price_band_still_rejects_names_that_were_never_in_it() -> None:
+    """Overlap, not "anything goes": a name whose whole day sat outside the band is still out."""
+    s = _settings(Path("/tmp"))
+    grouped = [
+        _grouped_ohlc("PENNY", high=0.80, low=0.40, close=0.75),  # high never reached $1
+        _grouped_ohlc("BLUE", high=310.0, low=280.0, close=300.0),  # low never came under $50
+        _grouped_ohlc("EDGE", high=51.0, low=49.5, close=50.5),  # straddles the ceiling -> in
+    ]
+    prev = {"PENNY": 0.5, "BLUE": 200.0, "EDGE": 40.0}
+    assert {r.symbol for r in universe_rows(grouped, prev, s)} == {"EDGE"}
+
+
+def test_etfs_and_etns_are_excluded_the_way_the_live_scan_excludes_them(tmp_path: Path) -> None:
+    """`scanner.py` drops them with IBKR's `stkTypes exc:` filter; the vendor's grouped-daily is
+    every US-listed ticker. Leveraged single-stock ETNs are the market's most reliable producers of
+    the exact "+10%, $1-50, >100k" day this strategy hunts, so without this the harvested universe
+    is a different population from the tracker's."""
+    s = _settings(tmp_path)
+    store = harvest_store(s)
+    sessions = trading_sessions(date(2026, 7, 6), date(2026, 7, 8), s)
+    rows = [
+        _grouped_ohlc("REAL", high=6.0, low=3.0, close=5.0),
+        _grouped_ohlc("CONL", high=6.0, low=3.0, close=5.0),  # a leveraged single-stock ETN
+        _grouped_ohlc("SQQQ", high=6.0, low=3.0, close=5.0),  # a leveraged ETF
+    ]
+    source = FakeSource(
+        grouped=dict.fromkeys([*sessions, date(2026, 7, 2)], rows),
+        tickers={("ETN", True): ["CONL"], ("ETF", True): ["SQQQ"]},
+    )
+    harvest_daily(source, store, s, sessions)
+
+    for day in sessions:
+        assert [r.symbol for r in stored_universe(store, day)] == ["REAL"]
+
+
+def test_the_exclusion_set_asks_for_delisted_products_too(tmp_path: Path) -> None:
+    """A two-year window walks over dates on which ETNs now delisted were very much trading, so an
+    active-only list would leave exactly the oldest part of the harvest unfiltered."""
+    s = _settings(tmp_path)
+    store = harvest_store(s)
+    sessions = trading_sessions(date(2026, 7, 6), date(2026, 7, 7), s)
+    rows = [
+        _grouped_ohlc("REAL", high=6.0, low=3.0, close=5.0),
+        _grouped_ohlc("DEADETN", high=6.0, low=3.0, close=5.0),
+    ]
+    source = FakeSource(
+        grouped=dict.fromkeys([*sessions, date(2026, 7, 2)], rows),
+        tickers={("ETN", False): ["DEADETN"]},  # only in the DELISTED list
+    )
+    harvest_daily(source, store, s, sessions)
+
+    assert (("ETN", False)) in source.ticker_queries
+    assert all(
+        t in source.ticker_queries
+        for t in [(x, a) for x in s.harvest_exclude_ticker_types for a in (True, False)]
+    )
+    assert [r.symbol for r in stored_universe(store, sessions[0])] == ["REAL"]
+
+
+def test_the_exclusion_set_is_fetched_once_for_the_whole_run_not_per_session(
+    tmp_path: Path,
+) -> None:
+    """It is reference data. Re-fetching per session would cost ~500x for an answer that does not
+    vary by date — and at 13s a call, that is nights."""
+    s = _settings(tmp_path)
+    store = harvest_store(s)
+    sessions = trading_sessions(date(2026, 7, 6), date(2026, 7, 9), s)
+    rows = [_grouped_ohlc("REAL", high=6.0, low=3.0, close=5.0)]
+    source = FakeSource(grouped=dict.fromkeys([*sessions, date(2026, 7, 2)], rows), tickers={})
+    harvest_daily(source, store, s, sessions)
+    assert len(source.ticker_queries) == 2 * len(s.harvest_exclude_ticker_types)
+
+    # A second run reads the cached file rather than re-querying.
+    again = FakeSource(grouped=dict.fromkeys([*sessions, date(2026, 7, 2)], rows), tickers={})
+    harvest_daily(again, store, s, [sessions[0]])
+    assert again.ticker_queries == []
+
+
+def test_a_reference_fetch_failure_degrades_instead_of_losing_the_night(tmp_path: Path) -> None:
+    """Losing a night of phase 1 because a reference endpoint hiccuped is a worse trade than
+    filtering with the cached list — but it must be logged, not silent."""
+    s = _settings(tmp_path)
+    store = harvest_store(s)
+    sessions = trading_sessions(date(2026, 7, 6), date(2026, 7, 7), s)
+    rows = [
+        _grouped_ohlc("REAL", high=6.0, low=3.0, close=5.0),
+        _grouped_ohlc("CONL", high=6.0, low=3.0, close=5.0),
+    ]
+
+    class Broken(FakeSource):
+        def tickers_of_type(self, ticker_type: str, *, active: bool) -> list[str]:
+            raise HarvestError("reference endpoint is down")
+
+    good = FakeSource(
+        grouped=dict.fromkeys([*sessions, date(2026, 7, 2)], rows),
+        tickers={("ETN", True): ["CONL"]},
+    )
+    harvest_daily(good, store, s, [sessions[0]])  # populates the cache
+
+    broken = Broken(grouped=dict.fromkeys([*sessions, date(2026, 7, 2)], rows))
+    harvest_daily(broken, store, s, [sessions[1]])  # the night still runs...
+    assert [r.symbol for r in stored_universe(store, sessions[1])] == [
+        "REAL"
+    ]  # ...and still filters

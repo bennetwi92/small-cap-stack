@@ -54,6 +54,18 @@ class Settings(BaseSettings):
     # `python -m small_cap_stack.harvest sweep` is the measurement to run before touching it.
     harvest_min_day_volume: float = 100_000.0
     harvest_max_candidates: int = 0  # per session; 0 = no cap (a smoke-test lever, not a filter)
+    # Vendor ticker types dropped from the harvested universe (#443) — the reconstruction's
+    # equivalent of the live scan's `scan_exclude_stock_types` ("ETF", "ETN") applied via IBKR's
+    # `stkTypes exc:` filter. Kept as a SEPARATE setting rather than reusing that one because these
+    # are two vendors' taxonomies that merely happen to share two code names: Polygon splits
+    # exchange-traded products finer than IBKR does, so "ETV" (exchange-traded vehicle) has to be
+    # named here to catch what IBKR files under ETF. Closed-end funds ("FUND") are deliberately
+    # absent — they trade like stocks and IBKR's STK.US.MAJOR scan includes them.
+    harvest_exclude_ticker_types: tuple[str, ...] = ("ETF", "ETN", "ETV")
+    # How long the cached exclusion set may go unrefreshed. It is reference data and the harvest
+    # walks backwards in time, so newly-listed products matter less the longer it runs; 0 disables
+    # refreshing entirely.
+    harvest_exclusions_max_age_days: int = 30
     # Keep the raw 1-min pre-market bars the appearance was reconstructed from (~330 rows per
     # symbol-day, ~36M rows over the harvest). Store-raw/compute-on-read has a price tag here:
     # without them a change to the reconstruction rules costs another 45 nights of API budget
