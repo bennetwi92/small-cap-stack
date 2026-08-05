@@ -96,12 +96,31 @@ def bucket_start(moment: datetime, minutes: int) -> datetime:
     return floored.astimezone(UTC)
 
 
-def aggregate(bars: Sequence[Bar], minutes: int = 5) -> list[Bar]:
+def aggregate(bars: Sequence[Bar], minutes: int = 5, *, fill: bool = True) -> list[Bar]:
     """Resample finer bars onto the ``minutes`` grid: first open, max high, min low, last close.
 
-    Empty buckets are **not** filled. IBKR's historical bars omit periods with no trades, so
-    synthesising flat candles would hand the detector bars that never existed — and the engine
-    reads consecutive bars as consecutive price action.
+    Empty buckets **are** filled, with a flat zero-volume candle at the previous bucket's close,
+    because that is what IBKR does and the engine is calibrated on IBKR's shape (#442). This was
+    the other way round until it was measured: the docstring asserted "IBKR's historical bars omit
+    periods with no trades", and all 25 committed real-market fixtures say otherwise — 3,428
+    inter-bar gaps, every one exactly 5 minutes, and 331 of 3,453 bars (10%) zero-volume filler at
+    the prior close.
+
+    It matters because the engine is **bar-index-based**, not timestamp-based:
+    ``bull_flag_max_cons`` and ``bull_flag_max_pole`` count candles, the trigger is the first bar
+    whose high clears the
+    previous *bar's*, and cycle exhaustion asks whether a prior cycle is within one *bar* of the
+    pole. Deleting the quiet candles shortens every span the engine measures — a 7-candle
+    consolidation the live engine rejects becomes a clean 2-candle flag, i.e. a trade that could not
+    have been taken.
+
+    Filling is **interior only**: from the first traded bucket to the last. The fixtures start at
+    the first trade (ARCT opens 07:00, not 04:00) and none of the 25 ends on a zero-volume bar, so
+    extrapolating a tail would invent bars IBKR does not send. A name whose tape dies at noon needs
+    no tail anyway — ``simulate_exit`` marks an unresolved trade to the last close, and a flat
+    filler carries that same close.
+
+    ``fill=False`` keeps the old behaviour for callers that want the traded buckets alone.
     """
     if not bars:
         return []
@@ -117,7 +136,45 @@ def aggregate(bars: Sequence[Bar], minutes: int = 5) -> list[Bar]:
         bucket.append(bar)
     if bucket:
         out.append(_fold(bucket, current))
+    return _fill_gaps(out, minutes) if fill else out
+
+
+def _fill_gaps(bars: Sequence[Bar], minutes: int) -> list[Bar]:
+    """Insert flat zero-volume candles for every empty bucket between the first and the last.
+
+    Anchored to the *previous* bar's close, which is what a no-trade period actually looks like on
+    the tape: price did not move because nothing printed. Volume 0 is load-bearing — the trailing
+    volume gate must not see invented liquidity, and the engine's own volume comparisons
+    (pole peak > consolidation) stay honest.
+    """
+    if len(bars) < 2:
+        return list(bars)
+    step = timedelta(minutes=minutes)
+    out: list[Bar] = [bars[0]]
+    for bar in bars[1:]:
+        prev = out[-1]
+        gap = bar.start - prev.start
+        # A vendor that omits no-trade periods leaves a gap that is a whole multiple of the grid.
+        # Cap the run defensively: a malformed timestamp must not synthesise a million candles.
+        missing = int(gap / step) - 1
+        for i in range(1, min(missing, _MAX_FILL) + 1):
+            out.append(
+                Bar(
+                    start=prev.start + step * i,
+                    open=prev.close,
+                    high=prev.close,
+                    low=prev.close,
+                    close=prev.close,
+                    volume=0.0,
+                )
+            )
+        out.append(bar)
     return out
+
+
+#: One session on the 5-min grid is 144 bars, so this can never bind on well-formed data. It exists
+#: so a bad vendor timestamp costs a log line rather than the box's memory.
+_MAX_FILL = 1_000
 
 
 def _fold(bucket: Sequence[Bar], start: datetime) -> Bar:
@@ -150,7 +207,9 @@ def trim_session(bars: Sequence[Bar], trading_date: date | None, lo: time, hi: t
     return out
 
 
-def rolling_window_volume(bars: Sequence[Bar], minutes: int = 5) -> list[float]:
+def rolling_window_volume(
+    bars: Sequence[Bar], minutes: int = 5, *, interval: timedelta | None = None
+) -> list[float]:
     """Trailing ``minutes`` of volume as at each bar's END, one value per bar.
 
     Generic over the bar grid on purpose (module doc, point 2): on 5-min bars each value is just
@@ -158,9 +217,15 @@ def rolling_window_volume(bars: Sequence[Bar], minutes: int = 5) -> list[float]:
     to IBKR's continuously-updated ``stVolume5minAbove``. A bar contributes when its whole span lies
     inside the window ending at the current bar's close, so a gap in the tape shrinks the window's
     contents rather than reaching further back in time for them.
+
+    ``interval`` is the bar duration. Pass it when the caller *knows* it (#442): inferring it costs
+    nothing on a dense series but is wrong on a sparse one, and being wrong here is expensive —
+    ``bar_interval`` returns the **modal** spacing, so a thin name printing every 3 minutes infers
+    3 minutes, and at any inferred interval >= ``minutes`` the trailing window collapses to the
+    current bar alone. It falls back to inference so the #428 spike fixtures still work unchanged.
     """
     window = timedelta(minutes=minutes)
-    interval = bar_interval(bars)
+    interval = interval or bar_interval(bars)
     out: list[float] = []
     start = 0
     for i, bar in enumerate(bars):
@@ -230,10 +295,15 @@ class Reconstruction:
 
 
 def _gate_trace(
-    bars: Sequence[Bar], settings: Settings, *, prev_close: float | None, window_minutes: int
+    bars: Sequence[Bar],
+    settings: Settings,
+    *,
+    prev_close: float | None,
+    window_minutes: int,
+    interval: timedelta | None = None,
 ) -> list[GateTrace]:
-    vols = rolling_window_volume(bars, minutes=window_minutes)
-    interval = bar_interval(bars)
+    interval = interval or bar_interval(bars)
+    vols = rolling_window_volume(bars, minutes=window_minutes, interval=interval)
     traces: list[GateTrace] = []
     for i, bar in enumerate(bars):
         end = bar.start + interval
@@ -270,14 +340,26 @@ def reconstruct_hit(
     trading_date: date | None = None,
     prev_close: float | None = None,
     window_minutes: int = 5,
+    interval: timedelta | None = None,
 ) -> Reconstruction:
     """The first bar at which every decidable scan gate passes — the reconstructed appearance.
 
     ``prev_close`` is the previous session's daily close; without it the change gate abstains (see
     the module doc, point 3). ``window_minutes`` is the trailing volume window (5, matching
     ``stVolume5minAbove``) — a parameter only so the sensitivity can be swept, not tuned.
+
+    ``interval`` is the bar duration, which the harvest knows (it asked the vendor for minute bars)
+    and should pass rather than have re-derived (#442) — see :func:`rolling_window_volume`. It sets
+    ``hit_time = bar.start + interval``, so an inferred-too-long interval credits every appearance
+    late, and `first_hit` is what gates the engine's entry bar and its staleness bound.
     """
-    trace = _gate_trace(bars, settings, prev_close=prev_close, window_minutes=window_minutes)
+    trace = _gate_trace(
+        bars,
+        settings,
+        prev_close=prev_close,
+        window_minutes=window_minutes,
+        interval=interval,
+    )
     hit = next((t for t in trace if t.all_ok), None)
     flags = {
         "price": [t.price_ok for t in trace],
