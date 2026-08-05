@@ -40,7 +40,7 @@ from .runner import (
     stored_universe,
     trading_sessions,
 )
-from .source import HarvestError, HarvestSource, MassiveSource
+from .source import HarvestEntitlementError, HarvestError, HarvestSource, MassiveSource
 
 __all__ = [
     "HARVEST_DATASETS",
@@ -50,6 +50,7 @@ __all__ = [
     "DailyRow",
     "GateTrace",
     "HarvestConfigError",
+    "HarvestEntitlementError",
     "HarvestError",
     "HarvestRun",
     "HarvestSource",

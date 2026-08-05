@@ -47,6 +47,12 @@ class Checkpoint:
     daily_done: set[date] = field(default_factory=set)
     calls: int = 0
     updated_at: datetime | None = None
+    #: The newest date the vendor has refused on entitlement grounds — nothing on or before it is
+    #: purchasable (#440). Stored rather than re-probed because the refusal costs a call every time,
+    #: and because the answer is permanent: the entitlement is a *rolling* window, so a date outside
+    #: it today is outside it forever. That also means this only ever moves forward, which is what
+    #: :meth:`note_entitlement_floor` enforces.
+    entitlement_floor: date | None = None
 
     # -- io ---------------------------------------------------------------------------------
 
@@ -74,6 +80,15 @@ class Checkpoint:
             updated_at=(
                 datetime.fromisoformat(raw["updated_at"]) if raw.get("updated_at") else None
             ),
+            # Absent in every checkpoint written before #440, and read as "not discovered yet".
+            # Added WITHOUT a version bump: `load` refuses an unknown version outright, so
+            # bumping it to add an optional field would brick the box's existing checkpoint — the
+            # record of however many nights of API budget it already holds.
+            entitlement_floor=(
+                date.fromisoformat(raw["entitlement_floor"])
+                if raw.get("entitlement_floor")
+                else None
+            ),
         )
 
     def save(self) -> None:
@@ -84,6 +99,9 @@ class Checkpoint:
                 "done": [d.isoformat() for d in sorted(self.done)],
                 "daily_done": [d.isoformat() for d in sorted(self.daily_done)],
                 "calls": self.calls,
+                "entitlement_floor": (
+                    self.entitlement_floor.isoformat() if self.entitlement_floor else None
+                ),
                 "updated_at": self.updated_at.isoformat(),
             },
             indent=2,
@@ -115,6 +133,19 @@ class Checkpoint:
         self.done.add(d)
         self.calls += calls
         self.save()
+
+    def note_entitlement_floor(self, d: date) -> bool:
+        """Record that ``d`` is past the vendor's history. Returns True if this moved the floor.
+
+        Monotonic: an *older* refusal than one already recorded tells us nothing new, and taking it
+        would walk the floor backwards and re-open dates we have already paid a call to learn are
+        unbuyable.
+        """
+        if self.entitlement_floor is not None and d <= self.entitlement_floor:
+            return False
+        self.entitlement_floor = d
+        self.save()
+        return True
 
     @property
     def newest(self) -> date | None:

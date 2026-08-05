@@ -81,7 +81,7 @@ from .checkpoint import Checkpoint
 from .guard import HostGuard, RunWindow, peak_rss_mb
 from .prefilter import DailyRow, candidates, universe_rows
 from .reconstruct import PREMARKET, aggregate, reconstruct_hit, to_bars, trim_session
-from .source import HarvestSource
+from .source import HarvestEntitlementError, HarvestError, HarvestSource
 
 log = get_logger(__name__)
 
@@ -198,6 +198,7 @@ def plan_sessions(
     today: date,
     done: Sequence[date] = (),
     live_dates: Sequence[date] = (),
+    not_before: date | None = None,
 ) -> list[date]:
     """Sessions still to harvest, **newest-first** (#430's ordering decision).
 
@@ -205,9 +206,16 @@ def plan_sessions(
     anyway (#430), so spending ~218 calls on one is spending a night to have the result thrown
     away. Excludes ``today`` too — the vendor's own session is not final until the close, and the
     harvest runs overnight against finished days.
+
+    ``not_before`` is the checkpoint's discovered entitlement floor (#440): dates on or before it
+    are not for sale, so planning them would report a backlog that can never shrink and spend a
+    call every night rediscovering it. ``harvest_lookback_days`` says how far back we *want* to go;
+    this says how far back the vendor will actually go.
     """
     skip = set(done) | set(live_dates)
     start = today - timedelta(days=s.harvest_lookback_days)
+    if not_before is not None:
+        start = max(start, not_before + timedelta(days=1))
     sessions = trading_sessions(start, today - timedelta(days=1), s)
     return sorted((d for d in sessions if d not in skip), reverse=True)
 
@@ -263,14 +271,38 @@ def harvest_daily(
     results: list[DailyResult] = []
     prev_close: dict[str, float] = {}
     prev_day: date | None = None
+    floor = checkpoint.entitlement_floor if checkpoint is not None else None
     for day in ordered:
         if deadline is not None and now_fn() >= deadline:
             break
         prior = _prior_session(day, s)
-        if prev_day != prior:  # first session of the run, or a gap in the requested list
-            prev_close = _close_map(source.grouped_daily(prior)) if prior else {}
+        # Two ways a session is unreachable, and only one of them moves the floor (#440). A date on
+        # or before the floor is not for sale. A date whose *prior* is not for sale is for sale but
+        # ungateable — #428 makes the previous close a required input — so it is skipped as a
+        # consequence, without being recorded: recording it would make each skip disqualify the
+        # next session in turn, and the cascade would swallow the entire window.
+        if floor is not None and day <= floor:
+            continue
+        if floor is not None and prior is not None and prior <= floor:
+            log.info("harvest.daily_unseedable", date=day.isoformat(), prior=prior.isoformat())
+            continue
         before = source.calls
-        grouped = source.grouped_daily(day)
+        if prev_day != prior:  # first session of the run, or a gap in the requested list
+            if prior is None:
+                prev_close = {}
+            else:
+                try:
+                    prev_close = _close_map(source.grouped_daily(prior))
+                except HarvestEntitlementError as exc:
+                    floor = _note_floor(checkpoint, floor, prior, exc)
+                    prev_day = None
+                    continue
+        try:
+            grouped = source.grouped_daily(day)
+        except HarvestEntitlementError as exc:
+            floor = _note_floor(checkpoint, floor, day, exc)
+            prev_day = None
+            continue
         rows = universe_rows(grouped, prev_close, s)
         store.append("daily_universe", [r.as_record() for r in rows], partition_date=day)
         result = DailyResult(day, len(grouped), len(rows), source.calls - before)
@@ -284,6 +316,21 @@ def harvest_daily(
         prev_day = day
         del grouped
     return results
+
+
+def _note_floor(
+    checkpoint: Checkpoint | None, floor: date | None, refused: date, exc: HarvestError
+) -> date:
+    """Record a refused date as the entitlement floor and return the floor to plan against.
+
+    Logged at warning rather than swallowed: the harvest quietly harvesting a shorter window than
+    ``harvest_lookback_days`` asks for is exactly the sort of thing that should be visible in
+    ``journalctl`` the first night it happens, not inferred from a session count months later.
+    """
+    log.warning("harvest.entitlement_floor", date=refused.isoformat(), error=str(exc))
+    if checkpoint is not None:
+        checkpoint.note_entitlement_floor(refused)
+    return refused if floor is None else max(floor, refused)
 
 
 def _prior_session(day: date, s: Settings) -> date | None:
@@ -397,6 +444,12 @@ def _accumulate_symbol(
     """
     try:
         raw = source.minute_bars(row.symbol, trading_date)
+    except HarvestEntitlementError:
+        # Not this symbol's problem — the whole DATE is past what the vendor sells, so every
+        # remaining symbol would fail the same way. Letting it out is the point: swallowed here it
+        # would write a session of zero opportunities that the checkpoint then marks done, which is
+        # indistinguishable from a genuinely quiet day and would never be revisited (#440).
+        raise
     except Exception:  # noqa: BLE001 — one symbol's failure must never stall a night's session
         log.warning("harvest.symbol_failed", symbol=row.symbol, date=trading_date.isoformat())
         return
@@ -515,7 +568,17 @@ def run_harvest(
             break
 
         discard_partial(store, day)  # a previous kill may have left files for an unmarked date
-        result = harvest_session(source, store, s, day, rows, deadline=deadline, now_fn=now_fn)
+        try:
+            result = harvest_session(source, store, s, day, rows, deadline=deadline, now_fn=now_fn)
+        except HarvestEntitlementError as exc:
+            # Sessions run newest-first, so everything still pending is OLDER and equally unbuyable:
+            # stop the night rather than spend it discovering that 200 times. The date is NOT marked
+            # done — an entitlement wall yields an empty session, and a checkpoint that claims it
+            # would bury the gap forever.
+            discard_partial(store, day)
+            _note_floor(checkpoint, checkpoint.entitlement_floor, day, exc)
+            night.stopped = f"entitlement-floor ({day.isoformat()})"
+            break
         night.results.append(result)
         night.calls += result.calls
         if result.complete:

@@ -320,6 +320,16 @@ cd /opt/small-cap-stack
   box. It is a separate `docker run`, **not** `docker exec` into the app — sharing the tracker's
   cgroup would spend the tracker's headroom and OOM the tracker instead of the harvest (#264/#273).
   The job also checks host headroom between sessions and stops cleanly when the box gets tight.
+- ⚠️ **The vendor's window is shorter than the one you plan (#440).** `HARVEST_LOOKBACK_DAYS` (730)
+  says how far back to *ask*; the free tier's ~2-year entitlement says how far back you *get*. Phase
+  1 walks ascending and pays one extra call for the session **before** the oldest planned one, to
+  seed its previous close — so a lookback set at the entitlement edge reaches one session past it.
+  On 2026-08-04 that 403 killed the first night outright, and would have killed every night after.
+  Now an entitlement 403 (matched on the vendor's message, so a revoked key still stops the night)
+  records an **entitlement floor** on the checkpoint, and the plan trims itself to what is
+  purchasable. `harvest status` reports `entitlement_floor` beside `lookback_days`: `null` means the
+  lookback has never been refused, a date means the real window is shorter than configured. Nothing
+  needs setting — but a floor that appears where you didn't expect one means the plan changed.
 - **Resuming.** A checkpoint at `/data/recon/harvest-checkpoint.json` records completed sessions;
   every run resumes from it. A session is written as **one parquet file per dataset at the end**, so
   a kill leaves the date with no files and the checkpoint never claims it; the next run discards any

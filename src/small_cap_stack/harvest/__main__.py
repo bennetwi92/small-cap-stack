@@ -17,7 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import date, datetime
 
 from ..clock import ET, now_et
@@ -59,6 +59,29 @@ def _live_dates(s: Settings) -> list[date]:
     return collected_dates(Store(s.data_dir))
 
 
+def _plan(
+    s: Settings,
+    today: date,
+    done: Collection[date],
+    live: Sequence[date],
+    cp: Checkpoint,
+) -> list[date]:
+    """Every planning call in one place, so none of them can forget the entitlement floor (#440).
+
+    A command that planned without ``not_before`` would report a backlog including dates the vendor
+    will not sell, and — for ``daily``/``auto`` — spend a call every night rediscovering that. The
+    bug this fixes was a guard applied at one of two call sites; the fix should not reintroduce the
+    same shape.
+    """
+    return plan_sessions(
+        s,
+        today=today,
+        done=sorted(done),
+        live_dates=live,
+        not_before=cp.entitlement_floor,
+    )
+
+
 def _print(payload: object) -> None:
     print(json.dumps(payload, indent=2, default=str))
 
@@ -67,10 +90,9 @@ def cmd_status(s: Settings, args: argparse.Namespace) -> int:
     store = harvest_store(s)
     cp = Checkpoint.load(checkpoint_path(s))
     today = args.today or now_et().date()
-    pending = plan_sessions(s, today=today, done=sorted(cp.done), live_dates=_live_dates(s))
-    daily_pending = plan_sessions(
-        s, today=today, done=sorted(cp.daily_done), live_dates=_live_dates(s)
-    )
+    live = _live_dates(s)
+    pending = _plan(s, today, cp.done, live, cp)
+    daily_pending = _plan(s, today, cp.daily_done, live, cp)
     now = _now(s)
     win = _window(s)
     _print(
@@ -84,6 +106,13 @@ def cmd_status(s: Settings, args: argparse.Namespace) -> int:
             "daily_done": len(cp.daily_done),
             "daily_pending": len(daily_pending),
             "calls_spent": cp.calls,
+            # The oldest date the vendor will sell, as discovered rather than as configured (#440).
+            # `null` means the lookback has never been refused; a date here means the real window is
+            # shorter than `harvest_lookback_days` asks for, and the plan above already reflects it.
+            "entitlement_floor": (
+                cp.entitlement_floor.isoformat() if cp.entitlement_floor else None
+            ),
+            "lookback_days": s.harvest_lookback_days,
             "harvested_span": [
                 cp.oldest.isoformat() if cp.oldest else None,
                 cp.newest.isoformat() if cp.newest else None,
@@ -103,7 +132,7 @@ def cmd_daily(s: Settings, args: argparse.Namespace) -> int:
     store = harvest_store(s)
     cp = Checkpoint.load(checkpoint_path(s))
     today = args.today or now_et().date()
-    pending = plan_sessions(s, today=today, done=sorted(cp.daily_done), live_dates=_live_dates(s))
+    pending = _plan(s, today, cp.daily_done, _live_dates(s), cp)
     # plan_sessions returns newest-first (phase 2's order); phase 1 walks ascending so each
     # session's previous close is the response already in hand.
     todo = sorted(pending)[: args.limit] if args.limit else sorted(pending)
@@ -163,7 +192,7 @@ def cmd_run(s: Settings, args: argparse.Namespace) -> int:
     store = harvest_store(s)
     cp = Checkpoint.load(checkpoint_path(s))
     today = args.today or now_et().date()
-    pending = plan_sessions(s, today=today, done=sorted(cp.done), live_dates=_live_dates(s))
+    pending = _plan(s, today, cp.done, _live_dates(s), cp)
     source = MassiveSource.from_env(rate_sleep_sec=s.harvest_rate_sleep_sec)
     run = run_harvest(
         source,
@@ -214,7 +243,7 @@ def cmd_auto(s: Settings, args: argparse.Namespace) -> int:
     win = _window(s)
     deadline = win.deadline(_now(s))
 
-    daily_todo = sorted(plan_sessions(s, today=today, done=sorted(cp.daily_done), live_dates=live))
+    daily_todo = sorted(_plan(s, today, cp.daily_done, live, cp))
     daily_results = []
     if daily_todo:
         print(f"phase 1: {len(daily_todo)} sessions need a universe", file=sys.stderr)
@@ -224,7 +253,7 @@ def cmd_auto(s: Settings, args: argparse.Namespace) -> int:
 
     # Re-plan against the checkpoint phase 1 just updated, so a session whose universe landed
     # moments ago is eligible tonight rather than waiting for tomorrow.
-    pending = plan_sessions(s, today=today, done=sorted(cp.done), live_dates=live)
+    pending = _plan(s, today, cp.done, live, cp)
     run = run_harvest(
         source,
         store,
@@ -241,9 +270,7 @@ def cmd_auto(s: Settings, args: argparse.Namespace) -> int:
         {
             "phase": "auto",
             "daily_sessions": len(daily_results),
-            "daily_remaining": len(
-                plan_sessions(s, today=today, done=sorted(cp.daily_done), live_dates=live)
-            ),
+            "daily_remaining": len(_plan(s, today, cp.daily_done, live, cp)),
             "harvested": [d.isoformat() for d in run.completed],
             "stopped_because": run.stopped_because,
             "calls": source.calls,

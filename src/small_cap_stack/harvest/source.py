@@ -36,6 +36,25 @@ class HarvestError(RuntimeError):
     """A vendor/transport failure the harvest cannot recover from within one call."""
 
 
+class HarvestEntitlementError(HarvestError):
+    """The vendor served the request but will not sell data that far back (#440).
+
+    Kept apart from every other failure because it means something completely different: not "this
+    call went wrong" but "the window you planned is longer than the one you bought". Everything else
+    is worth aborting a night over; this is worth *trimming the plan* and carrying on.
+
+    Matched on the message text rather than on the status code alone. A 403 from this vendor is also
+    what a bad or revoked key looks like, and a key problem misread as an entitlement edge would
+    trim the harvest's window to nothing every night while reporting a clean run — the one failure
+    mode worse than the crash this class exists to prevent.
+    """
+
+
+#: Substrings that identify the entitlement refusal in the vendor's 403 body. Deliberately narrow:
+#: anything not matched here stays a plain :class:`HarvestError` and still stops the night.
+_ENTITLEMENT_MARKERS = ("historical entitlement", "past historical")
+
+
 class HarvestSource(Protocol):
     """The two reads the harvest needs. Anything satisfying this can feed it.
 
@@ -110,7 +129,11 @@ class MassiveSource:
                     continue
                 body = exc.read().decode(errors="replace")[:400]
                 # Never echo the URL back: it carries the key.
-                raise HarvestError(f"HTTP {exc.code} on {url.split('?')[0]}: {body}") from exc
+                message = f"HTTP {exc.code} on {url.split('?')[0]}: {body}"
+                lowered = body.lower()
+                if any(marker in lowered for marker in _ENTITLEMENT_MARKERS):
+                    raise HarvestEntitlementError(message) from exc
+                raise HarvestError(message) from exc
             except urllib.error.URLError as exc:
                 if attempt < self.max_retries:
                     self.sleep(delay)
