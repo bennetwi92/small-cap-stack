@@ -323,16 +323,30 @@ class Settings(BaseSettings):
     # Adaptive target: each day re-fits the target to the highest-expectancy grid value over the
     # trailing window of prior candidates. Small-N overfit is guarded by the window + plateau bias.
     portfolio_target_grid: tuple[float, ...] = (1.5, 2.0, 2.5, 3.0)
-    # Trailing lookback for the expectancy re-fit, in CALENDAR days. Widened 20 → 40 (2026-08-06,
-    # #463) because at 20 the optimiser never once ran: the book takes ~13 candidates per 36
-    # calendar days, so a 20-day window held at most 7 — permanently one short of
-    # `min_samples`, and every day of the live book's history silently used the fallback below.
-    # 40 days ≈ 28 trading days holds ~14 at the current arrival rate, clearing the bar with room
-    # for a quiet fortnight. The response to regime drift is correspondingly slower; that is the
-    # trade accepted here. `min_samples` deliberately did NOT move — firing sooner by fitting a
-    # target on 5 trades buys a number, not evidence.
-    portfolio_adaptive_window_days: int = 40  # trailing lookback for the expectancy re-fit
+    # Trailing lookback for the expectancy re-fit, in CALENDAR days — or **None for all history**,
+    # which is the shipped default (2026-08-06, #476).
+    #
+    # A trailing window is itself a regime bet: if the trade distribution were stationary you would
+    # use every trade you have. Window length trades **estimation error** (longer is better) against
+    # **regime staleness** (shorter is better), and at n=13 we are overwhelmingly in the
+    # estimation-error-dominated half — discarding trades to stay current buys nothing when the
+    # current estimate is mostly noise. History: 20 days (#239) never let the optimiser fire at all
+    # because the window held at most 7 trades against `min_samples` of 8; #463 widened it to 40 as
+    # a fix for that, which was a repair, not a considered choice of horizon. Shorten this again
+    # only once N is large enough that regime drift is something we can *measure* rather than
+    # assume. `min_samples` deliberately has not moved — firing sooner on 5 trades buys a number,
+    # not evidence.
+    portfolio_adaptive_window_days: int | None = None  # None = fit on every prior trade
     portfolio_adaptive_min_samples: int = 8  # need this many trailing trades before re-fitting
+    # Margin the re-fit's pick must clear, in standard errors, before the book switches OFF the
+    # `portfolio_target_r` fallback (#476). The comparison is **paired** — the same trades scored
+    # under both exit rules, so per-trade variance largely cancels and only the difference carries
+    # noise — which is both the correct test and far tighter than comparing two independent means.
+    # Measured on the first 13 trades against the 2.0R fallback: 1.5R is decisively worse
+    # (z=-4.38) while 2.5R (z=-0.89) and 3.0R (z=-0.84) are simply undecided. 1.0 = "the edge is at
+    # least one standard error"; 1.96 is the strict two-sided 95% bar, which this sample cannot yet
+    # satisfy for any target. 0 disables the gate (pure argmax, the pre-#476 behaviour).
+    portfolio_target_switch_z: float = 1.0
     # Adaptive risk throttle / kill-switch (#239): the per-trade `risk_fraction` itself walks a
     # small ladder from 0 up to `portfolio_risk_fraction`, driven by recent daily results. The
     # adaptive book starts at full risk (top rung) and steps ONE rung only after `risk_step_days`

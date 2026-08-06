@@ -102,9 +102,14 @@ def _state_json(st: AdaptiveState) -> dict[str, object]:
     return {
         "as_of": st.as_of.isoformat(),
         "target_r": st.target_r,
-        # Is that target the optimiser's answer or the fallback standing in? (#463)
+        # Is that target the optimiser's answer or the fallback standing in? (#463) And if the
+        # fallback, was it for want of samples or because the pick failed the margin gate? (#476)
         "target_fitted": st.target_fitted,
         "target_trailing_n": st.target_trailing_n,
+        "target_status": st.target_status,
+        "target_edge_r": st.target_edge_r,
+        "target_edge_z": st.target_edge_z,
+        "target_considered_r": st.target_considered_r,
         "risk_fraction": st.risk_fraction,
         "rung": st.rung,
         "n_rungs": st.n_rungs,
@@ -222,7 +227,17 @@ def _book_json(
         # the days it fell back. Without them a flat line reads as "the fit kept choosing the same
         # rung" when it can equally mean the fit never ran — which is what it did mean.
         book["daily_targets"] = [
-            {"date": d.isoformat(), "target": f.target_r, "fitted": f.fitted, "n": f.trailing_n}
+            {
+                "date": d.isoformat(),
+                "target": f.target_r,
+                "fitted": f.fitted,
+                "n": f.trailing_n,
+                # "fitted" | "thin" | "margin" (#476) — a fallback day for want of samples and one
+                # where the pick failed the margin gate look identical on the chart otherwise.
+                "status": f.status,
+                "considered": f.considered_r,
+                "z": f.edge_z,
+            }
             for d, f in daily_targets
         ]
     if daily_risk is not None:
@@ -597,8 +612,10 @@ def build_portfolio_payload(
             "market_data_usd_per_month": s.portfolio_market_data_usd_per_month,
             "market_data_waiver_usd": s.portfolio_market_data_waiver_usd,
             "exit_slippage_ticks": s.portfolio_exit_slippage_ticks,
+            # null = the fit uses ALL history rather than a trailing window (#476).
             "adaptive_window_days": s.portfolio_adaptive_window_days,
             "adaptive_min_samples": s.portfolio_adaptive_min_samples,
+            "target_switch_z": s.portfolio_target_switch_z,
             # The grid the daily re-fit picks from, plus the target it falls back to before the
             # window has samples. `targets` (below) is the *selectable book* list — the grid
             # widened with extremes — so it can't stand in as the ladder for the target chart.

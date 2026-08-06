@@ -149,25 +149,48 @@ fitting noise.
 
 ## How much data would settle any of this?
 
-From the observed per-trade SD of **1.48R**:
+> **Correction (2026-08-06, same day).** This section first answered the target question with an
+> **unpaired** test — two independent means, using the per-trade SD of 1.48R — and concluded that
+> separating the top two targets needed **362 trades**, about 3.2 years. That is the wrong test and
+> far too pessimistic. Two exit rules are scored on the *same* trades, so the comparison is
+> **paired**: the per-trade difference cancels most of the trade-to-trade variance, and only the
+> difference carries noise. The paired numbers are below and they change the conclusion materially —
+> part of the target question is already settled. The autocorrelation figures were never affected;
+> they are a different statistic.
 
-| Question | trades / days needed | we have |
+**The throttle question** — detecting serial correlation in daily results — is genuinely far away:
+
+| Question | active days needed | we have |
 |---|---|---|
-| Detect daily autocorrelation of 0.3 | 85 active days | 12 |
-| Detect daily autocorrelation of 0.2 | 194 active days | 12 |
-| Separate two targets 0.5R apart | 138 trades | 13 |
-| Separate two targets 0.3R apart | 381 trades | 13 |
-| Separate the observed top two (2.0R vs 1.5R, gap 0.31R) | **362 trades** | 13 |
+| Detect daily autocorrelation of 0.3 | 85 | 12 |
+| Detect daily autocorrelation of 0.2 | 194 | 12 |
 
-At the current arrival rate — 13 trades and 12 active days per 29 collected sessions — 362 trades is
-roughly **800 trading sessions, or about 3.2 years** of live collection. 85 active days is about
-**10 months**.
+85 active days is about **10 months** at the current rate of 12 active days per 29 sessions.
 
-That is the real constraint on the whole adaptive layer, and no amount of parameter tuning touches
-it. The nightly harvest (#431), which rebuilds pre-market sessions from purchased vendor bars, is
-the only path to that sample inside a useful timeframe.
+**The target question is partly settled already.** Paired against the 2.0R fallback over all 13
+trades:
+
+| vs 2.0R | edge per trade | SE (paired) | z | verdict |
+|---|---|---|---|---|
+| 1.5R | −0.308R | 0.070 | **−4.38** | decided — 1.5R is worse |
+| 2.5R | −0.308R | 0.346 | −0.89 | undecided |
+| 3.0R | −0.314R | 0.373 | −0.84 | undecided |
+
+So the *low* end of the grid is already ruled out on 13 trades — the paired test is powerful enough
+to do that — while the upper end is open. Settling 2.0R vs 2.5R at the observed 0.31R gap needs the
+SE to fall from 0.346 to 0.158, a factor of 2.19, which is **~62 trades** — roughly **140 trading
+sessions, or 7 months**. Not three years.
+
+Sample size is still the binding constraint on the adaptive layer, and the nightly harvest (#431),
+which rebuilds pre-market sessions from purchased vendor bars, is the fastest path to it. But the
+target optimiser is much closer to being useful than the unpaired arithmetic suggested, and that is
+the difference between "wait three years" and "wait two quarters".
 
 ## What I would change
+
+> **Update (2026-08-06, same day): all three were adopted.** The throttle is off (#474/#475), the
+> target fit uses all history, and a paired margin gate now guards the switch (#476). What follows
+> is the argument as written; the implementation notes are on those issues.
 
 **Turn the throttle off, or re-specify it.** `portfolio_risk_rungs=1` disables it. It is a bet on
 an effect this data cannot detect, it costs ~3.5%/month under the null, and the one time its
@@ -189,7 +212,10 @@ rather than assume.
 **Require a margin before switching targets.** The fit currently takes the argmax of four noisy
 means. It should have to *beat* the incumbent by more than the sampling error before moving; below
 that, stay at the fallback. As the table above shows, three of the four grid values sit within
-0.01R of each other — the argmax among them is a coin flip dressed as a decision.
+0.01R of each other — the argmax among them is a coin flip dressed as a decision. Use the **paired**
+standard error, per the correction above: it is the correct test and, on this data, powerful enough
+to be worth gating on. Note this costs nothing today — over the 10 days the fit has run, its pick
+never once differed from the fallback, so the gate would have changed no decision.
 
 **Treat the harvest as the critical path.** Every question in this report is answered by sample
 size and by nothing else.
@@ -200,5 +226,8 @@ Method: all figures computed from the live tracker's Parquet store on the box ov
 2026-08-05 (29 collected sessions, 13 takeable candidates), replayed through the production
 simulator (`portfolio/sim.py`) rather than a separate model, so the counterfactual books use the
 same exit, cost and ledger code as the published book. Permutation tests use 20,000 resamples; the
-null test uses 500 calendar-preserving shuffles. Related: #239 (the throttle), #463 (the starved
-target window), `research/decisions.md`.
+null test uses 500 calendar-preserving shuffles. Target comparisons are **paired** (the same trades
+scored under both exit rules) — see the correction above; the first version of that section used an
+unpaired test and overstated the data required by roughly 6×. Related: #239 (the throttle), #463
+(the starved target window), #474 (throttle off), #476 (all-history fit + margin gate),
+`research/decisions.md`.

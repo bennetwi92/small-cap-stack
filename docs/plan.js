@@ -515,17 +515,29 @@ function targetFitRow(next, cfg) {
   const fitted = next.target_fitted;
   const n = next.target_trailing_n;
   const need = cfg.adaptive_min_samples;
-  const win = cfg.adaptive_window_days;
+  // null window = the fit uses every trade there is (#476), which must not print as "null days".
+  const scope = cfg.adaptive_window_days == null ? "all history" : `the trailing ${cfg.adaptive_window_days} days`;
+  // Three outcomes, three rows (#476). "margin" is not a degraded "fallback": the optimiser ran and
+  // produced an answer, and the gate judged the evidence too thin to change the exit rule on. That
+  // is the system working, so it reads "ok", not "warn".
+  const held = next.target_status === "margin";
+  const z = next.target_edge_z == null ? null : Number(next.target_edge_z);
   return checkRow({
     label: "Adaptive target",
     value: `${Number(next.target_r).toFixed(1)}R`,
-    sub: fitted
-      ? `re-fit over ${n} trades in the trailing ${win} days`
-      : `fallback — window holds ${n} of the ${need} trades the re-fit needs`,
-    status: fitted ? "FITTED" : "FALLBACK",
-    tone: fitted ? "ok" : "warn",
-    bar: fitted || !need ? null : Math.min(1, n / need),
-    title: `The exit target the next setup uses. It is re-fit daily to the highest-expectancy value on the ${(cfg.target_grid || []).map((t) => t + "R").join(" / ")} grid over the trailing ${win}-day window, and falls back to ${cfg.target_fallback_r}R until that window holds ${need} trades.`,
+    sub: held
+      ? `held — ${next.target_considered_r}R preferred but only ${z == null ? "—" : z.toFixed(2)}σ of edge over ${n} trades (${cfg.target_switch_z}σ needed)`
+      : fitted
+        ? `re-fit over ${n} trades from ${scope}`
+        : `fallback — ${scope} holds ${n} of the ${need} trades the re-fit needs`,
+    status: held ? "HELD" : fitted ? "FITTED" : "FALLBACK",
+    tone: held ? "ok" : fitted ? "ok" : "warn",
+    bar: held || fitted || !need ? null : Math.min(1, n / need),
+    title:
+      `The exit target the next setup uses. It is re-fit daily to the highest-expectancy value on the ` +
+      `${(cfg.target_grid || []).map((t) => t + "R").join(" / ")} grid over ${scope}, falls back to ` +
+      `${cfg.target_fallback_r}R until that sample holds ${need} trades, and must beat the fallback by ` +
+      `${cfg.target_switch_z}σ (paired — the same trades scored under both rules) before it switches.`,
   });
 }
 

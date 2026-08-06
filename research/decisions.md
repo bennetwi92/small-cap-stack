@@ -329,7 +329,25 @@ in P2). Locks the following execution parameters (chosen by the user 2026-07-15)
   it moot)~~ **(reversed 2026-07-16, #239 — an adaptive risk throttle / kill-switch was added; see
   below.)** A hard **≤2 open / ≤2 entries-per-day guard** is kept as idempotency against a
   reconnect/detection bug over-firing.
-  - **Window widened 20 → 40 calendar days (AMENDED 2026-08-06, #463).** "Window length is a tunable
+  - **All history, and a margin before switching (AMENDED 2026-08-06, #476).** Two changes, both
+    from the same report as #474. (1) **`portfolio_adaptive_window_days` → `None`.** A trailing
+    window is itself a regime bet — with a stationary distribution you would use every trade. Its
+    length trades estimation error (longer is better) against regime staleness (shorter is better),
+    and at n=13 we are overwhelmingly in the estimation-error half, so discarding trades to stay
+    current buys nothing. Shorten it again only when drift is something we can *measure*.
+    (2) **`portfolio_target_switch_z` = 1.0.** The fit was a raw argmax over four noisy means; a
+    pick other than the fallback must now clear one standard error of **paired** edge before the
+    book acts on it. Paired is both the correct test and far more powerful, because the same trades
+    are scored under both exit rules and the per-trade variance largely cancels: against the 2.0R
+    fallback on 13 trades, 1.5R is decisive at z=−4.38 while 2.5R (−0.89) and 3.0R (−0.84) are
+    merely undecided. On the current data the gate changes no historical decision — the fit's pick
+    never differed from the fallback on any of the 10 days it ran — so it is a guard for the future
+    bought at no cost. A zero-variance edge is scored as ±∞σ, not as an unmeasurable one: a
+    deterministic improvement is the *strongest* evidence, and dividing by a zero SE would block
+    exactly the switches most clearly justified. Three states are now published and rendered —
+    `fitted`, `thin` (never ran), `margin` (ran, not proven) — because "no evidence yet" and
+    "evidence too weak" point at different fixes.
+  - **Window widened 20 → 40 calendar days (AMENDED 2026-08-06, #463; superseded by #476 above).** "Window length is a tunable
     parameter" turned out to be load-bearing: at 20 days the re-fit **never ran once**. The live
     book takes ~13 candidates per 36 calendar days, so a 20-day window held at most **7** against a
     `min_samples` of **8** — permanently one short. Every day of the book's published history, and
