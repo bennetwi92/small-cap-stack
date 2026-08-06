@@ -504,7 +504,9 @@ def test_best_target_none_when_no_expectancy() -> None:
 
 def test_risk_ladder_shape() -> None:
     # 3 rungs incl. the 0 floor at the 5% default -> (0, 2.5%, 5%).
-    assert risk_ladder(_s()) == (0.0, 0.025, 0.05)
+    assert risk_ladder(_s(portfolio_risk_rungs=3)) == (0.0, 0.025, 0.05)
+    # The SHIPPED default is 1 rung: the throttle is switched off (#474).
+    assert risk_ladder(_s()) == (0.05,)
     assert risk_ladder(_s(portfolio_risk_rungs=1)) == (0.05,)  # 1 rung -> throttle disabled
     assert risk_ladder(_s(portfolio_risk_rungs=2)) == (0.0, 0.05)  # binary kill-switch
     # honours a different max + rung count (evenly spaced).
@@ -563,6 +565,7 @@ def test_adaptive_risk_eager_step_throttles_down_then_rearms_from_zero() -> None
     # winning would-be setup still re-arms it 0% -> 2.5% -> 5%.
     s = _s(
         portfolio_risk_step_days=1,
+        portfolio_risk_rungs=3,  # the default is 1 (throttle off, #474) — this tests the ladder
         portfolio_adaptive_min_samples=999,
         portfolio_exit_slippage_ticks=0,
     )
@@ -585,7 +588,11 @@ def test_adaptive_risk_eager_step_throttles_down_then_rearms_from_zero() -> None
 def test_adaptive_risk_two_day_step_needs_a_streak() -> None:
     # Default step_days=2: it takes TWO losing days in a row to drop a rung, two wins to climb one.
     # 4 losses then 5 wins: risk holds each level for two days, down and back up.
-    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    s = _s(
+        portfolio_risk_rungs=3,  # default is 1 (throttle off, #474); this tests the ladder
+        portfolio_adaptive_min_samples=999,
+        portfolio_exit_slippage_ticks=0,
+    )
     base = date(2026, 7, 1)
     seq = [_loss_cand(f"L{i}") for i in range(4)] + [_win_cand(f"W{i}") for i in range(5)]
     days = [(base + timedelta(days=i), [c]) for i, c in enumerate(seq)]
@@ -662,7 +669,11 @@ def test_next_session_state_is_forward_looking_not_the_last_collected_day() -> N
     # The bug this exists to kill: the page rendered daily_risk[-1] as "Latest risk". After two
     # losing days the LAST day still traded at 5% (the step applies from tomorrow), so "latest"
     # said 5% while the book was in fact about to size the next setup at 2.5%.
-    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    s = _s(
+        portfolio_risk_rungs=3,  # default is 1 (throttle off, #474); this tests the ladder
+        portfolio_adaptive_min_samples=999,
+        portfolio_exit_slippage_ticks=0,
+    )
     base = date(2026, 7, 1)
     days = [(base + timedelta(days=i), [_loss_cand(f"L{i}")]) for i in range(2)]
     book = simulate_portfolio_adaptive(days, s)
@@ -677,7 +688,11 @@ def test_next_session_state_is_forward_looking_not_the_last_collected_day() -> N
 def test_next_session_state_reports_streak_progress_toward_a_step() -> None:
     # One decisive day at step_days=2: streak -1, so the rung has NOT moved yet and the page can
     # honestly say "one more net-negative day steps risk down".
-    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    s = _s(
+        portfolio_risk_rungs=3,  # default is 1 (throttle off, #474); this tests the ladder
+        portfolio_adaptive_min_samples=999,
+        portfolio_exit_slippage_ticks=0,
+    )
     days = [(date(2026, 7, 1), [_loss_cand("L0")])]
     st = simulate_portfolio_adaptive(days, s).state
     assert st is not None
@@ -740,6 +755,23 @@ def test_a_zero_sample_window_is_reported_as_fallback_not_as_a_fit() -> None:
 
 def test_next_session_state_is_none_for_an_empty_book() -> None:
     assert simulate_portfolio_adaptive([], _s()).state is None
+
+
+def test_the_shipped_default_has_the_throttle_switched_off() -> None:
+    # #474: the ladder is a bet on serial correlation of daily results, and the measured cost of
+    # making that bet when it is absent is ~$22 per 29 sessions (500 calendar-preserving shuffles).
+    # It ships OFF. Losing days must NOT knock risk down, which is exactly what a re-enable would
+    # silently reintroduce — hence a test on the default rather than on the ladder helper.
+    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    assert s.portfolio_risk_rungs == 1
+    base = date(2026, 7, 1)
+    days = [(base + timedelta(days=i), [_loss_cand(f"L{i}")]) for i in range(4)]
+    book = simulate_portfolio_adaptive(days, s)
+    assert {r for _d, r in book.daily_risk} == {s.portfolio_risk_fraction}  # flat through the run
+    st = book.state
+    assert st is not None
+    assert (st.risk_fraction, st.rung, st.n_rungs) == (s.portfolio_risk_fraction, 0, 1)
+    assert book.result.n_trades == 4  # four losing days and it never sat one out
 
 
 def test_single_rung_disables_the_throttle() -> None:

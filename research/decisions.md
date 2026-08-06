@@ -443,6 +443,38 @@ loss-based kill-switch for now — 2 trades/day makes it moot"); this decision a
   settled-cash invariant is untouched: the throttle only ever sizes ≤ the existing 5% target, and
   the 50% notional cap remains the binding upper bound.
 
+### ⚠️ REVERSED 2026-08-06 (#474) — the throttle ships OFF (`portfolio_risk_rungs=1`)
+
+The decision above was never tested against data; it was adopted on the reasoning that exposure
+*should* track how hot the market is. Measured on the first 29 sessions (13 trades, 12 active days)
+in the report *"Does past behaviour predict future performance?"* (`docs/reports/`, 2026-08-06), the
+premise does not hold and the machinery is not free:
+
+- **The premise is a bet on serial correlation of daily results, and none is detectable.** Lag-1
+  autocorrelation of daily R: **+0.31**, permutation p=**0.27**, CI −0.32…+0.75. Conditioning on
+  *two* up days (+0.98R) is **worse** than on one (+1.23R) — the wrong shape for momentum. The
+  down-trigger has fired once in the book's life; the next day was +2.00R.
+- **Absent that correlation it is a structural drag, not a neutral guard.** Over 500
+  calendar-preserving shuffles — day order permuted, trade population preserved, so serial
+  correlation is zero *by construction* — the ladder cost a mean **$22.35**, losing on **291**
+  shuffles and winning on **72**. The mechanism is arithmetic, not luck: fixed-fractional sizing
+  already de-risks after a loss (5% of a smaller balance is fewer dollars), and the ladder cuts a
+  *second* time on the same information. Kelly sizes on current equity, not on recent streaks.
+- **On the live path** it cost **$32.84** (5.3% of the book) and bought **0.01pp** of drawdown,
+  having de-risked into the two best days in the sample.
+- Under the null it does buy **0.83pp** of drawdown reduction — real insurance, honestly measured.
+  The premium is ~**3.5% of the book per month**, which is a bad price for a small compounding
+  account. That trade is the whole decision; it is not a claim that the ladder does nothing.
+
+**Nothing is deleted.** `risk_ladder` / `step_risk_rung` / `_day_signal_r` stay implemented and
+exhaustively tested (the ladder tests now pin `portfolio_risk_rungs=3` explicitly), so re-enabling is
+a one-line config change. The bar for that is a sample which can *detect* the effect: ~85 active days
+for an autocorrelation of 0.3, against the 12 we have.
+
+If capital preservation is still wanted — and it reasonably might be — the right shape is a
+**drawdown circuit-breaker** (cut risk when equity falls X% from its high-water mark), which is a
+statement about ruin and needs no autocorrelation premise to justify itself. Not adopted here.
+
 ## Ledger gap-months + the skipped log's two populations (DECISION 2026-07-16, #249/#251 — refines #230/#232/#239)
 
 Three narrow amendments from the #249/#251/#256 audit fixes. All in `portfolio.py`; all
