@@ -507,6 +507,50 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
   color:var(--dim);
 }
 
+/* --- trade inspector (#480): swaps in for the left region while a row is selected ---
+   Single column, never the two rails `.pf-left` splits into on a wide monitor: it holds
+   one chart, and half of it standing empty would be worse than the scroll it saved. Takes
+   the same 40% basis so the trade log beside it doesn't jump when the region swaps. */
+.pf-inspect{
+  flex:0 0 40%;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  min-width:0;
+  min-height:0;
+}
+.pf-inspect[hidden]{ display:none; }
+.pf-inspect > .panel{ flex:0 0 auto; }
+.pf-insp-head .panel-h{ display:flex; align-items:center; gap:8px; }
+.pf-insp-actions{ display:flex; gap:4px; margin-left:auto; flex:0 0 auto; text-transform:none; }
+.pf-insp-actions .rv-btn.on{ color:var(--acc); border-color:var(--acc); }
+/* the readout rides in the chart panel's own heading — it IS that panel's subtitle */
+.pf-insp-readout{ text-transform:none; letter-spacing:0; font-weight:400; }
+.pf-insp-chart-panel{
+  flex:1 1 auto;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+}
+.pf-insp-chart{ flex:1 1 auto; min-height:180px; position:relative; }
+/* a reconstructed session has no bars to draw — the panel says so instead of standing empty */
+.pf-insp-chart-panel.pf-insp-blank .pf-insp-chart{ display:none; }
+.pf-insp-side-panel{
+  flex:0 1 auto;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+  max-height:34vh;
+}
+.pf-insp-side-panel[hidden]{ display:none; }
+.pf-insp-side-panel > .rv-engine-detail{ flex:1 1 auto; min-height:0; }
+/* a row you can open reads as one */
+#pf-trades tr[data-key], #pf-skipped tr[data-key]{ cursor:pointer; }
+#pf-trades tr.pf-sel td, #pf-skipped tr.pf-sel td{
+  background:rgba(79,227,239,.14);
+  box-shadow:inset 0 1px 0 var(--acc), inset 0 -1px 0 var(--acc);
+}
+
 /* --- forward projection: a SECOND `.pf` region, swapped in by the VIEW control ---
    It reuses every layout rule above, which is the point: the book view is already
    sized to fill exactly one screen, so a projection appended INSIDE it would have to
@@ -620,6 +664,10 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
 @media (max-width:860px){
   .pf{ flex-direction:column; height:auto; }
   .pf-left{ flex:0 0 auto; overflow:visible; }
+  /* stacked, the inspector sits above the log rather than beside it; the chart
+     still needs a real height, which `flex:1` no longer supplies here */
+  .pf-inspect{ flex:0 0 auto; }
+  .pf-insp-chart{ height:260px; flex:0 0 auto; }
   /* .pf-trades-panel normally uses flex:1 1 0 to fill the leftover height of
      a definite-height row layout; once .pf turns into a column with
      height:auto there's no definite height to fill, and flex:1 1 0 +
