@@ -148,6 +148,13 @@ class Settings(BaseSettings):
     eod_bars_fetch: time = time(16, 20)  # batch-fetch the day's 5-min bars (before the report)
     eod_report: time = time(16, 30)
     eod_backfill: time = time(3, 45)  # morning catch-up: back-fill bars a missed EOD batch dropped
+    # Rebuild the paper book each morning, so the overnight harvest is visible BEFORE the open
+    # (#458). Until this existed `_export_portfolio` ran only at the 16:30 EOD, so a night's
+    # reconstructed days sat unpublished for 13.5 hours — through the whole trading day they were
+    # harvested for. 03:15 is the one slot that clears everything: the harvest hard-stops at 03:00,
+    # `eod_backfill` is at 03:45, and the scan window opens at 04:00. `publish-dashboard` runs
+    # every 15 min, so the page is live by ~03:30.
+    portfolio_refresh_et: time = time(3, 15)
     # EOD batch resilience (#100): retry a disconnect / transient failure instead of skipping.
     eod_retry_attempts: int = 3
     eod_retry_delay_sec: float = 60.0

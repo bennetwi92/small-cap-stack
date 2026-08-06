@@ -353,6 +353,15 @@ cd /opt/small-cap-stack
   purchasable. `harvest status` reports `entitlement_floor` beside `lookback_days`: `null` means the
   lookback has never been refused, a date means the real window is shorter than configured. Nothing
   needs setting — but a floor that appears where you didn't expect one means the plan changed.
+- **Seeing it.** The book is rebuilt at **03:15 ET** (`portfolio_refresh`, #458) as well as at the
+  16:30 EOD, so a night's reconstructed days are on the Portfolio page **before the open** rather
+  than after the close of the day they were harvested for. `publish-dashboard` runs every 15 min,
+  so the page is live by ~03:30 ET. The slot is the only free one: the harvest hard-stops at 03:00,
+  `eod_backfill` is at 03:45, the scan window opens at 04:00. Look for `portfolio.refresh_done` in
+  the app log; a failure is logged and skipped, never fatal — it costs a day of visibility, not
+  data. ⚠️ This runs `build_portfolio_payload`, the #273 memory driver — the same build the EOD
+  already does daily, now also in the quiet pre-dawn window. Watch `coverage.recon` and
+  `capped_days_dropped` in `portfolio.json` as the harvest deepens (#448).
 - **Resuming.** A checkpoint at `/data/recon/harvest-checkpoint.json` records completed sessions;
   every run resumes from it. A session is written as **one parquet file per dataset at the end**, so
   a kill leaves the date with no files and the checkpoint never claims it; the next run discards any
