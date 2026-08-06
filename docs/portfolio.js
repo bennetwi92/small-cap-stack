@@ -3,12 +3,28 @@
 // logic (select → size → simulate-exit) lives in the tested Python package;
 // this page just picks a book from the published portfolio.json and renders
 // its equity curve / stats / trade log.
+//
+// Since #480 a row in either table opens the trade *inspector* — its own numbers
+// plus the full-day chart, drawn by the shared component (js/inspector.js) — in
+// place of the left region, so the log stays put beside it. Clicking a symbol
+// used to navigate to the review page and lose the book entirely.
 
 import "./js/nav.js";
 import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
 import { esc, etClockIso, fmtPct, fmtShares, rRampClass } from "./js/fmt.js";
+import {
+  chartsFor,
+  clearChartCache,
+  createChartView,
+  engineDetailHtml,
+  findChart,
+  newsCount,
+  newsHtml,
+  optionLabel,
+  readoutHtml,
+} from "./js/inspector.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -95,7 +111,10 @@ function buildOptbar() {
     ],
     extra: [{ type: "note", id: "pf-meta", value: "loading…" }],
     onChange: (id, value) => {
-      if (id === "pf-refresh") return load();
+      if (id === "pf-refresh") {
+        clearChartCache(); // Refresh means the branch, not the memo
+        return load();
+      }
       if (id === "pf-viewsel") VIEW = value;
       if (id === "pf-book") BOOK = value;
       if (id === "pf-scope") SCOPE = value;
@@ -1050,20 +1069,21 @@ function dateCell(t) {
   return `<td>${esc(t.date)}${tag}</td>`;
 }
 
-// The symbol cell, linked into the review workbench. Link on `seg_id` — it IS the review page's
-// `opportunity_id` ("<date>:<SYM>", suffixed "#<run>" when the symbol ran twice that day. The old
-// `sym=` param was silently ignored there (#478), so every trade link landed on the right day but
-// on whichever opportunity happened to sort first.
-//
-// A reconstructed row has no destination at all: the harvest writes `data/recon` and the chart
-// payload is built from the live store, so `index.json` has no such date and the review page would
-// silently fall back to its newest day — a different session entirely. Plain text is the honest
-// rendering until the dock (#480) can show the trade's own numbers instead.
+// The symbol cell. Plain text since #480: the whole row opens the inspector, which draws the
+// chart in place and carries the link out to the review workbench itself. A link here would
+// navigate away from the book — the thing the inspector exists to stop.
 function symCell(t) {
-  if (t.source === "recon" || !t.seg_id)
-    return `<td title="Reconstructed session — no captured bars to review"><strong>${esc(t.symbol)}</strong></td>`;
-  const rev = `review.html?date=${encodeURIComponent(t.date)}&oid=${encodeURIComponent(t.seg_id)}`;
-  return `<td><a href="${rev}"><strong>${esc(t.symbol)}</strong></a></td>`;
+  return `<td><strong>${esc(t.symbol)}</strong></td>`;
+}
+
+// Rows the inspector can open, keyed by the `data-key` stamped on each <tr>. Rebuilt on every
+// render, because switching book or scope replaces both tables wholesale.
+const ROWS = new Map();
+
+function rowKey(kind, t) {
+  const key = `${kind}:${ROWS.size}`;
+  ROWS.set(key, { kind, t });
+  return ` data-key="${key}"`;
 }
 
 function tradeRows(book) {
@@ -1074,7 +1094,7 @@ function tradeRows(book) {
     .map((t) => {
       const nCls = t.net_pnl > 0 ? "pf-pos" : t.net_pnl < 0 ? "pf-neg" : "muted";
       return (
-        "<tr>" +
+        `<tr${rowKey("trade", t)}>` +
         dateCell(t) +
         symCell(t) +
         floatCell(t) +
@@ -1165,7 +1185,7 @@ function skippedRows(book) {
     .reverse() // newest first, matching the trade log
     .map((t) => {
       return (
-        "<tr>" +
+        `<tr${rowKey("skipped", t)}>` +
         dateCell(t) +
         symCell(t) +
         floatCell(t) +
@@ -1392,8 +1412,202 @@ const redraw = new ResizeObserver(() => {
 });
 document.querySelectorAll(".pf-left").forEach((n) => redraw.observe(n));
 
+/* ---------- trade inspector (#480) ----------
+   A row in either table swaps the left region for that trade: its own figures as
+   tiles, then the full-day chart drawn by the shared inspector component. The log
+   on the right never moves, so you can keep working down it. */
+
+let inspView; // undefined = not built, null = charting library missing
+let inspKey = null; // the `data-key` of the open row, or null
+let inspSide = null; // null | "gates" | "news"
+let inspEngineOn = true;
+let inspToken = 0; // guards a payload fetch that lands after another selection
+
+function inspEnsureView() {
+  if (inspView !== undefined) return inspView;
+  inspView = createChartView(el("pf-insp-chart"));
+  if (inspView) inspView.setEngineOn(inspEngineOn);
+  return inspView;
+}
+
+// The trade's own numbers. Everything here comes off the row, so a reconstructed
+// session — which has no published chart — still reads in full.
+function inspTiles(kind, t) {
+  const rCls = (v) => (v == null ? "" : rRampClass(v));
+  const common =
+    tile("Date", esc(t.date) + (t.source === "recon" ? ' <span class="pf-src">recon</span>' : "")) +
+    tile("Trigger", etClockIso(t.trigger_at)) +
+    tile("Float", fmtShares(t.float_shares)) +
+    tile("Entry", fmtUsd(t.entry)) +
+    tile("Stop", fmtUsd(t.stop)) +
+    tile("Target", `${Number(t.target_r).toFixed(1)}R`) +
+    tile(
+      "Exit",
+      `<span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtUsd(t.exit_price)}`,
+    ) +
+    tile("R", fmtR(t.realized_r), rCls(t.realized_r)) +
+    tile("Max R", fmtR(t.max_r), rCls(t.max_r), "Peak favourable excursion — the best this setup ever offered") +
+    tile("Max %", t.max_pct == null ? "—" : fmtPct(t.max_pct));
+  if (kind === "skipped")
+    return (
+      tile("Not taken", SKIP_LBL[t.skip_reason] || SKIP_LBL.cap, "", "Why the book didn't take this qualifying setup") +
+      common
+    );
+  return (
+    common +
+    tile("Qty", fmtInt(t.qty)) +
+    tile("Risk", `${fmtUsd(t.risk_usd)} <span class="muted">${t.risk_pct == null ? "" : pct(t.risk_pct)}</span>`) +
+    tile("Net", fmtUsd(t.net_pnl), t.net_pnl > 0 ? "pf-pos" : t.net_pnl < 0 ? "pf-neg" : "muted") +
+    tile("Balance", fmtUsd(t.equity_after))
+  );
+}
+
+function inspSetChartMessage(msg) {
+  const panel = el("pf-insp-chart-panel");
+  const note = el("pf-insp-nochart");
+  panel.classList.toggle("pf-insp-blank", !!msg);
+  note.hidden = !msg;
+  note.textContent = msg || "";
+  if (msg) el("pf-insp-readout").innerHTML = "";
+}
+
+function inspUpdateSide(c) {
+  const panel = el("pf-insp-side-panel");
+  panel.hidden = !inspSide;
+  el("pf-insp-gates").classList.toggle("on", inspSide === "gates");
+  el("pf-insp-news").classList.toggle("on", inspSide === "news");
+  if (!inspSide) return;
+  el("pf-insp-side-title").textContent = inspSide === "news" ? "News" : "Gates";
+  el("pf-insp-side").innerHTML = inspSide === "news" ? newsHtml(c) : engineDetailHtml(c);
+}
+
+function inspPaintSelection() {
+  for (const tr of document.querySelectorAll("#pf-trades tr, #pf-skipped tr"))
+    tr.classList.toggle("pf-sel", tr.dataset.key === inspKey);
+}
+
+function openInspector(key) {
+  const row = ROWS.get(key);
+  if (!row) return;
+  const { kind, t } = row;
+  inspKey = key;
+  inspPaintSelection();
+  el("pf-book-left").hidden = true;
+  el("pf-inspect").hidden = false;
+  el("pf-insp-title").textContent = `${t.symbol}${t.run > 1 ? ` #${t.run}` : ""} · ${t.date}`;
+  el("pf-insp-tiles").innerHTML = inspTiles(kind, t);
+  el("pf-insp-open").href =
+    `review.html?date=${encodeURIComponent(t.date)}&oid=${encodeURIComponent(t.seg_id || "")}`;
+  drawInspector(t);
+}
+
+async function drawInspector(t) {
+  const token = ++inspToken;
+  const news = el("pf-insp-news");
+  news.textContent = "News 0";
+  news.disabled = true;
+  // A reconstructed day was rebuilt from vendor minute bars into `data/recon`; the chart payload
+  // is built from the live store, so there is nothing to draw and no review page to open either.
+  if (t.source === "recon" || !t.seg_id) {
+    el("pf-insp-open").classList.add("hidden");
+    inspSetChartMessage(
+      "Reconstructed session — rebuilt from vendor minute bars, never captured live, so there are " +
+        "no bars published to chart. The figures above are the trade itself.",
+    );
+    inspUpdateSide(null);
+    return;
+  }
+  el("pf-insp-open").classList.remove("hidden");
+  const v = inspEnsureView();
+  if (!v) {
+    inspSetChartMessage("Chart library failed to load.");
+    return;
+  }
+  inspSetChartMessage("");
+  el("pf-insp-readout").innerHTML = '<span class="muted">loading…</span>';
+  const payload = await chartsFor(t.date);
+  if (token !== inspToken) return; // a later row won the race
+  const c = findChart(payload, t.seg_id);
+  if (!c) {
+    v.clear();
+    inspSetChartMessage("No chart published for this opportunity.");
+    inspUpdateSide(null);
+    return;
+  }
+  v.draw(c);
+  el("pf-insp-title").textContent = `${optionLabel(c)} · ${t.date}`;
+  el("pf-insp-readout").innerHTML = readoutHtml(c, { engineOn: inspEngineOn });
+  const n = newsCount(c);
+  el("pf-insp-news").textContent = `News ${n}`;
+  el("pf-insp-news").disabled = n === 0;
+  if (inspSide === "news" && n === 0) inspSide = "gates";
+  inspUpdateSide(c);
+}
+
+function closeInspector() {
+  inspKey = null;
+  inspToken++; // abandon any in-flight draw
+  inspPaintSelection();
+  el("pf-inspect").hidden = true;
+  el("pf-book-left").hidden = false;
+}
+
+// Step to the previous/next openable row of the SAME table, in the order shown.
+function stepInspector(delta) {
+  if (!inspKey) return;
+  const tbody = document.querySelector(`#pf-trades tr[data-key="${inspKey}"], #pf-skipped tr[data-key="${inspKey}"]`);
+  if (!tbody) return;
+  const rows = [...tbody.parentElement.querySelectorAll("tr[data-key]")];
+  const i = rows.findIndex((r) => r.dataset.key === inspKey);
+  if (i < 0) return;
+  const next = rows[(i + delta + rows.length) % rows.length];
+  openInspector(next.dataset.key);
+  next.scrollIntoView({ block: "nearest" });
+}
+
+document.addEventListener("click", (e) => {
+  const tr = e.target.closest("#pf-trades tr[data-key], #pf-skipped tr[data-key]");
+  if (tr) openInspector(tr.dataset.key);
+});
+el("pf-insp-close").addEventListener("click", closeInspector);
+el("pf-insp-gates").addEventListener("click", () => {
+  inspSide = inspSide === "gates" ? null : "gates";
+  inspUpdateSide(inspView ? inspView.current() : null);
+});
+el("pf-insp-news").addEventListener("click", () => {
+  inspSide = inspSide === "news" ? null : "news";
+  inspUpdateSide(inspView ? inspView.current() : null);
+});
+el("pf-insp-engine").addEventListener("click", () => {
+  inspEngineOn = !inspEngineOn;
+  if (inspView) inspView.setEngineOn(inspEngineOn);
+  const btn = el("pf-insp-engine");
+  btn.classList.toggle("armed", inspEngineOn);
+  btn.setAttribute("aria-pressed", inspEngineOn ? "true" : "false");
+  const c = inspView ? inspView.current() : null;
+  if (c) el("pf-insp-readout").innerHTML = readoutHtml(c, { engineOn: inspEngineOn });
+});
+document.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "Escape") return closeInspector();
+  if (el("pf-inspect").hidden) return; // arrows belong to the page until a row is open
+  if (e.key === "ArrowDown" || e.key === "j") {
+    e.preventDefault();
+    stepInspector(1);
+  } else if (e.key === "ArrowUp" || e.key === "k") {
+    e.preventDefault();
+    stepInspector(-1);
+  }
+});
+
 function render() {
   const book = booksFor()[BOOK];
+  // The open row belongs to the table about to be replaced — switching book, scope
+  // or view rebuilds both, so the selection can't survive it.
+  closeInspector();
+  ROWS.clear();
   el("pf-meta").innerHTML = metaLine(book);
   el("pf-view").hidden = VIEW !== "book";
   // Both projection regions belong to the projection view; `renderProjection` picks which of the
