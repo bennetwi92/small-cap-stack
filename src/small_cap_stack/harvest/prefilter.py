@@ -149,10 +149,11 @@ def candidates(rows: Sequence[DailyRow], *, min_day_volume: float) -> list[Daily
     """The stored universe narrowed by the day-volume floor, in rank order.
 
     Rank is by day change descending — the closest a daily bar gets to the live scanner's
-    ``TOP_PERC_GAIN`` ordering. It is *not* the live rank and cannot be: the IBKR 50-row cap ranks
-    on intraday change at each scan tick, which #428 showed is a real, load-bearing effect this
-    reconstruction does not reproduce. It is recorded so a later rank-cap model has a starting
-    order, and so a truncated night takes the biggest movers first rather than an arbitrary slice.
+    ``TOP_PERC_GAIN`` ordering. It is *not* the live rank and cannot be: the live scanner ranks on
+    intraday change at each scan tick, which one daily bar cannot reproduce. It is recorded so a
+    truncated night takes the biggest movers first rather than an arbitrary slice.
+    It is NOT here to seed a future rank-cap model: #460 measured that cap as never binding
+    (pre-market peaks at 11 of 50), so there is no capacity effect left to reproduce.
     """
     return _ranked([r for r in rows if r.day_volume >= min_day_volume])
 

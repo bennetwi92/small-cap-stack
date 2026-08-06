@@ -1952,7 +1952,8 @@ def test_combined_books_carry_no_projection(tmp_path: Path) -> None:
     """The forward view resamples what the tracker OBSERVED, so it stays live-only (#430).
 
     Bootstrapping it from a reconstructed-heavy history would forecast an account trading a
-    universe we know differs from the live one (the 50-row rank cap, #428/#432)."""
+    universe we know differs from the live one — through appearance timing (#433), not the 50-row
+    rank cap once blamed for it, which #460 measured as never binding."""
     payload = _recon_payload(
         tmp_path,
         live_day=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC),
@@ -2014,7 +2015,7 @@ def test_the_recon_candidate_budget_bounds_the_payload_newest_first(tmp_path: Pa
     `build_portfolio_payload` retains every day's bars (it re-simulates the same day list once per
     selectable target), so peak memory is linear in days x candidates — which is what OOM-killed
     the box at ~25 live days. A finished harvest makes it ~500, and reconstructed days are denser
-    than live ones because the 50-row scanner cap is not modelled.
+    than live ones — though not for the rank-cap reason once assumed (#460).
     """
     payload = _recon_payload(
         tmp_path,
