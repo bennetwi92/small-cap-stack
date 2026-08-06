@@ -841,3 +841,46 @@ extend the Phase-1 record.
 **Unchanged pending measurement:** the day-volume floor stays at 100k. `harvest sweep` measures
 what a tighter floor would cut, against stored rows and for no API calls; run it before the first
 full night (RUNBOOK §13.1). If it halves the candidate set, 45 nights becomes ~23.
+
+## 2026-08-06 — Delegation comes back, alone (#489, amends #377)
+
+**Decision.** One piece of the rolled-back automation layer returns: `claude.yml`, the delegation
+loop. Labelling an issue `agent` dispatches a Claude agent on a **GitHub-hosted** runner, which
+builds the issue on its own branch and opens a PR; `@claude …` on that PR revises it in place; a
+human reads the diff and squash-merges. Model is Sonnet 5.
+
+**Explicitly not returning:** the `/spec` gate, auto-triage, the slash-command control plane, the
+watchdogs, the overnight analyst, the auto-merge risk policy. Liveness remains the Healthchecks
+dead-man's switch (#29). #377's verdict on all of that stands unchanged.
+
+**Why this one and not the rest.** #377's finding was that the layer opened zero PRs — but the
+`claude` workflow was the only part of it whose job was to open PRs at all, and it was never
+actually used that way: it sat behind a `/spec` gate that had to be cleared first. The value here
+isn't automation, it's **concurrency** — three small issues building on hosted runners while the
+Mac session works on the piece that needs judgement. That is a real pain (serial single-session
+throughput) and it is the pain the archived doc's own lesson says to spend on first: *build the one
+piece that removes a real pain, use it for a week, and only then build the second.*
+
+**The triage rule** (the actual deliverable — a workflow nobody knows when to use is #377 again).
+Delegate only when **all four** hold:
+1. `make check` is a sufficient verdict — the hosted runner has no `.env`, no IB Gateway, no box,
+   no `/data`, no `data/recon/`.
+2. The brief is closed-form — exact files, exact behaviour, a named test. **The agent cannot ask a
+   question mid-flight**, so anything needing a mid-course decision is not delegable.
+3. XS or S tier (≤ ~250 lines, ≤ ~5 files). M/L cost more to review than they save in typing.
+4. It isn't the thing being actively iterated on right now.
+
+Engine/strategy work **qualifies** when the brief names the exact rule and the exact test — that
+logic is exhaustively unit-tested, so CI is a real gate there. Deliberately wider than #377's spec
+gate, which failed by fencing off precisely this category. Spikes, reports, review-page
+investigations, deploys/backfills/harvest and anything touching `data/` or IBKR stay in-house.
+
+**Nothing auto-merges.** Branch protection requires `lint-typecheck-test` and zero approvals, so an
+armed auto-merge would put unread agent code on `main`; the human read is the whole safeguard.
+
+**Cost.** These runs draw on the **same Max subscription quota** as the local session — this buys
+wall-clock parallelism, not extra capacity. Hosted-runner minutes are free on a public repo.
+
+**Standard it is held to.** Same one that retired the last layer: if it isn't used within a week,
+delete it. The procedure lives in the `delegate-issue` skill; the CLAUDE.md footprint is capped at
+the one bullet under "How work gets done".
