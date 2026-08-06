@@ -1050,6 +1050,22 @@ function dateCell(t) {
   return `<td>${esc(t.date)}${tag}</td>`;
 }
 
+// The symbol cell, linked into the review workbench. Link on `seg_id` — it IS the review page's
+// `opportunity_id` ("<date>:<SYM>", suffixed "#<run>" when the symbol ran twice that day. The old
+// `sym=` param was silently ignored there (#478), so every trade link landed on the right day but
+// on whichever opportunity happened to sort first.
+//
+// A reconstructed row has no destination at all: the harvest writes `data/recon` and the chart
+// payload is built from the live store, so `index.json` has no such date and the review page would
+// silently fall back to its newest day — a different session entirely. Plain text is the honest
+// rendering until the dock (#480) can show the trade's own numbers instead.
+function symCell(t) {
+  if (t.source === "recon" || !t.seg_id)
+    return `<td title="Reconstructed session — no captured bars to review"><strong>${esc(t.symbol)}</strong></td>`;
+  const rev = `review.html?date=${encodeURIComponent(t.date)}&oid=${encodeURIComponent(t.seg_id)}`;
+  return `<td><a href="${rev}"><strong>${esc(t.symbol)}</strong></a></td>`;
+}
+
 function tradeRows(book) {
   if (!book.trades.length) return '<tr><td colspan="15" class="muted">No qualifying pre-market trades yet.</td></tr>';
   return book.trades
@@ -1057,11 +1073,10 @@ function tradeRows(book) {
     .reverse() // newest first
     .map((t) => {
       const nCls = t.net_pnl > 0 ? "pf-pos" : t.net_pnl < 0 ? "pf-neg" : "muted";
-      const rev = `review.html?date=${encodeURIComponent(t.date)}&sym=${encodeURIComponent(t.symbol)}`;
       return (
         "<tr>" +
         dateCell(t) +
-        `<td><a href="${rev}"><strong>${esc(t.symbol)}</strong></a></td>` +
+        symCell(t) +
         floatCell(t) +
         `<td>${etClockIso(t.trigger_at)}</td>` +
         `<td class="r">${fmtUsd(t.entry)}</td>` +
@@ -1149,11 +1164,10 @@ function skippedRows(book) {
     .slice()
     .reverse() // newest first, matching the trade log
     .map((t) => {
-      const rev = `review.html?date=${encodeURIComponent(t.date)}&sym=${encodeURIComponent(t.symbol)}`;
       return (
         "<tr>" +
         dateCell(t) +
-        `<td><a href="${rev}"><strong>${esc(t.symbol)}</strong></a></td>` +
+        symCell(t) +
         floatCell(t) +
         `<td>${SKIP_LBL[t.skip_reason] || SKIP_LBL.cap}</td>` +
         `<td>${etClockIso(t.trigger_at)}</td>` +

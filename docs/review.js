@@ -1,18 +1,33 @@
 // Review workbench (#142): a mobile-first, single-screen page for cycling back through any day's
 // opportunities. Reads the same published JSON as the dashboard (#141): `index.json` for the
 // date/symbol navigation and per-date `charts/<date>.json` for the full-day (04:00–16:00 ET) bars.
-// No build step, no framework — plain fetch + DOM, reusing app.js's `buildChart` idiom. Write-back
-// commits review JSON to the `review-data` branch: per-opportunity notes (#143) and tap-to-place
-// chart annotations (pole/consolidation/entry/stop) with an auto-computed Max R (#144).
+// No build step, no framework — plain fetch + DOM. Write-back commits review JSON to the
+// `review-data` branch: per-opportunity notes (#143) and tap-to-place chart annotations
+// (pole/consolidation/entry/stop) with an auto-computed Max R (#144).
 //
-// An ES module since #298, like every other page — so the shared helpers below are imported rather
-// than re-forked. This page deliberately keeps its own chrome: NO bottom status bar (the readout
-// strip is this page's status line) and a hand-driven control bar in options-bar clothing, because
-// navigation here is guarded by the unsaved-annotation check. See review.html.
+// Since #478 the chart itself is NOT this page's — `js/inspector.js` owns the candles, the volume,
+// the engine-v2 overlay and every readout string, so Results and Portfolio can dock the same view
+// instead of navigating here. What stays is what only a workbench can own: the annotation editor
+// (tap-to-place, drag-to-refine), the unsaved-changes lifecycle, and the GitHub write-back.
+//
+// This page deliberately keeps its own chrome: NO bottom status bar (the readout strip is this
+// page's status line) and a hand-driven control bar in options-bar clothing, because navigation
+// here is guarded by the unsaved-annotation check. See review.html.
 
 import "./js/nav.js";
-import { REPO, fetchJson, rawUrl } from "./js/data.js";
-import { esc, etClockSec, fmtShares } from "./js/fmt.js";
+import { REPO, fetchJson } from "./js/data.js";
+import { esc } from "./js/fmt.js";
+import {
+  MK,
+  chartsFor,
+  createChartView,
+  engineDetailHtml,
+  newsCount,
+  newsHtml,
+  optionLabel,
+  readoutHtml,
+  round2,
+} from "./js/inspector.js";
 
 const REVIEW_BRANCH = "review-data"; // write-back reviews live here (#143), off the force-pushed BRANCH
 const DEFAULT_BRANCH = "main"; // base the review-data branch off this on first save
@@ -31,33 +46,17 @@ const dateLabel = (iso) => {
   return `${iso} · ${dow}`;
 };
 
-// --- Chart colours + state (mirrors docs/app.js) -------------------------------------------
-const MK = {
-  up: "#1a7f37", down: "#c0362c",
-  entry: "#2f81f7", stop: "#c0362c", firstHit: "#8957e5", maxR: "#d4a72c",
-  volUp: "rgba(26,127,55,0.5)", volDown: "rgba(192,54,44,0.5)",
-  // trader's annotations (#144) — solid lines so they read distinctly from the engine's dashed ones.
-  annEntry: "#3fb950", annStop: "#db6d28",
-  poleBand: "rgba(137,87,229,0.18)", consBand: "rgba(212,167,44,0.20)",
-  // opaque band-edge colours: bright vertical grab-handles at each band boundary so a placed band
-  // reads clearly and its edges are visibly draggable (UX #152). Also used for the pending-edge line.
-  poleEdge: "rgba(137,87,229,0.95)", consEdge: "rgba(212,167,44,0.98)",
-  // engine-v2 overlay (#216) — the DETECTOR's read, kept visually distinct from the trader's own
-  // annotations above: faint full-height fills + a solid top cap bar per band (vs the trader's
-  // heavier translucent fills), and coloured H/L/E token letters (green/red/grey) along the top.
-  engPole: "#3584e4", engCons: "#e5a50a", engBase: "#3584e4", engPeak: "#e5a50a",
-  engPoleFill: "rgba(53,132,228,0.12)", engConsFill: "rgba(229,165,10,0.14)",
-  engPrior: "rgba(139,148,161,0.10)", engPriorLbl: "#8b949e",
-  tokH: "#3fb950", tokL: "#f85149", tokE: "#8b949e",
-};
-
 let chartsData = null; // last-fetched charts/<date>.json payload for the selected date
-let chartApi = null; // LightweightCharts instance (recreated per drawn opportunity)
-let candleSeries = null;
-let volumeSeries = null;
+// The shared chart view (js/inspector.js), built once on first use. `undefined` = not yet built,
+// `null` = the charting library failed to load, so don't keep retrying.
+let view;
 let currentOpp = null; // the opportunity chart object currently drawn (for the notes sheet)
 let currentDate = null; // the trading date currently loaded (to restore the picker on a cancelled nav)
 const noteCache = new Map(); // opportunity_id -> loaded/saved review, so re-opening is instant
+
+// Whether the engine layer is shown (on-chart overlay + the readout badge). Default ON; the setting
+// persists across opportunities so the trader can park it off and draw unbiased.
+let engineOn = true;
 
 // Unsaved-changes tracking (#156): the review only persists on an explicit Save, and Save writes the
 // whole review (verdict + annotations + note), not just the note. Mark dirty on any user edit so the
@@ -104,466 +103,43 @@ const emptyAnn = () => ({
 let ann = emptyAnn();
 let armed = null; // which element the next chart tap sets: 'pole' | 'cons' | 'entry' | 'stop' | null
 let bandPending = null; // { mode, t0 } after the first of a band's two taps
-let annEntryLine = null; // createPriceLine handles, so we can remove/replace on change
-let annStopLine = null;
 // Reviewer verdict (#155): "no trigger" means this wasn't a tradeable setup — distinct from the
 // engine's `triggered:false` (a valid setup that never reached entry). When set, the engine's
 // entry/stop context lines are dropped, the drawing toolbar is disabled, and no annotations apply.
 let noTrigger = false;
-let engineEntryLine = null; // handles for the engine's dashed entry/stop levels, so no-trigger can
-let engineStopLine = null; //   strip them and toggling the verdict off can restore them.
-let bandPrimitive = null; // BandPrimitive attached to the candle series (translucent bands)
 let drag = null; // in-flight drag of a placed level (UX #152): { kind, field, edge } or null
 const DRAG_HIT_PX = 16; // touch-friendly grab radius (CSS px) around a line/edge
 
-const round2 = (x) => Math.round(x * 100) / 100;
+// --- Chart ---------------------------------------------------------------------------------
 
-// --- Translucent time-range bands via a Lightweight-Charts v4 series primitive --------------
-// Full-height rectangles spanning [t0, t1] on the time scale (pole = purple, consolidation =
-// amber). Coordinates are recomputed on every pan/zoom via updateAllViews() → paneView.update().
-class BandRenderer {
-  constructor(items, pending) {
-    this._items = items;
-    this._pending = pending; // { x, color } while the first edge of a two-tap band is placed
+// The chart view is built once, on first use, and reused for every opportunity thereafter.
+function ensureView() {
+  if (view !== undefined) return view;
+  view = createChartView(el("rv-chart"));
+  if (view) {
+    view.onClick(onChartClick);
+    view.setEngineOn(engineOn);
   }
-  draw(target) {
-    target.useBitmapCoordinateSpace((scope) => {
-      const ctx = scope.context;
-      const hr = scope.horizontalPixelRatio;
-      const h = scope.bitmapSize.height;
-      const edgeW = Math.max(2, 2 * hr); // visible grab-handle width
-      for (const it of this._items) {
-        const x1 = Math.min(it.x1, it.x2) * hr;
-        const x2 = Math.max(it.x1, it.x2) * hr;
-        ctx.fillStyle = it.color;
-        ctx.fillRect(x1, 0, Math.max(1, x2 - x1), h);
-        // Bright opaque edges: make the band's boundaries obvious and signal they're draggable.
-        ctx.fillStyle = it.edge;
-        ctx.fillRect(x1 - edgeW / 2, 0, edgeW, h);
-        ctx.fillRect(x2 - edgeW / 2, 0, edgeW, h);
-      }
-      // Pending first-tap edge: a dashed full-height line so you can see where edge 1 landed
-      // before committing edge 2 (UX #152 — was invisible until both taps were placed).
-      if (this._pending) {
-        const x = this._pending.x * hr;
-        ctx.save();
-        ctx.strokeStyle = this._pending.color;
-        ctx.lineWidth = Math.max(1, hr);
-        ctx.setLineDash([5 * hr, 4 * hr]);
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, h);
-        ctx.stroke();
-        ctx.restore();
-      }
-    });
-  }
-}
-class BandPaneView {
-  constructor(source) {
-    this._source = source;
-    this._items = [];
-    this._pending = null;
-  }
-  update() {
-    const src = this._source;
-    const ts = src._chart && src._chart.timeScale();
-    if (!ts) {
-      this._items = [];
-      this._pending = null;
-      return;
-    }
-    this._items = src._bands
-      .map((b) => ({
-        x1: ts.timeToCoordinate(b.t0), x2: ts.timeToCoordinate(b.t1),
-        color: b.color, edge: b.edge,
-      }))
-      .filter((it) => it.x1 !== null && it.x2 !== null);
-    if (src._pendingTime != null) {
-      const x = ts.timeToCoordinate(src._pendingTime);
-      this._pending = x == null ? null : { x, color: src._pendingColor };
-    } else {
-      this._pending = null;
-    }
-  }
-  renderer() {
-    return new BandRenderer(this._items, this._pending);
-  }
-  zOrder() {
-    return "bottom"; // behind the candles
-  }
-}
-class BandPrimitive {
-  constructor() {
-    this._chart = null;
-    this._bands = [];
-    this._pendingTime = null; // epoch secs of an in-progress first band-edge tap, or null
-    this._pendingColor = null;
-    this._paneView = new BandPaneView(this);
-    this._requestUpdate = null;
-  }
-  attached(params) {
-    this._chart = params.chart;
-    this._requestUpdate = params.requestUpdate;
-  }
-  detached() {
-    this._chart = null;
-    this._requestUpdate = null;
-  }
-  updateAllViews() {
-    this._paneView.update();
-  }
-  paneViews() {
-    return [this._paneView];
-  }
-  setBands(bands) {
-    this._bands = bands;
-    this._paneView.update();
-    if (this._requestUpdate) this._requestUpdate();
-  }
-  setPending(time, color) {
-    this._pendingTime = time;
-    this._pendingColor = color;
-    this._paneView.update();
-    if (this._requestUpdate) this._requestUpdate();
-  }
+  return view;
 }
 
-// --- Engine-v2 detection overlay (#216) ----------------------------------------------------
-// The detector's read of the SAME full-day series the chart draws, published in charts.json's
-// `engine` block (charts.py::_engine_block): per-bar H/L/E tokens, the pole/consolidation segment,
-// the contiguous prior-cycle (exhaustion) run, gates/score and cycle context. Rendered as a layer
-// visually distinct from the trader's own annotations so the two reads compare like-for-like — the
-// same overlay the `viz_engine` spike shows. Toggle default ON; degrades to nothing when a chart
-// predates the engine block.
-let engineOn = true; // whether the engine layer is shown (toggled by the Engine button)
-let engineData = null; // current opportunity's `engine` block (or null when absent / no setup)
-let engineBands = null; // EngineLayer('bands') — full-height fills behind the candles
-let engineMarks = null; // EngineLayer('marks') — caps/labels/tokens/base-peak on top of the candles
-
-// Two Lightweight-Charts v4 series primitives share the module-level engine state: one draws the
-// band fills UNDER the candles, the other the tokens/labels/caps OVER them (a primitive has a single
-// z-order, so the readable text can't share a layer with the translucent fills).
-class EngineLayer {
-  constructor(role) {
-    this._role = role; // 'bands' | 'marks'
-    this._chart = null;
-    this._paneView = new EnginePaneView(this);
-    this._requestUpdate = null;
-  }
-  attached(params) {
-    this._chart = params.chart;
-    this._requestUpdate = params.requestUpdate;
-  }
-  detached() {
-    this._chart = null;
-    this._requestUpdate = null;
-  }
-  updateAllViews() {
-    this._paneView.update();
-  }
-  paneViews() {
-    return [this._paneView];
-  }
-  // Re-run the projection and request a repaint (called when the layer toggles or data changes).
-  refresh() {
-    this._paneView.update();
-    if (this._requestUpdate) this._requestUpdate();
-  }
-}
-class EnginePaneView {
-  constructor(source) {
-    this._source = source;
-    this._items = null;
-  }
-  update() {
-    const chart = this._source._chart;
-    if (!chart || !engineOn || !engineData) {
-      this._items = null;
-      return;
-    }
-    const ts = chart.timeScale();
-    const X = (t) => (t == null ? null : ts.timeToCoordinate(t));
-    // No setup formed → seg is null, so only the H/L/E token row draws (bands/base/peak require a
-    // segment), mirroring the spike's "no v2 setup" chart which still shows the token walk.
-    const seg = engineData.segment || null;
-    this._items = {
-      pole: seg ? { x1: X(seg.base_t), x2: X(seg.peak_t) } : null,
-      cons: seg ? { x1: X(seg.peak_t), x2: X(seg.cons_end_t) } : null,
-      priors: (engineData.prior_cycles || []).map((c) => ({ x1: X(c.t0), x2: X(c.t1), n: c.n })),
-      tokens: (engineData.tokens || []).map((tk) => ({ x: X(tk.t), tok: tk.tok })),
-      base: seg ? X(seg.base_t) : null,
-      peak: seg ? X(seg.peak_t) : null,
-    };
-  }
-  renderer() {
-    return new EngineRenderer(this._source._role, this._items);
-  }
-  zOrder() {
-    return this._source._role === "bands" ? "bottom" : "top";
-  }
-}
-class EngineRenderer {
-  constructor(role, items) {
-    this._role = role;
-    this._items = items;
-  }
-  draw(target) {
-    const it = this._items;
-    if (!it) return;
-    target.useBitmapCoordinateSpace((scope) => {
-      const ctx = scope.context;
-      const hr = scope.horizontalPixelRatio;
-      const vr = scope.verticalPixelRatio;
-      const h = scope.bitmapSize.height;
-      const px = (x) => x * hr;
-      const fill = (x1, x2, color) => {
-        if (x1 == null || x2 == null) return;
-        ctx.fillStyle = color;
-        ctx.fillRect(px(Math.min(x1, x2)), 0, Math.max(1, px(Math.abs(x2 - x1))), h);
-      };
-      if (this._role === "bands") {
-        for (const p of it.priors) fill(p.x1, p.x2, MK.engPrior); // faint, drawn first (underneath)
-        if (it.pole) fill(it.pole.x1, it.pole.x2, MK.engPoleFill);
-        if (it.cons) fill(it.cons.x1, it.cons.x2, MK.engConsFill);
-        return;
-      }
-      // marks layer: token row, band top-caps + labels, prior-cycle labels, base/peak.
-      ctx.save();
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.font = `${10 * vr}px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif`;
-      for (const tk of it.tokens) {
-        if (tk.x == null) continue;
-        ctx.fillStyle = tk.tok === "H" ? MK.tokH : tk.tok === "L" ? MK.tokL : MK.tokE;
-        ctx.fillText(tk.tok, px(tk.x), 12 * vr);
-      }
-      const cap = (band, color, label) => {
-        if (!band || band.x1 == null || band.x2 == null) return;
-        const x1 = px(Math.min(band.x1, band.x2));
-        const x2 = px(Math.max(band.x1, band.x2));
-        ctx.fillStyle = color;
-        ctx.fillRect(x1, 22 * vr, Math.max(1, x2 - x1), Math.max(2, 2 * vr));
-        ctx.font = `600 ${9 * vr}px -apple-system,sans-serif`;
-        ctx.fillText(label, (x1 + x2) / 2, 31 * vr);
-      };
-      cap(it.pole, MK.engPole, "POLE");
-      cap(it.cons, MK.engCons, "CONS");
-      ctx.font = `${9 * vr}px -apple-system,sans-serif`;
-      ctx.fillStyle = MK.engPriorLbl;
-      for (const p of it.priors) {
-        if (p.x1 == null || p.x2 == null) continue;
-        ctx.fillText(`cyc ${p.n}`, px((p.x1 + p.x2) / 2), 43 * vr);
-      }
-      if (it.base != null) {
-        ctx.fillStyle = MK.engBase;
-        ctx.fillText("▲base", px(it.base), 55 * vr);
-      }
-      if (it.peak != null) {
-        ctx.fillStyle = MK.engPeak;
-        ctx.fillText("▼peak", px(it.peak), 55 * vr);
-      }
-      ctx.restore();
-    });
-  }
-}
-
-// Compact "SYMBOL #run · 2.3R" option label, mirroring the dashboard's chart picker.
-function optionLabel(c) {
-  const label = c.run_count > 1 ? `${c.symbol} #${c.run}` : c.symbol;
-  const tag = c.triggered
-    ? c.stopped_out
-      ? " · stopped"
-      : ` · ${c.max_r ?? "?"}R`
-    : " · no trigger";
-  return label + tag;
-}
-
-// Reuse the dashboard's buildChart idiom: candles + volume histogram + entry/stop price lines +
-// timestamp-placed markers + fitContent(). Markers carry epoch timestamps (#141) so they land on
-// the right bars of the full-day series even though its indices differ from the run window's.
 function buildChart(c) {
-  const LC = window.LightweightCharts;
-  const container = el("rv-chart");
-  if (chartApi) chartApi.remove();
-  chartApi = LC.createChart(container, {
-    autoSize: true,
-    layout: { background: { color: "transparent" }, textColor: "#9aa4b2", fontSize: 11 },
-    grid: {
-      vertLines: { color: "rgba(255,255,255,0.05)" },
-      horzLines: { color: "rgba(255,255,255,0.05)" },
-    },
-    rightPriceScale: { borderColor: "rgba(255,255,255,0.15)" },
-    timeScale: {
-      borderColor: "rgba(255,255,255,0.15)",
-      timeVisible: true,
-      secondsVisible: false,
-      tickMarkFormatter: (t) => etClockSec(t),
-    },
-    localization: { timeFormatter: (t) => etClockSec(t) + " ET" },
-  });
-  candleSeries = chartApi.addCandlestickSeries({
-    upColor: MK.up, downColor: MK.down,
-    borderUpColor: MK.up, borderDownColor: MK.down,
-    wickUpColor: MK.up, wickDownColor: MK.down,
-  });
-  candleSeries.setData(
-    c.bars.map((b) => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c })),
-  );
-
-  // Annotation layer (#144): fresh per opportunity — new series means the old handles are gone.
-  annEntryLine = null;
-  annStopLine = null;
-  bandPrimitive = new BandPrimitive();
-  candleSeries.attachPrimitive(bandPrimitive);
-  chartApi.subscribeClick(onChartClick);
-
-  // Engine-v2 overlay (#216): the detector's read of this opportunity. Two primitives — band fills
-  // under the candles, tokens/labels/base-peak over them — both reading the module-level engineData.
-  engineData = c.engine || null;
-  engineBands = new EngineLayer("bands");
-  engineMarks = new EngineLayer("marks");
-  candleSeries.attachPrimitive(engineBands);
-  candleSeries.attachPrimitive(engineMarks);
-
-  // Volume histogram overlaid on its own scale in the bottom ~20%, coloured by candle direction.
-  const hasVolume = c.bars.some((b) => b.v != null);
-  if (hasVolume) {
-    volumeSeries = chartApi.addHistogramSeries({
-      priceFormat: { type: "volume" },
-      priceScaleId: "vol",
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
-    chartApi.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-    volumeSeries.setData(
-      c.bars.map((b) => ({ time: b.t, value: b.v ?? 0, color: b.c >= b.o ? MK.volUp : MK.volDown })),
-    );
-  } else {
-    volumeSeries = null;
-  }
-
-  // Entry-trigger + stop levels (shown even when the setup never triggered — where a fill'd be).
-  // A "no trigger" verdict strips these later via applyVerdict(); we always draw them here so the
-  // handles exist to restore when the verdict is toggled back off.
-  engineEntryLine = null;
-  engineStopLine = null;
-  restoreEngineLevels(c);
-
-  const m = c.markers;
-  const markers = [];
-  if (m.first_hit != null)
-    markers.push({ time: m.first_hit, position: "belowBar", color: MK.firstHit, shape: "circle", text: "scan" });
-  if (m.entry != null)
-    markers.push({ time: m.entry, position: "belowBar", color: MK.entry, shape: "arrowUp", text: "entry" });
-  if (m.max_r != null && c.max_r != null && c.max_r > 0)
-    markers.push({ time: m.max_r, position: "aboveBar", color: MK.maxR, shape: "circle", text: `${c.max_r}R` });
-  if (m.stop != null)
-    markers.push({ time: m.stop, position: "aboveBar", color: MK.stop, shape: "arrowDown", text: "stop" });
-  markers.sort((a, b) => a.time - b.time); // lightweight-charts needs ascending marker times
-  candleSeries.setMarkers(markers);
-  chartApi.timeScale().fitContent();
-
+  const v = ensureView();
+  if (!v) return;
+  v.draw(c);
+  v.setEngineLevels(!noTrigger);
   renderReadout(c);
   renderEngineDetail(c);
   updateEngineToggleUI();
 }
 
-// (Re)draw the engine's dashed entry/stop context lines for chart `c`, keeping the handles so a
-// no-trigger verdict can remove them and toggling the verdict off can put them back.
-function restoreEngineLevels(c) {
-  if (!candleSeries || !c) return;
-  if (engineEntryLine == null && c.levels.entry != null)
-    engineEntryLine = candleSeries.createPriceLine({
-      price: c.levels.entry, color: MK.entry, lineStyle: 2, lineWidth: 1,
-      axisLabelVisible: true, title: "entry",
-    });
-  if (engineStopLine == null && c.levels.stop != null)
-    engineStopLine = candleSeries.createPriceLine({
-      price: c.levels.stop, color: MK.stop, lineStyle: 2, lineWidth: 1,
-      axisLabelVisible: true, title: "stop",
-    });
-}
-
-// Bottom-strip readout: engine entry/stop/Max-R, or a collapsed "no trigger" when the reviewer has
-// marked the opportunity as not a tradeable setup (entry/stop then aren't applicable).
-const SRC_LABEL = { fmp: "fmp", yfinance: "yf" };
-const srcLabel = (s) => SRC_LABEL[s] || s;
-
-// Float chip (#109): default to the highest-priority source (fmp, first in c.floats); when more than
-// one source recorded a value, the chip toggles a compact "fmp 12.3M · yf 14.1M" all-sources line.
-function floatChip(c) {
-  const fs = ((c && c.floats) || []).filter((f) => f.float != null);
-  if (!fs.length) return "";
-  const all = fs.map((f) => `${srcLabel(f.source)} ${fmtShares(f.float)}`).join(" · ");
-  const multi = fs.length > 1;
-  return (
-    `<span class="mk rv-float${multi ? " rv-float-toggle" : ""}" style="color:${MK.firstHit}"` +
-    (multi ? ' title="tap for all sources"' : "") +
-    `>float ${fmtShares(fs[0].float)}</span>` +
-    (multi ? `<span class="rv-float-all muted hidden">${esc(all)}</span>` : "")
-  );
-}
-
-// 5-min volume of the bar the scanner triggered on (first_hit; entry as a fallback) — a proxy for the
-// scanner volume we don't record. Bars share timestamps with the markers, so match on exact `t`.
-function volChip(c) {
-  const t = (c && c.markers && (c.markers.first_hit ?? c.markers.entry)) ?? null;
-  if (t == null || !(c && c.bars)) return "";
-  const bar = c.bars.find((b) => b.t === t);
-  if (!bar || bar.v == null) return "";
-  return `<span class="mk rv-vol" title="volume of the 5-min bar when the scanner triggered">5m vol ${fmtShares(bar.v)}</span>`;
-}
-
-// The engine verdict chip that leads the readout strip: PASS/REJECT · score · cycle (or "no setup"),
-// tappable to open the engine detail sheet. Empty when the layer is off or the chart has no engine
-// block (a chart published before #216). Kept in sync with the on-chart overlay via the same toggle.
-function engineBadgeHtml() {
-  if (!engineOn || !engineData) return "";
-  if (!engineData.setup)
-    return '<span class="mk rv-eng-badge muted" title="engine: no v2 setup formed">v2 no setup</span>';
-  const verdict = engineData.passed ? "PASS" : "REJECT";
-  const cyc =
-    engineData.cycle_num != null
-      ? ` · cyc ${engineData.cycle_num}${engineData.exhausted ? "⚠" : ""}`
-      : "";
-  const score = engineData.score != null ? ` · ${round2(engineData.score)}` : "";
-  return (
-    `<span class="mk rv-eng-badge rv-eng-${verdict.toLowerCase()}"` +
-    ' title="tap for engine gates + score">' +
-    `v2 ${verdict}${score}${cyc}</span>`
-  );
-}
-
 function renderReadout(c) {
-  const out = el("rv-readout");
   if (!c) return;
-  const context = floatChip(c) + volChip(c); // recorded float + trigger-bar volume (shown in both states)
-  if (noTrigger) {
-    out.innerHTML =
-      engineBadgeHtml() +
-      `<span class="mk" style="color:${MK.stop}">no trigger</span>` +
-      '<span class="muted">entry / stop N/A</span>' +
-      context;
-    return;
-  }
-  out.innerHTML =
-    engineBadgeHtml() +
-    `<span class="mk" style="color:${MK.entry}">entry ${c.levels.entry ?? "—"}</span>` +
-    `<span class="mk" style="color:${MK.stop}">stop ${c.levels.stop ?? "—"}</span>` +
-    `<span class="mk" style="color:${MK.maxR}">Max R ${c.max_r != null ? c.max_r + "R" : "—"}</span>` +
-    (c.triggered ? (c.stopped_out ? '<span class="muted">stopped out</span>' : "") : '<span class="muted">no trigger</span>') +
-    context;
+  el("rv-readout").innerHTML = readoutHtml(c, { engineOn, noTrigger });
 }
 
 function clearChart(message) {
-  if (chartApi) {
-    chartApi.remove();
-    chartApi = null;
-    candleSeries = null;
-    volumeSeries = null;
-  }
-  engineData = engineBands = engineMarks = null; // primitives died with the chart
+  if (view) view.clear();
   el("rv-readout").innerHTML = `<span class="muted">${esc(message)}</span>`;
 }
 
@@ -571,7 +147,7 @@ function clearChart(message) {
 function drawSelected() {
   const list = (chartsData && chartsData.charts) || [];
   const c = list.find((x) => x.opportunity_id === el("rv-symbol").value) || list[0];
-  if (!window.LightweightCharts) {
+  if (!ensureView()) {
     clearChart("Chart library failed to load.");
     return;
   }
@@ -602,7 +178,7 @@ function drawSelected() {
 async function loadDate(date) {
   currentDate = date;
   clearChart("loading…");
-  chartsData = await fetchJson(`charts/${date}.json`);
+  chartsData = await chartsFor(date);
   const list = (chartsData && chartsData.charts) || [];
   el("rv-symbol").innerHTML = list
     .map((c) => `<option value="${esc(c.opportunity_id)}">${esc(optionLabel(c))}</option>`)
@@ -727,11 +303,11 @@ function setArmed(mode) {
 
 // Show/hide the dashed line marking the first tap of an in-progress two-tap band.
 function renderPending() {
-  if (!bandPrimitive) return;
+  if (!view) return;
   if (bandPending) {
-    bandPrimitive.setPending(bandPending.t0, bandPending.mode === "pole" ? MK.poleEdge : MK.consEdge);
+    view.setPending(bandPending.t0, bandPending.mode === "pole" ? MK.poleEdge : MK.consEdge);
   } else {
-    bandPrimitive.setPending(null, null);
+    view.setPending(null, null);
   }
 }
 
@@ -783,9 +359,9 @@ function computeMaxR() {
 }
 
 function onChartClick(param) {
-  if (!armed || !currentOpp || !candleSeries || !param.point) return;
-  const price = candleSeries.coordinateToPrice(param.point.y);
-  const time = chartApi.timeScale().coordinateToTime(param.point.x);
+  if (!armed || !currentOpp || !view || !param.point) return;
+  const price = view.priceAt(param.point.y);
+  const time = view.timeAt(param.point.x);
   if (price == null || time == null) return;
 
   if (armed === "entry") {
@@ -817,27 +393,17 @@ function onChartClick(param) {
 
 // Render the current annotations onto the chart: entry/stop price lines + pole/cons bands.
 function applyAnnotations() {
-  if (candleSeries) {
-    if (annEntryLine) {
-      candleSeries.removePriceLine(annEntryLine);
-      annEntryLine = null;
-    }
-    if (annStopLine) {
-      candleSeries.removePriceLine(annStopLine);
-      annStopLine = null;
-    }
-    if (ann.entry != null)
-      annEntryLine = candleSeries.createPriceLine({
+  if (view) {
+    view.setLine("ann-entry",
+      ann.entry == null ? null : {
         price: ann.entry, color: MK.annEntry, lineStyle: 0, lineWidth: 2,
         axisLabelVisible: true, title: "my entry",
       });
-    if (ann.stop != null)
-      annStopLine = candleSeries.createPriceLine({
+    view.setLine("ann-stop",
+      ann.stop == null ? null : {
         price: ann.stop, color: MK.annStop, lineStyle: 0, lineWidth: 2,
         axisLabelVisible: true, title: "my stop",
       });
-  }
-  if (bandPrimitive) {
     const bands = [];
     if (ann.pole)
       bands.push({ t0: ann.pole.t0, t1: ann.pole.t1, color: MK.poleBand, edge: MK.poleEdge });
@@ -846,7 +412,7 @@ function applyAnnotations() {
         t0: ann.consolidation.t0, t1: ann.consolidation.t1,
         color: MK.consBand, edge: MK.consEdge,
       });
-    bandPrimitive.setBands(bands);
+    view.setBands(bands);
   }
   updateAnnReadout();
 }
@@ -899,20 +465,7 @@ function applyVerdict() {
   }
   // Drawing tools (pole/cons/entry/stop/clear) are meaningless for a non-setup — grey them out.
   for (const t of document.querySelectorAll(".rv-tool")) t.disabled = noTrigger;
-  if (candleSeries) {
-    if (noTrigger) {
-      if (engineEntryLine) {
-        candleSeries.removePriceLine(engineEntryLine);
-        engineEntryLine = null;
-      }
-      if (engineStopLine) {
-        candleSeries.removePriceLine(engineStopLine);
-        engineStopLine = null;
-      }
-    } else {
-      restoreEngineLevels(currentOpp);
-    }
-  }
+  if (view) view.setEngineLevels(!noTrigger);
   renderReadout(currentOpp);
   updateAnnReadout();
 }
@@ -947,18 +500,17 @@ function chartXY(e) {
 // Nearest draggable level under (x, y), within the grab radius — or null. Entry/stop are matched
 // by vertical distance to their price line; band edges by horizontal distance to t0/t1.
 function pickDragTarget(x, y) {
-  if (!candleSeries || !chartApi) return null;
-  const ts = chartApi.timeScale();
+  if (!view) return null;
   const cands = [];
   for (const field of ["entry", "stop"]) {
     if (ann[field] == null) continue;
-    const yc = candleSeries.priceToCoordinate(ann[field]);
+    const yc = view.yOf(ann[field]);
     if (yc != null) cands.push({ kind: "price", field, dist: Math.abs(yc - y) });
   }
   for (const [field, band] of [["pole", ann.pole], ["cons", ann.consolidation]]) {
     if (!band) continue;
     for (const edge of ["t0", "t1"]) {
-      const xc = ts.timeToCoordinate(band[edge]);
+      const xc = view.xOf(band[edge]);
       if (xc != null) cands.push({ kind: "edge", field, edge, dist: Math.abs(xc - x) });
     }
   }
@@ -979,7 +531,7 @@ function onPointerDown(e) {
   const target = pickDragTarget(x, y);
   if (!target) return;
   drag = target;
-  chartApi.applyOptions({ handleScroll: false, handleScale: false }); // freeze pan/zoom while dragging
+  view.setInteraction(false); // freeze pan/zoom while dragging
   const chartEl = el("rv-chart");
   if (chartEl.setPointerCapture) chartEl.setPointerCapture(e.pointerId);
   chartEl.classList.add("rv-dragging");
@@ -990,10 +542,10 @@ function onPointerMove(e) {
   if (!drag) return;
   const { x, y } = chartXY(e);
   if (drag.kind === "price") {
-    const p = candleSeries.coordinateToPrice(y);
+    const p = view.priceAt(y);
     if (p != null) ann[drag.field] = round2(p);
   } else {
-    const t = chartApi.timeScale().coordinateToTime(x);
+    const t = view.timeAt(x);
     const band = bandOf(drag.field);
     if (t != null && band) {
       band[drag.edge] = t; // move just this edge; keep raw order, normalise on release
@@ -1017,7 +569,7 @@ function endDrag(e) {
     if (ext) Object.assign(band, ext);
   }
   drag = null;
-  chartApi.applyOptions({ handleScroll: true, handleScale: true });
+  view.setInteraction(true);
   const chartEl = el("rv-chart");
   if (e && e.pointerId != null && chartEl.releasePointerCapture) {
     try {
@@ -1142,12 +694,9 @@ async function saveNote() {
 }
 
 // --- Engine overlay controls (#216) --------------------------------------------------------
-// Toggle the whole engine layer (on-chart bands/tokens/base-peak + the readout badge). Default ON;
-// the setting persists across opportunities so the trader can park it off and draw unbiased.
 function toggleEngine() {
   engineOn = !engineOn;
-  if (engineBands) engineBands.refresh();
-  if (engineMarks) engineMarks.refresh();
+  if (view) view.setEngineOn(engineOn);
   updateEngineToggleUI();
   renderReadout(currentOpp); // show/hide the badge
 }
@@ -1158,59 +707,12 @@ function updateEngineToggleUI() {
   btn.setAttribute("aria-pressed", engineOn ? "true" : "false");
 }
 
-// Build the engine detail sheet: verdict, score, cycle/exhaustion, the segment, entry/stop levels,
-// the per-gate pass/fail table and the score contributions — the explainable ranking (#182, folded
-// into #216) behind the on-chart overlay.
 function renderEngineDetail(c) {
   const box = el("rv-engine-detail");
   const title = el("rv-engine-title");
   if (!box) return;
   if (title) title.textContent = c ? `Engine · ${optionLabel(c)}` : "Engine";
-  const e = c && c.engine;
-  if (!e) {
-    box.innerHTML = '<p class="muted">No engine data for this opportunity (chart predates the overlay).</p>';
-    return;
-  }
-  if (!e.setup) {
-    box.innerHTML = '<p class="muted">No v2 setup formed — the tokeniser found no pole into a consolidation.</p>';
-    return;
-  }
-  const verdict = e.passed
-    ? '<span class="rv-eng-badge rv-eng-pass">PASS</span>'
-    : '<span class="rv-eng-badge rv-eng-reject">REJECT</span>';
-  const cyc =
-    e.cycle_num != null
-      ? `cycle ${e.cycle_num}${e.total_significant_cycles != null ? ` / ${e.total_significant_cycles}` : ""}` +
-        (e.exhausted ? ' <span class="rv-eng-exh">exhausted</span>' : "")
-      : "—";
-  const seg = e.segment || {};
-  const lv = e.levels || {};
-  const gatesRows = (e.gates || [])
-    .map(
-      (g) =>
-        `<tr class="${g.passed ? "ok" : "no"}"><td>${esc(g.name)}</td>` +
-        `<td>${g.passed ? "✓" : "✗"}</td></tr>`,
-    )
-    .join("");
-  const contribRows = Object.entries(e.contributions || {})
-    .sort((a, b) => b[1] - a[1])
-    .map(([k, v]) => `<tr><td>${esc(k)}</td><td>${round2(v)}</td></tr>`)
-    .join("");
-  box.innerHTML =
-    `<div class="rv-eng-head">${verdict}` +
-    `<span class="rv-eng-score">score ${e.score != null ? round2(e.score) : "—"}</span>` +
-    `<span class="muted">${cyc}</span></div>` +
-    '<dl class="rv-eng-kv">' +
-    `<dt>segment</dt><dd>pole ${seg.pole_len ?? "—"} · cons ${seg.cons_len ?? "—"} · <code>${esc(seg.token_string ?? "")}</code></dd>` +
-    `<dt>entry</dt><dd>trigger ${lv.entry_trigger ?? "—"} · fill ${lv.entry_fill ?? "—"}</dd>` +
-    `<dt>stop</dt><dd>${lv.stop ?? "—"}</dd>` +
-    "</dl>" +
-    '<h4 class="rv-eng-h">Gates</h4>' +
-    `<table class="rv-eng-gates">${gatesRows}</table>` +
-    (contribRows
-      ? '<h4 class="rv-eng-h">Score contributions</h4>' +
-        `<table class="rv-eng-gates rv-eng-contrib">${contribRows}</table>`
-      : "");
+  box.innerHTML = engineDetailHtml(c);
 }
 
 function openEngineSheet() {
@@ -1242,33 +744,13 @@ function closeSheet() {
 function updateNewsButton(c) {
   const btn = el("rv-news-toggle");
   if (!btn) return;
-  const n = (c && c.news && c.news.length) || 0;
+  const n = newsCount(c);
   btn.textContent = `News ${n}`;
   btn.disabled = n === 0;
 }
-function renderNews(c) {
-  el("rv-news-title").textContent = c ? `News · ${c.symbol}` : "News";
-  const list = el("rv-news-list");
-  const items = (c && c.news) || [];
-  if (!items.length) {
-    list.innerHTML = '<p class="muted rv-news-empty">No news captured for this opportunity.</p>';
-    return;
-  }
-  list.innerHTML = items
-    .map((n) => {
-      const when = n.ts != null ? `${etClockSec(n.ts)} ET` : "undated";
-      const meta = [when, n.provider || ""].filter(Boolean).join(" · ");
-      return (
-        '<div class="rv-news-item">' +
-        `<div class="rv-news-meta muted">${esc(meta)}</div>` +
-        `<div class="rv-news-head">${esc(n.headline)}</div>` +
-        "</div>"
-      );
-    })
-    .join("");
-}
 function openNewsSheet() {
-  renderNews(currentOpp);
+  el("rv-news-title").textContent = currentOpp ? `News · ${currentOpp.symbol}` : "News";
+  el("rv-news-list").innerHTML = newsHtml(currentOpp);
   el("rv-scrim").hidden = false;
   el("rv-news-sheet").classList.add("open");
   el("rv-news-sheet").setAttribute("aria-hidden", "false");
@@ -1277,6 +759,24 @@ function closeNewsSheet() {
   el("rv-scrim").hidden = true;
   el("rv-news-sheet").classList.remove("open");
   el("rv-news-sheet").setAttribute("aria-hidden", "true");
+}
+
+// --- Deep links ----------------------------------------------------------------------------
+// Results (#224) links `review.html?date=<date>&oid=<opportunity_id>`; the Portfolio's trade and
+// skipped rows link on the trade's `seg_id`, which IS that id. `sym` (+ optional `run`) is accepted
+// too — it was what the portfolio sent before #478, and review.js silently ignored it, landing the
+// reader on the right day but the wrong opportunity. Unknown/absent params fall through to the
+// default (newest date, first opportunity), so plain `review.html` is unchanged.
+function wantedOid(params, list) {
+  const direct = params.get("oid") || params.get("seg_id");
+  if (direct) return direct;
+  const sym = params.get("sym");
+  if (!sym) return null;
+  const matches = list.filter((c) => String(c.symbol).toUpperCase() === sym.toUpperCase());
+  if (!matches.length) return null;
+  const run = params.get("run");
+  const exact = run == null ? null : matches.find((c) => String(c.run) === String(run));
+  return (exact || matches[0]).opportunity_id;
 }
 
 async function init() {
@@ -1288,7 +788,7 @@ async function init() {
   );
   const dateSel = el("rv-date");
   if (!dates.length) {
-    dateSel.innerHTML = '<option>—</option>';
+    dateSel.innerHTML = "<option>—</option>";
     clearChart("No review data published yet.");
     return;
   }
@@ -1296,19 +796,16 @@ async function init() {
   dateSel.innerHTML = dates
     .map((d) => `<option value="${esc(d.date)}">${esc(dateLabel(d.date))}</option>`)
     .join("");
-  // Deep-link (#224): the Results table (results.html) links each row to
-  // `review.html?date=<date>&oid=<opportunity_id>`. Preselect that date + opportunity when present;
-  // absent/unknown params fall through to the default (newest date, first opportunity) so plain
-  // `review.html` is unchanged. `oid` carries a `#` for multi-run ids, so it arrives URL-decoded.
   const params = new URLSearchParams(location.search);
   const wantDate = params.get("date");
-  const wantOid = params.get("oid");
   if (wantDate && dates.some((d) => d.date === wantDate)) dateSel.value = wantDate;
   await loadDate(dateSel.value);
-  if (wantOid) {
+  // `oid` carries a `#` for multi-run ids, so it arrives URL-decoded.
+  const oid = wantedOid(params, (chartsData && chartsData.charts) || []);
+  if (oid) {
     const sym = el("rv-symbol");
-    if ([...sym.options].some((o) => o.value === wantOid)) {
-      sym.value = wantOid;
+    if ([...sym.options].some((o) => o.value === oid)) {
+      sym.value = oid;
       drawSelected();
     }
   }
@@ -1344,7 +841,7 @@ el("rv-engine-toggle").addEventListener("click", toggleEngine);
 el("rv-engine-close").addEventListener("click", closeEngineSheet);
 
 // Drag-to-refine (UX #152): our own pointer loop on the chart container. Listeners are attached
-// once here (the container is stable across opportunities); handlers read the live chart globals.
+// once here (the container is stable across opportunities); handlers read the live chart view.
 const rvChart = el("rv-chart");
 rvChart.addEventListener("pointerdown", onPointerDown);
 rvChart.addEventListener("pointermove", onPointerMove);
