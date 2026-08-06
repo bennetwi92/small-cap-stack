@@ -822,25 +822,41 @@ function streakNote(st) {
   return `${dayWord(Math.abs(st.streak))} of ${dir} results${tail}`;
 }
 
+// The sample the fit draws on: a trailing window, or all history when there is no window (#476).
+// `adaptive_window_days` is null in that case, which must not render as "null-day window".
+const fitScope = (c) =>
+  c.adaptive_window_days == null ? "all history" : `the trailing ${c.adaptive_window_days} days`;
+
 // Whether the target on the tile is the optimiser's pick or the fallback (#463), and the sample
-// behind it. `target_fitted` post-dates these payloads, so against a portfolio.json published
-// before it existed the tag drops out rather than asserting either way.
+// behind it. Three states, not two (#476): a fallback for want of samples ("thin") and one where
+// the pick failed the margin gate ("margin") mean different things — no evidence yet, versus
+// evidence too weak to act on. `target_fitted` post-dates these payloads, so against a
+// portfolio.json published before it existed the tag drops out rather than asserting either way.
 function fitTag(st, c) {
   if (st.target_fitted == null) return "";
-  const need = c.adaptive_min_samples;
   const n = st.target_trailing_n;
+  if (st.target_status === "margin") {
+    return `<span class="muted">(held · ${st.target_considered_r}R not proven)</span>`;
+  }
   return st.target_fitted
     ? `<span class="muted">(fitted · ${n} trades)</span>`
-    : `<span class="muted">(fallback · ${n}/${need})</span>`;
+    : `<span class="muted">(fallback · ${n}/${c.adaptive_min_samples})</span>`;
 }
 
 function fitTitle(st, c) {
   const base = "The R multiple the next setup exits at";
   if (st.target_fitted == null) return `${base} — re-fit daily from the trailing window`;
+  if (st.target_status === "margin") {
+    const z = st.target_edge_z == null ? "—" : Number(st.target_edge_z).toFixed(2);
+    return (
+      `${base}. The re-fit preferred ${st.target_considered_r}R over ${st.target_fallback_r ?? c.target_fallback_r}R, ` +
+      `but its edge across ${st.target_trailing_n} trades is only ${z} standard errors ` +
+      `(${c.target_switch_z} required), so the fallback stands. Not enough evidence to change the exit rule.`
+    );
+  }
   return st.target_fitted
-    ? `${base}, chosen by the daily re-fit over ${st.target_trailing_n} trades in the trailing ` +
-        `${c.adaptive_window_days}-day window.`
-    : `${base}. The re-fit did NOT run: the trailing ${c.adaptive_window_days}-day window holds ` +
+    ? `${base}, chosen by the daily re-fit over ${st.target_trailing_n} trades from ${fitScope(c)}.`
+    : `${base}. The re-fit did NOT run: ${fitScope(c)} holds ` +
         `${st.target_trailing_n} trades and needs ${c.adaptive_min_samples}, so this is the ` +
         `${c.target_fallback_r}R fallback, not an adaptive choice.`;
 }
@@ -1167,8 +1183,9 @@ function targetNote(book) {
   const uniq = [...new Set(targets.map((d) => d.target))].sort((a, b) => a - b);
   const fallback = c.target_fallback_r != null ? `the ${c.target_fallback_r}R fallback` : "the configured fallback";
   return (
-    `Target re-fits daily from the trailing ${c.adaptive_window_days}-day window (needs ≥ ` +
-    `${c.adaptive_min_samples} prior trades, else ${fallback}). Latest chosen target: ` +
+    `Target re-fits daily over ${fitScope(c)} (needs ≥ ` +
+    `${c.adaptive_min_samples} prior trades, else ${fallback}; a pick other than the fallback must ` +
+    `also clear ${c.target_switch_z ?? 0} standard errors). Latest chosen target: ` +
     `<strong>${last.target}R</strong> · targets used: ${uniq.map((t) => t + "R").join(", ")}. ` +
     fitCoverage(targets, c)
   );
@@ -1181,15 +1198,20 @@ function fitCoverage(targets, c) {
   const known = targets.filter((d) => d.fitted != null);
   if (!known.length) return ""; // payload predates the flag — say nothing rather than guess
   const fitted = known.filter((d) => d.fitted).length;
-  if (fitted === known.length) return `All ${known.length} days were re-fitted.`;
+  // Days the fit ran and preferred something else, but the margin gate held the fallback (#476).
+  // Counted separately from thin days: "not enough trades yet" and "not a big enough edge" are
+  // different diagnoses and point at different fixes.
+  const held = known.filter((d) => d.status === "margin").length;
+  const heldNote = held ? ` ${held} day${held === 1 ? "" : "s"} preferred another target but did not clear the margin.` : "";
+  if (fitted === known.length) return `All ${known.length} days were re-fitted.${heldNote}`;
   if (fitted === 0) {
     const last = known[known.length - 1];
     return (
-      `<strong>The re-fit has never run</strong> — all ${known.length} days fell back. The window ` +
-      `holds ${last.n} trades and needs ${c.adaptive_min_samples}.`
+      `<strong>The re-fit has never run</strong> — all ${known.length} days fell back. The sample ` +
+      `holds ${last.n} trades and needs ${c.adaptive_min_samples}.${heldNote}`
     );
   }
-  return `Re-fitted on ${fitted} of ${known.length} days; the rest fell back.`;
+  return `Re-fitted on ${fitted} of ${known.length} days; the rest fell back.${heldNote}`;
 }
 
 function riskNote(book) {

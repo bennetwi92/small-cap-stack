@@ -429,10 +429,12 @@ def test_adaptive_falls_back_before_enough_samples_then_refits() -> None:
     from small_cap_stack.portfolio import simulate_portfolio_adaptive
 
     # 6 warm-up days (1 trade each) then a decision day. min_samples=6, window big, grid {1.5,3.0}.
-    # Warm-up trades reach exactly +2R favourable (high 12) then close, so over the trailing window
-    # target 1.5 hits (+1.5R each) and target 3.0 never hits (marks to close at +2R) -> 3.0 wins
-    # expectancy. The decision day must therefore be taken at 3.0, not the 2.0 fallback.
-    reach2 = [_bar(10, 12.0, 9.95, 12.0)]  # favourable to +2R then closes at +2R
+    # Warm-up trades run to +3R (high 13) then close, so over the trailing window target 1.5 banks
+    # +1.5R each and target 3.0 fills for +3R -> 3.0 wins expectancy. It also has to clear the #476
+    # margin gate against the 2.0 fallback: every trade gains exactly +1R by holding to 3R, so the
+    # paired edge is +1.0R with ZERO spread -> a deterministic edge, which the gate scores as
+    # infinitely many standard errors and lets through. The decision day is taken at 3.0.
+    reach2 = [_bar(10, 13.0, 9.95, 13.0)]  # favourable to +3R then closes there
     s = _s(
         portfolio_target_grid=(1.5, 3.0),
         portfolio_adaptive_min_samples=6,
@@ -553,6 +555,15 @@ def test_day_signal_r_is_size_independent() -> None:
 
 def _win_cand(sym: str) -> CandidateTrade:
     return _cand(sym, 5, 10.0, 9.0, [_bar(10, 12.0, 9.95, 12.0)])  # +2R vs risk 1
+
+
+def _win3_cand(sym: str) -> CandidateTrade:
+    """Runs to +3R and closes there — a trade where holding past the 2.0R fallback genuinely pays.
+
+    `_win_cand` tops out at exactly +2R, so under the #476 margin gate a 3.0R target is *identical*
+    to the fallback on it (both exit at +2R, edge 0) and the gate correctly refuses to switch. Tests
+    that need the fit to actually move need a trade with a real edge, which is this one."""
+    return _cand(sym, 5, 10.0, 9.0, [_bar(10, 13.0, 9.95, 13.0)])  # +3R vs risk 1
 
 
 def _loss_cand(sym: str) -> CandidateTrade:
@@ -723,17 +734,110 @@ def test_next_session_state_target_uses_every_collected_day() -> None:
         portfolio_exit_slippage_ticks=0,
     )
     base = date(2026, 7, 1)
-    days = [(base + timedelta(days=i), [_win_cand(f"W{i}")]) for i in range(6)]
+    days = [(base + timedelta(days=i), [_win3_cand(f"W{i}")]) for i in range(6)]
     book = simulate_portfolio_adaptive(days, s)
     assert {f.target_r for _d, f in book.daily_targets} == {2.0}  # every day fell back
     assert not any(f.fitted for _d, f in book.daily_targets)  # ...and every day is marked as such
     st = book.state
     assert st is not None
     assert (st.target_fitted, st.target_trailing_n) == (True, 6)  # the next session does re-fit
-    # _win_cand runs to +2R and CLOSES there: a 1.5R target banks 1.5R, a 3R target never fills and
-    # marks to close at 2R. So the fit picks 3.0 — and either way it is not the 2.0 fallback, which
-    # is the point: the next session re-fits off the 6th day that no collected day could see.
+    # _win3_cand runs to +3R: a 1.5R target banks 1.5R, a 3R target fills for 3R. So the fit picks
+    # 3.0, and it clears the #476 margin gate (a deterministic +1R edge over the 2.0 fallback). The
+    # point stands: it is not the fallback, because the next session re-fits off the 6th day that
+    # no collected day could see.
     assert st.target_r == 3.0
+
+
+def test_the_shipped_default_fits_on_all_history_with_a_margin_gate() -> None:
+    # #476: the two knobs ship as "no trailing window" and "one standard error to switch".
+    s = _s()
+    assert s.portfolio_adaptive_window_days is None
+    assert s.portfolio_target_switch_z == 1.0
+
+
+def test_all_history_window_keeps_trades_a_trailing_window_would_have_dropped() -> None:
+    # Six warm-up trades, then a 200-day gap, then the decision day. Any calendar window shorter
+    # than the gap discards every warm-up trade and the fit starves; None keeps all of them.
+    base = date(2026, 1, 1)
+    days: list[tuple[date, list[CandidateTrade]]] = [
+        (base + timedelta(days=i), [_win3_cand(f"W{i}")]) for i in range(6)
+    ]
+    days.append((base + timedelta(days=200), [_win3_cand("DEC")]))
+
+    windowed = _s(
+        portfolio_adaptive_window_days=40,
+        portfolio_adaptive_min_samples=6,
+        portfolio_target_grid=(1.5, 3.0),
+        portfolio_exit_slippage_ticks=0,
+    )
+    unbounded = windowed.model_copy(update={"portfolio_adaptive_window_days": None})
+
+    decision = base + timedelta(days=200)
+    w_fit = dict(simulate_portfolio_adaptive(days, windowed).daily_targets)[decision]
+    u_fit = dict(simulate_portfolio_adaptive(days, unbounded).daily_targets)[decision]
+    # 40-day window: the warm-ups have aged out entirely, so the fit never runs.
+    assert (w_fit.trailing_n, w_fit.status) == (0, "thin")
+    # All history: every prior trade is in scope and the fit both runs and switches.
+    assert (u_fit.trailing_n, u_fit.status, u_fit.target_r) == (6, "fitted", 3.0)
+
+
+def test_margin_gate_holds_the_fallback_when_the_edge_is_not_worth_acting_on() -> None:
+    # A grid pick that beats the fallback ON AVERAGE but not reliably: five trades where 3.0R wins
+    # big and five where it loses, so the paired edge carries far more noise than signal. The
+    # optimiser still prefers 3.0 — argmax does not care about spread — and the gate is what stops
+    # the book acting on it. This is the case #476 exists for: an argmax over noisy means.
+    s = _s(
+        portfolio_adaptive_min_samples=4,
+        portfolio_target_grid=(2.0, 3.0),
+        portfolio_target_r=2.0,
+        portfolio_target_switch_z=1.0,
+        portfolio_exit_slippage_ticks=0,
+    )
+    base = date(2026, 7, 1)
+    # 7 runners at edge +1, 2 stall-outs at edge -3: mean edge +0.11R, SD 1.76 -> z ~= 0.19.
+    # 3.0R still wins the raw expectancy (2.11R vs the fallback's 2.00R), so the ARGMAX prefers it
+    # and only the gate stands between that 0.11R of signal and a live change to the exit rule.
+    stall = [
+        _bar(10, 12.2, 9.5, 12.0, minute=0),  # tags +2R (fills a 2R target), stop untouched
+        _bar(12, 12.5, 8.8, 8.8, minute=1),  # then breaks the stop, so a 3R target rides it to -1R
+    ]
+    seq = [_win3_cand(f"R{i}") for i in range(7)]  # +3R -> 3.0 fills (+3) vs fallback +2 -> edge +1
+    seq += [_cand(f"F{i}", 5, 10.0, 9.0, stall) for i in range(2)]  # edge -3
+    days = [(base + timedelta(days=i), [c]) for i, c in enumerate(seq)]
+    book = simulate_portfolio_adaptive(days, s)
+    st = book.state
+    assert st is not None
+    assert st.target_status == "margin"  # the fit ran, preferred 3.0, and was overruled
+    assert st.target_considered_r == 3.0
+    assert st.target_r == 2.0  # the fallback stands
+    assert st.target_fitted is False
+    assert st.target_edge_z is not None and st.target_edge_z < 1.0
+
+    # Same data, gate disabled -> the pre-#476 behaviour: the raw argmax is taken.
+    no_gate = s.model_copy(update={"portfolio_target_switch_z": 0.0})
+    open_gate = simulate_portfolio_adaptive(days, no_gate)
+    ost = open_gate.state
+    assert ost is not None
+    assert (ost.target_status, ost.target_r) == ("fitted", 3.0)
+
+
+def test_margin_gate_lets_a_deterministic_edge_through() -> None:
+    # Zero spread is the STRONGEST evidence, not the absence of it: every trade gains exactly +1R
+    # by holding to 3R. A naive `edge / se` would divide by zero and block the clearest switch there
+    # is, so the gate scores a zero-SE positive edge as infinitely many standard errors.
+    s = _s(
+        portfolio_adaptive_min_samples=4,
+        portfolio_target_grid=(2.0, 3.0),
+        portfolio_target_r=2.0,
+        portfolio_exit_slippage_ticks=0,
+    )
+    base = date(2026, 7, 1)
+    days = [(base + timedelta(days=i), [_win3_cand(f"W{i}")]) for i in range(6)]
+    st = simulate_portfolio_adaptive(days, s).state
+    assert st is not None
+    assert (st.target_status, st.target_r, st.target_fitted) == ("fitted", 3.0, True)
+    assert st.target_edge_r == 1.0
+    assert st.target_edge_z == float("inf")
 
 
 def test_a_zero_sample_window_is_reported_as_fallback_not_as_a_fit() -> None:
@@ -1234,6 +1338,10 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     # target line is otherwise indistinguishable from a re-fit that never fired.
     day = adaptive["daily_targets"][0]
     assert day["fitted"] is False and day["n"] == 0  # one seeded day: nothing trailing to fit on
+    # ...and WHY it fell back: no samples, not a failed margin gate (#476).
+    assert day["status"] == "thin"
+    assert payload["config"]["adaptive_window_days"] is None  # all history, not a trailing window
+    assert payload["config"]["target_switch_z"] == 1.0
     trade = adaptive["trades"][0]
     assert trade["symbol"] == "AZI" and trade["reason"] == "target"
     # Per-trade risk attribution + the next-session state reach the page (#286).
@@ -1251,6 +1359,7 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     # The target in force is published with its provenance, so the page can say "fallback" rather
     # than presenting it as an adaptive choice (#463).
     assert state["target_fitted"] is False and state["target_trailing_n"] == 1
+    assert state["target_status"] == "thin" and state["target_considered_r"] is None
     # Only the adaptive book throttles risk / re-fits a target, so only it carries the state.
     assert "next_session" not in payload["books"]["2"]
     # Skipped log rides along in every book (empty here — a single seeded setup never hits the cap).
