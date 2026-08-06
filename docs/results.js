@@ -35,10 +35,13 @@ import {
   createChartView,
   engineDetailHtml,
   findChart,
+  hasReview,
   newsCount,
   newsHtml,
   optionLabel,
   readoutHtml,
+  reviewFor,
+  reviewHtml,
 } from "./js/inspector.js";
 import { MARKET_OPEN_MIN } from "./js/session.js";
 import { TabulatorFull as Tabulator } from "https://cdn.jsdelivr.net/npm/tabulator-tables@6.5.2/dist/js/tabulator_esm.min.js";
@@ -56,7 +59,8 @@ const DRAW_DEBOUNCE_MS = 80; // holding ↓ must not queue one full redraw per r
 
 let selectedOid = null;
 let view; // undefined = not built, null = charting library missing
-let sideMode = null; // null | "gates" | "news"
+let sideMode = null; // null | "gates" | "news" | "note"
+let sideReview = null; // the saved review for the drawn opportunity, once it has loaded
 let engineOn = true;
 let drawTimer = null;
 let drawToken = 0; // guards an async payload fetch that lands after another selection
@@ -606,6 +610,8 @@ async function drawNow(oid) {
   }
   const token = ++drawToken;
   const date = String(oid).split(":")[0];
+  sideReview = null;
+  el("rs-dock-note").classList.remove("has");
   dockMessage("loading…");
   const payload = await chartsFor(date);
   if (token !== drawToken) return; // a later selection won the race
@@ -626,15 +632,30 @@ async function drawNow(oid) {
   news.disabled = n === 0;
   if (sideMode === "news" && n === 0) sideMode = "gates";
   updateSide(c);
+  loadSavedReview(oid, token);
+}
+
+// The trader's own read of this opportunity (#481), drawn over the engine's: the pole/consolidation
+// bands and entry/stop they placed by hand, plus the note behind the Note button. Loaded after the
+// chart so the draw is never held up by it, and token-guarded like the chart itself.
+async function loadSavedReview(oid, token) {
+  const r = await reviewFor(oid);
+  if (token !== drawToken) return;
+  sideReview = r;
+  const marked = hasReview(r);
+  el("rs-dock-note").classList.toggle("has", marked);
+  if (view && marked && !r.no_trigger) view.setAnnotations(r.annotations);
+  if (sideMode === "note") updateSide(current());
 }
 
 function updateSide(c) {
   const side = el("rs-side");
   side.hidden = !sideMode;
-  el("rs-dock-gates").classList.toggle("on", sideMode === "gates");
-  el("rs-dock-news").classList.toggle("on", sideMode === "news");
+  for (const [mode, id] of [["gates", "rs-dock-gates"], ["news", "rs-dock-news"], ["note", "rs-dock-note"]])
+    el(id).classList.toggle("on", sideMode === mode);
   if (!sideMode) return;
-  side.innerHTML = sideMode === "news" ? newsHtml(c) : engineDetailHtml(c);
+  side.innerHTML =
+    sideMode === "news" ? newsHtml(c) : sideMode === "note" ? reviewHtml(sideReview) : engineDetailHtml(c);
 }
 
 function toggleSide(mode) {
@@ -658,12 +679,16 @@ function step(delta) {
   row.scrollTo("nearest", false).catch(() => {});
 }
 
-// Reopen on whatever the URL hash points at, once the rows exist.
+// Reopen on whatever the URL hash points at, once the rows exist. Scroll to it as well as select
+// it: under the default date-desc sort a deep-linked row is usually far outside the rendered
+// window, and a selection you can't see reads as no selection at all.
 function restoreSelection() {
   const m = /^#oid=(.*)$/.exec(location.hash || "");
   if (!m) return;
   const oid = decodeURIComponent(m[1]);
-  if (grid.getRow(oid)) select(oid);
+  if (!grid.getRow(oid)) return;
+  select(oid);
+  grid.scrollToRow(oid, "nearest", false).catch(() => {});
 }
 
 /* ---------- dock wiring ---------- */
@@ -677,6 +702,7 @@ function closeDock() {
   if (off) off.click();
 }
 el("rs-dock-close").addEventListener("click", closeDock);
+el("rs-dock-note").addEventListener("click", () => toggleSide("note"));
 el("rs-dock-gates").addEventListener("click", () => toggleSide("gates"));
 el("rs-dock-news").addEventListener("click", () => toggleSide("news"));
 el("rs-dock-engine").addEventListener("click", () => {

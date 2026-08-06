@@ -20,10 +20,13 @@ import {
   createChartView,
   engineDetailHtml,
   findChart,
+  hasReview,
   newsCount,
   newsHtml,
   optionLabel,
   readoutHtml,
+  reviewFor,
+  reviewHtml,
 } from "./js/inspector.js";
 
 const el = (id) => document.getElementById(id);
@@ -1419,7 +1422,8 @@ document.querySelectorAll(".pf-left").forEach((n) => redraw.observe(n));
 
 let inspView; // undefined = not built, null = charting library missing
 let inspKey = null; // the `data-key` of the open row, or null
-let inspSide = null; // null | "gates" | "news"
+let inspSide = null; // null | "gates" | "news" | "note"
+let inspReview = null; // the saved review for the drawn opportunity, once it has loaded
 let inspEngineOn = true;
 let inspToken = 0; // guards a payload fetch that lands after another selection
 
@@ -1471,14 +1475,17 @@ function inspSetChartMessage(msg) {
   if (msg) el("pf-insp-readout").innerHTML = "";
 }
 
+const INSP_SIDE_TITLE = { news: "News", gates: "Gates", note: "Saved review" };
+
 function inspUpdateSide(c) {
   const panel = el("pf-insp-side-panel");
   panel.hidden = !inspSide;
-  el("pf-insp-gates").classList.toggle("on", inspSide === "gates");
-  el("pf-insp-news").classList.toggle("on", inspSide === "news");
+  for (const [mode, id] of [["gates", "pf-insp-gates"], ["news", "pf-insp-news"], ["note", "pf-insp-note"]])
+    el(id).classList.toggle("on", inspSide === mode);
   if (!inspSide) return;
-  el("pf-insp-side-title").textContent = inspSide === "news" ? "News" : "Gates";
-  el("pf-insp-side").innerHTML = inspSide === "news" ? newsHtml(c) : engineDetailHtml(c);
+  el("pf-insp-side-title").textContent = INSP_SIDE_TITLE[inspSide];
+  el("pf-insp-side").innerHTML =
+    inspSide === "news" ? newsHtml(c) : inspSide === "note" ? reviewHtml(inspReview) : engineDetailHtml(c);
 }
 
 function inspPaintSelection() {
@@ -1506,6 +1513,8 @@ async function drawInspector(t) {
   const news = el("pf-insp-news");
   news.textContent = "News 0";
   news.disabled = true;
+  inspReview = null;
+  el("pf-insp-note").classList.remove("has");
   // A reconstructed day was rebuilt from vendor minute bars into `data/recon`; the chart payload
   // is built from the live store, so there is nothing to draw and no review page to open either.
   if (t.source === "recon" || !t.seg_id) {
@@ -1542,6 +1551,19 @@ async function drawInspector(t) {
   el("pf-insp-news").disabled = n === 0;
   if (inspSide === "news" && n === 0) inspSide = "gates";
   inspUpdateSide(c);
+  inspLoadReview(t.seg_id, token);
+}
+
+// The trader's own read of this trade (#481), drawn over the engine's and readable behind the Note
+// button. Loaded after the chart so the draw is never held up by it, and token-guarded the same way.
+async function inspLoadReview(oid, token) {
+  const r = await reviewFor(oid);
+  if (token !== inspToken) return;
+  inspReview = r;
+  const marked = hasReview(r);
+  el("pf-insp-note").classList.toggle("has", marked);
+  if (inspView && marked && !r.no_trigger) inspView.setAnnotations(r.annotations);
+  if (inspSide === "note") inspUpdateSide(inspView ? inspView.current() : null);
 }
 
 function closeInspector() {
@@ -1570,6 +1592,10 @@ document.addEventListener("click", (e) => {
   if (tr) openInspector(tr.dataset.key);
 });
 el("pf-insp-close").addEventListener("click", closeInspector);
+el("pf-insp-note").addEventListener("click", () => {
+  inspSide = inspSide === "note" ? null : "note";
+  inspUpdateSide(inspView ? inspView.current() : null);
+});
 el("pf-insp-gates").addEventListener("click", () => {
   inspSide = inspSide === "gates" ? null : "gates";
   inspUpdateSide(inspView ? inspView.current() : null);
