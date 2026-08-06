@@ -20,19 +20,32 @@ still cannot lose the provenance.)
 
 - One date is built, written and dropped before the next is read — the #261 lesson, so peak memory
   is one session's charts rather than the archive's.
-- Only dates *missing* an output are built, so the normal call does nothing at all.
-- The published set is capped at ``recon_charts_max_dates``, newest-first. That cap is about the
-  publish pipe rather than memory: ``publish-dashboard`` force-pushes the whole ``dashboard`` tree
-  every 15 minutes, and ~500 harvested sessions x ~2 MB would put a gigabyte through it each cycle.
-  Dates outside the window are pruned and **counted** — a silent truncation would read as "that is
-  all the harvest has" rather than "that is all the payload can hold" (#449's rule, restated).
+- Only dates *missing* an output are built, so a call with nothing to do does nothing.
+- At most ``recon_charts_max_dates`` payloads are resident at once. That cap is about the publish
+  pipe rather than memory: ``publish-dashboard`` force-pushes the whole ``dashboard`` tree every 15
+  minutes, and ~500 harvested sessions x ~2 MB would put a gigabyte through it each cycle. It bounds
+  the date COUNT, not the bytes — ``harvest_max_candidates`` is uncapped by default, so one
+  unusually busy session's payload can run well past the 1.5-3 MB a live day costs. Measure
+  ``du -sh /data/dashboard`` and the ``publish-dashboard`` job duration once the first window has
+  landed rather than trusting that arithmetic.
+- The window evicts by **publish order, not by date** (:func:`_keep_window` — read it before
+  changing the cap; a newest-date window makes all but the first two nights of the harvest
+  permanently invisible). Evicted dates are pruned and **counted** — a silent truncation would read
+  as "that is all the harvest has" rather than "that is all the payload can hold" (#449, restated).
 - Dates the tracker collected **live** are never published from here, so a reconstructed payload can
   never shadow a captured one and the two namespaces stay date-disjoint (their opportunity ids would
   otherwise collide).
 
 The caller is the harvest itself (``python -m small_cap_stack.harvest``): each completed session
 publishes its own charts as it lands, so the work is spread one date per ~47-minute session instead
-of arriving as an archive sweep. ``harvest charts`` re-runs it for the backlog.
+of arriving as an archive sweep. ``harvest charts`` fills the window on a box that harvested before
+this existed, and ``harvest charts --dates <d>`` brings a specific evicted session back.
+
+⚠️ **This is shared mutable state, and the ``scs-harvest`` container name is the only mutex.** The
+per-session hook and a hand-run ``charts`` both read-modify-write ``recon_index.json``; two of them
+interleaved would drop a row and orphan its payload. ``scripts/harvest.sh`` therefore takes the lock
+for ``charts`` too, even though it spends no vendor budget — the lock guards the checkpoint *and*
+these files now.
 """
 
 from __future__ import annotations
@@ -117,22 +130,44 @@ class ReconPublish:
 _EMPTY = ReconPublish((), (), (), (), 0, 0)
 
 
-def _budget_window(
-    recon_all: Iterable[date], live_dates: set[date], s: Settings
-) -> tuple[list[date], int, int]:
-    """Split the harvested dates into (publishable window, capped-out count, live-overlap count).
+def _seq_of(entry: dict[str, Any]) -> int:
+    """An index row's publish sequence — 0 for a row written before the field existed."""
+    raw = entry.get("published_seq")
+    return int(raw) if isinstance(raw, int) else 0
 
-    Newest-first and truncated at ``recon_charts_max_dates``: the harvest walks *backwards* from the
-    live record, so the newest reconstructed dates are the ones contiguous with it — the segment a
-    reader can actually read as one continuous history rather than a detached older slab.
+
+def _keep_window(entries: dict[str, dict[str, Any]], on_disk: set[date], budget: int) -> set[date]:
+    """The dates that stay published: the ``budget`` **most recently published**, not the newest.
+
+    The anchor is publish order, and getting this wrong made the whole feature useless for all but
+    the first two nights. The harvest walks *backwards* from the live record, so under a
+    newest-DATE window every session after the budget filled would be older than everything already
+    published, fall outside the window, and never be published at all — ~94% of a finished harvest
+    permanently invisible in Results, with the per-session hook doing nothing but pay for two store
+    reads and an index rewrite after every session. (Measured on a toy harvest: with a budget of 3,
+    sessions 4, 5 and 6 all published nothing.)
+
+    Ordering by *when we published it* instead means the window follows the harvest — every morning
+    the page carries the sessions last night rebuilt, which is what the job produces and what a
+    reader has a reason to look at. It also makes every harvested session reachable rather than
+    only the newest ones: ``harvest charts --dates <d>`` republishes any date and, by doing so,
+    moves it to the front of the window. Nothing is permanently out of reach; the budget decides how
+    much is resident at once, not which half of the archive exists.
+
+    The cost of the choice, stated: a date published two nights ago is evicted, so a reader who
+    wants a specific older session has to ask for it again. That is a command; the alternative was
+    an impossibility.
     """
-    dates = list(recon_all)
-    overlap = sum(1 for d in dates if d in live_dates)
-    eligible = sorted((d for d in dates if d not in live_dates), reverse=True)
-    budget = s.recon_charts_max_dates
-    if budget > 0 and len(eligible) > budget:
-        return eligible[:budget], len(eligible) - budget, overlap
-    return eligible, 0, overlap
+    if budget <= 0:
+        return set(on_disk)
+    ranked = sorted(
+        (d for d in on_disk if d.isoformat() in entries),
+        key=lambda d: (_seq_of(entries[d.isoformat()]), d),
+        reverse=True,
+    )
+    # A file with no index row has no sequence to rank by; it is re-published (and so re-sequenced)
+    # in the same call, so it can never be silently ranked last forever.
+    return set(ranked[:budget]) | {d for d in on_disk if d.isoformat() not in entries}
 
 
 def publish_recon_charts(
@@ -146,10 +181,11 @@ def publish_recon_charts(
 ) -> ReconPublish:
     """Bring ``charts/recon/`` + ``recon_index.json`` up to date. Returns what it did.
 
-    ``dates`` restricts the run to specific sessions (what the harvest passes as each one lands);
-    omit it to build every publishable date that has no payload yet. ``limit`` caps how many are
-    built in one call — the index rewrite and the prune still run, so a limited call always leaves
-    a consistent index rather than a half-updated one.
+    ``dates`` restricts the run to specific sessions (what the harvest passes as each one lands, and
+    what an operator passes to bring an evicted session back); omit it to fill the window with the
+    newest harvested dates that have no payload yet. ``limit`` caps how many are built in one call —
+    the index rewrite and the prune still run, so a limited call always leaves a consistent index
+    rather than a half-updated one.
 
     Never raises for one bad date: a session that blows up is logged and counted, because the caller
     is a multi-week overnight job and losing the night over one unreadable partition would be a far
@@ -165,8 +201,10 @@ def publish_recon_charts(
     # tracker watched is ground truth, and publishing a reconstructed payload for it would put two
     # charts under the same opportunity ids with nothing to tell them apart.
     live = set(collected_dates(live_store if live_store is not None else Store(s.data_dir)))
-    window, capped, overlap = _budget_window(collected_dates(store), live, s)
-    window_set = set(window)
+    harvested = collected_dates(store)
+    overlap = sum(1 for d in harvested if d in live)
+    eligible = sorted((d for d in harvested if d not in live), reverse=True)
+    eligible_set = set(eligible)
 
     entries: dict[str, dict[str, Any]] = {}
     existing = read_json(recon_index_path(out))
@@ -174,19 +212,27 @@ def publish_recon_charts(
         if isinstance(e, dict) and isinstance(e.get("date"), str):
             entries[e["date"]] = e
     on_disk = set(published_recon_dates(out))
+    next_seq = max((_seq_of(e) for e in entries.values()), default=0) + 1
 
+    budget = s.recon_charts_max_dates
     if dates is None:
-        # The default call is a no-op once the window is published: a date is rebuilt only when its
-        # payload OR its index row is missing (losing the index alone must not orphan the files).
-        todo = [d for d in window if d not in on_disk or d.isoformat() not in entries]
+        # Fill the window with the newest dates that have no payload yet — or whose index row is
+        # missing, since losing the index alone must not orphan the files. Capped at the budget so
+        # the first call on an already-harvested box is bounded work rather than an archive sweep
+        # (#264/#273); the nightly hook keeps the window turning over after that.
+        pending = [d for d in eligible if d not in on_disk or d.isoformat() not in entries]
+        todo = pending[:budget] if budget > 0 else pending
     else:
+        # Explicit dates are always built, whatever the window holds — this is how the harvest
+        # publishes the session it just landed, and how an operator brings an evicted one back.
+        # The only refusal is a date the reconstruction does not hold (or the tracker collected).
         wanted = set(dates)
-        todo = [d for d in window if d in wanted]
-        for d in sorted(wanted - window_set, reverse=True):
+        todo = [d for d in sorted(wanted, reverse=True) if d in eligible_set]
+        for d in sorted(wanted - eligible_set, reverse=True):
             log.info(
                 "dashboard.recon_charts_skipped",
                 date=d.isoformat(),
-                reason="live" if d in live else "outside-budget-window",
+                reason="live" if d in live else "not-harvested",
             )
     if limit > 0:
         todo = todo[:limit]
@@ -200,7 +246,12 @@ def publish_recon_charts(
             # only ever needs each date's row, which `index_entry` reduces it to.
             charts = build_charts(store, s, d, stamp)
             write_json(recon_charts_path(out, d), charts)
-            entries[d.isoformat()] = index_entry(d, charts, source=RECON_SOURCE)
+            entry = index_entry(d, charts, source=RECON_SOURCE)
+            # Publish order, which is what the eviction window ranks on. Assigned per date rather
+            # than per call so a multi-date catch-up evicts its own oldest first if it overruns.
+            entry["published_seq"] = next_seq
+            next_seq += 1
+            entries[d.isoformat()] = entry
             del charts
         except Exception as exc:  # noqa: BLE001 — see the docstring: one bad date, not the night
             log.warning("dashboard.recon_charts_failed", date=d.isoformat(), error=str(exc))
@@ -208,17 +259,19 @@ def publish_recon_charts(
         else:
             published.append(d)
 
+    on_disk = set(published_recon_dates(out))  # the builds above added to it
+    keep = _keep_window(entries, on_disk, budget) & eligible_set
     pruned: list[date] = []
-    for d in sorted(on_disk - window_set, reverse=True):
+    for d in sorted(on_disk - keep, reverse=True):
         recon_charts_path(out, d).unlink(missing_ok=True)
+        entries.pop(d.isoformat(), None)
         pruned.append(d)
 
-    # The index offers exactly what is on disk *now* and inside the window — so a pruned date, a
-    # failed build and a hand-deleted file all fall out of it rather than 404ing the page.
-    live_files = set(published_recon_dates(out))
-    indexed = sorted(
-        (d for d in window_set if d in live_files and d.isoformat() in entries), reverse=True
-    )
+    # The index offers exactly what is on disk *now* — so a pruned date, a first-build failure and
+    # a hand-deleted file all fall out of it rather than 404ing the page. A *re*-build that fails
+    # deliberately keeps its previous row and payload: stale-but-valid candles beat a hole.
+    indexed = sorted((d for d in keep if d.isoformat() in entries), reverse=True)
+    capped = len(eligible) - len(indexed)
     write_json(
         recon_index_path(out),
         {
@@ -226,7 +279,7 @@ def publish_recon_charts(
             "source": RECON_SOURCE,
             # Never a silent cap (#449): the page states its own span, and "30 sessions" has to be
             # readable as a budget rather than as everything the harvest has.
-            "max_dates": s.recon_charts_max_dates,
+            "max_dates": budget,
             "capped_dates_dropped": capped,
             "overlap_dates_dropped": overlap,
             "dates": [entries[d.isoformat()] for d in indexed],

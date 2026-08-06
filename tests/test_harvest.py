@@ -1087,9 +1087,10 @@ def test_cli_read_only_commands_are_safe_at_any_hour(monkeypatch: Any, tmp_path:
     checking what the harvest is doing must not itself require waiting until 17:00."""
     s = _settings(tmp_path, harvest_lookback_days=10)
     _at_et(monkeypatch, 5, 0)
-    # `charts` is here too (#488): it reads two stores and writes JSON, spends no vendor budget and
-    # takes no lock, so `scripts/harvest.sh` treats it as read-only. If it ever became window-gated
-    # the wrapper's cgroup/lock decision would be wrong for it.
+    # `charts` is here too (#488): it spends no vendor budget, so it must not be window-gated —
+    # publishing a harvested day to the dashboard has nothing to do with the tracker's morning. It
+    # does take the container-name lock (it mutates the same files the nightly hook writes); that
+    # is a wrapper concern, pinned in tests/test_harvest_env.py.
     for command in ("status", "sweep", "prefilter", "charts"):
         assert _cli(monkeypatch, s, [command, "--today", "2026-07-10"]) == 0
 

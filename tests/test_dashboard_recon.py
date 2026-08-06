@@ -172,13 +172,15 @@ def test_a_day_the_tracker_captured_live_is_never_republished(tmp_path: Path) ->
     assert not recon_charts_path(tmp_path / "dashboard", day).exists()
 
 
-def test_the_budget_keeps_the_newest_sessions_and_says_how_many_it_dropped(tmp_path: Path) -> None:
-    """Bounded newest-first, and never silently: `publish-dashboard` force-pushes this whole tree
-    every 15 minutes, so an uncapped ~500-session harvest is a gigabyte a cycle."""
+def test_the_first_fill_takes_the_newest_sessions_and_says_how_many_it_dropped(
+    tmp_path: Path,
+) -> None:
+    """A call with no explicit dates fills the window newest-first, and never silently:
+    `publish-dashboard` force-pushes this whole tree every 15 minutes, so an uncapped ~500-session
+    harvest is a gigabyte a cycle."""
     s = _settings(tmp_path, recon_charts_max_dates=2)
     store = _recon(s)
-    days = [date(2026, 5, 4), date(2026, 5, 5), date(2026, 5, 6)]
-    for i, d in enumerate(days):
+    for i, d in enumerate([date(2026, 5, 4), date(2026, 5, 5), date(2026, 5, 6)]):
         _seed_day(store, d, f"AZ{i}")
 
     res = publish_recon_charts(s, now=_NOW)
@@ -190,22 +192,74 @@ def test_the_budget_keeps_the_newest_sessions_and_says_how_many_it_dropped(tmp_p
     assert [d["date"] for d in index["dates"]] == ["2026-05-06", "2026-05-05"]
 
 
+def test_the_harvest_stays_visible_after_the_window_fills(tmp_path: Path) -> None:
+    """THE regression this window design exists for.
+
+    The harvest walks BACKWARDS from the live record. Under a newest-DATE window every session
+    after the budget filled would be older than everything already published, fall outside the
+    window, and never publish at all — ~94% of a finished harvest permanently invisible in Results,
+    with the per-session hook doing nothing but pay for two store reads after every session.
+
+    Evicting by publish order instead means each night's sessions land and the oldest-published ones
+    make room. Six sessions through a budget of three, fed newest-first exactly as the harvest feeds
+    them.
+    """
+    s = _settings(tmp_path, recon_charts_max_dates=3)
+    store = _recon(s)
+    days = [date(2026, 5, 20 - i) for i in range(6)]  # 05-20 down to 05-15, the harvest's order
+    for i, d in enumerate(days):
+        _seed_day(store, d, f"AZ{i}")
+
+    published: list[date] = []
+    for d in days:  # one call per completed session, which is what `run` does
+        published.extend(publish_recon_charts(s, dates=[d], now=_NOW).published)
+
+    assert published == days, "a session the harvest completed was never published"
+    # ...and what is resident is the three most recently harvested, not the three newest-dated.
+    assert [e["date"] for e in _index(tmp_path)["dates"]] == [
+        "2026-05-17",
+        "2026-05-16",
+        "2026-05-15",
+    ]
+    assert published_recon_dates(tmp_path / "dashboard") == days[-3:][::-1]
+
+
+def test_an_evicted_session_can_always_be_brought_back(tmp_path: Path) -> None:
+    """The cap decides how much is resident, not which half of the archive exists. Asking for an
+    evicted date republishes it and moves it to the front of the window."""
+    s = _settings(tmp_path, recon_charts_max_dates=2)
+    store = _recon(s)
+    days = [date(2026, 5, 6), date(2026, 5, 5), date(2026, 5, 4)]
+    for i, d in enumerate(days):
+        _seed_day(store, d, f"AZ{i}")
+    for d in days:
+        publish_recon_charts(s, dates=[d], now=_NOW)
+    assert date(2026, 5, 6) not in published_recon_dates(tmp_path / "dashboard")
+
+    res = publish_recon_charts(s, dates=[date(2026, 5, 6)], now=_NOW)
+
+    assert res.published == (date(2026, 5, 6),)
+    assert res.pruned == (date(2026, 5, 5),)  # the least recently published made room
+    assert [e["date"] for e in _index(tmp_path)["dates"]] == ["2026-05-06", "2026-05-04"]
+
+
 def test_a_date_that_falls_out_of_the_window_is_pruned_from_disk_and_the_index(
     tmp_path: Path,
 ) -> None:
     s = _settings(tmp_path, recon_charts_max_dates=2)
     store = _recon(s)
-    _seed_day(store, date(2026, 5, 4), "AZI")
-    _seed_day(store, date(2026, 5, 5), "BZI")
-    publish_recon_charts(s, now=_NOW)
+    _seed_day(store, date(2026, 5, 5), "AZI")
+    _seed_day(store, date(2026, 5, 4), "BZI")
+    publish_recon_charts(s, dates=[date(2026, 5, 5)], now=_NOW)
+    publish_recon_charts(s, dates=[date(2026, 5, 4)], now=_NOW)
     assert published_recon_dates(tmp_path / "dashboard") == [date(2026, 5, 4), date(2026, 5, 5)]
 
-    _seed_day(store, date(2026, 5, 6), "CZI")  # a newer session pushes the oldest out
-    res = publish_recon_charts(s, now=_NOW)
+    _seed_day(store, date(2026, 5, 6), "CZI")
+    res = publish_recon_charts(s, dates=[date(2026, 5, 6)], now=_NOW)
 
-    assert res.pruned == (date(2026, 5, 4),)
-    assert published_recon_dates(tmp_path / "dashboard") == [date(2026, 5, 5), date(2026, 5, 6)]
-    assert [d["date"] for d in _index(tmp_path)["dates"]] == ["2026-05-06", "2026-05-05"]
+    assert res.pruned == (date(2026, 5, 5),)  # published first, so evicted first
+    assert published_recon_dates(tmp_path / "dashboard") == [date(2026, 5, 4), date(2026, 5, 6)]
+    assert [d["date"] for d in _index(tmp_path)["dates"]] == ["2026-05-06", "2026-05-04"]
 
 
 def test_zero_disables_the_cap(tmp_path: Path) -> None:
@@ -233,17 +287,21 @@ def test_limit_bounds_one_call_without_leaving_a_half_written_index(tmp_path: Pa
     assert [d["date"] for d in _index(tmp_path)["dates"]] == ["2026-05-06", "2026-05-05"]
 
 
-def test_an_explicit_date_outside_the_window_publishes_nothing(tmp_path: Path) -> None:
-    """What the harvest's per-session hook does when the session it just landed is older than the
-    budget allows — it must decline, not blow the cap open one date at a time."""
-    s = _settings(tmp_path, recon_charts_max_dates=1)
-    store = _recon(s)
-    _seed_day(store, date(2026, 5, 5), "AZI")
-    _seed_day(store, date(2026, 5, 4), "BZI")
+def test_a_date_the_reconstruction_does_not_hold_is_reported_as_such(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A completed session that flagged nothing writes no partition (`Store.append` skips empty
+    records), so it never enters `collected_dates`. The hook must say "not harvested" rather than
+    blame the budget — that log line is the only diagnostic this path emits, and with a 100k
+    day-volume floor admitting thin sessions it will be a common outcome."""
+    s = _settings(tmp_path)
+    _seed_day(_recon(s), date(2026, 5, 5), "AZI")
 
     res = publish_recon_charts(s, dates=[date(2026, 5, 4)], now=_NOW)
+
     assert res.published == ()
-    assert not recon_charts_path(tmp_path / "dashboard", date(2026, 5, 4)).exists()
+    out = capsys.readouterr().out
+    assert "not-harvested" in out and "2026-05-04" in out
 
 
 # --- degradation ---------------------------------------------------------------------------------
@@ -280,7 +338,31 @@ def test_one_unreadable_date_costs_that_date_not_the_run(
 
     res = publish_recon_charts(s, now=_NOW)
     assert res.failed == (bad,) and res.published == (good,)
+    # A date that never built at all is absent from the index rather than 404ing the page.
     assert [d["date"] for d in _index(tmp_path)["dates"]] == ["2026-05-05"]
+
+
+def test_a_failed_REBUILD_keeps_the_payload_it_already_had(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A first build that fails falls out of the index; a *re*-build that fails must not. The date
+    still has valid published candles, and dropping them would turn a transient read error into a
+    hole on the page. The two cases look identical in the code, so they are pinned separately."""
+    s = _settings(tmp_path)
+    day = date(2026, 5, 5)
+    _seed_day(_recon(s), day, "AZI")
+    publish_recon_charts(s, now=_NOW)
+
+    import small_cap_stack.dashboard_recon as mod
+
+    monkeypatch.setattr(
+        mod, "build_charts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("transient"))
+    )
+    res = publish_recon_charts(s, dates=[day], now=_NOW)
+
+    assert res.failed == (day,) and res.published == ()
+    assert recon_charts_path(tmp_path / "dashboard", day).exists()
+    assert [d["date"] for d in _index(tmp_path)["dates"]] == [day.isoformat()]
 
 
 # --- the index row shape (the memory lesson of #261, restated for this path) ----------------------

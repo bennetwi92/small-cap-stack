@@ -389,13 +389,18 @@ def cmd_charts(s: Settings, args: argparse.Namespace) -> int:
 
     The catch-up path. ``run``/``auto`` publish each session as they harvest it, so this exists for
     the backlog a box accumulated before that hook landed, for a date whose payload was lost, and
-    for pruning the window after ``recon_charts_max_dates`` changes. Idempotent: a date that already
-    has a payload and an index row is not rebuilt, so the ordinary call does nothing.
+    for re-pruning after ``recon_charts_max_dates`` changes. With no ``--dates`` it fills the window
+    with the newest harvested sessions that have no payload, and is idempotent — a date that already
+    has a payload and an index row is not rebuilt, so the ordinary call does nothing. With
+    ``--dates`` it republishes exactly those, which is how an evicted session is brought back (doing
+    so moves it to the front of the eviction window).
 
-    Reads two stores and writes JSON — it spends no vendor budget and takes no lock, which is why
-    ``scripts/harvest.sh`` treats it as a read-only command and keeps it out of the harvest's cgroup
-    slice. ``--limit`` bounds how many dates one call builds; the published set is bounded anyway by
-    ``recon_charts_max_dates``.
+    It spends no vendor budget and touches no checkpoint, but it **does** take the ``scs-harvest``
+    lock: it read-modify-writes ``recon_index.json``, and so does the per-session publish hook
+    inside a running ``run``/``auto``. Interleaved, one of them writes an index built from a stale
+    snapshot — a dropped row and an orphaned payload. It also does real work (DuckDB + polars + the
+    detector, per date), so it runs inside the harvest's memory slice rather than the smaller,
+    slice-less envelope ``status``/``sweep``/``prefilter`` get. ``--limit`` bounds one call.
     """
     dates = [date.fromisoformat(d) for d in args.dates] if args.dates else None
     res = publish_recon_charts(s, dates=dates, limit=args.limit)

@@ -297,9 +297,11 @@ early, so every session harvested before phase 1 has run is wrong rather than me
 pre-flight that looks like it ran and measured nothing. The timer's `auto` sequences the phases
 itself; only a hand-run needs to care.
 
-`status`, `sweep`, `prefilter` and `charts` touch no vendor and spend nothing, so they run at
-**any** hour — checking on the harvest must not itself require waiting until 17:00. `daily` and
-`run` are the two that cost API budget and wall clock, and both refuse outside the window.
+`status`, `sweep` and `prefilter` touch no vendor, spend nothing and take no lock, so they run at
+**any** hour — checking on the harvest must not itself require waiting until 17:00. `charts` is not
+window-gated either, but it *does* take the lock (it mutates the same dashboard files the nightly
+hook writes), so it refuses while a harvest is in flight. `daily` and `run` are the two that cost
+API budget and wall clock, and both refuse outside the window.
 
 ```bash
 cd /opt/small-cap-stack
@@ -368,11 +370,20 @@ cd /opt/small-cap-stack
   their own so nothing reading the live `index.json` can serve vendor rows by accident.
   `publish-dashboard` copies the whole dashboard dir, so no workflow change is needed and the day
   is on the **Results** page (DATA → `+ History`) and in the Portfolio trade inspector within ~15
-  min. Bounded at `RECON_CHARTS_MAX_DATES` (30) newest-first, because that push is a full re-upload
-  of the tree every quarter hour and a payload is 1.5–3 MB; older dates are pruned and counted in
-  the index's `capped_dates_dropped`. `./scripts/harvest.sh charts` is the catch-up/repair command
-  (`--limit N` to bound one call) — idempotent, so re-running it when everything is published does
-  nothing. A publish failure never costs the night: it is logged and the session stays checkpointed.
+  min. At most `RECON_CHARTS_MAX_DATES` (30) sessions are resident, because that push is a full
+  re-upload of the tree every quarter hour and a payload is 1.5–3 MB. **Eviction is by publish
+  order, not by date** — the harvest walks backwards, so a newest-date window would have gone stale
+  after ~2 nights and hidden the rest of the run; this way the page carries whatever last night
+  rebuilt, and the index's `capped_dates_dropped` says how many are not resident.
+  `./scripts/harvest.sh charts` fills the window on a box that harvested before this existed, and
+  `./scripts/harvest.sh charts --dates 2026-05-04` brings a specific evicted session back (it moves
+  to the front of the window). Idempotent — re-running it with everything published does nothing.
+  A publish failure never costs the night: it is logged and the session stays checkpointed.
+  ⚠️ `charts` **takes the `scs-harvest` lock**, so it refuses while a harvest is running: it and the
+  per-session hook both read-modify-write `recon_index.json`, and interleaved they would orphan a
+  payload. Run it in a gap, or let the nightly hook do it. ⚠️ The cap bounds the date *count*, not
+  bytes — measure `du -sh /data/dashboard` and the publish job's duration once the first window has
+  landed rather than trusting the 1.5–3 MB figure.
 - **Resuming.** A checkpoint at `/data/recon/harvest-checkpoint.json` records completed sessions;
   every run resumes from it. A session is written as **one parquet file per dataset at the end**, so
   a kill leaves the date with no files and the checkpoint never claims it; the next run discards any

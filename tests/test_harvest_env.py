@@ -44,6 +44,7 @@ FMP_API_KEY=fmpsecret
 HEALTHCHECKS_PING_URL=https://hc-ping.com/abc-123
 MASSIVE_API_KEY=vendorkey
 HARVEST_MIN_DAY_VOLUME=500000   # tightened after the sweep
+RECON_CHARTS_MAX_DATES=12
 SCAN_MAX_PRICE=50.0
 TZ="America/New_York"
 JSON_LOGS=true
@@ -126,6 +127,10 @@ def test_harvest_knobs_and_scan_gates_reach_the_container(tmp_path: Path) -> Non
     assert env["HARVEST_MIN_DAY_VOLUME"] == "500000"
     assert env["SCAN_MAX_PRICE"] == "50.0"
     assert env["JSON_LOGS"] == "true"
+    # RECON_* as a family, not RECON_SUBDIR alone (#488): `charts` reads RECON_CHARTS_MAX_DATES, and
+    # a box that tuned the publish budget in .env must not have the container silently fall back to
+    # the default and publish a different window than the operator asked for.
+    assert env["RECON_CHARTS_MAX_DATES"] == "12"
 
 
 def test_the_deployed_image_tag_is_pinned_not_latest(tmp_path: Path) -> None:
@@ -345,6 +350,27 @@ def test_read_only_commands_run_beside_a_live_harvest_and_stay_out_of_its_slice(
         assert "--name scs-harvest" not in called, f"{cmd} took the lock"
         assert "--cgroup-parent" not in called, f"{cmd} joined the harvest's slice"
         assert "--memory=512m" in called, f"{cmd} took the harvest's full 1g cap"
+
+
+def test_charts_takes_the_lock_and_the_harvest_slice(tmp_path: Path) -> None:
+    """`charts` (#488) spends no vendor budget, but it read-modify-writes recon_index.json and so
+    does the per-session publish hook inside a running `run`/`auto`. Interleaved, one of them writes
+    an index built from a stale snapshot — a dropped row and an orphaned payload. The container name
+    is the only cross-process mutex on the box, so this one is NOT a read-only command.
+
+    It also does real work (DuckDB + polars + the detector, per date), which is why it belongs in
+    the memory slice rather than in the 512 MB no-slice envelope `status`/`sweep`/`prefilter` use.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        env = _docker_stub(Path(td), state="true")
+        proc = _run(env, "charts")
+    assert proc.returncode != 0, "charts ran beside a live harvest and could corrupt the index"
+    assert "already running" in proc.stderr
+
+    argv = _dry_run(tmp_path, command="charts")
+    assert "--cgroup-parent=scs-harvest.slice" in argv
+    assert "--memory=1g" in argv
+    assert "--name" in argv and "scs-harvest" in argv
 
 
 def test_a_leaked_container_is_cleared_rather_than_blocking_every_future_night() -> None:

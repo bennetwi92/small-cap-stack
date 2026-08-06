@@ -376,11 +376,22 @@ def read_json(path: Path) -> dict[str, Any] | None:
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Serialise atomically (tmp file + os.replace) so a consumer never sees a partial write."""
+    """Serialise atomically (tmp file + os.replace) so a consumer never sees a partial write.
+
+    The temp name carries the writer's pid. A *fixed* ``<name>.tmp`` is only atomic against
+    readers, not against a second writer: two processes writing the same target — the app's EOD and
+    a hand-run backfill, or the harvest's per-session publish and a ``harvest charts`` — would open,
+    truncate and write the same scratch path, and the interleave can `os.replace` a file holding a
+    mix of both payloads under the final, globbed name. That lands as invalid JSON in a dashboard
+    artifact the frontend parses on load."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(payload, default=_json_default, indent=2))
-    os.replace(tmp, path)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, default=_json_default, indent=2))
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # never strand a scratch file next to the artifact
+        raise
 
 
 def _content_key(payload: dict[str, Any]) -> str:

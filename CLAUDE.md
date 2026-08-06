@@ -146,8 +146,10 @@ hours, not authoring speed (see the remote-work limits above).
   Its **dashboard side** is `dashboard_recon.py` (#488): each completed session publishes
   `dashboard/charts/recon/<date>.json` + `recon_index.json` — a **separate namespace**, never a flag
   on the live `index.json`, so no existing reader can start serving vendor rows by accident. Bounded
-  at `recon_charts_max_dates` (30) newest-first because `publish-dashboard` force-pushes the whole
-  tree every 15 min; older dates are pruned and counted. `harvest charts` is the catch-up command.
+  at `recon_charts_max_dates` (30) because `publish-dashboard` force-pushes the whole tree every
+  15 min — but evicting by **publish order, not by date**: the harvest walks backwards, so a
+  newest-date window would make everything after night ~2 permanently invisible. `harvest charts`
+  fills the window; `harvest charts --dates <d>` brings an evicted session back.
 - `scripts/` — repo helpers (e.g. `board.sh`).
 - `deploy/` — host runbook + systemd units.
 

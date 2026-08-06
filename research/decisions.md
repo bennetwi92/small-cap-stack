@@ -865,18 +865,44 @@ archive-shaped job exactly where the run is trying to stop clear of the 03:45 `e
 16:20 EOD batch. It also inherits the checkpoint's contract: a night killed mid-run has published
 everything it harvested.
 
-**The published set is capped at `recon_charts_max_dates` (30), newest-first, and the drop is
-counted.** This cap is about the *publish pipe*, not memory: `publish-dashboard` force-pushes the
-whole `data/dashboard` tree every 15 minutes, and a date's payload is 1.5–3 MB of full-day bars — a
-finished ~500-session harvest would put ~1 GB through that push every quarter of an hour and the
-same again down every browser that opened Results with `+ History`. Newest-first for the same reason
-#449 chose it: what survives is the segment contiguous with the live record. Dates outside the
-window are pruned from disk and from the index, and `capped_dates_dropped` says how many — a silent
-truncation would read as "that is all the harvest has".
+**At most `recon_charts_max_dates` (30) sessions are published at once, and eviction is by PUBLISH
+ORDER, not by date.** The cap is about the *publish pipe*, not memory: `publish-dashboard`
+force-pushes the whole `data/dashboard` tree every 15 minutes, and a date's payload is 1.5–3 MB of
+full-day bars — a finished ~500-session harvest would put ~1 GB through that push every quarter of
+an hour and the same again down every browser that opened Results with `+ History`.
+
+⚠️ The *anchor* was wrong in the first cut and it mattered. Capping to the newest 30 **dates** —
+chosen to mirror #449's "the segment contiguous with the live record" — looks reasonable and is
+useless: the harvest walks *backwards*, so once the window filled (~2 nights at ~18 sessions), every
+later session was older than everything already published, fell outside the window, and never
+published at all. ~94% of a finished harvest would have been permanently invisible in Results while
+the per-session hook kept paying for two store reads and an index rewrite to do nothing. Ranking on
+*when we published it* instead makes the window follow the harvest: every morning the page carries
+what last night rebuilt. It also makes every harvested session **reachable** — `harvest charts
+--dates <d>` republishes any date and moves it to the front of the window. The cap now decides how
+much is resident, not which half of the archive exists. The stated cost: a session published two
+nights ago is evicted, so a reader wanting a specific older one has to ask again — a command, where
+the alternative was an impossibility.
+
+Evicted dates are pruned from disk and from the index, and `capped_dates_dropped` says how many — a
+silent truncation would read as "that is all the harvest has". ⚠️ The cap bounds the date *count*,
+not bytes: `harvest_max_candidates` is uncapped, so a busy reconstructed session's payload can run
+well past a live day's. The ~500× arithmetic above is not a measurement; check `du -sh
+/data/dashboard` and the publish job's duration once the first window lands.
 
 **Results fetches the reconstruction only when asked.** The small index is read every load (it is
 what decides whether the DATA control exists at all); the multi-megabyte payloads are fetched on the
 first switch to `+ History` and then filtered, never refetched. Default behaviour is unchanged.
+
+**`harvest charts` takes the container-name lock even though it spends no vendor budget.** It and
+the per-session hook both read-modify-write `recon_index.json`; interleaved, one writes an index
+built from a stale snapshot and orphans the other's payload. That name is the only cross-process
+mutex on the box, so the lock now guards the checkpoint *and* the dashboard artifacts. `charts` also
+does real work (DuckDB + polars + the detector, per date), so it takes the harvest's cgroup slice
+rather than the 512 MB no-slice envelope `status`/`sweep`/`prefilter` use. Relatedly,
+`dashboard.write_json`'s temp file now carries the writer's pid: a fixed `<name>.tmp` is atomic
+against *readers* only, and two writers could `os.replace` a mixed payload under the final name —
+invalid JSON in an artifact the frontend parses on load.
 
 **What a reconstructed day cannot show, stated rather than zeroed:** no float (the vendor sells no
 share count), no news, and no saved review (the workbench annotates live opportunities only, so its
