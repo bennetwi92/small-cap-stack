@@ -26,6 +26,12 @@
   --win:    #3ec07e;
   --loss:   #f06673;
 
+  /* grid row states — the cyan tints (7% / 16% / 20%) already flattened against
+     --bg, so a row state never has to be translucent to look right (#491) */
+  --row-hover:     #111b22;
+  --row-sel:       #172e36;
+  --row-sel-hover: #19373f;
+
   /* session accent: gold pre-market, cyan from the open (js/session.js
      stamps data-session on <html>; chrome accents follow it) */
   --acc: var(--cyan);
@@ -1045,9 +1051,13 @@ body.review{
 .rs-hint{ margin:auto; color:var(--dim); font-size:11px; padding:12px; text-align:center; }
 /* The selected row is the chart's source, so it has to read louder than :hover.
    Applied by the grid's rowFormatter (Tabulator recycles row elements as you
-   scroll, so a hand-applied class drifts onto whatever row inherits the div). */
-.tabulator .tabulator-row.rs-sel{ background:rgba(79,227,239,.16); box-shadow:inset 2px 0 0 var(--acc); }
-.tabulator .tabulator-row.rs-sel:hover{ background:rgba(79,227,239,.2); }
+   scroll, so a hand-applied class drifts onto whatever row inherits the div).
+   Opaque, not a translucent tint (#491): a tint replaces the row's own opaque
+   background rather than layering over it, so whatever Tabulator paints the
+   table body shows through — and the vendor paints it white, which swallowed
+   the near-white cell text on exactly the row you had just selected. */
+.tabulator .tabulator-row.rs-sel{ background:var(--row-sel); box-shadow:inset 2px 0 0 var(--acc); }
+.tabulator .tabulator-row.rs-sel:hover{ background:var(--row-sel-hover); }
 .tabulator .tabulator-row.rs-sel .tabulator-cell.tabulator-frozen{ background:#16303a; }
 /* narrow window: the side panel would leave the chart a sliver — drop it and let
    the two buttons that open it hide with it (results.js keeps them in sync) */
@@ -1085,12 +1095,21 @@ body.review{
   letter-spacing:.05em;
   text-transform:uppercase;
 }
+/* The vendor stylesheet paints the table body white with #333 text. Every row
+   below is opaque so it normally never shows — but anything that goes even
+   slightly translucent (a row state, a gap under the last row) turns into a
+   white flash under near-white text (#491). Kill it at the source: the cockpit
+   is dark, and nothing here should ever be able to bleed white. */
+.tabulator .tabulator-tableholder .tabulator-table{
+  background-color:transparent;
+  color:var(--ink);
+}
 .tabulator .tabulator-row{
   background:var(--bg);
   border-bottom:1px solid rgba(255,255,255,.04);
   min-height:0;
 }
-.tabulator .tabulator-row:hover{ background:rgba(79,227,239,.07); }
+.tabulator .tabulator-row:hover{ background:var(--row-hover); }
 .tabulator .tabulator-cell{
   height:22px;
   padding:0 7px;
