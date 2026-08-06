@@ -804,6 +804,11 @@ function statTiles(book, start) {
 function streakNote(st) {
   const need = st.step_days - Math.abs(st.streak);
   const dayWord = (n) => `${n} ${n === 1 ? "day" : "days"}`;
+  // With the ladder off (#474) the streak still accrues in the state but moves nothing — saying
+  // "N days in a row steps risk a rung" would promise machinery that has been switched out.
+  if (throttleOff(st)) {
+    return `Risk is flat at ${pct(st.risk_fraction)} per trade — the kill-switch is off.`;
+  }
   if (st.streak === 0) {
     return `No run either way — ${dayWord(st.step_days)} in a row moves risk a rung.`;
   }
@@ -840,16 +845,23 @@ function fitTitle(st, c) {
         `${c.target_fallback_r}R fallback, not an adaptive choice.`;
 }
 
-// Note: `n_rungs - 1` because rung 0 is the 0% floor — a 3-rung ladder has 2 steps above sitting out.
+// A one-rung ladder is the throttle switched OFF (#474): there is no rung to be on, so "rung 0/0"
+// and a ladder tooltip would both describe machinery that cannot move. Note: `n_rungs - 1` because
+// rung 0 is the 0% floor — a 3-rung ladder has 2 steps above sitting out.
+const throttleOff = (st) => st.n_rungs <= 1;
+
 function todayTiles(st, c) {
   const parked = st.risk_fraction === 0;
   return (
     tile("Target", `${st.target_r}R ${fitTag(st, c)}`, "", fitTitle(st, c)) +
     tile(
       "Risk / trade",
-      pct(st.risk_fraction) + ` <span class="muted">(rung ${st.rung}/${st.n_rungs - 1})</span>`,
+      pct(st.risk_fraction) +
+        (throttleOff(st) ? "" : ` <span class="muted">(rung ${st.rung}/${st.n_rungs - 1})</span>`),
       parked ? "pf-neg" : "",
-      `The kill-switch rung in force. Ladder: ${(c.risk_ladder || []).map(pct).join(" / ")}`
+      throttleOff(st)
+        ? "Flat risk per trade — the kill-switch ladder is switched off, so this does not vary with recent results."
+        : `The kill-switch rung in force. Ladder: ${(c.risk_ladder || []).map(pct).join(" / ")}`
     ) +
     tile(
       "Risk budget",
@@ -1186,6 +1198,15 @@ function riskNote(book) {
   const ladder = (c.risk_ladder || []).map(pct).join(" / ");
   const d = c.risk_step_days || 1;
   const days = d === 1 ? "day" : `${d} days`;
+  // One rung = the throttle is off (#474). The flat line below is then the CONFIGURED risk, not a
+  // ladder that happened to stay put, and the difference matters to anyone reading the chart.
+  if ((c.risk_rungs || 1) <= 1) {
+    return (
+      `Risk per trade is flat at ${pct(c.risk_fraction)} — the kill-switch ladder is switched off. ` +
+      `That ceiling still caps the risk, not the size: a tight stop can leave the ` +
+      `${pct(c.position_fraction)} position cap binding first, so the risk actually taken lands below it.`
+    );
+  }
   // Deliberately no "Latest risk: N%" here (#286): the forward-looking number
   // lives in the Next session panel.
   return (

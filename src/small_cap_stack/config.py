@@ -343,7 +343,19 @@ class Settings(BaseSettings):
     # scored (the signal is size-independent by design) so the switch re-arms when the tape turns.
     # Few rungs = a fast wind-up to full risk. `risk_rungs=1` disables the throttle. Only the
     # adaptive book throttles; fixed-target books stay at full `risk_fraction` as a baseline.
-    portfolio_risk_rungs: int = 3  # rungs incl. the 0 floor → (0, 2.5%, 5%)
+    #
+    # ⚠️ DISABLED 2026-08-06 (#474), reversing #239. The ladder is a bet on serial correlation of
+    # daily results and there is none to be found: lag-1 autocorrelation +0.31 over 12 active days
+    # (permutation p=0.27), and conditioning on TWO up days is worse than one — the wrong shape for
+    # a momentum story. Worse, it is not neutral when that bet is absent. Over 500
+    # calendar-preserving shuffles (day order permuted, trade population preserved, so serial
+    # correlation is zero by construction) the ladder cost a mean $22.35, losing on 291 shuffles and
+    # winning on 72. The mechanism is mechanical: fixed-fractional sizing ALREADY de-risks after a
+    # loss — 5% of a smaller balance is fewer dollars — and the ladder cuts a second time on the
+    # same information. On the live path it cost $32.84 (5.3% of the book) for 0.01pp of drawdown.
+    # Nothing is deleted: `risk_ladder` / `step_risk_rung` / `_day_signal_r` stay tested, so this is
+    # a one-line re-enable once the sample can detect the effect (~85 active days; we have 12).
+    portfolio_risk_rungs: int = 1  # 1 = throttle OFF (always full risk). 3 → (0, 2.5%, 5%).
     portfolio_risk_step_days: int = 2  # consecutive same-direction days to move a rung (1 = eager)
     # Costs, netted out of every trade so the equity curve is honest at ~$250 notional. Full IBKR
     # TIERED US-stock schedule per research/broker-costs.md (#232) — tiered UNBUNDLES the exchange /

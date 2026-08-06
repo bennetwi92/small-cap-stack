@@ -541,6 +541,7 @@ function renderChecks(c, book, status) {
   const ageMs = published ? Date.now() - new Date(published).getTime() : null;
   const stale = ageMs == null || ageMs > 60 * 60_000;
   const atTopRung = next ? next.rung >= next.n_rungs - 1 : false;
+  const throttleOff = next ? next.n_rungs <= 1 : false; // one rung = no ladder to walk (#474)
 
   const rows = [
     checkRow({
@@ -579,17 +580,39 @@ function renderChecks(c, book, status) {
       bar: Math.min(1, n / VERDICT_TRADES),
       title: `Placeholder bar of ${VERDICT_TRADES} paper trades. Gate 2 (#310) replaces it with the written go/no-go criteria.`,
     }),
-    // `n_rungs - 1` steps sit above rung 0, which is the 0% floor (the book sitting out).
+    // `n_rungs - 1` steps sit above rung 0, which is the 0% floor (the book sitting out). A
+    // one-rung ladder is the throttle switched off (#474) — there is no rung to report, and
+    // "FULL" would imply a ladder that could be somewhere else.
     checkRow({
       label: "Risk in force",
       value: next ? fmtPctPlain(next.risk_fraction, 1) : "—",
-      sub: next
-        ? `rung ${next.rung}/${next.n_rungs - 1} · target ${Number(next.target_r).toFixed(1)}R · ` +
-          `$${Number(next.risk_budget_usd).toFixed(2)} budget`
-        : "no next-session state",
-      status: next ? (next.risk_fraction === 0 ? "SITTING OUT" : atTopRung ? "FULL" : "THROTTLED") : null,
-      tone: next ? (next.risk_fraction === 0 ? "bad" : atTopRung ? "ok" : "warn") : "none",
-      title: "What the adaptive book will risk on its next setup — the kill-switch rung and the target now in force.",
+      sub: !next
+        ? "no next-session state"
+        : (throttleOff
+            ? `flat — kill-switch off · `
+            : `rung ${next.rung}/${next.n_rungs - 1} · `) +
+          `target ${Number(next.target_r).toFixed(1)}R · $${Number(next.risk_budget_usd).toFixed(2)} budget`,
+      status: !next
+        ? null
+        : throttleOff
+          ? "FLAT"
+          : next.risk_fraction === 0
+            ? "SITTING OUT"
+            : atTopRung
+              ? "FULL"
+              : "THROTTLED",
+      tone: !next
+        ? "none"
+        : throttleOff
+          ? "ok"
+          : next.risk_fraction === 0
+            ? "bad"
+            : atTopRung
+              ? "ok"
+              : "warn",
+      title: throttleOff
+        ? "What the adaptive book will risk on its next setup. The kill-switch ladder is switched off, so this does not vary with recent results."
+        : "What the adaptive book will risk on its next setup — the kill-switch rung and the target now in force.",
     }),
     targetFitRow(next, cfg),
     checkRow({
