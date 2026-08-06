@@ -19,6 +19,15 @@
     <header id="appbar" class="appbar"></header>
     <div id="optbar"></div>
     <p id="pf-error" class="error" hidden></p>
+    <!-- Stands in for the whole projection region when there is no projection to draw (a payload
+         built before it existed, or the combined book, which carries none by construction). A
+         SIBLING of `#pj-view` rather than a message written into it: rendering the reason over
+         `#pj-view.innerHTML` deleted every `pj-*` element the available branch writes into, and
+         a scope round-trip then threw on the first null (#464). -->
+    <section class="panel" id="pj-none" hidden>
+      <h2 class="panel-h">Projection</h2>
+      <p id="pj-none-reason" class="muted"></p>
+    </section>
 
     <div class="pf" id="pf-view">
       <!-- Left region: the book's state — stats, forward knobs, curves, payouts.

@@ -514,6 +514,11 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
    `.pf` sets display:flex, and a class selector outranks the UA's [hidden] rule at
    equal specificity — so the hidden region needs saying again, louder. */
 .pf[hidden]{ display:none; }
+/* Stands in for the whole projection region when there is no projection to draw (#464). It sits
+   OUTSIDE `.pf` — writing the reason into `#pj-view` deleted every element the drawn branch fills
+   — so it carries by hand the gutter that region gets from its own padding. No `[hidden]` override
+   needed here: `.panel` sets no display, so the UA rule wins unaided. */
+#pj-none{ margin:8px 10px; }
 .pj-verdict{ flex:0 0 auto; }
 /* the derived answer, next to the panel title: colour carries the state */
 .pj-verdict .panel-h .pill{ margin-left:6px; font-size:9px; vertical-align:middle; }
