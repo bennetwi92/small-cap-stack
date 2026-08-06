@@ -1738,16 +1738,20 @@ def test_cap_dropped_setups_are_tagged_cap() -> None:
     assert res.skipped_total_r == res.skipped[0].realized_r  # cap-only headline still counts it
 
 
-def test_throttled_sitout_is_not_logged_as_unaffordable() -> None:
-    """rung-0 (risk_fraction=0) sizes every position to 0 on purpose — that's the kill-switch
-    sitting the day out, not information we lost. It must not flood the skipped log (#251)."""
+def test_throttled_sitout_is_logged_as_throttled_not_cap_or_unaffordable() -> None:
+    """rung-0 (risk_fraction=0) sizes every position to 0 on purpose — the kill-switch sitting the
+    day out. Attributing that to the cap or to the equity would misname the constraint (#251), but
+    logging nothing at all deleted the setup from every view the page has (#465)."""
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
 
     trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
 
     assert trades == []
-    assert skipped == []  # silence is correct here
+    assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [
+        ("AAA", "throttled"),
+        ("BBB", "throttled"),
+    ]
 
 
 def test_take_day_selection_follows_select_day(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1792,7 +1796,9 @@ def test_throttled_rung_sizing_to_zero_is_not_called_unaffordable() -> None:
     trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0, risk_fraction=0.025)
 
     assert trades == []
-    assert skipped == []  # throttled, not unaffordable — the book could afford it at full risk
+    # Throttled, not unaffordable — the book could afford it at full risk. Recorded either way,
+    # because a setup that is in neither log is a setup the page cannot show at all (#465).
+    assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [("AAA", "throttled")]
 
 
 def test_unaffordable_still_recorded_at_full_risk() -> None:
@@ -1807,16 +1813,66 @@ def test_unaffordable_still_recorded_at_full_risk() -> None:
     assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [("AAA", "unaffordable")]
 
 
+def test_every_candidate_leaves_by_exactly_one_door() -> None:
+    """``taken + skipped == cands``, at every rung (#465).
+
+    The accounting invariant behind the page: a qualifying setup is either in the trade log or in
+    the skipped log, never in neither. Asserting it at each rung is the point — the hole was
+    rung-specific, so a single-rung test would have passed throughout.
+    """
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    wide = [_bar(10, 21.0, 4.0, 20.0)]  # $15/share risk: sizes to 0 at a throttled rung
+    cands = [
+        _cand("AAA", 5, 10.0, 9.0, win),
+        _cand("BBB", 6, 20.0, 5.0, wide),
+        _cand("CCC", 7, 10.0, 9.0, win),  # beyond the 2/day cap
+    ]
+    s = _s()
+
+    for rf in (0.0, 0.025, 0.05):
+        trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0, risk_fraction=rf)
+        seen = [t.symbol for t in trades] + [sk.symbol for sk in skipped]
+        assert sorted(seen) == ["AAA", "BBB", "CCC"], rf
+        assert len(seen) == len(set(seen)), rf  # and never through two doors at once
+
+
+def test_throttled_skips_stay_out_of_the_cap_headline() -> None:
+    """``skipped_total_r`` / ``skipped_count`` answer "what did the N/day cap cost me?".
+
+    Giving throttled setups their own reason (#465) is what lets them be recorded without being
+    counted here — the exact conflation the rung-0 silence was avoiding.
+    """
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    s = _s(
+        portfolio_risk_step_days=1, portfolio_adaptive_min_samples=999, portfolio_risk_rungs=2
+    )  # binary kill-switch: one losing day parks the book at 0%
+    base = date(2026, 7, 1)
+    days = [
+        (base, [_cand("L0", 5, 10.0, 9.0, [_bar(10, 10.1, 8.9, 9.0)])]),  # lose -> park
+        (base + timedelta(days=1), [_cand("W1", 5, 10.0, 9.0, win)]),  # parked: throttled
+    ]
+
+    res = simulate_portfolio_adaptive(days, s).result
+
+    assert [(sk.symbol, sk.skip_reason) for sk in res.skipped] == [("W1", "throttled")]
+    assert res.skipped_total_r == 0.0  # cap-only headline untouched by the throttle
+
+
 def test_rung_zero_day_does_not_blame_the_daily_cap() -> None:
-    """Nothing is taken on a rung-0 day, so the cap was never the binding constraint (#251)."""
+    """Nothing is taken on a rung-0 day, so the cap was never the binding constraint (#251).
+
+    CCC would be past the 2/day cap, but with nothing traded the cap cost us nothing — so the whole
+    day is the throttle's, including the candidates sitting beyond the cap. They are still recorded
+    (#465); what must not happen is their landing in the cap population.
+    """
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand(x, i + 5, 10.0, 9.0, win) for i, x in enumerate(["AAA", "BBB", "CCC"])]
 
     trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
 
     assert trades == []
-    # CCC would be past the 2/day cap — but nothing traded, so the cap cost us nothing.
-    assert skipped == []
+    assert [sk.symbol for sk in skipped] == ["AAA", "BBB", "CCC"]
+    assert {sk.skip_reason for sk in skipped} == {"throttled"}
 
 
 def test_take_day_tolerates_a_non_prefix_selector(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1059,6 +1059,9 @@ function tradeRows(book) {
 const SKIP_LBL = {
   cap: '<span class="muted">daily cap</span>',
   unaffordable: '<span class="pf-neg">unaffordable</span>',
+  // Gold, the kill-switch's colour on the risk chart, not the loss red: the throttle declining a
+  // setup is the ladder working, not a failure.
+  throttled: '<span class="warn">risk throttle</span>',
 };
 
 // Setups selected but impossible to size to even one share (#251). Kept apart from the cap
@@ -1073,14 +1076,31 @@ function unaffordableNote(book) {
   );
 }
 
+// Setups the adaptive kill-switch declined (#465) — a rung-0 day takes nothing at all, and a
+// throttled rung can size a wide-stop setup to zero shares. Deliberately not folded into the cap
+// sentence: the cap and the throttle are different constraints with different fixes, and the R
+// total above is cap-only by design. Their R is stated all the same — on a book that spent days
+// parked, what the throttle declined is the number the reader came for.
+function throttledNote(book) {
+  const rows = (book.skipped || []).filter((t) => t.skip_reason === "throttled");
+  if (!rows.length) return "";
+  const totR = rows.reduce((a, t) => a + (t.realized_r || 0), 0);
+  const cls = totR > 0 ? "pf-pos" : totR < 0 ? "pf-neg" : "muted";
+  return (
+    ` ${rows.length} more ${rows.length === 1 ? "was" : "were"} declined by the ` +
+    `<strong>risk throttle</strong> — the kill-switch was parked or its budget wouldn't size a ` +
+    `share. They'd have returned <span class="${cls}">${fmtR(totR)}</span> in total (unsized).`
+  );
+}
+
 function skippedNote(book) {
   const s = book.stats;
   const n = s.skipped_count || 0;
   if (!n) {
-    // "No setups were dropped" would contradict the table below whenever unaffordable rows exist,
-    // since skipped_count is cap-only. Speak only for the cap here.
+    // "No setups were dropped" would contradict the table below whenever unaffordable or throttled
+    // rows exist, since skipped_count is cap-only. Speak only for the cap here.
     const capNote = `The ${PAYLOAD.config.max_trades_per_day}/day cap was never the binding constraint — it dropped nothing.`;
-    return capNote + unaffordableNote(book);
+    return capNote + throttledNote(book) + unaffordableNote(book);
   }
   const totR = s.skipped_total_r;
   const cls = totR > 0 ? "pf-pos" : totR < 0 ? "pf-neg" : "muted";
@@ -1089,6 +1109,7 @@ function skippedNote(book) {
     `${PAYLOAD.config.max_trades_per_day}/day cap was already full. At this book's target they'd ` +
     `have returned <span class="${cls}">${fmtR(totR)}</span> in total (unsized — R only, since a ` +
     `third concurrent position wouldn't fit the settled-cash limit).` +
+    throttledNote(book) +
     unaffordableNote(book)
   );
 }
