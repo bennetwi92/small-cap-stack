@@ -213,6 +213,22 @@ function stepSvg(points, o, box) {
   const base = y(lo).toFixed(1);
   const area = `${line} L${x1(points.length - 1).toFixed(1)},${base} L${x0(0).toFixed(1)},${base} Z`;
 
+  // Days the series is only *nominally* at its value — for the target chart, the ones where the
+  // re-fit didn't run and the fallback stood in (#463). Overdrawn dashed and dimmed so a flat
+  // stretch cannot be misread as a fit that kept choosing the same rung. Optional: a series with
+  // no `dim` points draws nothing here.
+  const dimmed = points
+    .map((p, i) =>
+      p.dim
+        ? `M${x0(i).toFixed(1)},${y(p.value).toFixed(1)} L${x1(i).toFixed(1)},${y(p.value).toFixed(1)}`
+        : ""
+    )
+    .filter(Boolean)
+    .join(" ");
+  const dimPath = dimmed
+    ? `<path d="${dimmed}" fill="none" stroke="${MK.flat}" stroke-width="2" stroke-dasharray="4 3"/>`
+    : "";
+
   // Recessive rules at each rung of the ladder, labelled in the axis gutter.
   const rules = grid
     .map((g) => {
@@ -231,7 +247,7 @@ function stepSvg(points, o, box) {
     .map(
       (p, i) =>
         `<rect x="${x0(i).toFixed(1)}" y="${PAD}" width="${w.toFixed(1)}" height="${(H - BOT - PAD).toFixed(1)}" ` +
-        `fill="transparent"><title>${esc(p.date)} · ${esc(o.fmt(p.value))}</title></rect>`
+        `fill="transparent"><title>${esc(p.date)} · ${esc(o.fmt(p.value))}${p.note ? " · " + esc(p.note) : ""}</title></rect>`
     )
     .join("");
 
@@ -244,6 +260,7 @@ function stepSvg(points, o, box) {
     rules +
     `<path d="${area}" fill="${o.color}" opacity="0.10"/>` +
     `<path d="${line}" fill="none" stroke="${o.color}" stroke-width="2"/>` +
+    dimPath +
     `<circle cx="${lastX}" cy="${lastY}" r="3.5" fill="${o.color}"/>` +
     `<text x="${lastX}" y="${(+lastY - 8).toFixed(1)}" text-anchor="end" class="pf-axis">${esc(o.fmt(last.value))}</text>` +
     `<text x="${PAD}" y="${axisY}" class="pf-axis">${esc(points[0].date)}</text>` +
@@ -254,11 +271,18 @@ function stepSvg(points, o, box) {
 }
 
 // The R multiple the book exits at, re-fit daily from the trailing window. Rules mark the
-// candidate grid, so a flat stretch reads as "the fit kept choosing the same rung".
+// candidate grid. Days the re-fit did NOT run are overdrawn dashed and dimmed (#463) — a flat
+// stretch would otherwise read as "the fit kept choosing the same rung" when it can equally mean
+// the fit never ran for want of samples, which is exactly what the live book did for 28 days.
 function targetSvg(book, box) {
   const pts = (book.daily_targets || [])
     .filter((d) => d.target != null)
-    .map((d) => ({ date: d.date, value: d.target }));
+    .map((d) => ({
+      date: d.date,
+      value: d.target,
+      dim: d.fitted === false,
+      note: d.fitted == null ? "" : `${d.fitted ? "fitted" : "fallback"} (${d.n} trades)`,
+    }));
   const grid = PAYLOAD.config.target_grid || [...new Set(pts.map((p) => p.value))].sort((a, b) => a - b);
   return stepSvg(
     pts,
@@ -786,11 +810,34 @@ function streakNote(st) {
   return `${dayWord(Math.abs(st.streak))} of ${dir} results${tail}`;
 }
 
+// Whether the target on the tile is the optimiser's pick or the fallback (#463), and the sample
+// behind it. `target_fitted` post-dates these payloads, so against a portfolio.json published
+// before it existed the tag drops out rather than asserting either way.
+function fitTag(st, c) {
+  if (st.target_fitted == null) return "";
+  const need = c.adaptive_min_samples;
+  const n = st.target_trailing_n;
+  return st.target_fitted
+    ? `<span class="muted">(fitted · ${n} trades)</span>`
+    : `<span class="muted">(fallback · ${n}/${need})</span>`;
+}
+
+function fitTitle(st, c) {
+  const base = "The R multiple the next setup exits at";
+  if (st.target_fitted == null) return `${base} — re-fit daily from the trailing window`;
+  return st.target_fitted
+    ? `${base}, chosen by the daily re-fit over ${st.target_trailing_n} trades in the trailing ` +
+        `${c.adaptive_window_days}-day window.`
+    : `${base}. The re-fit did NOT run: the trailing ${c.adaptive_window_days}-day window holds ` +
+        `${st.target_trailing_n} trades and needs ${c.adaptive_min_samples}, so this is the ` +
+        `${c.target_fallback_r}R fallback, not an adaptive choice.`;
+}
+
 // Note: `n_rungs - 1` because rung 0 is the 0% floor — a 3-rung ladder has 2 steps above sitting out.
 function todayTiles(st, c) {
   const parked = st.risk_fraction === 0;
   return (
-    tile("Target", `${st.target_r}R`, "", "The R multiple the next setup exits at — re-fit daily from the trailing window") +
+    tile("Target", `${st.target_r}R ${fitTag(st, c)}`, "", fitTitle(st, c)) +
     tile(
       "Risk / trade",
       pct(st.risk_fraction) + ` <span class="muted">(rung ${st.rung}/${st.n_rungs - 1})</span>`,
@@ -1067,8 +1114,27 @@ function targetNote(book) {
   return (
     `Target re-fits daily from the trailing ${c.adaptive_window_days}-day window (needs ≥ ` +
     `${c.adaptive_min_samples} prior trades, else ${fallback}). Latest chosen target: ` +
-    `<strong>${last.target}R</strong> · targets used: ${uniq.map((t) => t + "R").join(", ")}.`
+    `<strong>${last.target}R</strong> · targets used: ${uniq.map((t) => t + "R").join(", ")}. ` +
+    fitCoverage(targets, c)
   );
+}
+
+// How much of the plotted line is the optimiser and how much is the fallback (#463). A flat target
+// chart is ambiguous on its face — "the fit kept picking the same rung" and "the fit never ran"
+// draw an identical line — and for the live book's first 28 days it was always the second.
+function fitCoverage(targets, c) {
+  const known = targets.filter((d) => d.fitted != null);
+  if (!known.length) return ""; // payload predates the flag — say nothing rather than guess
+  const fitted = known.filter((d) => d.fitted).length;
+  if (fitted === known.length) return `All ${known.length} days were re-fitted.`;
+  if (fitted === 0) {
+    const last = known[known.length - 1];
+    return (
+      `<strong>The re-fit has never run</strong> — all ${known.length} days fell back. The window ` +
+      `holds ${last.n} trades and needs ${c.adaptive_min_samples}.`
+    );
+  }
+  return `Re-fitted on ${fitted} of ${known.length} days; the rest fell back.`;
 }
 
 function riskNote(book) {

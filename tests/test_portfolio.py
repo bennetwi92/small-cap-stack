@@ -446,8 +446,11 @@ def test_adaptive_falls_back_before_enough_samples_then_refits() -> None:
     book = simulate_portfolio_adaptive(days, s)
     res, chosen = book.result, book.daily_targets
     per_day = dict(chosen)
-    assert per_day[base] == s.portfolio_target_r  # day 0: no trailing samples -> fallback (2.0)
-    assert per_day[base + timedelta(days=6)] == 3.0  # decision day: re-fit to the best trailing T
+    day0, decision = per_day[base], per_day[base + timedelta(days=6)]
+    assert day0.target_r == s.portfolio_target_r  # day 0: no trailing samples -> fallback (2.0)
+    assert (day0.fitted, day0.trailing_n) == (False, 0)  # ...and it says so (#463)
+    assert decision.target_r == 3.0  # decision day: re-fit to the best trailing T
+    assert (decision.fitted, decision.trailing_n) == (True, 6)
     dec = [t for t in res.trades if t.symbol == "DEC"][0]
     assert dec.target_r == 3.0
 
@@ -707,13 +710,32 @@ def test_next_session_state_target_uses_every_collected_day() -> None:
     base = date(2026, 7, 1)
     days = [(base + timedelta(days=i), [_win_cand(f"W{i}")]) for i in range(6)]
     book = simulate_portfolio_adaptive(days, s)
-    assert {t for _d, t in book.daily_targets} == {2.0}  # every day fell back
+    assert {f.target_r for _d, f in book.daily_targets} == {2.0}  # every day fell back
+    assert not any(f.fitted for _d, f in book.daily_targets)  # ...and every day is marked as such
     st = book.state
     assert st is not None
+    assert (st.target_fitted, st.target_trailing_n) == (True, 6)  # the next session does re-fit
     # _win_cand runs to +2R and CLOSES there: a 1.5R target banks 1.5R, a 3R target never fills and
     # marks to close at 2R. So the fit picks 3.0 — and either way it is not the 2.0 fallback, which
     # is the point: the next session re-fits off the 6th day that no collected day could see.
     assert st.target_r == 3.0
+
+
+def test_a_zero_sample_window_is_reported_as_fallback_not_as_a_fit() -> None:
+    # min_samples=0 waves the sample gate through, so day 0 reaches the optimiser with an EMPTY
+    # trailing window: every grid target scores an undefined expectancy and `best_target` returns
+    # None. The target is still the fallback, and `fitted` must say so (#463) — the one path where
+    # the optimiser genuinely ran and declined to pick is exactly the path that would otherwise be
+    # mislabelled as an adaptive choice.
+    s = _s(
+        portfolio_adaptive_min_samples=0,
+        portfolio_target_grid=(1.5, 3.0),
+        portfolio_target_r=2.0,
+        portfolio_exit_slippage_ticks=0,
+    )
+    book = simulate_portfolio_adaptive([(date(2026, 7, 1), [_win_cand("W0")])], s)
+    (_day, fit), *_ = book.daily_targets
+    assert (fit.target_r, fit.fitted, fit.trailing_n) == (2.0, False, 0)
 
 
 def test_next_session_state_is_none_for_an_empty_book() -> None:
@@ -1176,6 +1198,10 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     assert {t for _d, t in [(d["date"], d["target"]) for d in adaptive["daily_targets"]]} <= set(
         payload["config"]["target_grid"] + [payload["config"]["target_fallback_r"]]
     )
+    # Every plotted day says whether the optimiser ran or the fallback stood in (#463) — a flat
+    # target line is otherwise indistinguishable from a re-fit that never fired.
+    day = adaptive["daily_targets"][0]
+    assert day["fitted"] is False and day["n"] == 0  # one seeded day: nothing trailing to fit on
     trade = adaptive["trades"][0]
     assert trade["symbol"] == "AZI" and trade["reason"] == "target"
     # Per-trade risk attribution + the next-session state reach the page (#286).
@@ -1190,6 +1216,9 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     assert state["risk_budget_usd"] == round(
         adaptive["stats"]["end_equity"] * state["risk_fraction"], 4
     )
+    # The target in force is published with its provenance, so the page can say "fallback" rather
+    # than presenting it as an adaptive choice (#463).
+    assert state["target_fitted"] is False and state["target_trailing_n"] == 1
     # Only the adaptive book throttles risk / re-fits a target, so only it carries the state.
     assert "next_session" not in payload["books"]["2"]
     # Skipped log rides along in every book (empty here — a single seeded setup never hits the cap).

@@ -505,6 +505,30 @@ function checkRow({ label, value, sub, status, tone, bar, title }) {
   );
 }
 
+// Is the adaptive target actually adapting? (#463) The book carries an R target either way, so
+// nothing on the page used to distinguish the optimiser's pick from the fallback standing in for
+// it — and the live book spent its whole first 28 days on the fallback while the risk ladder beside
+// it moved normally. `target_fitted` post-dates these payloads: absent, the row drops out entirely
+// rather than reporting a state it cannot know.
+function targetFitRow(next, cfg) {
+  if (!next || next.target_fitted == null) return "";
+  const fitted = next.target_fitted;
+  const n = next.target_trailing_n;
+  const need = cfg.adaptive_min_samples;
+  const win = cfg.adaptive_window_days;
+  return checkRow({
+    label: "Adaptive target",
+    value: `${Number(next.target_r).toFixed(1)}R`,
+    sub: fitted
+      ? `re-fit over ${n} trades in the trailing ${win} days`
+      : `fallback — window holds ${n} of the ${need} trades the re-fit needs`,
+    status: fitted ? "FITTED" : "FALLBACK",
+    tone: fitted ? "ok" : "warn",
+    bar: fitted || !need ? null : Math.min(1, n / need),
+    title: `The exit target the next setup uses. It is re-fit daily to the highest-expectancy value on the ${(cfg.target_grid || []).map((t) => t + "R").join(" / ")} grid over the trailing ${win}-day window, and falls back to ${cfg.target_fallback_r}R until that window holds ${need} trades.`,
+  });
+}
+
 function renderChecks(c, book, status) {
   const s = book.stats;
   const next = book.next;
@@ -565,8 +589,9 @@ function renderChecks(c, book, status) {
         : "no next-session state",
       status: next ? (next.risk_fraction === 0 ? "SITTING OUT" : atTopRung ? "FULL" : "THROTTLED") : null,
       tone: next ? (next.risk_fraction === 0 ? "bad" : atTopRung ? "ok" : "warn") : "none",
-      title: "What the adaptive book will risk on its next setup — the kill-switch rung and re-fitted target now in force.",
+      title: "What the adaptive book will risk on its next setup — the kill-switch rung and the target now in force.",
     }),
+    targetFitRow(next, cfg),
     checkRow({
       label: "Cost drag",
       value: s ? `$${(s.total_costs_usd || 0).toFixed(2)}` : "—",

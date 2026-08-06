@@ -24,7 +24,7 @@ from .adaptive import risk_ladder
 from .extract import extract_day_trades
 from .models import CandidateTrade, PaperTrade, PortfolioResult, SkippedTrade
 from .projection import build_projection, day_rate_net_annual_gbp
-from .sim import AdaptiveState, simulate_portfolio, simulate_portfolio_adaptive
+from .sim import AdaptiveState, TargetFit, simulate_portfolio, simulate_portfolio_adaptive
 
 log = get_logger(__name__)
 
@@ -102,6 +102,9 @@ def _state_json(st: AdaptiveState) -> dict[str, object]:
     return {
         "as_of": st.as_of.isoformat(),
         "target_r": st.target_r,
+        # Is that target the optimiser's answer or the fallback standing in? (#463)
+        "target_fitted": st.target_fitted,
+        "target_trailing_n": st.target_trailing_n,
         "risk_fraction": st.risk_fraction,
         "rung": st.rung,
         "n_rungs": st.n_rungs,
@@ -142,7 +145,7 @@ def _by_source_json(res: PortfolioResult) -> dict[str, object]:
 def _book_json(
     res: PortfolioResult,
     s: Settings,
-    daily_targets: list[tuple[date, float]] | None,
+    daily_targets: list[tuple[date, TargetFit]] | None,
     daily_risk: list[tuple[date, float]] | None = None,
     state: AdaptiveState | None = None,
     *,
@@ -211,7 +214,13 @@ def _book_json(
         "projection": build_projection(res, s) if with_projection else None,
     }
     if daily_targets is not None:
-        book["daily_targets"] = [{"date": d.isoformat(), "target": t} for d, t in daily_targets]
+        # `fitted` / `n` per day (#463) so the chart can separate the days the optimiser ran from
+        # the days it fell back. Without them a flat line reads as "the fit kept choosing the same
+        # rung" when it can equally mean the fit never ran — which is what it did mean.
+        book["daily_targets"] = [
+            {"date": d.isoformat(), "target": f.target_r, "fitted": f.fitted, "n": f.trailing_n}
+            for d, f in daily_targets
+        ]
     if daily_risk is not None:
         book["daily_risk"] = [{"date": d.isoformat(), "risk": r} for d, r in daily_risk]
     if state is not None:

@@ -329,6 +329,18 @@ in P2). Locks the following execution parameters (chosen by the user 2026-07-15)
   it moot)~~ **(reversed 2026-07-16, #239 — an adaptive risk throttle / kill-switch was added; see
   below.)** A hard **≤2 open / ≤2 entries-per-day guard** is kept as idempotency against a
   reconnect/detection bug over-firing.
+  - **Window widened 20 → 40 calendar days (AMENDED 2026-08-06, #463).** "Window length is a tunable
+    parameter" turned out to be load-bearing: at 20 days the re-fit **never ran once**. The live
+    book takes ~13 candidates per 36 calendar days, so a 20-day window held at most **7** against a
+    `min_samples` of **8** — permanently one short. Every day of the book's published history, and
+    the target advertised for the next session, was the **2.0R fallback** while the page called it
+    a re-fitted target. 40 days (≈28 trading days) holds ~14 at the current arrival rate. Slower
+    response to regime drift is the accepted cost. `min_samples` deliberately did **not** move —
+    firing sooner by fitting a target on 5 trades buys a number, not evidence. The fix that keeps
+    this from recurring is the instrumentation, not the constant: `TargetFit` now carries
+    `fitted` + `trailing_n` through `daily_targets` and `next_session`, and both the portfolio and
+    plan pages render **FITTED vs FALLBACK** explicitly. Note the arrival rate, not the window, is
+    the real constraint — as the harvest deepens the sample this may want revisiting again.
 
 Deliverable: a typed, exhaustively-tested simulator in `src/small_cap_stack/` (per CLAUDE.md, this is
 trading logic — the product), a `portfolio.json` export to the `dashboard-data` branch, and a thin

@@ -297,16 +297,34 @@ def simulate_portfolio(
     return _run_book(days, s, lambda i, day: tr, be)
 
 
+@dataclass(frozen=True)
+class TargetFit:
+    """A day's target *and whether the optimiser actually chose it* (#463).
+
+    A bare float cannot tell the two apart, and they mean opposite things: ``fitted=True`` is the
+    adaptive layer's answer, ``fitted=False`` is the configured fallback standing in because the
+    window was too thin. Publishing only the number is how the live book ran 28 straight days on
+    the fallback while the page called it a re-fitted target — the whole failure was invisible
+    because nothing carried ``trailing_n``."""
+
+    target_r: float
+    trailing_n: int  # candidates the fit saw; below `portfolio_adaptive_min_samples` → fallback
+    fitted: bool
+
+
 def _fit_target(
     trailing: Sequence[CandidateTrade], s: Settings, grid: Sequence[float], breakeven_r: float
-) -> float:
+) -> TargetFit:
     """The highest-expectancy grid target over ``trailing``, or the configured fallback below
     ``portfolio_adaptive_min_samples``. Shared by the day-walk and the next-session state (#286) so
     the number the page promises for tomorrow is fit by the same code that will apply it."""
-    if len(trailing) < s.portfolio_adaptive_min_samples:
-        return s.portfolio_target_r
+    n = len(trailing)
+    if n < s.portfolio_adaptive_min_samples:
+        return TargetFit(s.portfolio_target_r, n, False)
     pick = best_target(expectancy_curve(trailing, s, target_grid=grid, breakeven_r=breakeven_r))
-    return s.portfolio_target_r if pick is None else pick.target_r
+    if pick is None:  # every grid target scored undefined — no expectancy to maximise
+        return TargetFit(s.portfolio_target_r, n, False)
+    return TargetFit(pick.target_r, n, True)
 
 
 @dataclass(frozen=True)
@@ -321,6 +339,11 @@ class AdaptiveState:
 
     as_of: date  # the session these apply to: the first one after the last collected day
     target_r: float
+    # Whether `target_r` is the optimiser's pick or the fallback, and the sample it had to work
+    # with (#463). Without these the page cannot distinguish "the fit chose 2R" from "the fit never
+    # ran"; the live book did the latter for its entire history and nothing said so.
+    target_fitted: bool
+    target_trailing_n: int
     risk_fraction: float
     rung: int  # index into risk_ladder(s)
     n_rungs: int
@@ -339,7 +362,7 @@ class AdaptiveBook:
     """
 
     result: PortfolioResult
-    daily_targets: list[tuple[date, float]]
+    daily_targets: list[tuple[date, TargetFit]]
     daily_risk: list[tuple[date, float]]
     state: AdaptiveState | None  # None only for an empty book — no days, nothing to carry forward
 
@@ -367,16 +390,17 @@ def simulate_portfolio_adaptive(
     book throttled to the 0 rung (which takes no trades) still re-arms once setups start working.
     Applying today's rung, then stepping from today's result, keeps it causal (no look-ahead).
 
-    Returns the book plus the per-day ``(date, chosen_target)`` and ``(date, risk_fraction)`` lists
-    so the page can show how each knob drifted, and an :class:`AdaptiveState` for the next session
-    (#286) — the same fit and the same ladder state, applied one day past the last collected one."""
+    Returns the book plus the per-day ``(date, TargetFit)`` and ``(date, risk_fraction)`` lists so
+    the page can show how each knob drifted — and, from ``TargetFit``, whether the optimiser was
+    running at all on a given day (#463) — and an :class:`AdaptiveState` for the next session
+    (#286): the same fit and the same ladder state, applied one day past the last collected one."""
     be = s.portfolio_breakeven_r if breakeven_r is None else breakeven_r
     grid = list(s.portfolio_target_grid)
     ladder = risk_ladder(s)
     rung = len(ladder) - 1  # start at full risk — the kill-switch cuts DOWN from the top
     streak = 0  # signed run of consecutive decisive days (see step_risk_rung)
     days = sorted(candidates_by_day, key=lambda dc: dc[0])
-    chosen: list[tuple[date, float]] = []
+    chosen: list[tuple[date, TargetFit]] = []
     daily_risk: list[tuple[date, float]] = []
     rung_state = [rung]  # mutable so the risk closure can step it each day
     streak_state = [streak]  # signed run of decisive days, carried across the closure
@@ -387,9 +411,9 @@ def simulate_portfolio_adaptive(
         return [c for d, cs in days[:i] if d >= window_start for c in cs]
 
     def target_for_day(i: int, day: date) -> float:
-        target = _fit_target(trailing_for(i, day), s, grid, be)
-        chosen.append((day, target))
-        return target
+        fit = _fit_target(trailing_for(i, day), s, grid, be)
+        chosen.append((day, fit))
+        return fit.target_r
 
     def risk_for_day(i: int, day: date, cands: Sequence[CandidateTrade], target: float) -> float:
         # Apply today's rung, then step the ladder for TOMORROW from today's setups
@@ -413,9 +437,12 @@ def simulate_portfolio_adaptive(
         next_day = days[-1][0] + timedelta(days=1)
         rung = rung_state[0]
         rf = ladder[rung]
+        fit = _fit_target(trailing_for(len(days), next_day), s, grid, be)
         state = AdaptiveState(
             as_of=next_day,
-            target_r=_fit_target(trailing_for(len(days), next_day), s, grid, be),
+            target_r=fit.target_r,
+            target_fitted=fit.fitted,
+            target_trailing_n=fit.trailing_n,
             risk_fraction=rf,
             rung=rung,
             n_rungs=len(ladder),
