@@ -105,9 +105,13 @@ hours, not authoring speed (see the remote-work limits above).
   the standing reports. `research/archive/` holds one-off reports that already did their job (the
   2026-06-29 `arch-*` set) — kept as the record, not as live docs.
 - ⚠️ **`docs/` is NOT documentation** — it is the **GitHub Pages dashboard frontend** (HTML/CSS/JS;
-  `cockpit.css` + `docs/js/` modules). The name is forced: Pages is on `build_type: legacy`, whose
-  source path may only be `/` or `/docs`, so renaming it takes the live dashboard offline. Docs live
-  in `research/`; only root keeps `README`/`CLAUDE`/`CONTRIBUTING`/`DISCLAIMER` (#300).
+  `cockpit.css` + `docs/js/` modules). Pages is published by our own
+  **`.github/workflows/pages.yml`** (`build_type: workflow`, #486) — the legacy build's managed
+  workflow aborted the deployment after 10 minutes, which GitHub's publish step started routinely
+  overrunning. Renaming `docs/` is therefore no longer forbidden by Pages (the workflow uploads
+  whatever path it is given), but it *is* still a rename of the `path:` in that workflow and of
+  every reference below — don't do it casually. Docs live in `research/`; only root keeps
+  `README`/`CLAUDE`/`CONTRIBUTING`/`DISCLAIMER` (#300).
   `docs/reports/` is the one exception that *is* prose: published reports (see below).
   - ⚠️ **Dashboard pages carry numbers, statuses and instructional text — never commentary
     (#414).** A label, a unit, a legend, a tooltip that says what a metric *is*, a line that says
@@ -156,10 +160,13 @@ boards, so any writing that explains, justifies or concludes belongs here rather
   (newest first) and then fetches the markdown on click (`?r=<slug>` deep-links a report).
 - **Run `make reports` after adding or editing one** — a report missing from `index.json` is
   invisible to the page. `tests/test_reports.py` fails when the committed index is stale.
-- ⚠️ **`docs/.nojekyll` must stay.** Pages' legacy build otherwise runs Jekyll over `docs/`, which
-  turns each front-matter-carrying `docs/reports/*.md` into `reports/<slug>.html` and serves **no**
-  raw `.md` — so `reports.js`, which fetches the markdown itself, 404s on every report while the
-  list still loads (`index.json` is a static asset). `tests/test_reports.py` fails if it's deleted.
+- ⚠️ **`docs/.nojekyll` must stay.** A Jekyll pass over `docs/` turns each front-matter-carrying
+  `docs/reports/*.md` into `reports/<slug>.html` and serves **no** raw `.md` — so `reports.js`,
+  which fetches the markdown itself, 404s on every report while the list still loads (`index.json`
+  is a static asset). The workflow-based deploy (#486) uploads the directory as-is and never runs
+  Jekyll, so this is belt-and-braces now rather than the only thing standing between the Reports
+  tab and a blank page — but it costs nothing and it is what makes the directory safe to serve from
+  anywhere. `tests/test_reports.py` fails if it's deleted.
 - ⚠️ **Reports live in the repo, never on the box.** `publish-dashboard` force-pushes a fresh single
   commit to `dashboard-data` every 15 min, so anything hand-written on that branch is destroyed on
   the next cycle. `docs/` is already the Pages source: a merged report is a served report.
