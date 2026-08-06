@@ -866,8 +866,16 @@ function todayTiles(st, c) {
   );
 }
 
+// Deliberately reads the LIVE book whatever the DATA scope says (#466). Every other panel on this
+// page is a *record*, where showing the combined version is the whole point of the toggle. This one
+// is a *forecast of the live account* — the rung, the target and the dollar budget the tracker will
+// size its next setup with. The combined book re-walks that state over a spliced history, so under
+// `+ History` it produced a budget nothing would ever trade ($11.20 against the live book's $15.55)
+// under a heading promising it applied to the next session. The scope belongs to the history, not
+// to what happens tomorrow.
 function renderToday(book) {
-  const st = book.next_session;
+  const live = PAYLOAD.books[BOOK] || book;
+  const st = live.next_session;
   const wrap = el("pf-today-wrap");
   // Only the adaptive book throttles risk or re-fits a target, so only it has a "next session".
   if (!st) {
@@ -880,11 +888,18 @@ function renderToday(book) {
   const sitting = parked
     ? ` The book is <strong>sitting out</strong> — it still watches the tape and re-arms once setups work again.`
     : "";
+  // Say which book these came from only when it isn't the one on screen — on the Live scope the
+  // qualifier would name a distinction the reader has no reason to think exists.
+  const scoped =
+    SCOPE === "all" && hasRecon()
+      ? ` Read from the <strong>Live</strong> book — the one that trades; reconstructed days set no risk for tomorrow.`
+      : "";
   setNote(
     "pf-today-note",
     `Applies to the next session the book sizes (data through ${esc(prevDay(st.as_of))}). ` +
       streakNote(st) +
-      sitting
+      sitting +
+      scoped
   );
 }
 
