@@ -297,9 +297,9 @@ early, so every session harvested before phase 1 has run is wrong rather than me
 pre-flight that looks like it ran and measured nothing. The timer's `auto` sequences the phases
 itself; only a hand-run needs to care.
 
-`status`, `sweep` and `prefilter` touch no vendor and spend nothing, so they run at **any** hour —
-checking on the harvest must not itself require waiting until 17:00. `daily` and `run` are the two
-that cost API budget and wall clock, and both refuse outside the window.
+`status`, `sweep`, `prefilter` and `charts` touch no vendor and spend nothing, so they run at
+**any** hour — checking on the harvest must not itself require waiting until 17:00. `daily` and
+`run` are the two that cost API budget and wall clock, and both refuse outside the window.
 
 ```bash
 cd /opt/small-cap-stack
@@ -308,6 +308,7 @@ cd /opt/small-cap-stack
 ./scripts/harvest.sh sweep                     # ...THEN sweep — it reads phase 1's stored rows
 ./scripts/harvest.sh run --limit 1             # phase 2 smoke test: ONE session, watch free -m
 ./scripts/harvest.sh auto                      # what the timer runs: phase 1 if needed, then 2
+./scripts/harvest.sh charts                    # any hour: publish harvested days to the dashboard
 ```
 
 - ⚠️ **Both vendor-spending commands (`daily` and `run`) refuse to start outside 12:30–03:00 ET**
@@ -362,6 +363,16 @@ cd /opt/small-cap-stack
   data. ⚠️ This runs `build_portfolio_payload`, the #273 memory driver — the same build the EOD
   already does daily, now also in the quiet pre-dawn window. Watch `coverage.recon` and
   `capped_days_dropped` in `portfolio.json` as the harvest deepens (#448).
+- **Reviewing a harvested day (#488).** `run`/`auto` publish each completed session's chart payload
+  as it lands — `/data/dashboard/charts/recon/<date>.json` plus `recon_index.json`, a namespace of
+  their own so nothing reading the live `index.json` can serve vendor rows by accident.
+  `publish-dashboard` copies the whole dashboard dir, so no workflow change is needed and the day
+  is on the **Results** page (DATA → `+ History`) and in the Portfolio trade inspector within ~15
+  min. Bounded at `RECON_CHARTS_MAX_DATES` (30) newest-first, because that push is a full re-upload
+  of the tree every quarter hour and a payload is 1.5–3 MB; older dates are pruned and counted in
+  the index's `capped_dates_dropped`. `./scripts/harvest.sh charts` is the catch-up/repair command
+  (`--limit N` to bound one call) — idempotent, so re-running it when everything is published does
+  nothing. A publish failure never costs the night: it is logged and the session stays checkpointed.
 - **Resuming.** A checkpoint at `/data/recon/harvest-checkpoint.json` records completed sessions;
   every run resumes from it. A session is written as **one parquet file per dataset at the end**, so
   a kill leaves the date with no files and the checkpoint never claims it; the next run discards any

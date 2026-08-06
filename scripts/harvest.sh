@@ -164,7 +164,10 @@ if [ -f "$ENV_FILE" ]; then
       MASSIVE_API_KEY)
         [ -n "$AMBIENT_KEY" ] || PASSTHROUGH+=(-e "$key=$value")
         ;;
-      RECON_SUBDIR | CALENDAR_CLOSED_DATES | LOG_LEVEL | JSON_LOGS | TZ)
+      # RECON_* rather than RECON_SUBDIR alone: `charts` (#488) also reads RECON_CHARTS_MAX_DATES,
+      # and a box that tuned the publish budget in .env must not have the container silently fall
+      # back to the default and publish a different window than the operator asked for.
+      RECON_* | CALENDAR_CLOSED_DATES | LOG_LEVEL | JSON_LOGS | TZ)
         PASSTHROUGH+=(-e "$key=$value")
         ;;
       HARVEST_* | SCAN_*) PASSTHROUGH+=(-e "$key=$value") ;;

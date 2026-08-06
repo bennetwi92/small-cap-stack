@@ -841,3 +841,44 @@ extend the Phase-1 record.
 **Unchanged pending measurement:** the day-volume floor stays at 100k. `harvest sweep` measures
 what a tighter floor would cut, against stored rows and for no API calls; run it before the first
 full night (RUNBOOK §13.1). If it halves the candidate set, 45 nights becomes ~23.
+
+## 2026-08-06 — Reconstructed sessions publish to their OWN chart namespace (#488)
+
+Results only ever listed live-captured dates, so every harvested pre-market session was invisible
+there and a `recon` trade opened in the Portfolio inspector drew no candles. #488 offered two
+shapes for the fix; this is the one taken and why.
+
+**A separate namespace, not a `source` field on the live index.** Reconstructed dates get
+`recon_index.json` + `charts/recon/<date>.json`; `index.json` and `charts/<date>.json` are
+untouched, byte for byte. Tagging rows inside the one index would have made *every* existing
+consumer — Results, the review workbench, anything added later — start returning vendor-derived days
+the moment this landed, silently and with no tag, which is the failure #430 built two stores to
+prevent. Here a reader has to *ask*, exactly as `build_portfolio_payload` has to be handed a
+`recon_store`. The rows carry `source: "recon"` as well, so a future consumer that does merge the
+two indexes still cannot lose the provenance.
+
+**The producer is the harvest, one date at a time, per completed session.** `run`/`auto` publish
+each session's payload as it lands (`harvest charts` is the catch-up path). A session is ~47 minutes
+of rate-limited waiting and one date's charts are seconds of compute, so the work vanishes into a
+budget already dominated by `time.sleep` — whereas batching it to the end of a night would put an
+archive-shaped job exactly where the run is trying to stop clear of the 03:45 `eod_backfill` or the
+16:20 EOD batch. It also inherits the checkpoint's contract: a night killed mid-run has published
+everything it harvested.
+
+**The published set is capped at `recon_charts_max_dates` (30), newest-first, and the drop is
+counted.** This cap is about the *publish pipe*, not memory: `publish-dashboard` force-pushes the
+whole `data/dashboard` tree every 15 minutes, and a date's payload is 1.5–3 MB of full-day bars — a
+finished ~500-session harvest would put ~1 GB through that push every quarter of an hour and the
+same again down every browser that opened Results with `+ History`. Newest-first for the same reason
+#449 chose it: what survives is the segment contiguous with the live record. Dates outside the
+window are pruned from disk and from the index, and `capped_dates_dropped` says how many — a silent
+truncation would read as "that is all the harvest has".
+
+**Results fetches the reconstruction only when asked.** The small index is read every load (it is
+what decides whether the DATA control exists at all); the multi-megabyte payloads are fetched on the
+first switch to `+ History` and then filtered, never refetched. Default behaviour is unchanged.
+
+**What a reconstructed day cannot show, stated rather than zeroed:** no float (the vendor sells no
+share count), no news, and no saved review (the workbench annotates live opportunities only, so its
+link is hidden rather than pointed at a page that would load empty). The appearance time is a
+*reconstruction* — the live gates replayed over the minute tape — not an observed scanner hit.

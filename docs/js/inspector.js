@@ -48,11 +48,19 @@ export const MK = {
 // 1.5–3 MB each (full-day bars for every opportunity), so a dock that redraws on each row click
 // must never refetch: Results already holds every day in memory and passes chart objects straight
 // in, while Portfolio pulls a date the first time a trade on it is selected.
-const _payloads = new Map(); // date -> Promise<payload|null>
+const _payloads = new Map(); // "<source>|<date>" -> Promise<payload|null>
 
-export function chartsFor(date) {
-  if (!_payloads.has(date)) _payloads.set(date, fetchJson(`charts/${date}.json`));
-  return _payloads.get(date);
+// Reconstructed sessions (#488) live in their own directory rather than under a flag on the live
+// one — see dashboard_recon.py for why. `source` is the provenance the caller already holds: the
+// Portfolio row carries it on the trade (`t.source`), Results carries it on the row it built from
+// `recon_index.json`. Defaulting to "live" keeps every existing call site unchanged.
+export const chartsUrl = (date, source = "live") =>
+  source === "recon" ? `charts/recon/${date}.json` : `charts/${date}.json`;
+
+export function chartsFor(date, source = "live") {
+  const key = `${source}|${date}`;
+  if (!_payloads.has(key)) _payloads.set(key, fetchJson(chartsUrl(date, source)));
+  return _payloads.get(key);
 }
 
 // Drop the memo so the next read goes back to the branch — what a page's Refresh control means.

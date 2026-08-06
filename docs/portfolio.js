@@ -1503,8 +1503,8 @@ function openInspector(key) {
   el("pf-inspect").hidden = false;
   el("pf-insp-title").textContent = `${t.symbol}${t.run > 1 ? ` #${t.run}` : ""} · ${t.date}`;
   el("pf-insp-tiles").innerHTML = inspTiles(kind, t);
-  el("pf-insp-open").href =
-    `review.html?date=${encodeURIComponent(t.date)}&oid=${encodeURIComponent(t.seg_id || "")}`;
+  // The workbench link is set by drawInspector, which is the one place that knows whether this
+  // trade has a live opportunity behind it to annotate (#488).
   drawInspector(t);
 }
 
@@ -1515,18 +1515,23 @@ async function drawInspector(t) {
   news.disabled = true;
   inspReview = null;
   el("pf-insp-note").classList.remove("has");
-  // A reconstructed day was rebuilt from vendor minute bars into `data/recon`; the chart payload
-  // is built from the live store, so there is nothing to draw and no review page to open either.
-  if (t.source === "recon" || !t.seg_id) {
+  if (!t.seg_id) {
+    // Nothing to address a chart with — a trade row that predates the seg_id field.
     el("pf-insp-open").classList.add("hidden");
-    inspSetChartMessage(
-      "Reconstructed session — rebuilt from vendor minute bars, never captured live, so there are " +
-        "no bars published to chart. The figures above are the trade itself.",
-    );
+    inspSetChartMessage("No opportunity id on this trade — nothing to chart.");
     inspUpdateSide(null);
     return;
   }
-  el("pf-insp-open").classList.remove("hidden");
+  // A reconstructed day was rebuilt from vendor minute bars into `data/recon`. Since #488 those
+  // days publish their own chart payloads under `charts/recon/`, so they draw like any other — but
+  // from a different store, which is why the source has to be passed through rather than inferred.
+  // The review workbench is still live-only (it annotates captured opportunities), so its link goes.
+  const recon = t.source === "recon";
+  el("pf-insp-open").classList.toggle("hidden", recon);
+  if (!recon) {
+    el("pf-insp-open").href =
+      `review.html?date=${encodeURIComponent(t.date)}&oid=${encodeURIComponent(t.seg_id)}`;
+  }
   const v = inspEnsureView();
   if (!v) {
     inspSetChartMessage("Chart library failed to load.");
@@ -1534,24 +1539,35 @@ async function drawInspector(t) {
   }
   inspSetChartMessage("");
   el("pf-insp-readout").innerHTML = '<span class="muted">loading…</span>';
-  const payload = await chartsFor(t.date);
+  const payload = await chartsFor(t.date, recon ? "recon" : "live");
   if (token !== inspToken) return; // a later row won the race
   const c = findChart(payload, t.seg_id);
   if (!c) {
     v.clear();
-    inspSetChartMessage("No chart published for this opportunity.");
+    inspSetChartMessage(
+      recon
+        ? "Reconstructed session — rebuilt from vendor minute bars. Its chart payload isn't " +
+            "published: only the most recent reconstructed sessions are. The figures above are " +
+            "the trade itself."
+        : "No chart published for this opportunity.",
+    );
     inspUpdateSide(null);
     return;
   }
   v.draw(c);
-  el("pf-insp-title").textContent = `${optionLabel(c)} · ${t.date}`;
+  el("pf-insp-title").innerHTML =
+    esc(`${optionLabel(c)} · ${t.date}`) +
+    (recon
+      ? ' <span class="pf-src" title="Reconstructed from vendor minute bars, not captured live">recon</span>'
+      : "");
   el("pf-insp-readout").innerHTML = readoutHtml(c, { engineOn: inspEngineOn });
   const n = newsCount(c);
   el("pf-insp-news").textContent = `News ${n}`;
   el("pf-insp-news").disabled = n === 0;
   if (inspSide === "news" && n === 0) inspSide = "gates";
   inspUpdateSide(c);
-  inspLoadReview(t.seg_id, token);
+  // The workbench writes reviews for live opportunities only, so a reconstructed day has none.
+  if (!recon) inspLoadReview(t.seg_id, token);
 }
 
 // The trader's own read of this trade (#481), drawn over the engine's and readable behind the Note

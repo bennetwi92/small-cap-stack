@@ -1087,8 +1087,77 @@ def test_cli_read_only_commands_are_safe_at_any_hour(monkeypatch: Any, tmp_path:
     checking what the harvest is doing must not itself require waiting until 17:00."""
     s = _settings(tmp_path, harvest_lookback_days=10)
     _at_et(monkeypatch, 5, 0)
-    for command in ("status", "sweep", "prefilter"):
+    # `charts` is here too (#488): it reads two stores and writes JSON, spends no vendor budget and
+    # takes no lock, so `scripts/harvest.sh` treats it as read-only. If it ever became window-gated
+    # the wrapper's cgroup/lock decision would be wrong for it.
+    for command in ("status", "sweep", "prefilter", "charts"):
         assert _cli(monkeypatch, s, [command, "--today", "2026-07-10"]) == 0
+
+
+# ================================================================================================
+# charts: publishing the reconstruction to the dashboard (#488)
+# ================================================================================================
+
+
+def test_cli_charts_publishes_the_harvested_sessions_it_finds(
+    monkeypatch: Any, tmp_path: Path, capsys: Any
+) -> None:
+    """The catch-up path — a box that harvested nights before the per-session hook existed."""
+    s = _settings(tmp_path, harvest_rate_sleep_sec=0.0)
+    store = _seeded_store(s, [DAY])
+    harvest_session(
+        FakeSource(minutes={("AAAA", DAY): _runner_minutes()}),
+        store,
+        s,
+        DAY,
+        stored_universe(store, DAY),
+    )
+
+    assert _cli(monkeypatch, s, ["charts"]) == 0
+    payload = _json_out(capsys)
+    assert payload["published"] == [DAY.isoformat()]
+    assert (s.data_dir / "dashboard" / "charts" / "recon" / f"{DAY.isoformat()}.json").exists()
+    index = json.loads((s.data_dir / "dashboard" / "recon_index.json").read_text())
+    assert [d["date"] for d in index["dates"]] == [DAY.isoformat()]
+
+
+def test_a_harvested_session_publishes_its_own_charts_as_it_lands(
+    monkeypatch: Any, tmp_path: Path, capsys: Any
+) -> None:
+    """The per-session hook: `run` must leave the day reviewable without a second command.
+
+    Per-session rather than per-night because the night's own stopping points (the 03:00 hard stop,
+    the 16:10 EOD recess) are exactly where an archive-shaped job must not be starting.
+    """
+    s = _settings(tmp_path, harvest_rate_sleep_sec=0.0)
+    _seeded_store(s, [DAY])
+    source = FakeSource(minutes={("AAAA", DAY): _runner_minutes()})
+    monkeypatch.setattr(cli_mod, "MassiveSource", type("F", (), {"from_env": lambda **_: source}))
+    _at_et(monkeypatch, 22, 0)
+    Checkpoint.load(checkpoint_path(s)).mark_daily(DAY)
+
+    assert _cli(monkeypatch, s, ["run", "--today", (DAY + timedelta(days=1)).isoformat()]) == 0
+    assert _json_out(capsys)["completed"] == [DAY.isoformat()]
+    assert (s.data_dir / "dashboard" / "charts" / "recon" / f"{DAY.isoformat()}.json").exists()
+
+
+def test_a_failing_publish_never_costs_the_night(
+    monkeypatch: Any, tmp_path: Path, capsys: Any
+) -> None:
+    """A dashboard artifact must not be able to kill a job whose unit of loss is vendor budget."""
+    s = _settings(tmp_path, harvest_rate_sleep_sec=0.0)
+    _seeded_store(s, [DAY])
+    source = FakeSource(minutes={("AAAA", DAY): _runner_minutes()})
+    monkeypatch.setattr(cli_mod, "MassiveSource", type("F", (), {"from_env": lambda **_: source}))
+    monkeypatch.setattr(
+        cli_mod, "publish_recon_charts", lambda *a, **k: (_ for _ in ()).throw(OSError("read-only"))
+    )
+    _at_et(monkeypatch, 22, 0)
+    Checkpoint.load(checkpoint_path(s)).mark_daily(DAY)
+
+    assert _cli(monkeypatch, s, ["run", "--today", (DAY + timedelta(days=1)).isoformat()]) == 0
+    assert _json_out(capsys)["completed"] == [DAY.isoformat()]
+    assert Checkpoint.load(checkpoint_path(s)).done == {DAY}
 
 
 # ================================================================================================

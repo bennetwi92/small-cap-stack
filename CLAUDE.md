@@ -143,6 +143,11 @@ hours, not authoring speed (see the remote-work limits above).
   spends the tracker's cgroup), and checkpoints per session so a kill costs at most one session.
   Phase 1 (`harvest daily`, grouped-daily + previous closes) must run before phase 2 (`harvest
   run`): #428 measured the previous close as a *required* input, not a nicety.
+  Its **dashboard side** is `dashboard_recon.py` (#488): each completed session publishes
+  `dashboard/charts/recon/<date>.json` + `recon_index.json` — a **separate namespace**, never a flag
+  on the live `index.json`, so no existing reader can start serving vendor rows by accident. Bounded
+  at `recon_charts_max_dates` (30) newest-first because `publish-dashboard` force-pushes the whole
+  tree every 15 min; older dates are pruned and counted. `harvest charts` is the catch-up command.
 - `scripts/` — repo helpers (e.g. `board.sh`).
 - `deploy/` — host runbook + systemd units.
 

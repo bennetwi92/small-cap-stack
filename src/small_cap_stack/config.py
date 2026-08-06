@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     # of a reconstructed day is the one number nobody has measured yet. 15k x ~27 KB ~= 400 MB
     # retained, against the app container's 2 GB cap. 0 disables the cap.
     portfolio_recon_max_candidates: int = 15_000
+    # Ceiling on how many reconstructed sessions get a PUBLISHED chart payload (#488), walked
+    # newest-first so what survives is the segment contiguous with the live record — the same
+    # ordering (and the same reasoning) as `portfolio_recon_max_candidates` above.
+    # This one is bounded by the *publish pipe*, not by memory. `publish-dashboard` force-pushes a
+    # fresh single commit of the whole `data/dashboard` tree every 15 minutes, and a date's chart
+    # payload is 1.5-3 MB of full-day bars; a finished harvest is ~500 of them, which would put
+    # ~1 GB through that push every quarter of an hour and the same again down every browser that
+    # opens Results with `+ History` on. 30 sessions roughly doubles what the live record already
+    # publishes, which is a cost the box and the page are both already paying. 0 disables the cap.
+    recon_charts_max_dates: int = 30
 
     # --- Overnight pre-market harvest (#431) — the producer that fills the recon store above. ---
     # Ingest is #430's decision: the vendor's FREE tier, REST, no purchase. That makes a 5 calls/min
