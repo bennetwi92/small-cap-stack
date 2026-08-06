@@ -19,11 +19,50 @@
   </head>
   <body>
     <!-- Cockpit chrome (#288): app bar + options bar render themselves; the
-         status bar self-mounts at the bottom. The grid owns everything between. -->
+         status bar self-mounts at the bottom. The split owns everything between. -->
     <header id="appbar" class="appbar"></header>
     <div id="optbar"></div>
     <p id="rs-error" class="error" hidden></p>
-    <div id="rs-grid" class="fill-grid"></div>
+
+    <!-- Grid + docked chart (#479). The dock sits along the BOTTOM at full
+         width: the grid carries ~40 columns under "+ Engine", so a side pane
+         would halve it, and a wide chart suits candles anyway. Both panes share
+         one flex column sized to the space between the bars, so selecting a row
+         never scrolls the body. -->
+    <div class="rs-split">
+      <div id="rs-grid" class="rs-grid-pane"></div>
+
+      <section id="rs-dock" class="rs-dock" aria-label="Opportunity chart" hidden>
+        <div
+          id="rs-dock-handle"
+          class="rs-dock-handle"
+          role="separator"
+          aria-orientation="horizontal"
+          title="Drag to resize"
+        ></div>
+        <div class="rs-dock-head">
+          <strong id="rs-dock-title" class="rs-dock-title">—</strong>
+          <span id="rs-dock-readout" class="rv-readout rs-dock-readout"></span>
+          <div class="rs-dock-actions">
+            <button id="rs-dock-news" class="rv-btn" type="button" title="News headlines captured at scanner trigger" disabled>News 0</button>
+            <button id="rs-dock-gates" class="rv-btn" type="button" title="The detector's gates and score">Gates</button>
+            <button id="rs-dock-engine" class="rv-engine-toggle armed" type="button" aria-pressed="true" title="Show/hide the engine's read (pole/consolidation, tokens, cycles)">Engine</button>
+            <a id="rs-dock-open" class="rv-btn" href="review.html" title="Open in the review workbench to annotate (Enter)">Review ↗</a>
+            <button id="rs-dock-close" class="rv-btn" type="button" title="Close the chart (Esc)">✕</button>
+          </div>
+        </div>
+        <div class="rs-dock-body">
+          <div id="rs-chart" class="rs-chart"></div>
+          <!-- Side panel: the engine's gate table or the captured headlines. The
+               review page puts these in slide-up sheets; a dock has the width. -->
+          <aside id="rs-side" class="rs-side rv-engine-detail" hidden></aside>
+        </div>
+      </section>
+    </div>
+
+    <!-- lightweight-charts is a classic script (sets window.LightweightCharts) and must execute
+         before the module below; module scripts are deferred, so this ordering holds. -->
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
     <script type="module" src="results.js"></script>
   </body>
 </html>
