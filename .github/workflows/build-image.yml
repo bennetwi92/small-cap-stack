@@ -1,25 +1,24 @@
 name: build-image
 
 # Build the app image for amd64 (Hetzner CX / x86 VPS) so the VM can deploy by *pulling* a versioned
-# image instead of building on-box. PRs build-only (validate the Dockerfile); main + tags push to GHCR.
-# Pairs with deploy.yml, which pulls the `sha-<short>` tag this pushes (#278).
+# image instead of building on-box. Pairs with deploy.yml, which pulls the `sha-<short>` tag this
+# pushes (#278).
 #
 # NOTE: main/tags are deliberately NOT path-filtered. deploy.yml resolves the image by the deployed
 # commit's SHA, so *every* commit on main needs an image — a filtered build leaves commits that
 # touched only e.g. deploy/ with no image to deploy (that was #265's SHA: on main, never built).
 # The repo is public, so the extra runs cost no Actions minutes, and `cache-from: type=gha` makes a
 # no-op rebuild cheap.
+#
+# It does NOT run on pull requests. `ci` is the only check a PR gets: this is a one-person repo and
+# a second, non-required job on every PR bought nothing but a red X to interpret. A broken Dockerfile
+# now surfaces on the main build instead of before the merge — run `build-image` by hand
+# (`gh workflow run build-image.yml --ref <branch>`) when a PR actually touches the image.
 
 on:
   push:
     branches: [main]
     tags: ["v*"]
-  pull_request:
-    paths:
-      - "Dockerfile"
-      - "src/**"
-      - "pyproject.toml"
-      - ".github/workflows/build-image.yml"
   workflow_dispatch:
 
 concurrency:
@@ -42,9 +41,7 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v4
 
-      # Only authenticate + push on main/tags (and manual runs); PRs validate the build only.
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -72,7 +69,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
