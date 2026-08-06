@@ -74,6 +74,16 @@ def test_build_image_covers_every_main_commit() -> None:
     assert "paths:" not in push, "main/tags builds must not be path-filtered"
 
 
+def test_ci_gates_coverage_on_main_not_on_prs() -> None:
+    """PRs run the suite bare and main carries the 80% gate (#494/#495) — the two halves only add
+    up together, so dropping either the main-side trigger or the addopts threshold would leave
+    coverage ungated everywhere."""
+    w = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert "branches: [main]" in w, "the main-side run is where the coverage gate lives"
+    assert "github.event_name == 'pull_request' && '--no-cov'" in w, "PR runs must skip coverage"
+    assert "--cov-fail-under=80" in (ROOT / "pyproject.toml").read_text()
+
+
 def test_runbook_present() -> None:
     assert "Hetzner" in (ROOT / "deploy" / "RUNBOOK.md").read_text()
 
