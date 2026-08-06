@@ -204,7 +204,8 @@ def _book_json(
         # Deliberately live-only (#430). The projection answers "what will *my account* do", so it
         # has to resample the return distribution the tracker actually observed; bootstrapping it
         # from a history dominated by reconstructed days would forecast an account that trades a
-        # universe we know differs from the live one (the 50-row rank cap, #428/#432). Skipping it
+        # universe we know differs from the live one — through appearance TIMING (#433), not the
+        # 50-row rank cap once blamed for it, which has never actually bound (#460). Skipping it
         # on the combined books also keeps the EOD build off a second 500-path × 252-day Monte Carlo
         # per target on a 2-vCPU box.
         "projection": build_projection(res, s) if with_projection else None,
@@ -421,9 +422,9 @@ def _recon_days_within_budget(
     ``bars`` tuple — the whole 04:00–16:00 chart window — because ``_books_json`` re-simulates the
     same ``by_day`` list once per selectable target. Peak memory is therefore linear in
     *days × candidates*, and that is precisely what OOM-killed the box in #264 with ~25 live days.
-    A completed harvest makes it ~500, and reconstructed days are structurally *denser* than live
-    ones: ``reconstruct.py`` does not model IBKR's 50-row scanner cap, so a recon day can surface
-    candidates the live scanner never showed.
+    A completed harvest makes it ~500, and a recon day can surface candidates the live scanner
+    never showed — through appearance timing (#433), not the 50-row scanner cap once assumed, which
+    #460 measured as never binding (pre-market peaks at 11 of 50).
 
     Budgeting on **candidates rather than days** is the point. Days are a proxy; candidates are the
     thing that costs memory, and the density of a reconstructed day is exactly the number nobody

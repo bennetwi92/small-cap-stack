@@ -28,12 +28,20 @@ that justifies the harvest and the harvest itself are the same code — if these
    is unknown the gate *abstains* rather than fails — and without it the reconstruction fires a
    median 18 min early (#428), which is why the harvest pulls grouped-daily first and treats the
    previous close as a required input rather than a nicety.
-4. **The 50-row rank cap is not modelled.** The live scanner shows at most 50 names, so on a busy
-   morning a name that passes every gate is still not surfaced until it ranks. #428 proved that is
-   a real, load-bearing effect (SNDQ passed every gate from 04:27 at a *higher* price than at its
-   08:35 live appearance). A reconstructed day can therefore surface setups the live scanner would
-   never have shown — which is exactly why #430 keeps reconstructed days in their own store and
-   stamps every trade with ``source``.
+4. **The 50-row rank cap is not modelled — and measurement says it need not be (#460).** The live
+   scanner shows at most 50 names, so in principle a name passing every gate waits until it ranks.
+   Across 20 live days that cap has **never bound**: the busiest single tick returned 45 symbols,
+   the highest ``rank`` ever recorded is 44, and in the **pre-market window this module actually
+   covers** the peak is **11 of 50**. Twenty opportunities spread over 5.5 hours is not twenty
+   simultaneously on the scanner.
+   This retracts the claim that stood here — that #428 had *proved* the cap load-bearing via SNDQ.
+   With ~11 names on the pre-market scanner there was no queue for it to be stuck behind between
+   04:27 and 08:35. ``portfolio/models.py`` had it right: "unreproducible per-symbol".
+   The reconstructed universe does still differ from the live one, but through appearance *timing*
+   rather than scanner *capacity* — the leading candidate being the change-percent reference price
+   (#433: the vendor's daily close carries post-market prints IBKR's does not). That is still why
+   #430 keeps reconstructed days in their own store and stamps every trade with ``source``: the
+   reason changed, the decision did not.
 5. **Price = the bar's close** — the scanner filters on last price, which at a bar boundary is the
    close.
 

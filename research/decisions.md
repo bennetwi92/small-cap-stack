@@ -673,10 +673,12 @@ Phase-1's deliverable is what the tracker actually saw, so it is preserved as-is
 Consequences of the same reasoning:
 
 - **The forward projection stays live-only.** It answers "what will *my account* do", so it must
-  resample observed returns. #428 proved the reconstruction cannot reproduce the IBKR 50-row rank
-  cap per-symbol (SNDQ passed every gate from 04:27 at a *higher* price than at its 08:35 live
-  appearance — only capacity explains that), so a reconstructed-heavy history describes a universe
-  we never had. It also keeps a second 500-path × 252-day Monte Carlo per target off the 2-vCPU box.
+  resample observed returns. A reconstructed-heavy history describes a universe we never had.
+  ⚠️ **AMENDED 2026-08-06 (#460):** the stated mechanism was wrong. This said "only capacity
+  explains" SNDQ's late live appearance; measurement says the 50-row cap has **never bound** (max 45
+  symbols in a tick across 20 live days, and **11** in pre-market). The divergence is real but comes
+  from appearance *timing* — most likely #433's change-percent reference price — not capacity. The
+  decision stands; the reason is corrected. It also keeps a second 500-path × 252-day Monte Carlo per target off the 2-vCPU box.
 - **Live wins on any overlapping date.** The #428 calibration days sit in both stores; live is the
   ground truth the reconstruction is measured against, so the harvested copy is dropped (and the
   drop is counted in the payload's `coverage` block, not silently swallowed).
@@ -764,10 +766,15 @@ test suite. The spikes import them back rather than keeping a copy, so #428's ca
 exactly the code the box runs; a second copy is how the evidence quietly stops describing the
 output.
 
-**Still not modelled, and it bounds what the harvest is evidence *for*:** the IBKR 50-row rank cap.
-#428 showed it is real and load-bearing, so a reconstructed day can surface setups the live scanner
-would never have shown. That is precisely why #430 keeps the two stores apart and stamps every
-trade with `source` — the harvest widens the sample, it does not extend the Phase-1 record.
+**Still not modelled, and it bounds what the harvest is evidence *for*:** the appearance *time*.
+⚠️ **AMENDED 2026-08-06 (#460):** this originally named the IBKR 50-row rank cap and cited #428 as
+having shown it load-bearing. Measured across 20 live days the cap has **never bound** — 45 symbols
+in the busiest tick, **11** in pre-market, zero ticks at 50 — so it explains nothing here. What does
+still differ is *when* a name is surfaced, and #433 is the open question on that (the vendor's daily
+close includes post-market prints IBKR's reference price does not). A reconstructed day can
+therefore still surface setups the live scanner would not have, which is why #430 keeps the two
+stores apart and stamps every trade with `source` — the harvest widens the sample, it does not
+extend the Phase-1 record.
 
 **Unchanged pending measurement:** the day-volume floor stays at 100k. `harvest sweep` measures
 what a tighter floor would cut, against stored rows and for no API calls; run it before the first

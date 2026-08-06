@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     # `build_portfolio_payload` retains every day's bars because it re-simulates the same day list
     # once per selectable target, so peak memory is linear in days x candidates — which is what
     # OOM-killed the box at ~25 live days (#264). A finished harvest makes it ~500 days, and recon
-    # days are structurally denser than live ones because the 50-row scanner cap is not modelled.
+    # days may run denser than live ones — though NOT for the rank-cap reason once assumed (#460:
+    # the cap has never bound; pre-market peaks at 11 of 50).
     # Budgeted on candidates, not days: days are a proxy, candidates are the cost, and the density
     # of a reconstructed day is the one number nobody has measured yet. 15k x ~27 KB ~= 400 MB
     # retained, against the app container's 2 GB cap. 0 disables the cap.

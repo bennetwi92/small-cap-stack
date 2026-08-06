@@ -41,7 +41,8 @@ class CandidateTrade:
     # the scanner in real time. ``"recon"`` = the day was rebuilt after the fact from purchased
     # vendor minute bars, with the scanner appearance *reconstructed* rather than observed. The two
     # are not interchangeable evidence — #428 measured the reconstruction's appearance timing at a
-    # median −0.34 min but found the IBKR 50-row rank cap (SNDQ) unreproducible per-symbol, so a
+    # median −0.34 min but found the IBKR 50-row rank cap (SNDQ) unreproducible per-symbol — #460
+    # since measured that cap as never binding at all (11 of 50 in pre-market), so a
     # reconstructed day can surface setups the live scanner would never have shown. Carrying the
     # label on the trade is what lets the book report the two populations apart instead of quietly
     # averaging them into one win rate.
