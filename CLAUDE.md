@@ -40,6 +40,11 @@ research record. This file documents **how we work** — follow it on every task
 
 ## CI / quality gates (run locally before pushing)
 Toolchain lives in `.venv`. CI runs ruff + mypy + pytest on every PR.
+- **`ci` is the only check a PR gets.** `lint-typecheck-test` is the single required context; nothing
+  else runs on `pull_request`. CodeQL default setup (GitHub-side, no workflow file) and
+  `build-image`'s PR trigger were both removed — a one-person repo gained nothing from two extra
+  non-required jobs except more red Xs to interpret, and a GitHub Actions outage that fails them
+  makes a healthy PR look broken. Don't re-add a PR-triggered job unless it is worth making required.
 ```bash
 .venv/bin/ruff check .          # lint
 .venv/bin/ruff format --check . # format
