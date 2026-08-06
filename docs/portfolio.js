@@ -693,22 +693,29 @@ function inputRows(pj, cfg) {
     .join("");
 }
 
+// Shows whichever of the two projection regions applies: `#pj-view` when there is a projection to
+// draw, the standalone `#pj-none` panel when there isn't.
+//
+// The reason goes in its own element rather than over `#pj-view.innerHTML` (#464). `#pj-view` holds
+// every `pj-*` element the branch below writes into, so writing the reason over it deleted them all
+// — permanently, since nothing rebuilds them. That was harmless while the branch was terminal for
+// the session, but #430's combined book carries no projection by construction, so DATA `+ History`
+// → back to `Live` now reaches the available branch with the elements gone: `el("pj-tiles")` is
+// null, `render()` throws mid-way, and the view stays broken until a reload.
 function renderProjection(book) {
   const pj = book.projection;
-  const wrap = el("pj-view");
-  if (!pj || !pj.available) {
+  const available = !!(pj && pj.available);
+  el("pj-view").hidden = !available;
+  el("pj-none").hidden = available;
+  if (!available) {
     // A combined book carries no projection by construction (#430): the forward view resamples the
     // returns the tracker actually observed, so it is built for the live scope only. Say that,
     // rather than falling through to "not built yet", which would be wrong here.
-    const reason =
+    el("pj-none-reason").textContent =
       SCOPE === "all" && hasRecon()
         ? "The projection is built from live days only. Switch DATA to Live to see it."
         : (pj && pj.reason) ||
           "No projection in this payload yet — it is built at the end-of-day report.";
-    wrap.innerHTML =
-      `<section class="panel"><h2 class="panel-h">Projection</h2><p class="muted">` +
-      esc(reason) +
-      `</p></section>`;
     return;
   }
   const cfg = PAYLOAD.config;
@@ -1281,7 +1288,10 @@ function render() {
   const book = booksFor()[BOOK];
   el("pf-meta").innerHTML = metaLine(book);
   el("pf-view").hidden = VIEW !== "book";
-  el("pj-view").hidden = VIEW !== "projection";
+  // Both projection regions belong to the projection view; `renderProjection` picks which of the
+  // two to reveal once it is the active one.
+  el("pj-view").hidden = true;
+  el("pj-none").hidden = true;
   if (VIEW === "projection") {
     renderProjection(book);
     drawCharts(book);
