@@ -7,6 +7,11 @@
 // in every engine-v2 feature the detector gated and scored on (charts.py
 // `engine.features`), grouped by feature area, so sorting one column against Max
 // R / Max % is enough to see whether that feature separates runners from duds.
+//
+// Since #479 the chart comes to the grid rather than the other way round: a row
+// click (or ↑/↓) draws that opportunity in a dock along the bottom, using the
+// shared inspector (js/inspector.js). Clicking used to navigate to the review
+// workbench, which threw away the sort, the filter and your place in the list.
 
 import "./js/nav.js";
 import { createOptionsBar } from "./js/options-bar.js";
@@ -24,10 +29,41 @@ import {
   etClockSec,
   etMinutesSec,
 } from "./js/fmt.js";
+import {
+  chartsFor,
+  clearChartCache,
+  createChartView,
+  engineDetailHtml,
+  findChart,
+  newsCount,
+  newsHtml,
+  optionLabel,
+  readoutHtml,
+} from "./js/inspector.js";
 import { MARKET_OPEN_MIN } from "./js/session.js";
 import { TabulatorFull as Tabulator } from "https://cdn.jsdelivr.net/npm/tabulator-tables@6.5.2/dist/js/tabulator_esm.min.js";
 
 const el = (id) => document.getElementById(id);
+
+/* ---------- dock state ----------
+   Declared up here because the options bar (built below, at module evaluation)
+   reads `dockOn()` for the CHART segment's initial value. */
+const DOCK_ON_KEY = "rs_dock_on";
+const DOCK_H_KEY = "rs_dock_h";
+const DOCK_H_DEFAULT = 320;
+const DOCK_H_MIN = 140;
+const DRAW_DEBOUNCE_MS = 80; // holding ↓ must not queue one full redraw per row
+
+let selectedOid = null;
+let view; // undefined = not built, null = charting library missing
+let sideMode = null; // null | "gates" | "news"
+let engineOn = true;
+let drawTimer = null;
+let drawToken = 0; // guards an async payload fetch that lands after another selection
+
+function dockOn() {
+  return localStorage.getItem(DOCK_ON_KEY) !== "off";
+}
 
 /* ---------- row model (unchanged from the pre-cockpit page) ---------- */
 
@@ -152,6 +188,13 @@ createOptionsBar("optbar", {
         { value: "features", label: "+ Engine" },
       ],
     },
+    {
+      type: "seg", id: "rs-dock-toggle", label: "CHART", value: dockOn() ? "on" : "off",
+      options: [
+        { value: "on", label: "On" },
+        { value: "off", label: "Off" },
+      ],
+    },
     { type: "readout", id: "rs-count", value: "loading…" },
     { type: "btn", id: "rs-refresh", label: "Refresh", title: "Refresh now" },
   ],
@@ -166,12 +209,18 @@ createOptionsBar("optbar", {
         "“+ Engine” adds every feature the detector gated and scored on, by area — sort one against " +
         "Max R to see whether it separates anything. Score contributions are omitted: each is just " +
         "weight × the feature beside it. Reads the same published data as the review workbench. " +
+        "Chart: click a row (or press ↑/↓) to draw it below; Enter opens the review workbench, Esc " +
+        "closes the dock, and the divider drags to re-split. " +
         "Times in ET. Phase-1 = tracking only, no orders.",
     },
   ],
   onChange: (id, value) => {
-    if (id === "rs-refresh") return load();
+    if (id === "rs-refresh") {
+      clearChartCache(); // Refresh means the branch, not the memo
+      return load();
+    }
     if (id === "rs-cols") return grid.setColumns(columnDefs(value === "features"));
+    if (id === "rs-dock-toggle") return setDock(value === "on");
     if (id === "rs-session") want.session = value;
     if (id === "rs-engine") want.engine = value;
     grid.refreshFilter();
@@ -237,11 +286,14 @@ const rFmt = (cell) => {
 };
 const priceFmt = (cell) => fmtPrice(cell.getValue());
 const floatFmt = (cell) => fmtShares(cell.getValue());
+// The dock draws the chart in place now (#479), so this column is the escape hatch to the
+// annotate-and-save workbench rather than the way to see a chart at all.
+const reviewUrl = (d) =>
+  `review.html?date=${encodeURIComponent(d.date)}&oid=${encodeURIComponent(d.oid)}`;
 const chartFmt = (cell) => {
   const d = cell.getRow().getData();
-  const link = `review.html?date=${encodeURIComponent(d.date)}&oid=${encodeURIComponent(d.oid)}`;
   return (
-    `<a href="${link}" title="Open this opportunity in the review chart">` +
+    `<a href="${reviewUrl(d)}" title="Open in the review workbench to annotate">` +
     `<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" style="vertical-align:-2px">` +
     `<polyline points="1,11 5,7 8,9 14,3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></a>`
   );
@@ -411,14 +463,29 @@ const columnDefs = (withFeatures) =>
 const grid = new Tabulator("#rs-grid", {
   data: [],
   layout: "fitData",
-  height: "calc(100vh - 76px)", // fill between the bars; a fixed height turns on virtual scrolling
+  // Fills the split's grid pane, which owns whatever height the dock leaves; a
+  // resolved height is what turns on virtual scrolling.
+  height: "100%",
+  index: "oid", // lets the dock address a row by opportunity id
   placeholder: "Loading…",
   initialSort: [{ column: "date", dir: "desc" }],
   columns: columnDefs(false),
+  // The selected row is the chart's source. Painted here rather than by toggling
+  // a class directly, because Tabulator recycles row elements while scrolling —
+  // a hand-applied class would drift onto whatever row inherits the element.
+  rowFormatter: (row) => {
+    row.getElement().classList.toggle("rs-sel", row.getData().oid === selectedOid);
+  },
 });
 
 grid.on("dataFiltered", (filters, rows) => {
   el("rs-count").textContent = `${rows.length} of ${grid.getData().length} shown`;
+});
+
+grid.on("rowClick", (e, row) => {
+  // The chart-icon column is a real link out to the workbench — let it navigate.
+  if (e.target && e.target.closest("a")) return;
+  select(row.getData().oid);
 });
 
 /* ---------- load ---------- */
@@ -433,6 +500,12 @@ async function load() {
       .map((d) => d.date);
     // Pull every date's chart file in parallel; a missing/failed day degrades to
     // no rows for that day rather than failing the whole table.
+    //
+    // Deliberately NOT `chartsFor` (which memoises): these payloads are 1.5–3 MB
+    // of full-day bars each, and holding all ~30 days alive for the whole session
+    // to service a dock that shows one at a time is a lot of resident memory for
+    // nothing. The rows keep what the grid needs; the dock re-reads the one date
+    // it is drawing, which the inspector then caches.
     const perDate = await Promise.all(
       dates.map(async (date) => {
         const payload = await fetchJson(`charts/${date}.json`);
@@ -450,10 +523,239 @@ async function load() {
       hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
     }).format(new Date());
     setStatusPage(`${rows.length} opps · ${dates.length} days · fetched ${esc(now)}`);
+    restoreSelection();
   } catch (e) {
     el("rs-error").hidden = false;
     el("rs-error").textContent = `Failed to load results: ${e && e.message ? e.message : e}`;
   }
 }
 
-grid.on("tableBuilt", load);
+/* ---------- the chart dock (#479) ----------
+   Master/detail: the grid selects, the dock draws. Everything below is host
+   chrome — the chart, the readout, the engine detail and the news list all come
+   from js/inspector.js, the same component the review workbench mounts. */
+
+// Leave room for the grid: a dock taller than the window minus a few rows is a
+// dock that has eaten the table it exists to serve.
+function clampH(px) {
+  const max = Math.max(DOCK_H_MIN, window.innerHeight - 220);
+  return Math.min(max, Math.max(DOCK_H_MIN, px));
+}
+
+function dockHeight() {
+  const saved = parseInt(localStorage.getItem(DOCK_H_KEY) || "", 10);
+  return clampH(isFinite(saved) ? saved : DOCK_H_DEFAULT);
+}
+
+function applyDockHeight(px) {
+  el("rs-dock").style.height = `${px}px`;
+  grid.redraw(); // the grid pane just changed size; re-measure the virtual window
+}
+
+function setDock(on) {
+  localStorage.setItem(DOCK_ON_KEY, on ? "on" : "off");
+  el("rs-dock").hidden = !on;
+  if (on) {
+    applyDockHeight(dockHeight());
+    if (selectedOid) drawNow(selectedOid);
+  } else {
+    grid.redraw();
+  }
+}
+
+function ensureView() {
+  if (view !== undefined) return view;
+  view = createChartView(el("rs-chart"));
+  if (view) view.setEngineOn(engineOn);
+  return view;
+}
+
+function dockMessage(msg) {
+  el("rs-dock-readout").innerHTML = `<span class="muted">${esc(msg)}</span>`;
+}
+
+// Select a row: paint it, park it in the URL, and schedule the draw. The paint is
+// immediate and the draw is debounced, so holding ↓ scrubs the selection at full
+// speed and only settles the chart when you stop.
+function select(oid) {
+  const prev = selectedOid;
+  selectedOid = oid;
+  for (const id of [prev, oid]) {
+    if (!id) continue;
+    const row = grid.getRow(id);
+    if (row) row.reformat();
+  }
+  if (oid) {
+    const d = grid.getRow(oid) ? grid.getRow(oid).getData() : null;
+    if (d) el("rs-dock-open").href = reviewUrl(d);
+    // A shareable/reload-safe pointer at what you were looking at.
+    history.replaceState(null, "", `#oid=${encodeURIComponent(oid)}`);
+  }
+  if (!dockOn() || !oid) return;
+  el("rs-dock-title").textContent = oid;
+  clearTimeout(drawTimer);
+  drawTimer = setTimeout(() => drawNow(oid), DRAW_DEBOUNCE_MS);
+}
+
+async function drawNow(oid) {
+  if (!dockOn()) return;
+  const v = ensureView();
+  if (!v) {
+    dockMessage("Chart library failed to load.");
+    return;
+  }
+  const token = ++drawToken;
+  const date = String(oid).split(":")[0];
+  dockMessage("loading…");
+  const payload = await chartsFor(date);
+  if (token !== drawToken) return; // a later selection won the race
+  const c = findChart(payload, oid);
+  if (!c) {
+    v.clear();
+    el("rs-dock-title").textContent = oid;
+    dockMessage("No chart published for this opportunity.");
+    updateSide(null);
+    return;
+  }
+  v.draw(c);
+  el("rs-dock-title").textContent = optionLabel(c);
+  el("rs-dock-readout").innerHTML = readoutHtml(c, { engineOn });
+  const n = newsCount(c);
+  const news = el("rs-dock-news");
+  news.textContent = `News ${n}`;
+  news.disabled = n === 0;
+  if (sideMode === "news" && n === 0) sideMode = "gates";
+  updateSide(c);
+}
+
+function updateSide(c) {
+  const side = el("rs-side");
+  side.hidden = !sideMode;
+  el("rs-dock-gates").classList.toggle("on", sideMode === "gates");
+  el("rs-dock-news").classList.toggle("on", sideMode === "news");
+  if (!sideMode) return;
+  side.innerHTML = sideMode === "news" ? newsHtml(c) : engineDetailHtml(c);
+}
+
+function toggleSide(mode) {
+  sideMode = sideMode === mode ? null : mode;
+  updateSide(current()); // the chart auto-sizes to the width the panel leaves
+}
+
+// The chart object currently drawn, straight from the view — the dock keeps no
+// second copy of it.
+const current = () => (view ? view.current() : null);
+
+// Step the selection through the grid's CURRENT order — `getRows("active")` is
+// post-sort, post-filter, which is what the eye is following.
+function step(delta) {
+  const rows = grid.getRows("active");
+  if (!rows.length) return;
+  let i = rows.findIndex((r) => r.getData().oid === selectedOid);
+  i = i < 0 ? (delta > 0 ? 0 : rows.length - 1) : (i + delta + rows.length) % rows.length;
+  const row = rows[i];
+  select(row.getData().oid);
+  row.scrollTo("nearest", false).catch(() => {});
+}
+
+// Reopen on whatever the URL hash points at, once the rows exist.
+function restoreSelection() {
+  const m = /^#oid=(.*)$/.exec(location.hash || "");
+  if (!m) return;
+  const oid = decodeURIComponent(m[1]);
+  if (grid.getRow(oid)) select(oid);
+}
+
+/* ---------- dock wiring ---------- */
+
+// ✕ and Esc go through the CHART segment rather than calling setDock directly:
+// the options bar owns that control's state, and setting it behind its back
+// leaves the segment thinking it is still "on" — after which clicking On does
+// nothing, because the value hasn't changed as far as it knows.
+function closeDock() {
+  const off = el("rs-dock-toggle").querySelector('.opt-seg-btn[data-value="off"]');
+  if (off) off.click();
+}
+el("rs-dock-close").addEventListener("click", closeDock);
+el("rs-dock-gates").addEventListener("click", () => toggleSide("gates"));
+el("rs-dock-news").addEventListener("click", () => toggleSide("news"));
+el("rs-dock-engine").addEventListener("click", () => {
+  engineOn = !engineOn;
+  if (view) view.setEngineOn(engineOn);
+  const btn = el("rs-dock-engine");
+  btn.classList.toggle("armed", engineOn);
+  btn.setAttribute("aria-pressed", engineOn ? "true" : "false");
+  const c = current();
+  if (c) el("rs-dock-readout").innerHTML = readoutHtml(c, { engineOn });
+});
+// The readout's float chip toggles its all-sources breakdown, as on the review page.
+el("rs-dock-readout").addEventListener("click", (e) => {
+  const chip = e.target.closest(".rv-float-toggle");
+  if (!chip) return;
+  const all = chip.parentElement.querySelector(".rv-float-all");
+  if (all) all.classList.toggle("hidden");
+});
+
+// Drag the divider to re-split. Our own pointer loop rather than CSS `resize`,
+// so the grid can be redrawn as it moves instead of only on release.
+(() => {
+  const handle = el("rs-dock-handle");
+  let start = null;
+  handle.addEventListener("pointerdown", (e) => {
+    start = { y: e.clientY, h: el("rs-dock").getBoundingClientRect().height };
+    handle.classList.add("dragging");
+    handle.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (!start) return;
+    applyDockHeight(clampH(start.h + (start.y - e.clientY)));
+  });
+  const end = (e) => {
+    if (!start) return;
+    start = null;
+    handle.classList.remove("dragging");
+    if (e && e.pointerId != null) {
+      try {
+        handle.releasePointerCapture(e.pointerId);
+      } catch (_) {
+        /* already released */
+      }
+    }
+    localStorage.setItem(DOCK_H_KEY, String(Math.round(el("rs-dock").getBoundingClientRect().height)));
+  };
+  handle.addEventListener("pointerup", end);
+  handle.addEventListener("pointercancel", end);
+})();
+
+// Keyboard: the grid is a list you walk, so ↑/↓ (and j/k) step it with the chart
+// following. Enter hands off to the workbench, Esc puts the dock away.
+document.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "ArrowDown" || e.key === "j") {
+    e.preventDefault();
+    step(1);
+  } else if (e.key === "ArrowUp" || e.key === "k") {
+    e.preventDefault();
+    step(-1);
+  } else if (e.key === "Enter" && selectedOid) {
+    const row = grid.getRow(selectedOid);
+    if (row) location.href = reviewUrl(row.getData());
+  } else if (e.key === "Escape") {
+    closeDock();
+  }
+});
+
+// A window resize can push a saved height past the clamp.
+window.addEventListener("resize", () => {
+  if (dockOn()) applyDockHeight(clampH(el("rs-dock").getBoundingClientRect().height));
+});
+
+grid.on("tableBuilt", () => {
+  el("rs-dock").hidden = !dockOn();
+  if (dockOn()) applyDockHeight(dockHeight());
+  dockMessage("click a row — or press ↓ — to chart it");
+  load();
+});
