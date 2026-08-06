@@ -15,7 +15,7 @@
 // The annotation *editor* (tap-to-place, drag-to-refine, save) is deliberately NOT here: it stays
 // on the review workbench, which is the only surface that owns an unsaved-changes lifecycle.
 
-import { fetchJson } from "./data.js";
+import { REPO, fetchJson } from "./data.js";
 import { esc, etClockSec, fmtShares } from "./fmt.js";
 
 export const round2 = (x) => Math.round(x * 100) / 100;
@@ -203,6 +203,74 @@ export function engineDetailHtml(c) {
       ? '<h4 class="rv-eng-h">Score contributions</h4>' +
         `<table class="rv-eng-gates rv-eng-contrib">${contribRows}</table>`
       : "")
+  );
+}
+
+/* ---------- the trader's saved review (#481) ----------
+   The workbench writes one JSON per opportunity to the `review-data` branch: a note, the
+   "no trigger" verdict, and the pole/consolidation/entry/stop the trader drew by hand. Public
+   branch, so a plain raw fetch reads it — no token, which is why every host can show it and only
+   the workbench can write it. A 404 is the ordinary case ("not reviewed yet"), cached as such so
+   an unreviewed opportunity isn't refetched every time you step past it. */
+
+export const REVIEW_BRANCH = "review-data";
+
+// `:` and `#` are illegal-ish in paths and ids; map both to `_`
+// (e.g. 2026-07-01:AHMA#2 -> reviews/2026-07-01_AHMA_2.json).
+export const sanitizeOid = (oid) => String(oid).replace(/[:#]/g, "_");
+export const reviewPath = (oid) => `reviews/${sanitizeOid(oid)}.json`;
+
+const _reviews = new Map(); // opportunity_id -> Promise<review|null>
+
+async function _fetchReview(oid) {
+  const url =
+    `https://raw.githubusercontent.com/${REPO}/${REVIEW_BRANCH}/${reviewPath(oid)}?t=${Date.now()}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) return null; // 404 = never reviewed; anything else, treat the same and stay quiet
+  return res.json();
+}
+
+export function reviewFor(oid) {
+  if (!_reviews.has(oid)) _reviews.set(oid, _fetchReview(oid).catch(() => null));
+  return _reviews.get(oid);
+}
+
+// Seed the cache after a save, so the workbench and any dock agree without a refetch.
+export function cacheReview(oid, review) {
+  _reviews.set(oid, Promise.resolve(review));
+}
+
+// Was this opportunity actually reviewed? A verdict, a note or a drawn level all count; the
+// workbench writes `{note: ""}` into its own cache for a 404, which does not.
+export function hasReview(r) {
+  if (!r) return false;
+  if (r.no_trigger) return true;
+  if (r.note && r.note.trim()) return true;
+  const a = r.annotations || {};
+  return !!(a.pole || a.consolidation || a.entry != null || a.stop != null);
+}
+
+// The saved review, read-only: what the trader concluded, next to what the engine did.
+export function reviewHtml(r) {
+  if (!hasReview(r))
+    return '<p class="muted">Not reviewed yet — open the review workbench to annotate this one.</p>';
+  const a = r.annotations || {};
+  const bits = [];
+  if (a.entry != null) bits.push(`<span class="mk" style="color:${MK.annEntry}">entry ${a.entry}</span>`);
+  if (a.stop != null) bits.push(`<span class="mk" style="color:${MK.annStop}">stop ${a.stop}</span>`);
+  if (a.max_r != null) bits.push(`<span class="mk" style="color:${MK.maxR}">${a.max_r}R</span>`);
+  const when = r.updated_utc ? `<span class="muted">${esc(String(r.updated_utc).slice(0, 10))}</span>` : "";
+  return (
+    '<div class="rv-eng-head">' +
+    (r.no_trigger
+      ? `<span class="rv-eng-badge rv-eng-reject">NO TRIGGER</span>`
+      : '<span class="rv-eng-badge rv-eng-pass">REVIEWED</span>') +
+    bits.join("") +
+    when +
+    "</div>" +
+    (r.note && r.note.trim()
+      ? `<p class="rv-note-read">${esc(r.note)}</p>`
+      : '<p class="muted">No note.</p>')
   );
 }
 
@@ -620,6 +688,32 @@ export function createChartView(container) {
     });
   }
 
+  // The TRADER's read — pole/consolidation bands plus "my entry"/"my stop" — drawn from an
+  // annotations block. Solid lines and heavier fills, so it never reads as the engine's dashed
+  // context levels beside it. The workbench drives this live while drawing; a dock passes what
+  // was saved (#481). Null/absent fields simply clear.
+  function setAnnotations(ann) {
+    const a = ann || {};
+    setLine("ann-entry",
+      a.entry == null ? null : {
+        price: a.entry, color: MK.annEntry, lineStyle: 0, lineWidth: 2,
+        axisLabelVisible: true, title: "my entry",
+      });
+    setLine("ann-stop",
+      a.stop == null ? null : {
+        price: a.stop, color: MK.annStop, lineStyle: 0, lineWidth: 2,
+        axisLabelVisible: true, title: "my stop",
+      });
+    const bands = [];
+    if (a.pole) bands.push({ t0: a.pole.t0, t1: a.pole.t1, color: MK.poleBand, edge: MK.poleEdge });
+    if (a.consolidation)
+      bands.push({
+        t0: a.consolidation.t0, t1: a.consolidation.t1,
+        color: MK.consBand, edge: MK.consEdge,
+      });
+    bandPrim.setBands(bands);
+  }
+
   const ts = () => api.timeScale();
 
   return {
@@ -638,6 +732,7 @@ export function createChartView(container) {
     setEngineLevels,
 
     // annotation surface
+    setAnnotations,
     setBands: (bands) => bandPrim.setBands(bands),
     setPending: (time, color) => bandPrim.setPending(time, color),
     setLine,

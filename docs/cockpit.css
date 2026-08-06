@@ -1055,6 +1055,12 @@ body.review{
   .rs-side{ flex-basis:0; display:none; }
 }
 
+/* the trader's saved review, read-only in a dock (#481) */
+.rv-note-read{ white-space:pre-wrap; margin:6px 0 0; font-size:11px; line-height:1.5; }
+/* a dock button whose panel actually has something behind it — an opportunity
+   that has been reviewed has to be distinguishable from one that hasn't */
+.rv-btn.has{ color:var(--gold); border-color:var(--gold); }
+
 /* ---------- Tabulator (compact terminal theme) ---------- */
 .tabulator{
   background:var(--bg);

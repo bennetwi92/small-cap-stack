@@ -19,6 +19,8 @@ import { REPO, fetchJson } from "./js/data.js";
 import { esc } from "./js/fmt.js";
 import {
   MK,
+  REVIEW_BRANCH,
+  cacheReview,
   chartsFor,
   createChartView,
   engineDetailHtml,
@@ -26,10 +28,11 @@ import {
   newsHtml,
   optionLabel,
   readoutHtml,
+  reviewFor,
+  reviewPath,
   round2,
 } from "./js/inspector.js";
 
-const REVIEW_BRANCH = "review-data"; // write-back reviews live here (#143), off the force-pushed BRANCH
 const DEFAULT_BRANCH = "main"; // base the review-data branch off this on first save
 const API = "https://api.github.com";
 const PAT_KEY = "rv_pat"; // localStorage key for the phone-local GitHub token
@@ -52,7 +55,6 @@ let chartsData = null; // last-fetched charts/<date>.json payload for the select
 let view;
 let currentOpp = null; // the opportunity chart object currently drawn (for the notes sheet)
 let currentDate = null; // the trading date currently loaded (to restore the picker on a cancelled nav)
-const noteCache = new Map(); // opportunity_id -> loaded/saved review, so re-opening is instant
 
 // Whether the engine layer is shown (on-chart overlay + the readout badge). Default ON; the setting
 // persists across opportunities so the trader can park it off and draw unbiased.
@@ -202,10 +204,6 @@ function stepSymbol(delta) {
 
 const getPat = () => (localStorage.getItem(PAT_KEY) || "").trim();
 
-// `:` and `#` are illegal-ish in paths and ids; map both to `_` (e.g. 2026-07-01:AHMA#2 -> ..._AHMA_2).
-const sanitizeOid = (oid) => String(oid).replace(/[:#]/g, "_");
-const reviewPath = (oid) => `reviews/${sanitizeOid(oid)}.json`;
-
 // UTF-8-safe base64 for the file body (btoa alone mangles non-ASCII notes).
 const b64 = (s) => btoa(unescape(encodeURIComponent(s)));
 
@@ -252,8 +250,9 @@ function applyLoadedReview(c, review) {
   markClean(); // just loaded persisted state — nothing unsaved
 }
 
-// Load an opportunity's saved review (note + annotations). Public branch -> raw fetch, no auth
-// needed; 404 (or missing branch) simply means "no review yet" -> empty. In-session cache first.
+// Load an opportunity's saved review (note + annotations). The fetch, its per-opportunity cache and
+// the 404-means-never-reviewed convention live in the shared inspector, so a dock reading the same
+// review can't disagree with the workbench about what is saved.
 async function loadReview(c) {
   if (!c) {
     el("rv-note").value = "";
@@ -263,27 +262,9 @@ async function loadReview(c) {
   }
   el("rv-sheet-title").textContent = optionLabel(c);
   setStatus("", null);
-  if (noteCache.has(c.opportunity_id)) {
-    applyLoadedReview(c, noteCache.get(c.opportunity_id));
-    return;
-  }
   el("rv-note").value = "";
-  const url =
-    `https://raw.githubusercontent.com/${REPO}/${REVIEW_BRANCH}/` +
-    `${reviewPath(c.opportunity_id)}?t=${Date.now()}`;
-  try {
-    const res = await fetch(url, { cache: "no-store" });
-    if (res.status === 404) {
-      noteCache.set(c.opportunity_id, { note: "" }); // known-empty; don't refetch
-      return;
-    }
-    if (!res.ok) throw new Error(`load failed (${res.status})`);
-    const review = await res.json();
-    noteCache.set(c.opportunity_id, review);
-    applyLoadedReview(c, review);
-  } catch (err) {
-    setStatus(`Couldn't load saved note: ${err.message}`, "bad");
-  }
+  const review = await reviewFor(c.opportunity_id);
+  applyLoadedReview(c, review);
 }
 
 // --- Tap-to-place annotations (#144) -------------------------------------------------------
@@ -393,27 +374,7 @@ function onChartClick(param) {
 
 // Render the current annotations onto the chart: entry/stop price lines + pole/cons bands.
 function applyAnnotations() {
-  if (view) {
-    view.setLine("ann-entry",
-      ann.entry == null ? null : {
-        price: ann.entry, color: MK.annEntry, lineStyle: 0, lineWidth: 2,
-        axisLabelVisible: true, title: "my entry",
-      });
-    view.setLine("ann-stop",
-      ann.stop == null ? null : {
-        price: ann.stop, color: MK.annStop, lineStyle: 0, lineWidth: 2,
-        axisLabelVisible: true, title: "my stop",
-      });
-    const bands = [];
-    if (ann.pole)
-      bands.push({ t0: ann.pole.t0, t1: ann.pole.t1, color: MK.poleBand, edge: MK.poleEdge });
-    if (ann.consolidation)
-      bands.push({
-        t0: ann.consolidation.t0, t1: ann.consolidation.t1,
-        color: MK.consBand, edge: MK.consEdge,
-      });
-    view.setBands(bands);
-  }
+  if (view) view.setAnnotations(ann); // the same draw a dock uses for a SAVED review (#481)
   updateAnnReadout();
 }
 
@@ -680,7 +641,7 @@ async function saveNote() {
       }
       throw new Error(detail);
     }
-    noteCache.set(c.opportunity_id, review);
+    cacheReview(c.opportunity_id, review); // any dock reading this opportunity sees it too
     markClean(); // persisted — clear the unsaved-changes signal
     setStatus("Saved ✓", "ok");
   } catch (err) {
