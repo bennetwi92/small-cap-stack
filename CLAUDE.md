@@ -204,14 +204,23 @@ When running on the **Mac** (the primary working dir, not a cloud/web session), 
   job is a deploy, it can leave the app container **stopped** (compose has torn the old one down but
   not brought the new one up). Check `docker ps` and re-run `deploy.yml` before walking away.
 
-## How work gets done (no CI agents — #377)
+## How work gets done (#377, #489)
 Work happens by **you driving Claude Code** (desktop or mobile) against this repo: one issue per
-unit of work, one PR per issue, `make check` before every push. There is no `@claude` bot, no
-`/spec` gate, no auto-triage, no agent that opens issues or PRs on its own — the 2026-07-17
-automation layer was rolled back on 2026-07-19 because it added protocol without earning its keep
-(it opened zero issues and fired almost never). Nothing gates you: ask for any change on any
-issue, whatever its labels, and it gets built.
-- The workflows that remain are the **hands-off, human-triggered** ones: `ci` (on every PR),
+unit of work, one PR per issue, `make check` before every push. There is no `/spec` gate, no
+auto-triage, no watchdog, no agent that opens issues on its own — the 2026-07-17 automation layer
+was rolled back on 2026-07-19 because it added protocol without earning its keep (it opened zero
+issues and fired almost never). Nothing gates you: ask for any change on any issue, whatever its
+labels, and it gets built.
+- **Delegation (#489) is the one agent piece that came back.** Labelling an issue `agent` dispatches
+  `claude.yml` — a Claude agent on a **hosted** runner (never the VPS) builds it and opens a PR;
+  `@claude …` on that PR revises it; a human reviews and squash-merges. **Delegate only when all
+  four hold:** `make check` is a sufficient verdict (the runner has no `.env`, IBKR, box or `/data`)
+  · the brief is closed-form, because the agent can't ask a question mid-flight · XS/S tier · it
+  isn't what you're actively iterating on. Engine/strategy work qualifies when the brief names the
+  exact rule and test. Spikes, reports, review investigations and anything box- or data-touching
+  stay in-house. Procedure — including the six-heading brief template — is the **`delegate-issue`**
+  skill. Before adding a *second* agent workflow, read `research/archive/github-automation.md`.
+- The other workflows are the **hands-off, human-triggered** ones: `ci` (on every PR),
   `deploy`, `build-image`, `publish-dashboard` (scheduled), `backfill-dashboard`,
   `deploy-backfill-publish`, `data-export`. Trigger them with `gh workflow run <name>.yml`.
 - **Liveness monitoring** is the app's own Healthchecks.io dead-man's switch (`monitoring.py`,
