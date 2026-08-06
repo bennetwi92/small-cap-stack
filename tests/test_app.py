@@ -6,6 +6,7 @@ import asyncio
 import json
 from datetime import UTC, date, datetime, time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -49,7 +50,17 @@ def _seed_day(store: Store, day: date) -> None:
 def test_scheduler_registers_jobs() -> None:
     app = Application(_settings())
     ids = {job.id for job in app.scheduler.get_jobs()}
-    assert ids == {"tick", "scan_start", "scan_end", "eod_bars", "eod_report", "eod_backfill"}
+    assert ids == {
+        "tick",
+        "scan_start",
+        "scan_end",
+        "eod_bars",
+        "eod_report",
+        "eod_backfill",
+        # The morning rebuild (#458): without it the overnight harvest sits unpublished until the
+        # 16:30 EOD — through the entire trading day it was harvested for.
+        "portfolio_refresh",
+    }
 
 
 def test_builds_services() -> None:
@@ -281,3 +292,29 @@ def test_heartbeat_pings_on_completion_not_start(
     monkeypatch.setattr(app.scanner, "scan", ok_scan)
     asyncio.run(app._on_tick())
     assert pings == [True]  # a completed tick pings
+
+
+def test_the_morning_refresh_does_not_force_re_extract_today(monkeypatch: Any) -> None:
+    """At 03:15 ET "today" has no bars, so the EOD's force-re-extract-today would re-extract an
+    empty day. The EOD keeps it (its bars have just landed); the morning rebuild must not.
+
+    What the morning run is actually for — the reconstructed days the harvest just landed — needs
+    no naming: they are uncached by definition and picked up either way.
+    """
+    seen: list[object] = []
+
+    def fake_build(*_a: Any, **kw: Any) -> dict[str, object]:
+        seen.append(kw.get("force_dates"))
+        return {"ok": True}
+
+    monkeypatch.setattr("small_cap_stack.app.build_portfolio_payload", fake_build)
+    monkeypatch.setattr("small_cap_stack.app.write_json", lambda *_a, **_k: None)
+    app = Application.__new__(Application)
+    app.settings = Settings(_env_file=None, dashboard_enabled=True)  # type: ignore[call-arg]
+    app.store = None  # type: ignore[assignment]  # never touched — build is stubbed
+
+    app._export_portfolio(datetime(2026, 8, 6, 7, 15, tzinfo=UTC), force_today=False)
+    app._export_portfolio(datetime(2026, 8, 6, 20, 30, tzinfo=UTC), force_today=True)
+
+    assert seen[0] == set(), "the 03:15 rebuild must not force today"
+    assert seen[1], "the 16:30 EOD must still force today — its bars have just landed"
