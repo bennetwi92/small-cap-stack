@@ -323,7 +323,15 @@ class Settings(BaseSettings):
     # Adaptive target: each day re-fits the target to the highest-expectancy grid value over the
     # trailing window of prior candidates. Small-N overfit is guarded by the window + plateau bias.
     portfolio_target_grid: tuple[float, ...] = (1.5, 2.0, 2.5, 3.0)
-    portfolio_adaptive_window_days: int = 20  # trailing lookback for the expectancy re-fit
+    # Trailing lookback for the expectancy re-fit, in CALENDAR days. Widened 20 → 40 (2026-08-06,
+    # #463) because at 20 the optimiser never once ran: the book takes ~13 candidates per 36
+    # calendar days, so a 20-day window held at most 7 — permanently one short of
+    # `min_samples`, and every day of the live book's history silently used the fallback below.
+    # 40 days ≈ 28 trading days holds ~14 at the current arrival rate, clearing the bar with room
+    # for a quiet fortnight. The response to regime drift is correspondingly slower; that is the
+    # trade accepted here. `min_samples` deliberately did NOT move — firing sooner by fitting a
+    # target on 5 trades buys a number, not evidence.
+    portfolio_adaptive_window_days: int = 40  # trailing lookback for the expectancy re-fit
     portfolio_adaptive_min_samples: int = 8  # need this many trailing trades before re-fitting
     # Adaptive risk throttle / kill-switch (#239): the per-trade `risk_fraction` itself walks a
     # small ladder from 0 up to `portfolio_risk_fraction`, driven by recent daily results. The
