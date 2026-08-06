@@ -111,7 +111,9 @@
             </table>
           </div>
         </section>
-        <!-- Setups the 2/day cap dropped, or that couldn't be sized at all. -->
+        <!-- Setups that passed strategy but the book didn't trade: dropped by the 2/day cap,
+             declined by the risk throttle, or impossible to size to a single share. Every
+             qualifying setup is either in the trade log or here (#465). -->
         <section class="panel pf-skipped-panel">
           <h2 class="panel-h">Skipped — passed strategy, not taken</h2>
           <p id="pf-skipped-note" class="muted pf-note"></p>

@@ -69,9 +69,14 @@ def _take_day(
     Returns the taken trades *and* the qualifying setups the book didn't take, in trigger order,
     each with the outcome it would have had at the same (target, breakeven) plus a ``skip_reason``
     (#251): ``"cap"`` for everything past the first N by trigger time — the "what did the cap cost
-    me" log (#230) — and ``"unaffordable"`` for a selected setup that couldn't be sized to a single
-    share at full risk. Callers wanting only the cap population must filter; ``_finalize`` and
-    ``_book_json`` do.
+    me" log (#230) — ``"unaffordable"`` for a selected setup that couldn't be sized to a single
+    share at full risk, and ``"throttled"`` when the kill-switch is what stopped it (#465). Callers
+    wanting only the cap population must filter; ``_finalize`` and ``_book_json`` do.
+
+    Every candidate the day was handed now leaves through exactly one of those four doors — taken,
+    cap, unaffordable, throttled — so ``len(trades) + len(skipped) == len(cands)`` holds on any
+    day. That is the invariant #465 restored: a rung-0 day used to return neither, which is how
+    three live setups vanished from the combined book with nothing on the page to explain it.
 
     ``risk_fraction`` defaults to the configured value; the adaptive kill-switch passes the day's
     throttled fraction, and a 0 fraction sizes every position to 0 (the day takes no trades)."""
@@ -91,8 +96,12 @@ def _take_day(
     dropped = sorted((c for c in cands if id(c) not in taken_ids), key=lambda c: c.trigger_at)
     # On a rung-0 day nothing is taken at all, so the cap was never the binding constraint — the
     # throttle was. Logging these as "the cap cost me this" would inflate the page's headline with
-    # kill-switch days.
-    skipped = [_skipped(c, s, target_r, breakeven_r, "cap") for c in dropped] if rf > 0 else []
+    # kill-switch days; logging them as NOTHING, which is what this did, deleted them from the page
+    # altogether (#465). They get their own reason, which keeps `skipped_total_r` cap-only while
+    # still putting every qualifying setup somewhere a reader can find it.
+    skipped = [
+        _skipped(c, s, target_r, breakeven_r, "cap" if rf > 0 else "throttled") for c in dropped
+    ]
     out: list[PaperTrade] = []
     for c in taken:
         sized = size_position(
@@ -104,14 +113,16 @@ def _take_day(
         )
         qty = sized.qty
         if qty < 1:
-            # Too small to afford a share — record it rather than dropping it on the floor (#251),
-            # but ONLY when sizing at full configured risk. Any throttled rung can produce qty=0 on
-            # a wide stop (rung 1's rf=0.025 is a $12.50 risk budget at $500 equity, so a
-            # $15/share-risk setup sizes to 0 while the book is perfectly healthy). Calling that
-            # "unaffordable" would tell the trader their equity was the constraint when the
-            # kill-switch was. Throttled sizing — rung 0 included — is the ladder doing its job.
-            if rf >= s.portfolio_risk_fraction:
-                skipped.append(_skipped(c, s, target_r, breakeven_r, "unaffordable"))
+            # Too small to afford a share — record it rather than dropping it on the floor (#251).
+            # WHICH constraint bit decides the label. At full configured risk it is the equity:
+            # "unaffordable". At a throttled rung it is the kill-switch — rung 1's rf=0.025 is a
+            # $12.50 risk budget at $500 equity, so a $15/share-risk setup sizes to 0 while the book
+            # is perfectly healthy, and rung 0 sizes everything to 0 by design. Calling that
+            # "unaffordable" would tell the trader their equity was the constraint when the ladder
+            # was. Recording it under its own reason instead of not at all (#465) keeps the
+            # attribution honest without making the setup disappear.
+            reason = "unaffordable" if rf >= s.portfolio_risk_fraction else "throttled"
+            skipped.append(_skipped(c, s, target_r, breakeven_r, reason))
             continue
         outcome = c.exit_under(s, target_r, breakeven_r)
         gross = round(qty * (outcome.exit_price - c.entry_price), 4)

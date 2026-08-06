@@ -188,6 +188,10 @@ def _book_json(
             "skipped_count": sum(1 for sk in res.skipped if sk.skip_reason == "cap"),
             "skipped_total_r": res.skipped_total_r,
             "unaffordable_count": sum(1 for sk in res.skipped if sk.skip_reason == "unaffordable"),
+            # Setups the kill-switch stopped (#465). Its own count for the same reason the two
+            # above have theirs: the page attributes each population to the constraint that caused
+            # it, and a throttled day is neither a cap day nor a capital problem.
+            "throttled_count": sum(1 for sk in res.skipped if sk.skip_reason == "throttled"),
             # Live vs reconstructed, kept apart so a combined book can never be read as if every
             # trade were equally well evidenced (#430). All-live books carry a zeroed "recon" half.
             "by_source": _by_source_json(res),
