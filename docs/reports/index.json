@@ -1,6 +1,19 @@
 {
-  "generated_utc": "2026-08-02T12:02:52+00:00",
+  "generated_utc": "2026-08-06T12:22:16+00:00",
   "reports": [
+    {
+      "slug": "2026-08-06-does-past-behaviour-predict-future-performance",
+      "file": "2026-08-06-does-past-behaviour-predict-future-performance.md",
+      "title": "Does past behaviour predict future performance?",
+      "published": "2026-08-06",
+      "summary": "The adaptive target and the risk throttle rest on different assumptions. One is sound and undersampled; the other costs money under the null and has no evidence behind it.",
+      "tags": [
+        "strategy",
+        "portfolio"
+      ],
+      "author": "Claude",
+      "words": 1645
+    },
     {
       "slug": "2026-08-02-the-0930-open-a-second-strategy",
       "file": "2026-08-02-the-0930-open-a-second-strategy.md",

@@ -1208,9 +1208,24 @@ function coverageLine() {
   if (!cov) return "";
   const span = (c) => (c && c.days ? `${isoDay(c.from)}→${isoDay(c.to)} (${c.days}d)` : "none");
   const recon = cov.recon || {};
-  const reconPart = recon.days
-    ? ` · reconstructed ${span(recon)}${SCOPE === "all" ? "" : " — not in this book"}`
-    : "";
+  // Harvested days this payload does NOT carry (#467). `capped` is the candidate budget biting,
+  // `overlap` a day the tracker also watched live, where live wins. Both are published precisely so
+  // the page can say so: without them a span that is really the payload's ceiling reads as the
+  // whole extent of the harvest. Absent from payloads published before the counts existed, which
+  // `? :` handles by saying nothing rather than claiming zero.
+  const dropped = [
+    recon.capped_days_dropped ? `${recon.capped_days_dropped}d over the candidate budget` : "",
+    recon.overlap_days_dropped ? `${recon.overlap_days_dropped}d also collected live` : "",
+  ].filter(Boolean);
+  const droppedPart = dropped.length ? ` (dropped: ${dropped.join(", ")})` : "";
+  // A dropped count outlives a recon span of "none": a harvest whose every day overlapped the live
+  // record shows no span at all, and that is exactly when the reader most needs the reason — an
+  // empty `reconstructed` clause would otherwise read as an unharvested box.
+  const reconPart =
+    recon.days || dropped.length
+      ? ` · reconstructed ${span(recon)}${droppedPart}` +
+        (SCOPE === "all" ? "" : " — not in this book")
+      : "";
   return ` · Data: live ${span(cov.live)}${reconPart}`;
 }
 
