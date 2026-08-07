@@ -90,7 +90,7 @@ createOptionsBar("optbar", {
 
 // The search box fires on `change` (blur/Enter); reports are few, so filter as
 // you type too — this page's list is cheap to re-render.
-document.getElementById("rp-q")?.addEventListener("input", (e) => {
+el("rp-q").addEventListener("input", (e) => {
   query = e.target.value.trim().toLowerCase();
   renderList();
 });

@@ -40,9 +40,6 @@ export function el(id) {
   return node;
 }
 
-// For nodes a page genuinely renders conditionally — the caller handles null.
-export const optionalEl = (id) => document.getElementById(id);
-
 // Write (or clear, with a falsy message) a page's error banner. Resolved with a
 // bare lookup: a banner that has itself gone missing must not throw over the top
 // of the error it was asked to report.
