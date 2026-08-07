@@ -23,10 +23,11 @@ from small_cap_stack.fundamentals import (
 )
 from small_cap_stack.scanner import Candidate
 from small_cap_stack.storage import Store
+from tests.support import settings
 
 
 def _settings() -> Settings:
-    return Settings(_env_file=None)  # type: ignore[call-arg]
+    return settings()
 
 
 def test_from_info_full() -> None:

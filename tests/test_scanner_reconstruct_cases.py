@@ -21,6 +21,7 @@ from pathlib import Path
 
 import polars as pl
 import pytest
+
 from tests.spike_import import load_spike
 
 recon = load_spike("scanner_reconstruct")

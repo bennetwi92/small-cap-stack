@@ -10,10 +10,11 @@ from typing import Any
 from small_cap_stack.config import Settings
 from small_cap_stack.marketdata import IBKRMarketData
 from small_cap_stack.scanner import Candidate
+from tests.support import settings
 
 
 def _settings() -> Settings:
-    return Settings(_env_file=None)  # type: ignore[call-arg]
+    return settings()
 
 
 def _candidate(symbol: str = "AZI") -> Candidate:

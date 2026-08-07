@@ -24,13 +24,14 @@ from small_cap_stack.strategy_doc import (
     splice,
     write_doc,
 )
+from tests.support import settings
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _DOC = _REPO_ROOT / STRATEGY_DOC
 
 
 def _settings(**overrides: object) -> Settings:
-    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg,arg-type]
+    return settings(**overrides)
 
 
 def _skeleton() -> str:

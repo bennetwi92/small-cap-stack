@@ -15,7 +15,7 @@ import pytest
 
 from small_cap_stack.bullflag import detect_setup, detect_setup_with_settings
 from small_cap_stack.capture import Bar
-from small_cap_stack.config import Settings
+from tests.support import settings
 
 _T0 = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)  # 10:00 ET -> in window
 
@@ -49,12 +49,12 @@ def test_custom_offsets_are_independent() -> None:
 
 
 def test_settings_driven_offsets_match_locked_ticks() -> None:
-    settings = Settings()
-    assert settings.bull_flag_trigger_offset_ticks == 1
-    assert settings.bull_flag_fill_offset_ticks == 3
-    setup = detect_setup_with_settings(_BARS, settings)
+    s = settings()
+    assert s.bull_flag_trigger_offset_ticks == 1
+    assert s.bull_flag_fill_offset_ticks == 3
+    setup = detect_setup_with_settings(_BARS, s)
     assert setup is not None
-    tick = settings.tick_size
+    tick = s.tick_size
     assert setup.entry_trigger == pytest.approx(setup.breakout_level + 1 * tick)
     assert setup.entry_fill == pytest.approx(setup.breakout_level + 3 * tick)
 
