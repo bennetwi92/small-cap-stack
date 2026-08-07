@@ -7,14 +7,17 @@ is exactly that shape of job. So the harvest is defensive by construction, in th
 
 1. **Streaming** — one session, one symbol at a time. That lives in :mod:`.runner`; it is what
    makes peak memory independent of how many sessions are harvested.
-2. **A window the job refuses to run outside** (:class:`RunWindow`). The box's day is booked:
-   ``eod_backfill`` 03:45 ET, the scan window 04:00–11:59 ET, ``eod_bars_fetch`` 16:20,
-   ``eod_report`` 16:30. The harvest gets 12:30 → 03:00 ET and checkpoints itself out well clear of
-   03:45. The window spans the two EOD jobs; :func:`~.runner.effective_deadline` — not this guard —
-   is what keeps the harvest out of them (#455), for the reason spelled out in point 3.
+2. **A window the job refuses to run outside** (:class:`RunWindow`, chosen by :func:`window_for`).
+   The box's day is booked: ``eod_backfill`` 03:45 ET, the scan window 04:00–11:59 ET,
+   ``eod_bars_fetch`` 16:20, ``eod_report`` 16:30. The harvest gets 12:30 → 03:00 ET and checkpoints
+   itself out well clear of 03:45. The window spans the two EOD jobs;
+   :func:`~.runner.effective_deadline` — not this guard — is what keeps the harvest out of them
+   (#455), for the reason spelled out in point 3.
    Being *launched* at the right time is not the same as *refusing* to run at the wrong one:
    a systemd timer that fires late, a manual re-run, or a job that overruns its night all end up
    inside the scan window, and only the second kind of check catches those.
+   On a day the market is **shut** the booking is almost empty — the scan and both EOD jobs are
+   gated on the same calendar the tracker uses — so the window opens at 05:00 instead (#633).
 3. **Host headroom checked before every session** (:class:`HostGuard`). This is the in-process
    half; the kernel-enforced half is ``MemoryMax=1G`` on the systemd scope (see
    ``deploy/scs-harvest.service``). Both are needed and neither substitutes: the guard stops the
@@ -34,6 +37,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
 from ..clock import ET
+from ..config import Settings
+from ..market_calendar import is_trading_day
 from ..monitoring import mem_available_mb
 
 
@@ -94,6 +99,25 @@ class RunWindow:
 
     def describe(self) -> str:
         return f"{self.start.strftime('%H:%M')}–{self.stop.strftime('%H:%M')} ET"
+
+
+def market_closed(s: Settings, day: date) -> bool:
+    """Is ``day`` a weekend, a holiday, or an ad-hoc closure? The tracker's own gate (#137)."""
+    return not is_trading_day(day, extra_closed=s.calendar_closed_dates)
+
+
+def window_for(s: Settings, day: date) -> RunWindow:
+    """The window a run STARTING on ``day`` gets — the near-whole day when the market is shut.
+
+    Keyed on the start date rather than evaluated continuously, because a run is one process with
+    one deadline: a Saturday 05:00 run legitimately continues to Sunday 03:00, and re-deciding the
+    window at midnight would either cut it short or extend a Friday-night run into Saturday's.
+
+    The stop is the same 03:00 every day (``portfolio_refresh`` 03:15 and ``eod_backfill`` 03:45 do
+    not take weekends off); only the opening moves. See ``Settings.harvest_weekend_start_et``.
+    """
+    start = s.harvest_weekend_start_et if market_closed(s, day) else s.harvest_start_et
+    return RunWindow(start=start, stop=s.harvest_stop_et)
 
 
 @dataclass(frozen=True)

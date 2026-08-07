@@ -304,8 +304,8 @@ Rebuilds pre-market sessions the tracker never saw from purchased vendor minute 
 untouched live `books`; nothing that reads the live store can return vendor rows by accident.
 
 Ingest is #430's decision — the vendor's **free tier**, no purchase — so the job is priced by a
-**5 calls/min** limit: ~218 calls a session, ~18 sessions across the 12:30-03:00 ET day (#455),
-~27 days for two years. It runs newest-first and lands whole sessions as it goes, so the deliverable is a deeper
+**5 calls/min** limit: ~218 calls a session, ~18 sessions across the 12:30-03:00 ET day (#455) and
+~29 across a market-closed day's 05:00-03:00 (#633). It runs newest-first and lands whole sessions as it goes, so the deliverable is a deeper
 sample every morning rather than a backtest in six weeks. **Stopping it early is always safe.**
 
 ### The vendor key — set up from a phone, no SSH
@@ -377,7 +377,8 @@ cd /opt/small-cap-stack
 ```
 
 - ⚠️ **Both vendor-spending commands (`daily` and `run`) refuse to start outside 12:30–03:00 ET**
-  and stop themselves at 03:00, clear of the 03:45 `eod_backfill` and the 04:00 scan window.
+  (**05:00–03:00 on a day the market is shut**, #633) and stop themselves at 03:00, clear of the
+  03:15 `portfolio_refresh`, the 03:45 `eod_backfill` and the 04:00 scan window.
   Overriding takes two flags (`--ignore-window --force`) — don't, during market hours. Being
   *launched* at the right time and *refusing* the wrong one are different guarantees; only the
   second survives a late timer.
@@ -393,6 +394,17 @@ cd /opt/small-cap-stack
   fires at **12:30, 17:15, 20:00 and 23:00**: 17:15 does the evening, and the later two recover a
   run the guard ended at an arbitrary boundary. Re-fires while a run is in flight cost nothing —
   systemd merges the duplicate start job, so nothing appears in the journal at all.
+- **Why a market-closed day gets 05:00–03:00 and no recess (#633).** Everything the 12:30 opening
+  ducks is trading-day-only: the scan window and both EOD jobs are gated on the same XNYS calendar
+  the tracker uses, so on a Saturday, Sunday or holiday they do not run at all and the 16:10 recess
+  costs eleven hours for nothing. What *is* daily is `portfolio_refresh` 03:15 and `eod_backfill`
+  03:45 — hence the **unchanged 03:00 stop** and a 05:00 rather than 04:00 start, which leaves the
+  backfill an hour to finish (a `HostGuard` trip at the first session boundary ends the *whole*
+  run). ~22 usable hours instead of ~13.4, twice a week. The timer gets two extra `Sat,Sun` fires,
+  **05:00** and **08:00**, mirroring the weekday opening-plus-recovery pair.
+  ⚠️ A **holiday** gets the wider window and the skipped recess — both are decided in the app, from
+  the calendar — but **no early fire**: systemd has no trading calendar, so the first fire is 12:30
+  as usual. Deliberate; a second scheduling mechanism on the box is not worth one morning a year.
 - ⚠️ **Memory.** The container gets a hard `--memory=1g` with **no swap**, one CPU, and
   `--oom-score-adj=800` so the kernel prefers it over everything else on the box. It is a separate
   `docker run`, **not** `docker exec` into the app — sharing the tracker's cgroup would spend the

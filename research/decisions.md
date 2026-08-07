@@ -889,6 +889,19 @@ on a box that has already killed itself once*.
    across both EOD jobs while `build_portfolio_payload` runs. A deadline is enforced between
    symbols and by the "don't start what you cannot finish" pre-check, so it bounds where the
    container can still be *running*; the guard only bounds where a new session may *begin*.
+   ⚠️ **AMENDED 2026-08-07 (#633): on a day the market is shut the window is 05:00→03:00 and there
+   is no recess.** The 12:30 opening and the 16:10 recess are both trading-day artefacts — the scan
+   window, `eod_bars_fetch` and `eod_report` are all gated on the same XNYS calendar (#137), so on
+   a Saturday, Sunday or holiday none of them run and the recess costs eleven hours to avoid
+   nothing. The **stop does not move**: `portfolio_refresh` (03:15) and `eod_backfill` (03:45) are
+   not calendar-gated, and the first of those is `build_portfolio_payload`, the #264/#273 job. The
+   start is 05:00 rather than 04:00 by the same asymmetry — a run must be *finished* before a heavy
+   job and *started* only after one, and `eod_backfill`'s length grows with the store, so opening
+   on top of it risks `HostGuard` ending the whole 22-hour run at its first session boundary.
+   ~22 usable hours against ~13.4, twice a week: weekly capacity ~119 sessions → ~143.
+   The gate is the calendar, not `weekday() >= 5`, so holidays and ad-hoc closures
+   (`calendar_closed_dates`) are covered; an **early-close half day is still a trading day** and
+   keeps the recess, because the EOD jobs run at 16:20/16:30 on it as usual.
 3. **A cgroup limit the kernel enforces** — a separate `docker run --memory=1g` with swap disabled
    and `--oom-score-adj=800`. Deliberately **not** `docker exec` into the app: sharing the
    tracker's 2 GB cgroup would spend the tracker's headroom and OOM the tracker instead of the

@@ -82,7 +82,7 @@ from ..market_calendar import is_trading_day, previous_session
 from ..scanner import Candidate
 from ..storage import Store
 from .checkpoint import Checkpoint
-from .guard import HostGuard, RunWindow, peak_rss_mb
+from .guard import HostGuard, RunWindow, market_closed, peak_rss_mb
 from .prefilter import DailyRow, candidates, universe_rows
 from .reconstruct import PREMARKET, aggregate, reconstruct_hit, to_bars, trim_session
 from .source import HarvestEntitlementError, HarvestError, HarvestSource
@@ -419,9 +419,14 @@ def effective_deadline(window: RunWindow, s: Settings, started: datetime) -> dat
     running; the guard only bounds where a *new session* may begin.
 
     Evening runs are unaffected: the recess is in the past by then, so the window's own stop wins.
+    So are runs that start on a day the market is shut (#633): both EOD jobs return immediately on
+    the calendar gate, so there is nothing at 16:20 or 16:30 to duck and the recess would only cost
+    the eleven hours it exists to protect.
     """
     stop = window.deadline(started)
     et = started.astimezone(ET)
+    if market_closed(s, et.date()):
+        return stop  # nothing runs at 16:20/16:30 on a closed day — see the docstring
     if et.time() >= s.harvest_eod_recess_et:
         return stop  # started after the recess (the evening run) — nothing to duck
     recess = datetime.combine(et.date(), s.harvest_eod_recess_et, tzinfo=ET)

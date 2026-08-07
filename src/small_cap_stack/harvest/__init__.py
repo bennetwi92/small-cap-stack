@@ -12,7 +12,7 @@ scanner's history.
 from __future__ import annotations
 
 from .checkpoint import Checkpoint
-from .guard import HostGuard, RunWindow, peak_rss_mb
+from .guard import HostGuard, RunWindow, market_closed, peak_rss_mb, window_for
 from .prefilter import DailyRow, candidates, sweep_floors, universe_rows
 from .reconstruct import (
     PREMARKET,
@@ -71,6 +71,7 @@ __all__ = [
     "harvest_session",
     "harvest_store",
     "load_exclusions",
+    "market_closed",
     "peak_rss_mb",
     "plan_sessions",
     "reconstruct_hit",
@@ -83,4 +84,5 @@ __all__ = [
     "trading_sessions",
     "trim_session",
     "universe_rows",
+    "window_for",
 ]

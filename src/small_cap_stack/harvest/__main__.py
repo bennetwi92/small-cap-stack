@@ -9,7 +9,8 @@
 
 ``run`` refuses to start outside 12:30–03:00 ET and stops itself well clear of the 03:45 ET
 ``eod_backfill`` — and an afternoon run stops at the 16:10 recess so it is never mid-session
-during the 16:20/16:30 EOD jobs (#455). Overriding that takes **two** flags
+during the 16:20/16:30 EOD jobs (#455). On a day the market is shut none of those jobs run, so the
+window opens at 05:00 and the recess is skipped (#633). Overriding that takes **two** flags
 (``--ignore-window --force``), on the #261 principle that a confirmation the caller can
 auto-answer protects nobody — and on this box the
 thing being protected is the live tracker's morning.
@@ -30,7 +31,7 @@ from ..logging import configure_logging
 from ..portfolio import collected_dates
 from ..storage import Store
 from .checkpoint import Checkpoint
-from .guard import RunWindow
+from .guard import RunWindow, window_for
 from .prefilter import candidates, sweep_floors
 from .runner import (
     SessionResult,
@@ -57,7 +58,12 @@ def _now() -> datetime:
 
 
 def _window(s: Settings) -> RunWindow:
-    return RunWindow(start=s.harvest_start_et, stop=s.harvest_stop_et)
+    """Tonight's window — wider on a day the market is shut (#633).
+
+    Read from the clock rather than passed in, so the window a command CHECKS and the window the
+    runner ENFORCES can never be derived from two different days.
+    """
+    return window_for(s, _now().date())
 
 
 def _live_dates(s: Settings) -> list[date]:
@@ -232,7 +238,7 @@ def _window_blocks(s: Settings, args: argparse.Namespace) -> int | None:
     if not args.ignore_window and not win.is_open(now):
         print(
             f"refusing to start at {now:%H:%M} ET — the harvest window is {win.describe()}. "
-            f"It next opens at {s.harvest_start_et:%H:%M} ET.",
+            f"It next opens at {win.start:%H:%M} ET.",
             file=sys.stderr,
         )
         return 3
@@ -366,7 +372,12 @@ def cmd_sweep(s: Settings, args: argparse.Namespace) -> int:
     # while the window was 17:00-03:00 — already an under-count — and widening the window to
     # 12:30-03:00 would have left `sweep` recommending a floor against a day 70% shorter than the
     # one the harvest actually gets, which is precisely the decision this command exists to inform.
-    window_hours = _window(s).length_hours() - _eod_gap_hours(s)
+    #
+    # The TRADING-day window explicitly, not `_window(s)` (#633): the floor this recommends applies
+    # to the whole harvest, and running the command on a Saturday must not size it against the one
+    # kind of day that gets 22 hours. Five days a week could not pay for that floor.
+    trading_night = RunWindow(start=s.harvest_start_et, stop=s.harvest_stop_et)
+    window_hours = trading_night.length_hours() - _eod_gap_hours(s)
     night_calls = window_hours * 3600 / s.harvest_rate_sleep_sec
     _print(
         {

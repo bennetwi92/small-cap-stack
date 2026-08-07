@@ -12,7 +12,8 @@
 #     /opt/small-cap-stack/scripts/harvest.sh status         # what is done, what is left
 #     /opt/small-cap-stack/scripts/harvest.sh run --limit 1  # the single-session smoke test
 #
-# The job refuses to start outside 12:30-03:00 ET on its own (harvest_start_et/harvest_stop_et), so
+# The job refuses to start outside 12:30-03:00 ET on its own (05:00-03:00 when the market is shut
+# — harvest_start_et/harvest_weekend_start_et/harvest_stop_et), so
 # a timer that fires late, or a hand-run at the wrong hour, stops itself rather than competing with
 # the 04:00 scan window. That check lives in the app, not here, precisely so this script cannot be
 # the thing that gets it wrong.
