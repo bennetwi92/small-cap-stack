@@ -53,6 +53,10 @@ Toolchain lives in `.venv`. CI runs ruff + mypy + pytest on every PR.
 ```
 - Python **3.11**. mypy is `--strict` and only checks `src/small_cap_stack` (so `spikes/` is exempt).
 - Trading logic (gates, sizing, stats) must be exhaustively unit-tested — it is the product.
+- **Coverage is gated on `main`, not on PRs (#494/#495).** The PR run is the merge gate and passes
+  `--no-cov`; the push-to-main run is the covered one and enforces `--cov-fail-under=80`. Locally
+  `make check` always runs with coverage, so a PR that would drop `main` below 80% is visible
+  before you push — the split is about CI cost, not about relaxing the bar.
 
 ## Throughput & estimation (calibration for "how long will this take")
 Use these as **estimation anchors**, not targets — they're what one focused agent day actually
