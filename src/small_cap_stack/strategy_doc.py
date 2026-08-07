@@ -167,6 +167,11 @@ def render_engine(s: Settings) -> str:
         ),
         _row("Stop", "the consolidation low", "— `R = fill − stop`"),
         _row(
+            "Appearance",
+            "the trigger bar must open at or after the first scanner hit",
+            "— structural; see `bullflag/day.py`",
+        ),
+        _row(
             "Staleness",
             f"the trigger bar must open ≤ {s.entry_staleness_min} min after the first scanner hit",
             _field("entry_staleness_min"),

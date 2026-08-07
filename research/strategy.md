@@ -90,6 +90,7 @@ between §1 and §2.
 | Trigger (decides *when*) | last consolidation high + 1 tick ($0.01) | `bull_flag_trigger_offset_ticks` |
 | Fill (R is measured here) | last consolidation high + 3 ticks ($0.03) | `bull_flag_fill_offset_ticks` |
 | Stop | the consolidation low | — `R = fill − stop` |
+| Appearance | the trigger bar must open at or after the first scanner hit | — structural; see `bullflag/day.py` |
 | Staleness | the trigger bar must open ≤ 30 min after the first scanner hit | `entry_staleness_min` |
 | Gap pole | the session's first bar may anchor a single-bar pole | `bull_flag_gap_pole` |
 | Exhaustion | reject the 3rd+ contiguous cycle of the day | `bull_flag_exhaustion_cap` |
