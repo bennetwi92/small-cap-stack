@@ -131,7 +131,13 @@ def _session_reporter(s: Settings) -> Callable[[SessionResult], None]:
         try:
             publish_recon_charts(s, dates=[r.trading_date])
         except Exception as exc:  # noqa: BLE001 — never let the dashboard stop the harvest
-            print(f"warning: publishing charts for {r.trading_date} failed: {exc}", file=sys.stderr)
+            # Type as well as message (#511): this runs unattended under scs-harvest.timer, and
+            # `str(exc)` is the empty string for a bare TimeoutError — the shape most likely here.
+            print(
+                f"warning: publishing charts for {r.trading_date} failed: "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
 
     return report
 

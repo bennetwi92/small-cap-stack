@@ -6,12 +6,15 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
+from structlog.testing import capture_logs
+
 from small_cap_stack.capture import CaptureService
 from small_cap_stack.config import Settings
 from small_cap_stack.fundamentals import (
     FMPFundamentals,
     Fundamentals,
     MultiFundamentals,
+    YFinanceFundamentals,
     _first_row,
     _to_float,
     _to_int,
@@ -191,6 +194,28 @@ def test_fmp_fetch_error_payload_returns_none() -> None:
 def test_fmp_fetch_http_error_returns_none() -> None:
     src = _FMPStub(RuntimeError("boom"))  # network hiccup / quota -> row simply absent
     assert asyncio.run(src.fetch(_cand())) is None
+
+
+def test_fmp_fetch_http_error_is_logged_with_the_exception() -> None:
+    """The swallow used to be silent (#511) — a missing float left no trace anywhere."""
+    src = _FMPStub(RuntimeError("boom"))
+    with capture_logs() as events:
+        assert asyncio.run(src.fetch(_cand())) is None
+    assert [e["event"] for e in events] == ["fundamentals.fmp_failed"]
+    assert events[0]["symbol"] == "AZI"
+    assert events[0]["exc_info"] is True
+
+
+def test_yfinance_fetch_failure_is_logged_with_the_exception() -> None:
+    class _YFStub(YFinanceFundamentals):
+        def _info(self, symbol: str) -> dict[str, object]:
+            raise RuntimeError("boom")
+
+    with capture_logs() as events:
+        assert asyncio.run(_YFStub().fetch(_cand())) is None
+    assert [e["event"] for e in events] == ["fundamentals.yfinance_failed"]
+    assert events[0]["symbol"] == "AZI"
+    assert events[0]["exc_info"] is True
 
 
 def test_fmp_fetch_no_key_returns_none() -> None:

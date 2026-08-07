@@ -204,7 +204,7 @@ def harvest_progress(settings: Settings, *, now: datetime) -> dict[str, Any] | N
             return None
         cp = Checkpoint.load(path)
     except Exception:  # noqa: BLE001 — a status tick must never die over a progress read
-        log.warning("dashboard.harvest_progress_failed")
+        log.warning("dashboard.harvest_progress_failed", exc_info=True)
         return None
 
     today = now.astimezone(ET).date()
