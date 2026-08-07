@@ -104,8 +104,21 @@ live book. Two views: the full adaptive book per variant (what you'd have experi
 ladder and costs included) and a signal-isolation view that buckets every candidate pre-market vs
 post-open, unsized and cost-free, so the ladder doesn't confound the comparison.
 
-Answered #379 (2026-07-19): **keep the 09:30 pre-market cutoff** — every relaxation was worse over
-the 12-session sample, and post-open candidates lost ~0.5R each against pre-market's ~breakeven.
+Answered #379 (2026-07-19): **keep the pre-market cutoff** — every relaxation was worse over the
+12-session sample, and post-open candidates lost ~0.5R each against pre-market's ~breakeven.
+
+> ⚠️ **Superseded — noted here 2026-08-07 (#536).** The cutoff this answer defended was 09:30;
+> the live one is **09:15** (`config.py::select_window_end`), tightened by **#383** on 2026-07-21
+> because the final pre-open ramp/auction trades like the open, which this strategy excludes.
+> #379/#380 only ever swept *relaxations* (10:00–12:00), so nothing here argued against tightening.
+>
+> The window's lower end has its own history, and it is not the one you would guess: a **05:30
+> floor shipped** (#405, 2026-07-31) and was **reversed** a week later (#569, 2026-08-07), leaving
+> 04:00 with no floor. Note the replay *favoured* the floor — 14 trades / +9.62R with it against
+> 18 / +4.93R without — and it was reversed anyway, on the standing "an unmeasured rule defaults
+> open" principle plus a year of the owner's own trading saying the best fills come at 04:00.
+> n=4 unlocked trades decides nothing either way. `research/decisions.md` carries the reasoning;
+> `research/strategy.md` carries the live value.
 
 Any variant must be **decidable at trigger time** — ranking a day's candidates against each other is
 look-ahead bias. Running it surfaced #381 (the book selected different trades on identical inputs);
@@ -188,8 +201,11 @@ review cases (real bars, real logged appearance times):
   harness inverts the gate and solves for the interval of prior closes consistent with the observed
   appearance, so the missing input is falsifiable rather than assumed).
 - **5/25 are unexplained** by any previous close (FATE, FWDI, CIFR, IREN, OPEN) — these bound how
-  far a reconstructed universe transfers, and point at the two known biases: the IBKR 50-row cap on
-  a busy morning, and a vendor volume basis that disagrees with `stVolume5minAbove`.
+  far a reconstructed universe transfers. By construction *no* feasible previous close explains
+  them (a feasible one lands the case in `change-gate` instead), so the residual mechanism is
+  genuinely open; the known candidate bias is a vendor volume basis that disagrees with
+  `stVolume5minAbove`. (This bucket was attributed to "the IBKR 50-row cap on a busy morning"
+  until #536; #460 measured that cap as never binding — see the amendment below.)
 - Given the right appearance bar, the **engine reproduces the trade 24/25** and agrees on takeable
   **25/25** — so the reconstruction risk is concentrated entirely in *appearance time*, not in
   detection. That is the useful decomposition: buy the previous closes, and the rest follows.
@@ -271,22 +287,44 @@ review cases, 8 of which carry a live pre-market appearance. 31 vendor calls on 
 - **The prev-close inversion validated out of sample:** intervals predicted before the data was
   bought contained the true previous close in **6 of 8** (MSTZ predicted 10.99–11.19, actual 11.11).
 
-**The two divergences are separate mechanisms, and only one is fixable.**
+**The two divergences.** They were long described as separate mechanisms with only one
+fixable; #460 disproved the second, and see the amendment below for where that leaves them.
 
 1. **OKLL — IBKR's change-percent reference is not the consolidated previous close.** It surfaced
    OKLL at 06:04, when the price implies only 9.6% against Massive's 4.91 close. For IBKR to have
    seen >10%, its reference must be **≥0.39% lower**. A systematic, correctable offset.
-2. **SNDQ — the 50-row rank cap, and this is provable rather than guessed.** SNDQ passed every gate
-   from 04:27 (10.3% change, 114k 5-min volume; IBKR's own volume was 1.88M at 04:00, so volume is
-   not the constraint), yet the tracker first saw it at 08:35 — when the price was *lower* (2.14)
-   than at 04:27 (2.15). **No fixed change reference can produce that ordering**, so no gate
-   explains it; only capacity can. `TOP_PERC_GAIN` returns 50 rows, and on a busy morning a name up
-   "only" 10% does not make the list.
+2. **SNDQ — a late appearance no fixed change reference explains.** SNDQ passed every gate from
+   04:27 (10.3% change, 114k 5-min volume; IBKR's own volume was 1.88M at 04:00, so volume is not
+   the constraint), yet the tracker first saw it at 08:35 — when the price was *lower* (2.14) than
+   at 04:27 (2.15). No fixed change reference produces that ordering, so no gate explains it.
 
-That second one is the real limit on transferability, and it is a **ranking** effect, not a gate:
-a per-symbol reconstruction cannot see it at all. Reproducing it needs the whole market ranked at
-each moment — which the Stage-3 shape (grouped-daily for everything, minute bars for candidates)
-is already positioned to do, and which a per-symbol harvest would silently get wrong.
+> ⚠️ **AMENDED 2026-08-06 (#460), corrected here 2026-08-07 (#536).** This section used to read
+> "the 50-row rank cap, and this is provable rather than guessed … only capacity can [explain it]"
+> — the most strongly-worded claim in the repo, and **wrong**. Measurement says the 50-row cap has
+> **never bound**: across 20 live days the busiest tick carried **45** symbols, and pre-market
+> peaked at **11**. The divergence is real; the mechanism isn't capacity. The live hypothesis is
+> the same one that explains OKLL above — IBKR's change-percent *reference price* (#433) — which
+> would also move an appearance time without any ranking involved.
+>
+> The retraction is recorded at `research/decisions.md` (2026-08-06) and in `config.py`; this file
+> was missed, so the disproved version stood here for a day. It matters beyond tidiness: it feeds
+> a wrong prior about recon-vs-live density, which is live work.
+>
+> **What replaces it is: not known.** #433's reference-price offset is the obvious candidate and
+> explains OKLL, but as described everywhere in this repo that offset is *fixed* and systematic —
+> and a fixed reference is exactly what item 2 above rules out. Either the reference moves
+> intraday (nothing here has shown that) or the mechanism is something else. Say "unexplained"
+> until it is measured; that is the whole lesson of the sentence being retracted.
+
+The transferability picture is correspondingly open. A per-symbol reconstruction *can* model a
+wrong reference price — that is what #433's inversion harness does — but it could never model a
+ranking effect, so which of those SNDQ is decides how much the whole-market view is worth. The
+Stage-3 shape (grouped-daily for everything, minute bars for candidates) buys that view either way.
+
+⚠️ **The harness still prints the old label.** `spikes/massive_calibration.py` classifies this
+divergence as `"rank-cap"` and `tests/test_massive_calibration_divergence.py` pins it, as does
+`spikes/scanner_reconstruct.py`'s commentary. Read that string as *"late appearance, no fixed
+reference explains it"* — the classifier's name, not a claim about capacity.
 
 Fetch and analysis are split so the free tier's 5-calls/min budget is spent once:
 
@@ -313,13 +351,13 @@ busiest field collected — 100 opportunities) and 2026-08-03, 33 vendor calls:
 | Massive/IBKR volume | median 1.10×, max 2.29× | median **1.18×**, max **3.37×** |
 | close agreement | median $0.005, max $0.033 | median **$0.002**, max **$0.11** |
 | prev-close intervals | 6/8 | **24/27 (89%)** |
-| divergences >5 min | 2 (rank cap, change reference) | **0** |
+| divergences >5 min | 2 (both appearance-timing — see the amendment above) | **0** |
 
 ΣMax R 32.478 live vs 32.472 reconstructed, 3 takeable either way.
 
 **Read the zero narrowly.** `--live-window-only` scopes the harvest to symbol-days the live scanner
-*did* surface pre-market, so the rank-cap population — a symbol whose gates passed at 05:00 that
-IBKR only surfaced at 10:30 — was never fetched. Zero unexplained is therefore conditional on *the
+*did* surface pre-market, so the late-appearance population — a symbol whose gates passed at 05:00
+that IBKR only surfaced at 10:30 — was never fetched. Zero unexplained is therefore conditional on *the
 scanner surfaced it*, and says nothing about the false-positive side where #432 lives. Both dates
 also sit within five weeks of the in-sample week, because collection only began 2026-07-01: this is
 a different-week test, not a different-regime one.
@@ -378,7 +416,8 @@ the approach.)
 volume**, not cumulative day volume. `volumeAbove` and snapshot `dayVol` are both day-cumulative;
 IBKR exposes the short-term window natively, so we filter on it directly
 (`stVolume5minAbove`) rather than deriving it from bars. Scanner breadth was later raised to the
-50-row API cap (#—, `decisions.md`).
+50-row API maximum (`decisions.md`) — which #460 then measured as **never binding** in practice
+(busiest live tick: 45 symbols; pre-market peak: 11), so it is headroom rather than a constraint.
 
 ```bash
 python spikes/api_scanner_vs_mosaic.py --dump-params            # → data/spikes/scanner_parameters.xml
