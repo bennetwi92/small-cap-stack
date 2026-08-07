@@ -7,6 +7,8 @@ import tomllib
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
+import pytest
+
 from small_cap_stack.clock import ET
 from small_cap_stack.harvest.guard import RunWindow
 from tests.support import settings
@@ -408,3 +410,109 @@ def test_box_jobs_are_bounded_well_below_the_harvest_window() -> None:
     assert not over, "box jobs (other than the harvest) must be capped at <= 30 min:\n" + "\n".join(
         over
     )
+
+
+# --------------------------------------------- on-demand jobs get their own cgroup (#545)
+
+#: Workflows that run work against the box's store on demand, and the label each passes.
+BOX_JOB_WORKFLOWS = ("backfill-dashboard.yml", "data-export.yml", "deploy-backfill-publish.yml")
+
+
+def test_no_workflow_execs_into_the_app_container() -> None:
+    """`docker exec` puts the work inside the TRACKER's cgroup.
+
+    compose caps the app at `mem_limit: 2g` with `oom_score_adj: 500`, and
+    `build_portfolio_payload` holds every collected day's bars in memory regardless of which date
+    was asked for (#273). So a growing backfill pushed that cgroup over and the kernel reaped the
+    live tracker rather than the job — the shape of #264. `scripts/harvest.sh` was rewritten around
+    this exact lesson, and `deploy/actions-runner-restart.conf` says "constraining backfill memory
+    has to happen at the container level"; nothing had done it.
+
+    It also matters for #544's timeouts: `docker exec` does not forward a cancellation inward, so
+    killing the client left the work running. An attached `docker run` gets the signal.
+    """
+    offenders = []
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        for i, line in enumerate(path.read_text().splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue  # the prose explaining all this necessarily names it
+            if "docker exec" in stripped:
+                offenders.append(f"{path.name}:{i}: {stripped}")
+    assert not offenders, (
+        "run box work via scripts/box-job.sh (its own container + cgroup), not docker exec:\n"
+        + "\n".join(offenders)
+    )
+
+
+@pytest.mark.parametrize("wf", BOX_JOB_WORKFLOWS)
+def test_box_job_workflows_use_the_shared_runner(wf: str) -> None:
+    """One runner, so the memory envelope and the session guard are single-sourced."""
+    text = (ROOT / ".github" / "workflows" / wf).read_text()
+    assert "scripts/box-job.sh" in text, f"{wf} must run its work through scripts/box-job.sh"
+    assert "ignore_window" in text, f"{wf} must expose the session-window override"
+
+
+def test_box_job_runner_bounds_memory_and_swap() -> None:
+    """The container limit is the primary protection; the slice is only a backstop.
+
+    A slice that isn't installed on the box is created unbounded, so `--memory` here is what
+    actually holds on a fresh host. `--memory-swap` must equal it: that value is the COMBINED
+    limit, so anything larger re-admits the swapping that thrashes the CX23 past sshd (#264/#320).
+    """
+    sh = (ROOT / "scripts" / "box-job.sh").read_text()
+    assert "--memory=" in sh and "--memory-swap=" in sh
+    assert '--memory="$MEM_LIMIT"' in sh and '--memory-swap="$MEM_LIMIT"' in sh, (
+        "memory and memory-swap must be the same value, or the job can swap"
+    )
+    assert "--cgroup-parent=scs-jobs.slice" in sh, "without this the limits bind the docker client"
+    assert "--oom-score-adj=800" in sh, (
+        "under host pressure the kernel must take the job, not the app"
+    )
+    # Its own slice, not the harvest's: sharing lets a dispatched job push a running harvest over.
+    assert "scs-harvest.slice" not in sh
+
+
+def test_the_jobs_slice_is_stricter_than_the_container_limit() -> None:
+    """So a job normally dies inside its own cgroup with an attributable OOM."""
+    slice_unit = (ROOT / "deploy" / "scs-jobs.slice").read_text()
+    assert "MemoryMax=1200M" in slice_unit
+    assert "MemorySwapMax=0" in slice_unit, "the swapfile is the tracker's cushion, not a job's"
+
+
+def test_box_jobs_refuse_the_live_session_window() -> None:
+    """The harvest refuses outside 12:30-03:00 ET; these had no guard at all, so a phone dispatch
+    at 09:45 competed with the live scan on a 2-vCPU box."""
+    sh = (ROOT / "scripts" / "box-job.sh").read_text()
+    assert "BOX_JOB_IGNORE_WINDOW" in sh, "there must be a documented override"
+    assert "1610" in sh, "the window must end at the harvest's own 16:10 EOD recess (#455)"
+    assert "exit 1" in sh, "it must refuse rather than wait — waiting holds the single runner"
+
+
+def test_every_box_job_step_has_a_checkout_in_its_job() -> None:
+    """`scripts/box-job.sh` is a WORKSPACE path, so the job must check the repo out (#545).
+
+    This is the mistake #545's first draft shipped. `docker exec` needed nothing from the
+    workspace, so neither backfill job had a checkout — and the self-hosted runner shares one
+    workspace across workflows. Worse, `deploy-backfill-publish`'s deploy job sparse-checks-out
+    only `.github/actions` and runs `git clean -ffdx` in that same directory immediately before
+    the backfill job, so `scripts/` was deterministically absent: broken 100% of the time.
+
+    The non-deterministic case is nastier than the deterministic one — if a previous run happened
+    to leave a full checkout, the job silently executes a STALE box-job.sh from whatever ref that
+    run used.
+    """
+    for wf in BOX_JOB_WORKFLOWS:
+        text = (ROOT / ".github" / "workflows" / wf).read_text()
+        # Split into jobs on the two-space job keys, then require any job that calls the runner to
+        # also check out. Per job, not per file: the pipeline's deploy job has a checkout that
+        # does NOT help its backfill job.
+        blocks = re.split(r"^  (?=[\w-]+:\s*$)", text.split("\njobs:", 1)[1], flags=re.M)
+        for block in blocks:
+            if "box-job.sh" not in block:
+                continue
+            name = block.split(":", 1)[0].strip()
+            assert "actions/checkout" in block, (
+                f"{wf}:{name} runs scripts/box-job.sh but never checks the repo out — on the "
+                f"shared self-hosted workspace that file is absent or stale."
+            )
