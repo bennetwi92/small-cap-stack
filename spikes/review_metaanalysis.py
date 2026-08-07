@@ -239,7 +239,7 @@ def main() -> None:
                         ),
                         "short_percent": short_pct,
                         "news_count": len(news_times) + _undated,
-                        "news_recent": _news_recent(news_times, d),
+                        "news_recent": _news_recent(news_times, d, settings),
                         # --- candidate features (unused today) ---
                         **et_time_features(run.first_hit),
                         **rank_features(scans, base_oid),

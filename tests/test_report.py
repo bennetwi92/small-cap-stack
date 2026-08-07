@@ -14,7 +14,6 @@ from small_cap_stack.report import (
     OpportunityAnalysis,
     _funds_for,
     _news_recent,
-    _previous_trading_day,
     _segment_runs,
     _to_markdown,
     build_eod_report,
@@ -31,8 +30,8 @@ from tests.support import settings
 _DAY = _T0.date()
 
 
-def _settings() -> Settings:
-    return settings()
+def _settings(**overrides: object) -> Settings:
+    return settings(**overrides)
 
 
 def _bar_row(
@@ -507,24 +506,44 @@ def test_news_recent_flags_today_or_yesterday(tmp_path: Path) -> None:
     assert report.aggregates["with_recent_news"] == 2  # TODAY + YEST, not OLD
 
 
-def test_previous_trading_day_skips_weekends() -> None:
-    assert _previous_trading_day(date(2026, 6, 29)) == date(2026, 6, 26)  # Monday -> Friday
-    assert _previous_trading_day(date(2026, 6, 30)) == date(2026, 6, 29)  # Tuesday -> Monday
-
-
 def test_news_recent_spans_the_weekend_gap() -> None:
     # A Friday catalyst (and weekend news) ahead of a Monday trade must read as recent — the old
     # today/yesterday window silently dropped Friday, the most common pre-Monday driver (#163-C4).
+    recent = lambda story, day: _news_recent([story], day, _settings())  # noqa: E731
     monday = date(2026, 6, 29)
-    assert _news_recent([datetime(2026, 6, 26, 14, 0, tzinfo=UTC)], monday) is True  # Fri
-    assert _news_recent([datetime(2026, 6, 27, 18, 0, tzinfo=UTC)], monday) is True  # Sat
-    assert _news_recent([datetime(2026, 6, 24, 14, 0, tzinfo=UTC)], monday) is False  # prior Wed
+    assert recent(datetime(2026, 6, 26, 14, 0, tzinfo=UTC), monday) is True  # Fri
+    assert recent(datetime(2026, 6, 27, 18, 0, tzinfo=UTC), monday) is True  # Sat
+    assert recent(datetime(2026, 6, 24, 14, 0, tzinfo=UTC), monday) is False  # prior Wed
     # Mid-week is unchanged: the prior session counts, two sessions back does not.
     tuesday = date(2026, 6, 30)
-    assert _news_recent([datetime(2026, 6, 29, 14, 0, tzinfo=UTC)], tuesday) is True  # Mon
-    assert (
-        _news_recent([datetime(2026, 6, 26, 14, 0, tzinfo=UTC)], tuesday) is False
-    )  # Fri, too old
+    assert recent(datetime(2026, 6, 29, 14, 0, tzinfo=UTC), tuesday) is True  # Mon
+    assert recent(datetime(2026, 6, 26, 14, 0, tzinfo=UTC), tuesday) is False  # Fri, too old
+
+
+def test_news_recent_spans_a_holiday_gap() -> None:
+    """#514: the window used to open on the previous *weekday*, so after a holiday it started on
+    a day the market was shut and the last real session's news fell outside it.
+
+    Friday 2026-11-27 is the half day after Thanksgiving; Thursday the 26th is closed. The prior
+    session is **Wednesday the 25th**, so a Wednesday-evening catalyst is the freshest there is
+    and must read as recent. Under the weekday walk the window started Thursday and it did not.
+    """
+    friday = date(2026, 11, 27)
+    wed_evening = datetime(2026, 11, 26, 1, 0, tzinfo=UTC)  # 2026-11-25 20:00 ET
+    assert _news_recent([wed_evening], friday, _settings()) is True
+    # Two sessions back is still too old — the window widened by a holiday, it didn't lose a floor.
+    tuesday_story = datetime(2026, 11, 24, 15, 0, tzinfo=UTC)
+    assert _news_recent([tuesday_story], friday, _settings()) is False
+
+
+def test_news_recent_follows_a_manual_closure_override() -> None:
+    """The unscheduled-closure hook has to move this window too, or a patched holiday reopens the
+    same defect the calendar closed."""
+    s = _settings(calendar_closed_dates=(date(2026, 6, 26),))  # pretend Friday was shut
+    monday = date(2026, 6, 29)
+    thursday_story = datetime(2026, 6, 25, 14, 0, tzinfo=UTC)
+    assert _news_recent([thursday_story], monday, s) is True
+    assert _news_recent([thursday_story], monday, _settings()) is False  # unpatched: too old
 
 
 # --- Per-source merge-on-read for float / short interest (#109) ----------------------------
