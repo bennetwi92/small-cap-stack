@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 
 from ..capture import Bar
+from ..clock import ET
 from ..config import Settings
 from .cycles import prior_cycle_count, segment_cycles, significant_cycles
 from .features import FeatureVector, extract, trailing_atr
@@ -49,11 +50,28 @@ class DaySetup:
     cycle_num: int  # 1-based: 1 = a fresh move; N = the Nth contiguous pump of the day
     total_significant_cycles: int  # significant cycles across the whole day (context, not a gate)
     exhausted: bool  # cycle_num exceeds the exhaustion cap -> a late entry into a worn-out move
+    # Selection (#567): the two rules that decide whether a well-formed setup is one we'd TAKE, as
+    # opposed to one that is merely well-FORMED. They moved here from the paper book, where the
+    # `portfolio_` prefix implied they were execution rules. Both default True so a caller that
+    # doesn't configure a band or a window (a unit test, a spike) selects on shape alone.
+    in_price_band: bool = True  # entry_fill within [select_price_min, select_price_max]
+    in_window: bool = True  # trigger bar opens within [select_window_start, select_window_end)
 
     @property
     def takeable(self) -> bool:
-        """The trade decision: gates pass, an entry actually triggered, and it isn't exhausted."""
-        return self.passed and self.trigger_idx is not None and not self.exhausted
+        """Would we take this trade?
+
+        Deliberately distinct from ``passed``, which asks only whether the bull flag is well-formed.
+        A $1.50 name or an 11:00 break can be a textbook flag we simply don't select — it stays
+        visible and scoreable on the results page, which is what a data-collection phase needs.
+        """
+        return (
+            self.passed
+            and self.trigger_idx is not None
+            and not self.exhausted
+            and self.in_price_band
+            and self.in_window
+        )
 
 
 def detect_day(
@@ -75,6 +93,8 @@ def detect_day(
     weights: Mapping[str, float] = DEFAULT_WEIGHTS,
     window_start: time = time(4, 0),
     window_end: time = time(11, 59),
+    price_min: float | None = None,
+    price_max: float | None = None,
 ) -> DaySetup | None:
     """The setup the trader would take over ``bars`` (a whole day), or ``None`` if no pole forms.
 
@@ -82,6 +102,12 @@ def detect_day(
     gates). Defaults are the validated v2 values (caps 4/4, ``min_pole_pct`` 0.02, exhaust cap 2);
     :func:`detect_day_with_settings` maps the shared ones from ``Settings``. A shape that forms but
     fails a gate is still returned (``passed=False``) so callers can explain the rejection.
+
+    ``window_start``/``window_end`` and ``price_min``/``price_max`` are the **selection** rules
+    (#567) — they set ``in_window`` / ``in_price_band`` and therefore ``takeable``, and leave
+    ``passed`` alone. ``None`` prices disable the band, which is what a shape-only caller wants.
+    Note the window here is the *selection* window, NOT the scanner's: names outside it are still
+    detected, scored and published, they simply aren't takeable.
     """
     tokens = tokenize(bars, eps=eps)
     all_cycles = segment_cycles(tokens)
@@ -166,11 +192,25 @@ def detect_day(
     sig = significant_cycles(bars, all_cycles, min_volume=cycle_min_volume)
     cycle_num = prior_cycle_count(bars, sig, base) + 1
 
+    # Selection (#567): is this well-formed setup one we'd take? Measured on the same values the
+    # book would have used — the conservative fill for price, the trigger bar's open for time — so
+    # moving these rules out of `portfolio.extract._qualify` changed where they run, not what they
+    # decide. Both read True when the setup never fired; `takeable` already requires a trigger.
+    entry_fill = round(breakout + fill_offset, 4)
+    in_price_band = (price_min is None or entry_fill >= price_min) and (
+        price_max is None or entry_fill <= price_max
+    )
+    in_window = True
+    if trigger_idx is not None:
+        # Floor inclusive, cutoff strict — a bar opening exactly at the cutoff is out.
+        trigger_time = bars[trigger_idx].start.astimezone(ET).time()
+        in_window = window_start <= trigger_time < window_end
+
     return DaySetup(
         segment=seg,
         features=fv,
         entry_trigger=round(breakout + trigger_offset, 4),
-        entry_fill=round(breakout + fill_offset, 4),
+        entry_fill=entry_fill,
         breakout_level=round(breakout, 4),
         stop=round(stop, 4),
         gates=gates,
@@ -181,6 +221,8 @@ def detect_day(
         cycle_num=cycle_num,
         total_significant_cycles=len(sig),
         exhausted=cycle_num > exhaustion_cap,
+        in_price_band=in_price_band,
+        in_window=in_window,
     )
 
 
@@ -210,6 +252,8 @@ def detect_day_with_settings(
         cycle_min_volume=settings.scan_min_5m_volume // 2,
         exhaustion_cap=settings.bull_flag_exhaustion_cap,
         atr_window=settings.bull_flag_atr_window,
-        window_start=settings.scan_start,
-        window_end=settings.scan_end,
+        window_start=settings.select_window_start,
+        window_end=settings.select_window_end,
+        price_min=settings.select_price_min,
+        price_max=settings.select_price_max,
     )

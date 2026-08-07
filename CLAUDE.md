@@ -13,17 +13,24 @@ it on every task.
   `tests/test_strategy_doc.py` fails when it drifts. Seven surfaces used to state the rules and
   they disagreed on four price bands (#551); the fix only holds if new prose links instead of
   copying. What is worth knowing structurally:
-  - **There are three funnels, not one** — the scan (wide, deliberately), the engine (shape gates,
-    compute-on-read after the close), and the paper book (a strictly narrower band and window).
-    A name can be captured, charted and scored and still never be takeable. Saying "the strategy"
-    for all three is what caused the drift.
+  - **Three stages, each owning one question** (#567) — the scan asks *what do we see* (wide,
+    deliberately), the engine asks *what would we select*, the book asks *how would we execute*.
+    **The dividing line between engine and book is selection vs execution**: the price band and the
+    trigger-time window are selection, so they live in the engine (`select_*`) beside the shape
+    gates; the 2-a-day cap is capacity, so it stays in the book. Put a new rule wherever its
+    question lives, and don't reach for `portfolio_` just because the book consumes it.
+  - **`passed` ≠ `takeable`, deliberately.** `passed` = the bull flag is well-formed (shape gates
+    only — what the review workbench and the 25 golden fixtures are written against). `takeable` =
+    *and it's one we'd select*. A $1.50 name or an 11:00 break stays visible and scoreable rather
+    than being reported as malformed, which is what a data-collection phase needs. Selection rules
+    go in `takeable`; never fold them into `passed`.
   - ⚠️ **Float and news are COLLECTED, never gated.** They are enrichment written *after* a name is
-    flagged. `capture.on_scan_tick` opens an opportunity for every scanner candidate;
-    `rmetrics.takeable` is `setup.passed and not setup.exhausted`, where `passed` is the
-    **bull-flag shape gates only**. `gates.py::float_gate` / `news_gate` feed the EOD report's
-    `float_ok` / `with_recent_news` counts and nothing else. So the virtual portfolio does take
-    high-float names — the published book holds CLSK (246M float) and XRX (119M). If that should
-    change, the gate goes in `portfolio.extract._qualify`.
+    flagged. `capture.on_scan_tick` opens an opportunity for every scanner candidate, and neither
+    the shape gates nor the selection rules read them. `gates.py::float_gate` / `news_gate` feed the
+    EOD report's `float_ok` / `with_recent_news` counts and nothing else. So the virtual portfolio
+    does take high-float names — the published book holds CLSK (246M float) and XRX (119M). If that
+    should change, the gate goes in the engine's selection tier. `tests/test_portfolio.py` pins
+    this, and the float test says in its own failure message to delete it if you meant it.
   - **Entry splits in two (#182/#190):** a mechanical trigger above the last consolidation candle's
     high decides *when* the setup fires; R is measured against a separate, deliberately
     conservative fill. Stop = the consolidation low.

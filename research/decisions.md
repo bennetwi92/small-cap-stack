@@ -1029,3 +1029,41 @@ implies — note that threshold **gates nothing**, so this is a contrast against
 rather than evidence about a live filter (#551), and
 against `float-vs-max-r`'s tail finding); and a re-run at 60+ days when collection completes
 ~2026-10-01. Nothing here is established — 13 trades, expectancy interval −0.40R to +1.26R.
+
+## DECISION 2026-08-07 (#567) — the engine selects, the book executes
+
+The split between the engine and the paper book was arbitrary. The **entry price band** and the
+**trigger-time window** lived in the book as `portfolio_entry_price_min/max` and
+`portfolio_premarket_earliest/cutoff`, so the code said they were execution rules when they decide
+**selection** — whether a setup is one we would take at all. Meanwhile the engine carried a
+04:00–11:59 window that gated nothing, which meant the only effective time-of-day rule in the whole
+system lived in the book while looking like it lived in the engine.
+
+**The line is now selection vs execution.**
+
+| Stage | Question | Owns |
+|---|---|---|
+| Scan | what do we **see** | price/change/volume/type filters, the scan window |
+| Engine | what would we **select** | shape gates, price band, trigger-time window, staleness, exhaustion |
+| Book | how would we **execute** | the 2-a-day cap, sizing, exits, costs, ledgers |
+
+The 2-trades-a-day cap stays in the book deliberately: it is a capacity constraint falling out of
+settled cash (`position_fraction × max_trades_per_day = 1.0`), not a judgement about the setup. The
+symbol exclusion list also stays — it is data hygiene for ETFs captured before the scanner's
+`stkTypes` filter existed, not strategy.
+
+**The selection rules bite on `takeable`, NOT on `passed`.** `passed` keeps meaning "the bull flag
+is well-formed" — the shape grammar the review workbench and the 25 golden fixtures are written
+against. A $1.50 name or an 11:00 break can be a textbook flag we simply don't select; it stays
+visible and scoreable on the results page, which is what a data-collection phase needs. Folding
+selection into `passed` would report it as a malformed setup and throw the observation away. The
+fixtures pin `passed` and `failing_gates` but not `takeable`, so all 25 were untouched by the move
+— which is the evidence the refactor changed where the rules run, not what they decide.
+
+**Verified book-neutral.** Replaying the whole local store (30 sessions, 2026-07-01 → 2026-08-07)
+before and after gives the identical book: 14 candidates, 14 trades, +9.62R, $650.43 closing,
+0.11% max drawdown, 57.1% win rate.
+
+Settings renamed: `select_price_min` / `select_price_max` / `select_window_start` /
+`select_window_end`. Nothing sets them via env, so the rename is internal; the published payload
+keys (`entry_price_min`, `premarket_earliest_et`, …) are unchanged, so the dashboard contract holds.

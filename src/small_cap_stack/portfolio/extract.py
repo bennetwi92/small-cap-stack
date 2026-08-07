@@ -7,11 +7,8 @@ with no behaviour change.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from datetime import date
 
-from ..capture import Bar
-from ..clock import ET
 from ..config import Settings
 from ..report import _funds_for, day_chart_bars, day_opportunities, symbol_runs
 from ..rmetrics import compute_r_metrics
@@ -26,23 +23,22 @@ def _qualify(
     rm_stop: float | None,
     rm_risk: float | None,
     takeable: bool,
-    day_bars: Sequence[Bar],
-    s: Settings,
 ) -> bool:
-    """Apply the #230 selection rules to one run's R-metrics. Pure for straightforward testing."""
-    if not takeable:  # engine-v2 pass + triggered + not exhausted
+    """Can the book act on this run's R-metrics? Pure for straightforward testing.
+
+    ⚠️ **This no longer decides *whether* a setup is one we'd take** (#567). Selection — the price
+    band and the trigger-time window — moved into the engine, where it sits beside the shape gates
+    and reaches here already folded into ``takeable``. What is left is the book's own question:
+    given a setup the engine selected, are the numbers usable to size and simulate a position?
+
+    If you are looking for "why didn't the book take X", the answer is in the engine now:
+    ``DaySetup.in_price_band`` / ``in_window`` say which selection rule rejected it.
+    """
+    if not takeable:  # shape gates + triggered + not exhausted + selected (price band, window)
         return False
     if rm_entry_index is None or rm_entry_price is None or rm_entry_fill is None:
         return False
-    if rm_stop is None or rm_risk is None or rm_risk <= 0:
-        return False
-    if not (s.portfolio_entry_price_min <= rm_entry_fill <= s.portfolio_entry_price_max):
-        return False
-    trigger_bar = day_bars[rm_entry_index]
-    # The takeable window is bounded at both ends: the floor is inclusive (a bar opening exactly at
-    # 05:30 is takeable), the cutoff strict. Anything outside is a valid setup the book won't take.
-    trigger_time = trigger_bar.start.astimezone(ET).time()
-    return s.portfolio_premarket_earliest <= trigger_time < s.portfolio_premarket_cutoff
+    return not (rm_stop is None or rm_risk is None or rm_risk <= 0)
 
 
 def extract_day_trades(
@@ -64,10 +60,11 @@ def extract_day_trades(
     scans = store.read("scanner_hits", dt=trading_date)
     # Float is context, never a filter — and NOT because it "already ran upstream". It never runs.
     # The IBKR scan gates on price / change / 5-min volume only; float is enrichment written after a
-    # name is flagged (`capture._open_opportunity`), and `_qualify` below tests the price band and
-    # the takeable window, not the float. `gates.py::float_gate` exists, but its only consumer is
-    # the EOD report's `float_ok` count. So the book does take names over `float_max_shares` — put
-    # the gate in `_qualify` if that should change; don't assume it happened somewhere else.
+    # name is flagged (`capture._open_opportunity`), and nothing in the engine's selection rules
+    # (price band, trigger window) or the book's sizing reads it. `gates.py::float_gate` exists, but
+    # its only consumer is the EOD report's `float_ok` count. So the book does take names over
+    # `float_max_shares` — put the gate in the engine's selection tier if that should change; don't
+    # assume it happened somewhere else. `tests/test_portfolio.py` pins this.
     # Read through the same `_funds_for` seam the EOD report uses so the book quotes the same
     # source-merged number the results/review pages do (fmp first), rather than a second opinion.
     # NOTE: adding this read means `payload._EXTRACT_DATASETS` must list `fundamentals` too, or the
@@ -93,8 +90,6 @@ def extract_day_trades(
                 rm.stop,
                 rm.initial_risk,
                 rm.takeable,
-                day_bars,
-                s,
             ):
                 continue
             assert rm.entry_index is not None  # narrowed by _qualify
