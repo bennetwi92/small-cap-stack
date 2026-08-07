@@ -18,6 +18,7 @@ never existed. ``test_every_engine_knob_is_read_by_a_detector`` now derives the 
 from __future__ import annotations
 
 import ast
+import inspect
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -404,3 +405,62 @@ def test_the_gate_name_parser_would_notice_a_new_gate() -> None:
     names = _implemented_gate_names()
     assert "peak_green" in names and "cons_holds_base" in names
     assert len(names) >= 8
+
+
+# --- the wrapper must forward EVERY parameter, derived not hand-kept (#525) --------------------
+
+#: `detect_day` parameters that legitimately don't come from `Settings`. Kept tiny and explained —
+#: an exemption list is how `_SHARED` above quietly stopped covering half the surface.
+_NOT_FROM_SETTINGS = {
+    "bars": "the input",
+    "weights": (
+        "the score weights are `bullflag/score.py::DEFAULT_WEIGHTS`, deliberately not a Settings "
+        "field — `bull_flag_score_weights` never existed and is in _RETIRED_SETTINGS_NAMES (#534)"
+    ),
+}
+
+
+def _forwarded_by_the_wrapper() -> set[str]:
+    """Every keyword `detect_day_with_settings` passes to `detect_day`, read from the AST."""
+    call = next(
+        n
+        for n in ast.walk(_wrapper_ast(day_mod, "detect_day_with_settings"))
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "detect_day"
+    )
+    return {k.arg for k in call.keywords if k.arg}
+
+
+def test_every_detector_parameter_is_forwarded_from_settings() -> None:
+    """#302's bug, generalised: a parameter the wrapper forgets falls through to `detect_day`'s
+    default, and `config.py`'s value becomes fiction the live engine never reads.
+
+    `_SHARED` above cannot catch this — it is hand-kept, and covers 13 of the 22 forwarded
+    arguments. Measured before writing this (#525): deleting `halt_neighbour_volume`,
+    `staleness_min`, `cycle_min_volume` or `price_max` from the wrapper left the **entire suite
+    green**. Two of those four change the live book immediately, because `detect_day`'s default is
+    deliberately the *rule-off* value: the halt rule (#615) switches off (100000 -> 0.0) and the
+    selection band loses its ceiling (#608's $50 -> None).
+
+    Derived from the signature rather than listed, so a knob added tomorrow is covered by default —
+    the property `_SHARED` lacks and #513 paid for.
+    """
+    params = set(inspect.signature(day_mod.detect_day).parameters)
+    missing = sorted(params - _forwarded_by_the_wrapper() - set(_NOT_FROM_SETTINGS))
+    assert not missing, (
+        f"{missing} are `detect_day` parameters that `detect_day_with_settings` does not pass, so "
+        "they silently fall through to the function's default — which is the permissive, rule-OFF "
+        "value, not the shipped one. Wire each through the wrapper, or add it to "
+        "_NOT_FROM_SETTINGS with the reason."
+    )
+
+
+def test_the_forwarding_check_is_not_vacuous() -> None:
+    """An AST walk that found no call, or an exemption list grown to cover everything, would make
+    the check above pass on an empty set."""
+    forwarded = _forwarded_by_the_wrapper()
+    assert len(forwarded) > 15, forwarded
+    params = set(inspect.signature(day_mod.detect_day).parameters)
+    assert forwarded <= params, f"the wrapper passes non-parameters: {sorted(forwarded - params)}"
+    unknown = sorted(set(_NOT_FROM_SETTINGS) - params)
+    assert not unknown, f"_NOT_FROM_SETTINGS names things that aren't parameters: {unknown}"
+    assert len(_NOT_FROM_SETTINGS) < 4, "the exemption list is becoming the rule"

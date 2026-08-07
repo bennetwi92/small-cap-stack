@@ -38,10 +38,14 @@ it on every task.
     consumed by `rmetrics.py` and `charts.py`. The superseded anchored detector was deleted in #296.
     Read `research/bull-flag.md` (the *what*) and `research/engine-v2.md` (the *how*) for the
     grammar behind the rules.
-  - **`config.py` is the single source of truth for the values** (#302): both detectors read every
-    cap and gate from `Settings`. A new knob must be wired through `detect_day_with_settings` or it
-    does nothing; `tests/test_settings_wiring.py` fails if it isn't. **After changing a rule, run
-    `make strategy`** or CI fails on the stale spec.
+  - **`config.py` is the single source of truth for the values** (#302), and
+    `detect_day_with_settings` is the only path that reads them — a new knob wired anywhere else
+    does nothing. `detect_day`'s own defaults are a deliberate **shape-only, rule-OFF** baseline for
+    tests and spikes, *not* a copy of the shipped values (8 of 21 differ on purpose), so a
+    parameter the wrapper forgets silently runs with the rule switched off.
+    `tests/test_settings_wiring.py` derives that requirement from the signature, so it covers a
+    knob added tomorrow (#525). **After changing a rule, run `make strategy`** or CI fails on the
+    stale spec.
 - **Core principle:** *store raw, compute derived on read* — capture raw data at flag time; gate/stat logic is replayable pure functions so methodology can change retroactively.
 - **Parquet-store cost model:** for this store, **read cost tracks FILE count, not row count or
   bytes on disk** — every read/query opens each file's footer, so 32k one-row files read ~40×

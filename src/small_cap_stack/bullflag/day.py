@@ -115,9 +115,20 @@ def detect_day(
     """The setup the trader would take over ``bars`` (a whole day), or ``None`` if no pole forms.
 
     ``first_hit`` is the scanner-appearance datetime (``None`` disables the appearance/staleness
-    gates). Defaults are the validated v2 values (caps 4/4, ``min_pole_pct`` 0.02, exhaust cap 2);
-    :func:`detect_day_with_settings` maps the shared ones from ``Settings``. A shape that forms but
-    fails a gate is still returned (``passed=False``) so callers can explain the rejection.
+    gates). A shape that forms but fails a gate is still returned (``passed=False``) so callers can
+    explain the rejection.
+
+    ⚠️ **The defaults here are a shape-only baseline, NOT a copy of the shipped values** — a
+    distinction #525 was filed against and measurement corrected. Of 21 mappable parameters, 13
+    coincide with ``Settings`` (the structural caps, where neutral *is* shipped) and **8
+    deliberately do not**: ``gap_pole`` False, ``price_min``/``price_max`` None,
+    ``halt_neighbour_volume`` 0.0, ``min_vol_ratio`` 1.0, ``pole_min_step_share`` 0.0,
+    ``pole_extension_min_body`` 0.5, ``window_end`` 11:59. Every one is the *rule-off* value, so a
+    bare ``detect_day(bars)`` gives you the grammar with no selection and no tolerances — which is
+    what the unit tests and the spikes want.
+    **The live path is :func:`detect_day_with_settings` and only that**; it
+    passes every parameter explicitly, and ``test_settings_wiring.py`` derives that requirement from
+    this signature so a knob added here is covered without anyone updating a list.
 
     ``window_start``/``window_end`` and ``price_min``/``price_max`` are the **selection** rules
     (#567) — they set ``in_window`` / ``in_price_band`` and therefore ``takeable``, and leave
