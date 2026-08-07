@@ -1075,6 +1075,21 @@ lengths are compared on different — each legitimately tradable — populations
 #379 no-lookahead rule: that one governs *selection* (first-to-trigger, never best-of-day), this one
 governs *population*.
 
+⚠️ **AMENDED 2026-08-07 (#535) — the selection half is superseded.** "One trade a day, first to
+trigger" is not a rule on 5-minute bars: fifteen candidates shared a trigger bar on 2026-07-30 and
+the replay broke the tie **alphabetically**, worth the difference between +5.67R/−0.5% and
+−0.15R/−11.4%. It is now **banded sequential commit** — at 09:40 rank the day's gate-passing setups
+by planned stop width, keep `[3%, 10%)`, commit to the widest, one working order at a time: 7
+trades, +3.49R, +6.0% at 4.2% drawdown over the same month.
+
+Ranking is legal here and remains illegal for the bull-flag, and the distinction is not a
+loosening of #379: every OD-5/5 setup is **clock-fixed and final at 09:40**, before any entry can
+fire, so the ranking set is complete. The bull-flag's triggers arrive over hours, so ranking one
+against another needs candidates that haven't happened yet. The population rule above is unchanged.
+The 3% floor is in-sample (one month) and provisional; the 10% ceiling is the structural sizing
+crossover. See `research/open-drive.md` §4/§6.7 and
+`docs/reports/2026-08-02-open-drive-picking-the-days-stock.md`.
+
 **Decision: specified, not traded.** Over 2026-07 (22 days with bars, 46 candidates on 13 days) the
 book returns **+5.67R over 13 trades at 53.8% wins** — and on its own $500 ends the month at
 **$497.67**. Three findings drive the decision:

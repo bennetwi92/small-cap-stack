@@ -158,10 +158,36 @@ decides *when* while R is measured against something deliberately worse:
 | **Gap-through** | fill no better than the trigger bar's open, mirroring `rmetrics._measure` |
 | **Stop-first** | a bar breaching the stop *before* the trigger kills the setup; a bar doing both in the same 5 minutes counts as the break |
 
-**Selection: one trade per day, first to trigger.** Ranking a day's candidates against each other is
-look-ahead bias (#379) — "first" is known the moment it fires. The one-a-day cap is the trader's own
+**Selection: banded sequential commit.** At 09:40, rank the day's gate-passing setups by **planned
+stop width** — `(fill − stop) / fill` — keep only the band **[3%, 10%)**, and commit to the widest.
+**One working order at a time**, never a basket. The one-a-day cap is the trader's own
 quality-over-quantity constraint, and #418 measured it as non-binding anyway: 46 candidates over 13
 days.
+
+> ⚠️ **Corrected 2026-08-07 (#535).** This section locked "**one trade per day, first to trigger**"
+> on the grounds that ranking a day's candidates is look-ahead bias (#379). That caution is right
+> for the bull-flag and **over-general here.**
+>
+> Two things went wrong with it. First, *first to trigger is not a rule* on 5-minute bars: on
+> 2026-07-30 fifteen candidates triggered on the same bar, and the replay broke the tie
+> **alphabetically**. Reversing that arbitrary tie-break moves the published month from +5.67R /
+> −0.5% to −0.15R / −11.4% — the rule was a lottery, and the spec locked the winning ticket.
+> Second, the look-ahead objection doesn't bind: **every OD-5/5 setup is clock-fixed and final at
+> 09:40**, the same instant as the universe cutoff, so the whole ranking set exists before any
+> entry can fire. Ranking a set that is complete is not the same as ranking a stream that is
+> still arriving — which is what makes this legal here and illegal for the bull-flag.
+>
+> Measured over the same month: 7 trades, **+3.49R, +6.0%** at **4.2%** drawdown, against −0.5% at
+> 10.4% for the locked rule. `docs/reports/2026-08-02-open-drive-picking-the-days-stock.md` has the
+> derivation. #423 locked this spec knowing the correction was outstanding
+> (`findings-index.md` flagged it); this applies it.
+>
+> **The residual objection is in-sample fitting, not look-ahead.** The 10% ceiling is structural —
+> it is the sizing crossover `risk_fraction / position_fraction`, read off configuration and not
+> fitted — and it is load-bearing: removing it lets widest-first walk into the >10% names that
+> lose at full size. The **3% floor was read off the same 46-candidate month**. It sits on a
+> plateau (0.025–0.035 all land within $15), which is reassuring rather than conclusive. Treat the
+> band edge as provisional until the out-of-sample re-run at 60+ days.
 
 ## 5. Capital — the finding that matters most
 
@@ -198,6 +224,17 @@ the bull-flag leg is no longer the one that was measured.
 6. **Fitting is pre-registered and thresholds-only** for any future pass — day-block bootstrap,
    within-day permutation, Holm across pre-registered contrasts, matching the method of the existing
    reports.
+
+**Locked 2026-08-07 (#535), correcting the above:**
+
+7. **Selection is banded sequential commit, not first-to-trigger** (§4). Rank at 09:40 by planned
+   stop width, keep `[3%, 10%)`, commit to the widest, one working order at a time. First-to-trigger
+   was not a rule at all on 5-min bars — fifteen candidates shared a trigger bar on 2026-07-30 and
+   the tie broke alphabetically, worth ±6R depending on which way. Ranking is legal *here*, and only
+   here, because every OD-5/5 setup is final at 09:40 before any entry can fire; the bull-flag's
+   triggers arrive over hours and the same rule would be look-ahead. ⚠️ The **3% floor is
+   in-sample** (one month, 46 candidates, on a plateau); the 10% ceiling is structural. Re-derive
+   the floor out of sample, and re-derive both if 1-minute capture ever lands.
 
 **Open:**
 
