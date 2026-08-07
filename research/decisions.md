@@ -157,6 +157,30 @@ series' modal bar spacing, so a pre-market gap doesn't over-credit across a miss
 appearance marker (`charts._bar_containing`) matches — it sits on the bar that *contains* `first_hit`,
 not the next one (fixes the JEM 08:45-vs-08:40 dot). Backcastable over collected bars.
 
+> **⚠️ SUPERSEDED IN CODE 2026-07-10, recorded 2026-08-07 (#605).** The engine-v2 rewrite
+> (#182/#190) replaced this path with `bullflag/day.py::detect_day`, which reverted to **bar-start**
+> granularity — and this entry was never amended, so for a month the log described a rule the engine
+> did not run. `research/engine-v2.md` §13 and the module docstrings said bar-start throughout;
+> `research/strategy.md` did not state the bound at all, so nothing caught the divergence.
+>
+> **The shipped behaviour is the stricter one and it is being kept.** Measured over both stores
+> (61 days, 2,195 setups): under the documented bar-close rule, **9 trades whose appearance lands
+> strictly inside the entry bar** become takeable (JEM 2026-07-24 bar 07:00 / appearance 07:04:58,
+> MSTZ 07-06, SUNE 07-14, SRXH 07-09, APPS, IOTR, EDHL, RPGL, QNRX) carrying **+11.67R against a
+> +10.59R book** — i.e. more than the entire book. That is a large, unreviewed loosening riding on a
+> stale log entry, not a decision anyone took.
+>
+> The bound is now rendered in `strategy.md`, so `make strategy` keeps it honest from here.
+>
+> **Left open:** whether a trigger bar opening *exactly* at the appearance should count.
+> `tests/test_rmetrics.py::test_trigger_exactly_at_appearance_counts` asserts that it does, by name
+> and with intent ("the gate is inclusive"). The case for tightening it is that reconstructed
+> appearances are quantised to `:00` and measured ~0.34 min early, so a recon `09:15:00` corresponds
+> to a live appearance *inside* the bar; the case against is that if we genuinely saw the symbol at
+> the bar's first instant, any break within that bar was takeable. It affects 4 of 2,195 setups,
+> **all already non-takeable**, and 0 R either way — so it is a semantics question with no evidence
+> to settle it, and reversing a deliberate test to win it is not worth doing silently.
+
 ## Entry staleness bound (DECISION 2026-07-03, #130 — from notes.md)
 A break more than **`entry_staleness_min` (default 30 min)** after the scanner appearance reads as
 *faded* and is not counted as a takeable entry — the run reports setup-found-but-not-triggered
