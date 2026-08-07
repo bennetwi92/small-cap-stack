@@ -268,14 +268,23 @@ class Settings(BaseSettings):
     # ANYWHERE IN THE CYCLE — pole or fade (#582) — clears scan_min_5m_volume // 2, and it abuts
     # the run (see bullflag.cycles).
     bull_flag_exhaustion_cap: int = 2
-    # Let the session's FIRST bar anchor a single-bar pole (#587). Off by default. A day that gaps
-    # up and runs on its opening print has no prior bar to be higher than, so `segment_cycles` never
+    # Let the session's FIRST bar anchor a single-bar pole (#587, ON since #599). A day that gaps up
+    # and runs on its opening print has no prior bar to be higher than, so `segment_cycles` never
     # proposes it and the greedy walk moves on to a later, smaller pole (MTVA 2026-05-19; SBFM
-    # 2026-05-18 run 1, whose 04:00 thrust broke down through its own base unnoticed). Measured over
-    # the recon record it changes 34 chosen poles for +1 takeable trade and 0 lost, so it ships
-    # inert: 28 of those 34 then fail cons_retracement, because a gap bar's low IS the opening print
-    # and almost any pullback exceeds half of it. That is a retracement question, not a pole one.
-    bull_flag_gap_pole: bool = False
+    # 2026-05-18 run 1, whose 04:00 thrust broke down through its own base unnoticed).
+    #
+    # #587 shipped this off, costed on trades gained (+1) — the wrong measure. It is mainly a
+    # REVIEW defect: over the recon record it changes 34 chosen poles, and with it off **0 of those
+    # 34 shapes passed**, at a median retracement of 1.193. A retracement above 1.0 means the
+    # "consolidation" fell clean through the bottom of the "pole" — the engine had latched onto a
+    # fragment and published a fictional rejection reason (RGTI 2026-05-22 read 11.39). With it on
+    # the median is 0.920 and 4 pass. `passed` exists to say whether the flag is well-formed, so
+    # publishing a number like 11.39 breaks the one thing the review page is for.
+    #
+    # 28 of the 34 still fail cons_retracement — now honestly, against the right pole. A gap bar's
+    # low IS its opening print, so the pole base it anchors is arguably the wrong reference; that is
+    # a retracement-anchor question (#598), not a reason to keep choosing the wrong pole.
+    bull_flag_gap_pole: bool = True
     # Entry staleness (#130): a break more than this many minutes after the scanner appearance reads
     # as "faded" — the opportunity is no longer takeable (AHMA triggered ~1hr+ after the scan). Only
     # applies when the appearance (first_hit) is known; a large value disables the bound.
