@@ -169,7 +169,7 @@ def render_engine(s: Settings) -> str:
         ),
         _row(
             "Cycle volume floor",
-            f"{s.scan_min_5m_volume // 2:,} (a cycle counts only above this)",
+            f"{s.scan_min_5m_volume // 2:,} (any bar in the cycle, pole or fade)",
             _field("scan_min_5m_volume") + " // 2",
         ),
         _row("Tick size", _money(s.tick_size), _field("tick_size")),
