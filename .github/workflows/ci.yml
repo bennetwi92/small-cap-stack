@@ -30,12 +30,25 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-          cache: pip
 
+      # `@v9.0.0`, not `@v9`: astral-sh stopped publishing floating major tags after v7, so a bare
+      # `v9` fails the job at "Prepare all required actions" before a single step runs. Bump this
+      # to the exact release tag, and check the tag exists first.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      # `uv`, not pip (#493): the dev dependency set is heavy (polars, pyarrow, duckdb, yfinance,
+      # exchange-calendars, ib-async) and identical every run, so the old pip editable install
+      # spent ~23 s of a 75 s job on resolution + wheel install. `setup-python`'s `cache: pip`
+      # cached the downloads, not that work, so it goes too; `setup-uv`'s cache is the one that
+      # applies now. `--system` because there is no virtualenv here — uv must install into
+      # `setup-python`'s interpreter or the bare `ruff` / `mypy` / `pytest` steps below won't
+      # find the package. Guarded by `test_ci_installs_with_uv`, which also forbids the old
+      # string reappearing — so don't quote it in this comment.
       - name: Install
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv pip install --system -e ".[dev]"
 
       - name: Ruff (lint)
         run: ruff check .

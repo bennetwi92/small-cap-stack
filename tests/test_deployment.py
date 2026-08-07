@@ -82,6 +82,15 @@ def test_build_image_covers_every_main_commit() -> None:
     assert "paths:" not in push, "main/tags builds must not be path-filtered"
 
 
+def test_ci_installs_with_uv() -> None:
+    """The Install step was ~23 s of a 75 s job under pip (#493). uv does the same install in a
+    handful of seconds, and `--system` is what puts it in `setup-python`'s interpreter — without
+    it the bare `ruff` / `mypy` / `pytest` steps find no package."""
+    w = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert "uv pip install --system" in w, "CI installs with uv, not pip"
+    assert "pip install -e" not in w, "the pip install path is gone; uv replaced it"
+
+
 def test_ci_gates_coverage_on_main_not_on_prs() -> None:
     """PRs run the suite bare and main carries the 80% gate (#494/#495) — the two halves only add
     up together, so dropping either the main-side trigger or the addopts threshold would leave
