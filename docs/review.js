@@ -230,8 +230,14 @@ const ghHeaders = () => ({
   "X-GitHub-Api-Version": "2022-11-28",
 });
 
+// Resolved with a bare lookup, not `el` (#515): the save handler's `catch` reports through here,
+// so if the caught failure IS a missing element, `el` would throw over the top of it and the user
+// would get no message at all — neither "Save failed" nor the stale-asset wording. Same rule
+// `setBanner` follows in dom.js: a status line that has itself vanished stays silent rather than
+// shouting over what it was asked to say.
 function setStatus(msg, kind) {
-  const s = el("rv-save-status");
+  const s = document.getElementById("rv-save-status");
+  if (!s) return;
   s.textContent = msg;
   s.className = "rv-save-status" + (kind ? " " + kind : " muted");
 }

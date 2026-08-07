@@ -493,12 +493,15 @@ function renderHarvest(hv) {
 // One row: a label, the number, a one-line sub-value, and a status pill. `bar` draws a
 // progress line under the row. Everything passed in is computed; nothing is hard-coded.
 //
-// `valueHtml` is the one field interpolated raw, and the name says so (#515): five callers pass
-// `<span class="muted"> / total</span>` to grey out a denominator, so escaping it would render
-// the markup as text. Every caller therefore escapes its own text — the audit flagged the bare
-// `value` as an injection risk, and it isn't (all 14 sites pass literals, numeric conversions,
-// `fmtPctPlain`/`fmtRSigned` output or pre-escaped content, and the source is our own
-// `status.json`) — but a raw slot indistinguishable from five escaped ones is a trap.
+// `valueHtml` is the one field interpolated raw, and the name now says so (#515). Four callers
+// pass `<span class="muted"> / total</span>` to grey out a denominator and a fifth passes an
+// already-escaped `<span class="plan-hv-span">`, so escaping here would render markup as text —
+// which is why this stayed raw and every caller escapes its own text instead. Across the 13 call
+// sites nothing unescaped reaches it: literals, `fmtPctPlain`/`fmtRSigned` output (both guarded
+// by `isFinite` then `toFixed`), `String(...)` of computed integers, and `esc(...)` on the two
+// date-derived values. The harvest counters are bare `status.json` passthroughs, produced by our
+// own Python. So this was never an injection path — but a raw slot indistinguishable from five
+// escaped ones is a trap, and naming it is cheaper than re-auditing it every year.
 function checkRow({ label, valueHtml, sub, status, tone, bar, title }) {
   const t = title ? ` title="${esc(title)}"` : "";
   return (
