@@ -111,3 +111,67 @@ def test_no_research_doc_still_calls_itself_proposed() -> None:
         f"{stale} still say 'Status: proposed'. If the thing shipped, say so (and strike the old "
         "status rather than overwriting it — the record is the point); if it didn't, date it."
     )
+
+
+# ------------------------------------------------ CLAUDE.md stays navigable and number-free (#539)
+
+CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
+
+#: `"Section Name" above` / `` `x` below `` — a phrase followed by a direction.
+_DIRECTIONAL = re.compile(r'(?:"([^"]+)"|`([^`]+)`)\s+(above|below)\b', re.I)
+
+
+def test_claude_md_cross_references_point_the_right_way() -> None:
+    """CLAUDE.md is the first file a session reads, and a "see X above" when X is below teaches
+    the reader to stop following its pointers — which costs more than the wrong hop (#539).
+
+    Only references that quote a real section heading are judged; prose like "the remote-work
+    limits above" names no section and can't be checked, so #539's other one was found by reading.
+    That limit is why this test exists *and* why it isn't sufficient on its own.
+    """
+    lines = CLAUDE_MD.read_text().splitlines()
+    sections = {
+        m.group(1).strip().lower(): i + 1
+        for i, ln in enumerate(lines)
+        if (m := re.match(r"^#{2,3}\s+(.+?)\s*$", ln))
+    }
+    assert len(sections) > 10, "no section headings found — has the format changed?"
+
+    wrong: list[str] = []
+    for i, ln in enumerate(lines, 1):
+        for match in _DIRECTIONAL.finditer(ln):
+            phrase = (match.group(1) or match.group(2) or "").strip().lower()
+            direction = match.group(3).lower()
+            target = next((v for k, v in sections.items() if phrase and phrase in k), None)
+            if target is None:
+                continue
+            actual = "above" if target < i else "below"
+            if actual != direction:
+                wrong.append(f"line {i}: says {direction!r} of {phrase!r}, which is {actual}")
+    assert not wrong, "CLAUDE.md points the wrong way:\n  " + "\n  ".join(wrong)
+
+
+def test_claude_md_does_not_restate_the_strategy_numbers() -> None:
+    """#551's rule, enforced: `research/strategy.md` is generated from `config.py` and is the only
+    place the numbers live. Seven surfaces once stated them and disagreed on four price bands.
+
+    ⚠️ This is also why **#539's headline ask was declined**. It wanted CLAUDE.md to state the
+    paper book's own price band and trigger window — filed when the book had separate
+    `portfolio_entry_price_*` / `portfolio_premarket_cutoff` settings. #567 has since moved
+    selection into the engine (there is now one band and one window, `select_*`), so the two-funnel
+    confusion the issue described no longer exists — and writing the numbers back into CLAUDE.md
+    would recreate the exact drift #551 removed.
+    """
+    text = CLAUDE_MD.read_text()
+    # Price bands and clock times are the two shapes that drifted. Issue references (#551) and
+    # cron/section numbering are not that.
+    offenders = [
+        f"line {i}: {ln.strip()[:90]}"
+        for i, ln in enumerate(text.splitlines(), 1)
+        if re.search(r"\$\d+\s*[-–]\s*\$?\d+", ln)  # a price band
+        or re.search(r"\b0[45]:\d\d\s*[-–]\s*\d\d:\d\d\b", ln)  # a trading window
+    ]
+    assert not offenders, (
+        "CLAUDE.md restates strategy numbers; link research/strategy.md instead (#551):\n  "
+        + "\n  ".join(offenders)
+    )

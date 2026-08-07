@@ -108,7 +108,7 @@ diff**; prefer batching trivia. (2) Apparent cadence overstates serial speed: PR
 in parallel and **merged in bursts** (10 automation PRs merged in ~50 min on 2026-07-17 were
 authored beforehand), so don't promise 40/day as a linear rate. (3) Anything needing the **box, a
 live IBKR session, or a spike** is not estimable from this table — it's gated by runtime/market
-hours, not authoring speed (see the remote-work limits above).
+hours, not authoring speed (see "Working remotely" at the end of this file).
 
 ## Issue & project hygiene (keep these current — every task)
 - **Every unit of work is a GitHub issue** with labels: `epic`, `phase-1`, `spike`, `infra`, `setup`, `ibkr`, `data`, `strategy`, `bug`. Epic is **#1**.
@@ -116,7 +116,7 @@ hours, not authoring speed (see the remote-work limits above).
   - **Status** field `PVTSSF_lAHOCGbB5M4Bb_HYzhWrRtM` — Backlog `9544b6ad` / Todo `f75ad846` /
     In Progress `47fc9ee4` / Blocked `ab0407fa` / Done `98236657`.
   - **Size** field `PVTSSF_lAHOCGbB5M4Bb_HYzhZ7oxU` — XS `2c5c01af` / S `dbe01fd8` / M `07ea1ac7` /
-    L `69a53ac5`. These are the **estimation tiers** from "Throughput & estimation" below; set one on
+    L `69a53ac5`. These are the **estimation tiers** from "Throughput & estimation" above; set one on
     every issue so a slice of the board can be costed and the anchors can be checked against reality.
   - When creating an issue: `gh issue create` then add it to the board (`gh project item-add 3 --owner bennetwi92 --url <issue-url>`) and set Status.
   - **Status lifecycle:** Backlog (real, but not next) → Todo (next up, ready to start) →
