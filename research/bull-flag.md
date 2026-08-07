@@ -79,10 +79,9 @@ drifting the base onto a bar above the peak (#181: ITRG/IVF).
 > high *is* directional and must extend the pole; only a truly flat top (Δhigh = 0) is `E`. The
 > live value is `bullflag/tokens.py::token_eps` → `settings.tick_size / 2` — derived from
 > `tick_size`, and **not** a `Settings` knob of its own. The end-anchored `detect_setup` keeps its
-> own `eps` argument — and note that its settings wrapper, `detect_setup_with_settings`, still
-> resolves that argument to a **full** tick through a `getattr` on the name that was never added
-> (`setup.py`, tracked as **#513**). So the two detectors really do disagree on `eps` in code
-> today; the live one is the half-tick.
+> own `eps` *argument*, but its settings wrapper now passes the same `token_eps` — until **#513**
+> it resolved a `getattr` on the name that was never added and silently ran at a full tick, so the
+> two detectors disagreed in code for a year. Both are the half-tick now.
 
 ### 2.2 Segmentation (stage 2)
 
@@ -314,8 +313,7 @@ the live detector never enables it, because the window is applied in the selecti
 1. **Max pole / consolidation length = 4 / 4** (hard gate; refinable, no data deleted).
 2. **`E` (equal-high) token** — allowed only in the consolidation (not the pole). ⚠️ On the live
    path `eps` is **half** a tick, not one (superseded 2026-07-11 by #196 — see §2.1); it is derived
-   in `bullflag/tokens.py::token_eps`, not a `Settings` field. The end-anchored
-   `detect_setup_with_settings` still runs at a full tick (#513).
+   in `bullflag/tokens.py::token_eps`, not a `Settings` field. Both detectors read it (#513).
 3. **`POLE_height_pct` floor = 2%** (`min_pole_pct`); "abnormal" carried by `POLE_extension_atr`
    (trailing 14-bar true-range ATR, ≥ 2× = abnormal).
 4. **Volume gate = peak-bar** (not max-bar-in-pole) — reaffirms #127 (§3.2).
