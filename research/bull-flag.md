@@ -69,10 +69,17 @@ pole (two higher highs above the base) then a 3-bar consolidation.
 allowed **only in the consolidation**, never in the pole. The **pole is a run of strict higher
 highs (`H`)** — the first non-`H` going back ends it. In the consolidation `E` is permissive (a flat
 pullback candle is fine), but a run made *only* of `E` is a flat top, not a genuine pullback. `eps`
-is a small flatness tolerance (1 tick / `tick_size`), applied on an FP-rounded delta so an
-exactly-1-tick move reads as `E`. Barring `E` from the pole keeps the base strictly below the peak
-(so `pole_span > 0`) and stops a long flat run on an illiquid name from drifting the base onto a bar
-above the peak (#181: ITRG/IVF).
+is a small flatness tolerance, applied on an FP-rounded delta. Barring `E` from the pole keeps the
+base strictly below the peak (so `pole_span > 0`) and stops a long flat run on an illiquid name from
+drifting the base onto a bar above the peak (#181: ITRG/IVF).
+
+> ⚠️ **Superseded 2026-07-11 (#196) — `eps` is HALF a tick, not one.** This decision originally set
+> `eps = 1 tick` "so an exactly-1-tick move reads as `E`", and #196 found that backwards: on SNDQ a
+> genuine +$0.01 higher high was swallowed as `E` and truncated the pole. A full one-tick higher
+> high *is* directional and must extend the pole; only a truly flat top (Δhigh = 0) is `E`. The
+> live value is `bullflag/tokens.py::token_eps` → `settings.tick_size / 2` — derived from
+> `tick_size`, and **not** a `Settings` knob of its own. The end-anchored `detect_setup` keeps its
+> own `eps` argument.
 
 ### 2.2 Segmentation (stage 2)
 
@@ -289,15 +296,20 @@ Gates (reject) vs. score (rank), starting point:
 **Locked 2026-07-10:**
 
 1. **Max pole / consolidation length = 4 / 4** (hard gate; refinable, no data deleted).
-2. **`E` (equal-high) token** — allowed only in the consolidation (not the pole); `eps` = 1 tick.
+2. **`E` (equal-high) token** — allowed only in the consolidation (not the pole). ⚠️ `eps` is
+   **half** a tick, not one (superseded 2026-07-11 by #196 — see §2.1); it is derived in
+   `bullflag/tokens.py::token_eps`, not a `Settings` field.
 3. **`POLE_height_pct` floor = 2%** (`min_pole_pct`); "abnormal" carried by `POLE_extension_atr`
    (trailing 14-bar true-range ATR, ≥ 2× = abnormal).
 4. **Volume gate = peak-bar** (not max-bar-in-pole) — reaffirms #127 (§3.2).
 
 **Locked 2026-07-10 (revised same day via per-opportunity visual review, #182/#190):**
 
-5. **Pole = green thrust candles only** — no red candle in the pole (including the peak); a
-   doji-like technically-higher-high bar breaks the pole walk and becomes the base instead (§3.1).
+5. **Pole = green thrust candles only** — a doji-like technically-higher-high bar breaks the pole
+   walk and becomes the base instead (§3.1). ⚠️ **The peak is the exception** (revised 2026-07-11,
+   #196): `segment.refine_pole` deliberately *keeps* a red- or flat-closing peak so the trader is
+   shown the setup they'd actually read on the chart, and the **`peak_green` gate** rejects it
+   afterwards. Reject-and-explain, not skip-and-vanish — every other pole bar must still be green.
 6. **Entry price** = last consolidation high **+ 1 tick** (supersedes the earlier "+3 ticks" lock —
    see §4). `Settings.bull_flag_trigger_offset_ticks = 1`.
 7. **Fill price for R = last consolidation high + 3 ticks** (`Settings.bull_flag_fill_offset_ticks
