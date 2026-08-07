@@ -34,6 +34,12 @@ ID_REF = re.compile(
     r"""\bel\(\s*["']([\w-]+)["']\s*\)"""
     r"""|\bgetElementById\(\s*["']([\w-]+)["']\s*\)"""
     r"""|\bquerySelector\(\s*["']#([\w-]+)["']\s*\)"""
+    # `showError("rv-error", …)` / `setBanner("pf-error", …)`. These resolve their node with a
+    # bare `document.getElementById` and return quietly when it is missing — deliberately, so a
+    # handler can't throw while reporting an error. The cost is that a deleted banner fails
+    # *silently*: the page swallows its own failures and looks merely blank. #508 shipped
+    # `#rv-error` past this check because the old pattern didn't see it, so it is checked here.
+    r"""|\b(?:showError|setBanner)\(\s*["']([\w-]+)["']"""
 )
 # Relative ES-module imports — `import … from "./js/dom.js"` / `import "./js/nav.js"`.
 REL_IMPORT = re.compile(r"""\bfrom\s+["'](\.[^"']+)["']|\bimport\s+["'](\.[^"']+)["']""")
@@ -92,8 +98,16 @@ def test_ids_referenced_finds_each_lookup_form() -> None:
       const a = el("alpha");
       document.getElementById('beta').textContent = "";
       bar.querySelector("#gamma");
+      showError("delta-error", "Failed to load", err);
+      setBanner('epsilon-error', msg);
     """
-    assert ids_referenced({"m.js": src}).keys() == {"alpha", "beta", "gamma"}
+    assert ids_referenced({"m.js": src}).keys() == {
+        "alpha",
+        "beta",
+        "gamma",
+        "delta-error",
+        "epsilon-error",
+    }
 
 
 def test_ids_referenced_ignores_computed_lookups() -> None:
