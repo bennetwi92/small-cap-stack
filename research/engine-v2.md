@@ -3,15 +3,23 @@
 > **Companion to `bull-flag.md`** (the *feature* spec — the "what"). This is the *implementation*
 > spec — the "how": module layout, data model, function signatures, gating/scoring, and the
 > migration that keeps `rmetrics` + the review workbench working. Locked decisions from
-> `bull-flag.md §6` are treated as fixed here (pole/cons ≤ 4/4, `E` token in the consolidation only, entry = last
-> cons high + 3 ticks).
+> `bull-flag.md §6` are treated as fixed here (pole/cons ≤ 4/4, `E` token in the consolidation
+> only, entry split in two — a 1-tick trigger that decides *when* it fires and a conservative
+> 3-tick fill that R is measured against, #182/#190).
 >
 > **Status (2026-07-17): shipped.** The pipeline is live and drives `rmetrics` + the review
 > workbench via `day.py::detect_day` (§13). The legacy detector it migrates away from was deleted in
-> #296, along with the §11 golden-parity test (which existed only to pin the #180 cut-over). Two
-> deviations from what's written below: the shared bar primitives live in `primitives.py` (#296),
-> and the §10 settings flip **never landed** — the v2 caps are `detect_day` defaults rather than
-> `config.py` values (**#302**). Read this as the record of the migration, not a live plan.
+> #296, along with the §11 golden-parity test (which existed only to pin the #180 cut-over). One
+> deviation from what's written below: the shared bar primitives live in `primitives.py` (#296).
+> Read this as the record of the migration, not a live plan.
+>
+> ⚠️ **Corrected 2026-08-07 (#534).** This block used to say the §10 settings flip "never landed"
+> and that the caps were `detect_day` defaults. That contradicted §9 of this same file, and the
+> code agrees with §9: `day.py` reads `max_pole` / `max_cons` and every *gate* from `Settings`
+> (#302), and `tests/test_settings_wiring.py` fails if one is added without being wired. (The
+> score `weights` are the exception, and always were — see §7/§9.) It mattered because `CLAUDE.md`
+> names this file as the spec for the *how*, so a reader going top-down stopped at that line and
+> concluded `config.py` was fiction.
 
 ---
 
@@ -133,7 +141,10 @@ def tokenize(bars: Sequence[Bar], *, eps: float) -> list[Token]:
     """One token per bar after the first, comparing high[i] to high[i-1] within eps."""
 ```
 
-- `eps` = flatness tolerance = `tick_size` (1 tick) by default; passed down from settings.
+- `eps` = flatness tolerance. ⚠️ **Half** a tick on the live path — `tokens.py::token_eps` returns
+  `settings.tick_size / 2`, *derived* from `tick_size` rather than passed down as a setting of its
+  own (see §14). This paragraph said "1 tick, passed down from settings" until #534; #196 reversed
+  the value and there has never been a knob.
 - `H` if `high[i] > high[i-1] + eps`; `L` if `high[i] < high[i-1] - eps`; else `E`.
 - Length invariant: `len(tokenize(bars)) == max(0, len(bars) - 1)`.
 
@@ -207,17 +218,26 @@ def trailing_atr(bars: Sequence[Bar], base_idx: int, *, window: int = 14) -> flo
 **`gates.py`** — one predicate per `[gate input]` feature; returns an ordered `GateResult[]` so the
 review page can show *which* gate rejected a shape and by how much:
 
-| Gate | Feature | Condition (v2 default) |
+Regenerate this table from `gates.evaluate` if it is ever in doubt — it drifted once (#534).
+
+| Gate | Feature | Condition |
 |------|---------|------------------------|
-| `shape_valid` | segmentation | `Segment is not None` |
-| `pole_len` | `pole_len` | `≤ 4` (enforced in segmenter) |
-| `cons_len` | `cons_len` | `≤ 4` (enforced in segmenter) |
+| `pole_len` | `pole_len` | `≤ bull_flag_max_pole` (4) |
+| `cons_len` | `cons_len` | `≤ bull_flag_max_cons` (4) |
 | `vol_peak_gt_cons` | `peak_gt_cons` | strict `>` |
 | `wick_peak` | `peak_upper_wick` | `≤ max_peak_wick` (0.50) |
+| `peak_green` | `peak_is_green` | the peak must close green (#196) |
 | `pole_height` | `pole_height_pct` | `≥ min_pole_pct` (**2%**) |
 | `cons_retracement` | `retracement` | `≤ 0.50` |
 | `cons_holds_base` | `holds_base` | `cons_low > pole_base` |
-| `loc_in_window` | `trigger_in_window` | 04:00–11:59 ET |
+| `loc_in_window` | `trigger_in_window` | **opt-in only** — see below |
+
+There is no `shape_valid` gate: a shape that doesn't segment produces no `Segment`, so there is
+nothing to gate. `peak_green` (§13) is a real gate and was missing from this table.
+
+`loc_in_window` is **off by default** (`gate_window=False`, and `detect_day` never passes `True`).
+The window check lives in the selection tier instead, so gating it here too would double-gate the
+same rule.
 
 `min_pole_pct` = **2%** (`bull-flag.md §3.4`) — a loose meaningful-move floor; the "abnormal" signal
 lives in the `pole_extension_atr` score (trailing 14-bar true-range ATR), not this gate. This *is* a
@@ -231,8 +251,10 @@ shapes it removes; if it's surprising we revisit the floor before flipping setti
 def score(fv: FeatureVector, *, weights: Mapping[str, float]) -> tuple[float, dict[str, float]]: ...
 ```
 
-Weights hand-set in `Settings` (a small frozen mapping) with a documented rationale; the point of
-returning `contributions` is that ranking is auditable on the review page now and fittable later.
+Weights are hand-set with a documented rationale in `bullflag/score.py::DEFAULT_WEIGHTS` — a
+module-level mapping passed to the scorer as an argument, **not** a `Settings` field (this line said
+`Settings` until #534). The point of returning `contributions` is that ranking is auditable on the
+review page now and fittable later.
 
 ## 8. Public API & backward compatibility (`compat.py`, `__init__.py`)
 
@@ -288,10 +310,22 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
 | `bull_flag_fill_offset_ticks` | — | **3** | **added in #182/#190**: conservative slippage-modeled FILL price for R (confirmed by the trader — the "+3 ticks" idea survives, but downstream of the trigger, not as the trigger). `Setup.entry_fill`, no legacy slot; #180 must wire `rmetrics` to read it |
 | `bull_flag_min_pole_pct` | — | **0.02** | new gate (2% pole height) |
 | `bull_flag_atr_window` | — | **14** | trailing bars for `pole_extension_atr` |
-| `bull_flag_eps_ticks` | — | **1** | `E`-token flatness tolerance |
-| `bull_flag_score_weights` | — | frozen mapping | hand-set, documented |
+| ~~`bull_flag_eps_ticks`~~ | — | — | ⚠️ **never existed** — see below |
+| ~~`bull_flag_score_weights`~~ | — | — | ⚠️ **never existed** — see below |
 
 `bull_flag_max_retracement` (0.50) and `bull_flag_max_peak_wick` (0.50) unchanged.
+
+⚠️ **The two struck-through rows were never `Settings` fields** (#534). Both values are real, but
+neither is a knob — writing them here as settings sent readers looking for a config key that has
+never existed, and `test_settings_wiring.py` can't catch a *documented* field that was never added:
+
+| Written as | Actually lives in | Actual value |
+|---|---|---|
+| `bull_flag_eps_ticks` | `bullflag/tokens.py::token_eps` | **half** a tick (`settings.tick_size / 2`), derived — not `1` |
+| `bull_flag_score_weights` | `bullflag/score.py::DEFAULT_WEIGHTS` | a module-level mapping, passed as an argument |
+
+To make either configurable, add the `Settings` field *and* wire it through
+`detect_day_with_settings` — see §9.
 
 ## 10. Migration & retroactive recompute
 
@@ -324,7 +358,7 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
   intended v2 divergences from legacy, not parity violations: (1) an equal-high step re-anchors
   differently than legacy's raw `>` comparison; (2) a red or doji-like pole bar (#182/#190) has no
   legacy equivalent — legacy's strict-ascending walk doesn't check color/body at all; (3) a step
-  within `eps` (1 tick) is `E` in v2 but still a legacy `H`/`L`. Fixtures use clearly separated
+  within `eps` (half a tick) is `E` in v2 but still a legacy `H`/`L`. Fixtures use clearly separated
   highs and green, thrust-bodied pole bars so none of the three trip.
 - Reuse the named real cases already in `test_bullflag.py` (AHMA/VRXA/SNDQ/ETHT/NBIZ/CLRO/CYH/DJT).
 

@@ -81,6 +81,7 @@ def detect_day(
     first_hit: datetime | None = None,
     eps: float = 0.005,
     max_pole: int = 4,
+    pole_min_step_share: float = 0.0,
     max_cons: int = 4,
     max_retracement: float = 0.50,
     max_peak_wick: float = 0.50,
@@ -137,7 +138,9 @@ def detect_day(
     if gap_pole and tokens and tokens[0] != "H" and is_big_green(bars[0]):
         candidates.append((0, (0, 1)))
     for c in all_cycles:
-        refined = refine_pole(bars, tokens, c.peak, max_pole=max_pole)
+        refined = refine_pole(
+            bars, tokens, c.peak, max_pole=max_pole, min_step_share=pole_min_step_share
+        )
         if refined is not None:
             candidates.append((c.peak, refined))
 
@@ -268,6 +271,7 @@ def detect_day_with_settings(
         first_hit=first_hit,
         eps=token_eps(settings),
         max_pole=settings.bull_flag_max_pole,
+        pole_min_step_share=settings.bull_flag_pole_min_step_share,
         max_cons=settings.bull_flag_max_cons,
         min_pole_pct=settings.bull_flag_min_pole_pct,
         max_retracement=settings.bull_flag_max_retracement,

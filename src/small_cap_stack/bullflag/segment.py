@@ -114,7 +114,12 @@ def segment_at_end(
 
 
 def refine_pole(
-    bars: Sequence[Bar], tokens: Sequence[Token], peak: int, *, max_pole: int
+    bars: Sequence[Bar],
+    tokens: Sequence[Token],
+    peak: int,
+    *,
+    max_pole: int,
+    min_step_share: float = 0.0,
 ) -> tuple[int, int] | None:
     """``(base_idx, pole_len)`` for the pole ending at a GIVEN ``peak``, or ``None`` if none forms.
 
@@ -129,7 +134,21 @@ def refine_pole(
     red/flat peak still forms a pole and is rejected downstream by the ``peak_green`` gate
     (identify-and-reject, #196: OPEN/IRE), rather than being skipped so the greedy walk wanders to a
     later junk pole. Returns ``None`` only when the pole is disabled (``max_pole < 1``) or there is
-    no higher-high step into the peak (``tokens[peak-1] != "H"``)."""
+    no higher-high step into the peak (``tokens[peak-1] != "H"``).
+
+    ``min_step_share`` (#585) additionally requires each *extension* to carry that fraction of the
+    pole's advance, measured against the base it would create: a bar that ticks higher but
+    contributes almost nothing to the move is a quiet pause, not thrust, and stops the walk. It has
+    to be a **within-pole share** rather than any absolute or trailing-relative measure — on a
+    frozen pre-market tape every trailing measure is inflated, and seven alternatives (step %, ATR
+    multiple, step vs the bar's own range, absolute body %, a tighter ``is_big_green``, and two
+    volume rules) all rank AKAN 2026-05-22's 08:00 bar *above* the WULF 09:25 extension that a
+    reviewed fixture keeps. Only this axis orders them correctly (0.068 vs 0.106). ``0.0`` disables
+    it, which is what a shape-only caller and the pre-#585 behaviour want.
+
+    The admissible window here is narrow — (0.0677, 0.1058) — and set by one observation at each
+    end. Treat the default as provisional; a reviewed case with a genuine sub-0.08 extension would
+    close it entirely."""
     if max_pole < 1 or peak - 1 < 0 or tokens[peak - 1] != "H":
         return None
     base, pole_len = peak - 1, 1
@@ -138,7 +157,21 @@ def refine_pole(
         and base - 1 >= 0
         and tokens[base - 1] == "H"
         and is_big_green(bars[base])
+        and _step_share(bars, base, peak) >= min_step_share
     ):
         base -= 1
         pole_len += 1
     return base, pole_len
+
+
+def _step_share(bars: Sequence[Bar], base: int, peak: int) -> float:
+    """What fraction of the pole's advance the step onto ``bars[base]`` contributes.
+
+    Denominated by the advance the *extended* pole would span (``peak.high - bars[base-1].high``),
+    so the question is "is this bar a real part of the move it is being counted into". A
+    non-positive span cannot be judged and reads as 0.0, which blocks the extension.
+    """
+    span = bars[peak].high - bars[base - 1].high
+    if span <= 0:
+        return 0.0
+    return (bars[base].high - bars[base - 1].high) / span
