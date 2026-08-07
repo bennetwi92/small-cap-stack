@@ -169,3 +169,52 @@ def test_pages_share_one_dom_helper() -> None:
         if "document.getElementById(id)" in (DOCS / entry).read_text(encoding="utf-8")
     ]
     assert not forked, f"{forked} define a local `el`; import it from js/dom.js instead"
+
+
+# ------------------------------------------------------------- memoised fetches (#509)
+# There is no browser coverage in CI, so a promise-cache bug has no runtime test to catch it.
+# These are structural, which is weak — but the failure they guard is permanent-until-reload
+# and invisible in review, which is a bad combination to leave entirely unchecked.
+
+#: Module-level promise memos in `inspector.js`, and the function that populates each.
+PROMISE_CACHES = (("_payloads", "chartsFor"), ("_reviews", "reviewFor"))
+
+
+@pytest.mark.parametrize(("cache", "populator"), PROMISE_CACHES)
+def test_a_memoised_fetch_evicts_itself_on_rejection(cache: str, populator: str) -> None:
+    """Caching a rejected promise makes one dropped request permanent (#509).
+
+    `chartsFor` stored the raw `fetchJson` promise. `fetchJson` answers `null` for a missing or
+    unparsable file, so the only way it rejects is a transport failure — offline, DNS, CORS — the
+    one case that is certainly transient. Cached, it stopped being transient: both hosts paint
+    "loading…" then await the memo inside an unguarded `async`, so the dock sat on that word for
+    that date until a reload.
+
+    The populator must therefore both catch AND delete its key, not merely catch.
+    """
+    src = (DOCS / "js" / "inspector.js").read_text(encoding="utf-8")
+    start = src.index(f"export function {populator}(")
+    end = src.find("\nexport ", start + 1)
+    body = src[start : end if end != -1 else len(src)]
+
+    catch_at = body.find(".catch(")
+    assert catch_at != -1, f"{populator} memoises a promise without catching its rejection"
+    # The delete must live INSIDE the catch. A `delete` earlier in the function satisfies a
+    # whole-body search while defeating the memo entirely — every row click would re-download a
+    # 1.5–3 MB payload. That is a worse bug than the one this guard prevents, so it must not pass.
+    handler = body[catch_at:]
+    evictions = [ln.strip() for ln in handler.splitlines() if f"{cache}.delete(" in ln]
+    assert evictions, (
+        f"{populator} must evict its key from within the rejection handler — either it caches the "
+        f"failure (a dropped request stays dropped until a reload), or it deletes unconditionally "
+        f"and there is no memo left at all."
+    )
+    # Identity-guarded ON THE EVICTION LINE ITSELF. Checking the handler region for a `.get(`
+    # anywhere is satisfied by the function's own `return <cache>.get(key)`, so it would pass a
+    # version with no guard at all.
+    for line in evictions:
+        assert f"{cache}.get(" in line and "===" in line, (
+            f"{populator} evicts without checking it still owns the entry ({line!r}). A slow "
+            f"rejection would then throw away a NEWER value — a Refresh's in-flight refetch, or "
+            f"cacheReview's post-save seed, which would make a just-saved note read back as absent."
+        )
