@@ -241,20 +241,31 @@ _WRAPPERS = (
 )
 
 
+def _wrapper_ast(module: object, func_name: str) -> ast.AST:
+    """The named settings wrapper's AST. ``AsyncFunctionDef`` too: matching only ``FunctionDef``
+    would raise ``StopIteration`` — an error, not a failure — if a wrapper ever went async."""
+    source = Path(module.__file__).read_text()  # type: ignore[attr-defined]
+    return next(
+        n
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef) and n.name == func_name
+    )
+
+
 def _settings_attrs_read_by(module: object, func_name: str) -> set[str]:
     """Every ``settings.<attr>`` the named wrapper's source touches, read from the AST.
 
     Attribute names rather than call-args on purpose: the wrapper may forward a field directly
     (``max_pole=settings.bull_flag_max_pole``) or derive from it (``trigger_offset_ticks * tick``),
     and both count as wired. What must never happen is a field nothing reads at all.
+
+    The ``settings`` receiver is checked, not just the attribute name — collecting every attribute
+    in the function meant ``anything_else.bull_flag_foo`` marked ``bull_flag_foo`` wired, which is
+    a false negative in a test whose whole job is to notice an unread knob.
     """
-    source = Path(module.__file__).read_text()  # type: ignore[attr-defined]
-    func = next(
-        n
-        for n in ast.walk(ast.parse(source))
-        if isinstance(n, ast.FunctionDef) and n.name == func_name
-    )
-    return {n.attr for n in ast.walk(func) if isinstance(n, ast.Attribute)}
+    nodes = ast.walk(_wrapper_ast(module, func_name))
+    attrs = (n for n in nodes if isinstance(n, ast.Attribute))
+    return {n.attr for n in attrs if isinstance(n.value, ast.Name) and n.value.id == "settings"}
 
 
 def test_every_engine_knob_is_read_by_a_detector() -> None:
@@ -288,13 +299,7 @@ def test_no_detector_reads_settings_through_a_getattr_fallback() -> None:
     the silent default becomes the real rule. Read the attribute directly and let it fail loudly."""
     offenders: list[str] = []
     for module, func_name in _WRAPPERS:
-        source = Path(module.__file__).read_text()  # type: ignore[attr-defined]
-        func = next(
-            n
-            for n in ast.walk(ast.parse(source))
-            if isinstance(n, ast.FunctionDef) and n.name == func_name
-        )
-        for node in ast.walk(func):
+        for node in ast.walk(_wrapper_ast(module, func_name)):
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)
@@ -311,13 +316,38 @@ def test_no_detector_reads_settings_through_a_getattr_fallback() -> None:
 def test_both_detectors_tokenise_at_the_same_eps() -> None:
     """#513: they didn't. The live path used `token_eps` (half a tick, #196/SNDQ — a genuine +0.01
     higher high must extend the pole); the end-anchored wrapper resolved a `getattr` on a field
-    that doesn't exist and got a full tick. Measured over the 25 committed review fixtures, that
-    disagreement changed 193 of 3403 end-anchored prefixes and moved 20 accepted setups."""
+    that doesn't exist and got a full tick. Measured over the 25 committed review fixtures: of
+    3403 end-anchored prefixes, 282 returned a different result, 181 gained or lost a shape
+    entirely, and 20 flipped `passed` (15 gained, 5 lost).
+
+    Both wrappers are asserted, not just the one that was broken — a test called "both detectors"
+    that only spies on one would stay green if the *right* side were changed."""
     s = _distinct_settings()
-    with patch.object(setup_mod, "detect_setup", return_value=None) as spy:
+    with patch.object(setup_mod, "detect_setup", return_value=None) as setup_spy:
         setup_mod.detect_setup_with_settings([], s)
-    assert spy.call_args.kwargs["eps"] == token_eps(s)
+    with patch.object(day_mod, "detect_day", return_value=None) as day_spy:
+        day_mod.detect_day_with_settings([], s, None)
+    assert setup_spy.call_args.kwargs["eps"] == token_eps(s)
+    assert day_spy.call_args.kwargs["eps"] == token_eps(s)
     assert token_eps(s) == s.tick_size / 2  # derived, not a knob — nothing to add to Settings
+
+
+def test_the_eps_change_is_visible_in_behaviour_not_just_in_a_spy() -> None:
+    """A spy assertion pins the plumbing; this pins the rule.
+
+    Three bars whose consolidation step is exactly **one tick down**: at the old full-tick eps that
+    step tokenises `E`, `segment_at_end` requires at least one strict `L` in the consolidation, and
+    the shape is rejected. At half a tick it is `L` and the flag forms. Without a case like this,
+    every eps assertion in this module is structural and the suite would stay green at any value
+    (verified: doubling eps failed only the spy test before this was added)."""
+    bars = [
+        _bar(0, 1.00, 1.02, 0.99, 1.02),  # base
+        _bar(1, 1.02, 1.10, 1.02, 1.09),  # peak: green, closes strong, ~8% pole
+        _bar(2, 1.09, 1.09, 1.05, 1.06, vol=50_000.0),  # cons: exactly one tick below the peak
+    ]
+    s = settings(bull_flag_min_pole_pct=0.0)
+    assert setup_mod.detect_setup(bars, eps=s.tick_size, min_pole_pct=0.0) is None
+    assert setup_mod.detect_setup(bars, eps=token_eps(s), min_pole_pct=0.0) is not None
 
 
 def test_the_retired_names_have_not_quietly_come_back() -> None:

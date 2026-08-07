@@ -56,7 +56,7 @@ def detect_setup(
     atr_window: int = 14,
     entry_offset: float = 0.01,
     fill_offset: float = 0.03,
-    eps: float = 0.01,
+    eps: float = 0.005,  # half a tick — matches detect_day's default and token_eps (#196/#513)
     gate_window: bool = False,
     weights: Mapping[str, float] = DEFAULT_WEIGHTS,
     window_start: time = time(4, 0),
@@ -115,9 +115,14 @@ def detect_setup_with_settings(bars: Sequence[Bar], settings: Settings) -> Setup
     One of those fallbacks outlived #302 and was only found in the 2026-08 audit (#513): ``eps``
     read ``getattr(settings, "bull_flag_eps_ticks", 1)`` for a field that has never existed, so it
     always resolved to a **full** tick while the live path used ``token_eps`` (half a tick, #196).
-    The paragraph above was therefore false for a year. It now calls ``token_eps`` directly — the
-    two detectors genuinely agree, and there is no name to add to ``Settings`` because the value is
-    derived from ``tick_size``.
+    The paragraph above was therefore false for a year. It now calls ``token_eps`` directly, so the
+    two detectors tokenise identically; there is no name to add to ``Settings``, because the value
+    is derived from ``tick_size``.
+
+    One rule still differs, and deliberately: the window. This passes ``scan_start``/``scan_end``
+    (04:00–11:59) while ``detect_day_with_settings`` passes ``select_window_*`` (04:00–09:15). It
+    only feeds the ``trigger_in_window`` *feature* — ``gate_window`` is ``False`` on both paths, so
+    nothing is accepted or rejected by it — but "the same rules" above means the shape rules.
 
     The entry TRIGGER uses ``bull_flag_trigger_offset_ticks`` (1 tick, validated via visual review,
     #182/#190); the FILL used for R uses ``bull_flag_fill_offset_ticks`` (3 ticks, conservative

@@ -30,16 +30,20 @@ def token_eps(settings: Settings) -> float:
     be swallowed as ``E``; only a truly-flat top (Δhigh = 0) is ``E`` (#196/SNDQ: a +0.01 higher
     high was mislabeled ``E`` at eps=1 tick, truncating the pole). Half a tick keeps every real
     >= 1-tick move directional while still absorbing sub-tick float noise (``tokenize`` rounds the
-    delta first). This is the v2 default for the full-day ``detect_day`` path; the end-anchored
-    ``detect_setup`` keeps its own ``eps`` argument."""
+    delta first). **Both** settings wrappers pass this — ``detect_day_with_settings`` always did,
+    and ``detect_setup_with_settings`` joined it in #513, having until then resolved a ``getattr``
+    on a ``Settings`` field that never existed and silently run at a full tick. The sentence here
+    used to license that divergence ("the end-anchored ``detect_setup`` keeps its own ``eps``");
+    it does keep the *argument*, so a test can vary it, but there is no rule that differs."""
     return settings.tick_size / 2
 
 
 def tokenize(bars: Sequence[Bar], *, eps: float) -> list[Token]:
     """One token per bar after the first, comparing ``high[i]`` to ``high[i-1]`` within ``eps``.
 
-    ``eps`` is a flatness tolerance (typically one tick): highs within ``eps`` of each other are
-    ``E`` (equal), so a sub-tick wobble neither advances a pole nor breaks a consolidation.
+    ``eps`` is a flatness tolerance — **half** a tick on both engine paths (:func:`token_eps`), so
+    highs within a sub-tick wobble of each other are ``E`` (equal) and neither advance a pole nor
+    break a consolidation, while a genuine one-tick step stays directional (#196).
     """
     tokens: list[Token] = []
     for i in range(1, len(bars)):
