@@ -23,10 +23,12 @@ from small_cap_stack.report import (
     news_headlines_for,
 )
 from small_cap_stack.storage import Store
+from tests.support import T0 as _T0
 from tests.support import settings
 
-_DAY = date(2026, 6, 29)
-_T0 = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
+# Derived, not restated: the seeded rows are stamped from `_T0`, so a `_DAY` that drifted from
+# it would silently break the news-recency assertions (which compare against this date).
+_DAY = _T0.date()
 
 
 def _settings() -> Settings:

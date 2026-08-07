@@ -7,7 +7,7 @@ parentheses are the reviewed opportunities each rule was validated against.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from small_cap_stack.bullflag.cycles import (
     Cycle,
@@ -17,8 +17,7 @@ from small_cap_stack.bullflag.cycles import (
     significant_cycles,
 )
 from small_cap_stack.capture import Bar
-
-_T0 = datetime(2026, 7, 1, 14, 0, tzinfo=UTC)
+from tests.support import T0 as _T0
 
 
 def _bar(i: int, *, vol: float = 200_000.0, green: bool = True) -> Bar:

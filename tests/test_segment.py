@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from small_cap_stack.bullflag import Segment, segment_at_end, tokenize
 from small_cap_stack.capture import Bar
-
-_T0 = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
+from tests.support import T0 as _T0
 
 
 def _bars(highs: list[float], *, colors: list[str] | None = None) -> list[Bar]:
