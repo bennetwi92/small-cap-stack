@@ -15,12 +15,13 @@ from small_cap_stack.app import Application
 from small_cap_stack.clock import ET
 from small_cap_stack.config import Settings
 from small_cap_stack.storage import Store
+from tests.support import settings
 
 _DAY = date(2026, 7, 2)
 
 
 def _settings(**overrides: object) -> Settings:
-    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
+    return settings(**overrides)
 
 
 def _seed_day(store: Store, day: date) -> None:
@@ -312,7 +313,7 @@ def test_the_morning_refresh_does_not_force_re_extract_today(monkeypatch: Any) -
     monkeypatch.setattr("small_cap_stack.app.build_portfolio_payload", fake_build)
     monkeypatch.setattr("small_cap_stack.app.write_json", lambda *_a, **_k: None)
     app = Application.__new__(Application)
-    app.settings = Settings(_env_file=None, dashboard_enabled=True)  # type: ignore[call-arg]
+    app.settings = settings(dashboard_enabled=True)
     app.store = None  # type: ignore[assignment]  # never touched — build is stubbed
 
     app._export_portfolio(datetime(2026, 8, 6, 7, 15, tzinfo=UTC), force_today=False)

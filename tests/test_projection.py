@@ -40,6 +40,7 @@ from small_cap_stack.portfolio.projection import (
     income_from_capital,
     income_ramp,
 )
+from tests.support import settings
 
 ET = ZoneInfo("America/New_York")
 
@@ -54,7 +55,7 @@ def _s(**overrides: object) -> Settings:
         "portfolio_projection_days": SESSIONS,
     }
     defaults.update(overrides)
-    return Settings(_env_file=None, **defaults)  # type: ignore[call-arg]
+    return settings(**defaults)
 
 
 def _bar(d: date, o: float, h: float, low: float, c: float, *, minute: int = 0) -> Bar:

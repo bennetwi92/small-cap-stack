@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-from small_cap_stack.config import Settings
 from small_cap_stack.scheduler import build_scheduler
+from tests.support import settings
 
 
 async def _noop() -> None: ...
@@ -14,7 +14,7 @@ async def _noop() -> None: ...
 def _job_grace() -> dict[str, int | None]:
     async def collect() -> dict[str, int | None]:
         sch = build_scheduler(
-            Settings(_env_file=None),  # type: ignore[call-arg]
+            settings(),
             on_tick=_noop,
             on_scan_start=_noop,
             on_scan_end=_noop,
@@ -34,7 +34,7 @@ def _job_grace() -> dict[str, int | None]:
 
 def test_daily_jobs_have_generous_misfire_grace() -> None:
     grace = _job_grace()
-    expected = Settings(_env_file=None).cron_misfire_grace_sec  # type: ignore[call-arg]
+    expected = settings().cron_misfire_grace_sec
     assert expected >= 60  # a brief block shouldn't skip a once-a-day critical job
     for jid in ("scan_start", "scan_end", "eod_bars", "eod_report", "eod_backfill"):
         assert grace[jid] == expected
@@ -60,7 +60,7 @@ def test_missed_job_listener_counts_and_is_registered() -> None:
     # And build_scheduler wires it to EVENT_JOB_MISSED.
     async def check() -> bool:
         sch = build_scheduler(
-            Settings(_env_file=None),  # type: ignore[call-arg]
+            settings(),
             on_tick=_noop,
             on_scan_start=_noop,
             on_scan_end=_noop,
@@ -85,7 +85,7 @@ def test_the_morning_refresh_lands_in_the_one_free_slot_before_the_open() -> Non
     a harvest still holding 1 GB or competing with the tracker's morning — and it must finish well
     before the open, since being visible *before* the market is the point.
     """
-    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    s = settings()
     assert s.harvest_stop_et < s.portfolio_refresh_et < s.eod_backfill, (
         "the morning rebuild must run after the harvest stops and before eod_backfill"
     )
@@ -96,7 +96,7 @@ def test_the_morning_refresh_is_scheduled_at_that_time() -> None:
     """A setting nothing reads is a comment. Pin the job to the configured hour."""
     from apscheduler.triggers.cron import CronTrigger
 
-    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    s = settings()
 
     async def check() -> None:
         sch = build_scheduler(
