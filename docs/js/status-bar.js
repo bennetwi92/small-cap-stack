@@ -6,8 +6,8 @@
 // dashboard always has.
 
 import { fetchJson } from "./data.js";
-import { esc, etClockIsoSuffixed } from "./fmt.js";
-import { sessionNow, etClockNow } from "./session.js";
+import { esc, etClockIsoSuffixed, etClockNow } from "./fmt.js";
+import { sessionNow } from "./session.js";
 import { STALE_PUBLISH_MS } from "./thresholds.js";
 
 const POLL_MS = 60_000;

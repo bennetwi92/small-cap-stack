@@ -371,52 +371,115 @@ def test_no_page_hardcodes_a_staleness_literal() -> None:
 FMT = "js/fmt.js"
 
 
+#: Every way a module can render a date in the *viewer's* zone. `Intl.DateTimeFormat` is the
+#: spelling #510 was written in; the `toLocale*` family is the shorter one, and banning only the
+#: former would leave a one-line path back to the same bug. `Number.toLocaleString` (digit
+#: grouping, used on three pages) is deliberately not here — it is matched on `Date` receivers
+#: and on the two Date-only method names.
+LOCAL_TIME_SPELLINGS = (
+    re.compile(r"new\s+Intl\s*(?:\.\s*DateTimeFormat|\[\s*[\"']DateTimeFormat[\"']\s*\])"),
+    re.compile(r"\.toLocale(?:Time|Date)String\b"),
+    re.compile(r"\bDate\b[^;\n]*\.toLocaleString\b"),
+)
+
+
 def test_only_one_module_builds_a_datetime_formatter() -> None:
-    """Five forks of the ET formatter is how two of them lost their `timeZone` (#510).
+    """Forking the ET formatter is how two call sites lost their `timeZone` (#510).
 
-    `fmt.js`, `session.js`, `status-bar.js` and `app.js` each carried a byte-identical copy of the
-    HH:MM ET formatter, and the "updated …" / "fetched …" stamps on the index and results pages
-    built a *sixth* with **no** `timeZone` at all — so an unlabelled browser-local clock rendered
-    between `PRE 09:14 ET` and `data 14:22 ET` on the same status line. From London that reads as
-    a five-hour discrepancy in the data feed. Nothing was wrong with the feed.
+    The four copies in `fmt.js` / `session.js` / `status-bar.js` / `app.js` were byte-identical —
+    they had not drifted. The failure was that with no obvious shared helper, the "updated …" and
+    "fetched …" stamps each wrote a *fresh* formatter and both omitted `timeZone`, so an
+    unlabelled browser-local clock rendered between `PRE 09:14 ET` and `data 14:22 ET` on the same
+    status line. From London that reads as a five-hour discrepancy in the data feed. Nothing was
+    wrong with the feed.
 
-    Constructor sites, not usages: importing and calling the shared helpers is the point.
+    So this bans the *construction*, not the duplication — and bans it in every spelling, because
+    `new Date().toLocaleTimeString()` restores the bug in one line and passed a first draft of
+    this test that only knew about `Intl.DateTimeFormat`.
     """
     offenders = [
         f"{path}:{i}: {ln.strip()}"
         for path, src in _js_sources().items()
         if path != FMT
         for i, ln in enumerate(src.splitlines(), 1)
-        if not ln.strip().startswith("//") and "new Intl.DateTimeFormat" in ln
+        if not ln.strip().startswith("//") and any(p.search(ln) for p in LOCAL_TIME_SPELLINGS)
     ]
     assert not offenders, (
-        f"date/time formatters must be built in {FMT} and imported; a private one drifts, and "
-        "the drift that matters is a missing timeZone:\n" + "\n".join(offenders)
+        f"dates must be formatted by {FMT}'s helpers, which are pinned to ET. A locally-built "
+        "formatter renders the viewer's clock, and the page gives it no label:\n"
+        + "\n".join(offenders)
     )
+
+
+def _formatter_options(src: str) -> list[str]:
+    """The options object of each `new Intl.DateTimeFormat(…)`, by matching parens.
+
+    Not `\\((.*?)\\);` — a constructor without a trailing semicolon (ASI is legal, and nothing
+    lints JS in this repo) makes the lazy match run to the *next* `);` in the file, so a
+    timeZone-less formatter borrows the following one's `timeZone` and the check passes.
+    """
+    out: list[str] = []
+    for m in re.finditer(r"new Intl\.DateTimeFormat\(", src):
+        depth, start = 0, m.end() - 1
+        for i in range(start, len(src)):
+            if src[i] == "(":
+                depth += 1
+            elif src[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    out.append(src[start + 1 : i])
+                    break
+    return out
 
 
 def test_every_et_formatter_is_pinned_to_eastern() -> None:
     """The specific defect, stated directly: a formatter with no `timeZone` renders the viewer's
     clock. Checked against the formatters themselves rather than their call sites, so it holds
     even if `fmt.js` grows a new one."""
-    src = _js_sources()[FMT]
-    ctors = list(re.finditer(r"new Intl\.DateTimeFormat\((.*?)\);", src, re.S))
+    ctors = _formatter_options(_js_sources()[FMT])
     assert ctors, f"no formatter found in {FMT} — has it moved?"
-    missing = [c.group(1).strip()[:60] for c in ctors if "timeZone" not in c.group(1)]
+    missing = [c.strip()[:60] for c in ctors if "timeZone" not in c]
     assert not missing, (
         "these formatters have no timeZone and will render the viewer's local clock: "
         f"{missing}. Every time this app prints is ET."
     )
 
 
-_NAMED_IMPORT = re.compile(r"import\s*\{([^}]+)\}\s*from\s*[\"'](\.[^\"']+)[\"']", re.S)
+def test_the_formatter_parser_stops_at_its_own_closing_paren() -> None:
+    """The bug the paren-matching replaced: with a lazy `.*?);` the first (bad) formatter would
+    swallow the second and inherit its `timeZone`, and both would vanish from the result."""
+    src = (
+        # No trailing semicolon on the first — ASI is legal and nothing lints JS here.
+        'const a = new Intl.DateTimeFormat("en-US", { hour: "2-digit" })\n'
+        'const b = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York" });\n'
+    )
+    opts = _formatter_options(src)
+    assert len(opts) == 2
+    assert "timeZone" not in opts[0] and "timeZone" in opts[1]
 
 
-def _exports(src: str) -> set[str]:
-    """Names a module exports: `export const/let/var/function/class/async function`, plus any
-    listed in an `export { a, b as c }` clause."""
+# `import { a, b as c } from "./x.js"` — and the same clause after a default binding
+# (`import D, { a } from …`). `import * as ns` binds no individual names, so there is nothing
+# for this check to resolve; a default-only import is checked via the "default" pseudo-name.
+_NAMED_IMPORT = re.compile(
+    r"import\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]+)\}\s*from\s*[\"'](\.[^\"']+)[\"']", re.S
+)
+
+
+def _exports(src: str) -> set[str] | None:
+    """Names a module exports, or `None` when the module re-exports a whole namespace.
+
+    `export * from "./x.js"` makes the export list unknowable without following the chain, so the
+    honest answer is "can't tell" — returning a partial set would make the check above report a
+    perfectly valid import as broken. No module does this today; it is the one form that turns
+    this guard from a safety net into a nuisance, which is how guards get deleted.
+    """
+    if re.search(r"export\s*\*\s*from", src):
+        return None
     decl = r"export\s+(?:async\s+)?(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)"
     names = set(re.findall(decl, src))
+    if re.search(r"export\s+default\b", src):
+        names.add("default")
     for clause in re.findall(r"export\s*\{([^}]*)\}", src):
         for part in clause.split(","):
             alias = part.strip().split(" as ")
@@ -442,6 +505,8 @@ def test_every_named_import_resolves_to_a_real_export() -> None:
                 broken.append(f"{path}: imports from {target}, which does not exist")
                 continue
             available = _exports(sources[resolved])
+            if available is None:  # `export *` — the list isn't knowable from one file
+                continue
             for raw in names.split(","):
                 name = raw.strip().split(" as ")[0].strip()
                 if name and name not in available:
@@ -450,9 +515,25 @@ def test_every_named_import_resolves_to_a_real_export() -> None:
 
 
 def test_the_import_check_would_notice_a_missing_export() -> None:
-    """A resolver that silently finds nothing makes the check above vacuous, and this one has two
-    ways to do that (a path that doesn't resolve, an export form it can't parse)."""
-    assert "etClockNowSec" in _exports(_js_sources()[FMT])
-    assert "etClockNowSec" not in _exports("export const somethingElse = 1;")
+    """A resolver that silently finds nothing makes the check above vacuous — and it has two ways
+    to do that: a path that doesn't resolve, or an export form it can't parse (which shows up as
+    a false *failure*, the kind of noise that gets a guard deleted rather than fixed)."""
+    assert "etClockNowSec" in (_exports(_js_sources()[FMT]) or set())
+    assert "etClockNowSec" not in (_exports("export const somethingElse = 1;") or set())
     assert _exports("const hidden = 1;\nexport { hidden as shown };") == {"shown"}
+    assert _exports('export { a } from "./y.js";') == {"a"}  # a re-export IS an export
+    assert _exports("export default function x() {}") == {"default"}
+    assert _exports('export * from "./y.js";') is None  # unknowable — must not report broken
     assert len(_js_sources()) > 10  # the corpus is real, not an empty dict
+
+
+def test_the_import_pattern_reads_every_clause_form_in_use() -> None:
+    """`import D, { a } from` and a clause wrapped over several lines both appear in real code and
+    both used to be skipped silently — a blind spot in a guard reads exactly like a pass."""
+    assert _NAMED_IMPORT.findall('import { a, b } from "./x.js";') == [(" a, b ", "./x.js")]
+    assert _NAMED_IMPORT.findall('import D, { a } from "./x.js";') == [(" a ", "./x.js")]
+    assert _NAMED_IMPORT.findall('import {\n  a,\n  b,\n} from "./x.js";') == [
+        ("\n  a,\n  b,\n", "./x.js")
+    ]
+    # A CDN import is not ours to resolve.
+    assert _NAMED_IMPORT.findall('import { T } from "https://cdn/x.js";') == []
