@@ -660,7 +660,7 @@ def test_write_json_if_changed_ignores_generated_utc_across_real_payloads(tmp_pa
     store = Store(tmp_path)
     _seed(store)
     payload = build_charts(store, _settings(), _DAY, _NOW)
-    out = tmp_path / "dashboard" / "charts.json"
+    out = tmp_path / "dashboard" / "charts" / "2026-06-29.json"
     assert write_json_if_changed(out, payload) is True
     later = build_charts(store, _settings(), _DAY, datetime(2026, 6, 29, 21, 0, tzinfo=UTC))
     assert write_json_if_changed(out, later) is False

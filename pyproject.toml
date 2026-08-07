@@ -53,7 +53,19 @@ src = ["src", "tests"]
 extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+# ARG (#519): an unused parameter is a lie about what a function depends on, and callers pay
+# for it at every call site. Where one is genuinely required by a signature contract — a
+# Protocol stub, the uniform Gate shape, an ib_async callback — it carries a `noqa` naming
+# the contract, so the exception is stated rather than assumed.
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "ARG"]
+
+[tool.ruff.lint.per-file-ignores]
+# ARG is about the package's own API being honest about what it depends on. Test doubles and
+# spike harnesses exist precisely to satisfy a signature they don't use — a fake `fetch_day_bars`
+# that ignores `trading_date` is the point, not a defect — so the rule would only buy `noqa`
+# noise there. Scoped rather than relaxed: `src/` gets no exemption.
+"tests/**" = ["ARG"]
+"spikes/**" = ["ARG"]
 
 [tool.mypy]
 python_version = "3.11"

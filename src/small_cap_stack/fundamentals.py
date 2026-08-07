@@ -44,7 +44,7 @@ class FundamentalsSource(Protocol):
 class NullFundamentals:
     """Default no-op source (used in tests / when fundamentals are disabled)."""
 
-    async def fetch(self, candidate: Candidate) -> Fundamentals | None:
+    async def fetch(self, candidate: Candidate) -> Fundamentals | None:  # noqa: ARG002 — FundamentalsSource
         return None
 
 

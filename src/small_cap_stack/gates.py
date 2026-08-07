@@ -82,13 +82,13 @@ def float_gate(i: GateInputs, s: Settings) -> GateResult:
     )
 
 
-def news_gate(i: GateInputs, s: Settings) -> GateResult:
+def news_gate(i: GateInputs, s: Settings) -> GateResult:  # noqa: ARG001 — uniform Gate signature
     if i.has_recent_news is None:
         return _missing("news")
     return GateResult("news", i.has_recent_news, {"has_recent_news": i.has_recent_news})
 
 
-def tradable_gate(i: GateInputs, s: Settings) -> GateResult:
+def tradable_gate(i: GateInputs, s: Settings) -> GateResult:  # noqa: ARG001 — uniform Gate signature
     if i.tradable is None:
         return _missing("tradable")
     return GateResult("tradable", i.tradable, {"tradable": i.tradable})
@@ -107,7 +107,7 @@ def trading_window_gate(i: GateInputs, s: Settings) -> GateResult:
     )
 
 
-def bull_flag_gate(i: GateInputs, s: Settings) -> GateResult:
+def bull_flag_gate(i: GateInputs, s: Settings) -> GateResult:  # noqa: ARG001 — uniform Gate signature
     if i.bull_flag is None:
         return _missing("bull_flag")
     return GateResult("bull_flag", i.bull_flag, {"bull_flag": i.bull_flag})

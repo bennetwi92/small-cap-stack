@@ -640,7 +640,7 @@ def test_paper_trade_records_the_risk_it_actually_took() -> None:
     # _win_cand: entry 10 / stop 9 -> risk/sh $1. At $500 open equity the 5% budget buys 25 shares
     # and the 50% cap allows 25 -> a tie, so risk binds and the full $25 budget is spent.
     s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
-    trades, _sk = _take_day(date(2026, 7, 1), [_win_cand("W")], 500.0, s, 2.0, 0.0)
+    trades, _sk = _take_day([_win_cand("W")], 500.0, s, 2.0, 0.0)
     (t,) = trades
     assert (t.qty, t.sized_by) == (25, "risk")
     assert (t.risk_fraction, t.risk_usd, t.risk_pct) == (0.05, 25.0, 0.05)
@@ -652,7 +652,7 @@ def test_paper_trade_records_cap_bound_risk_well_under_the_ceiling() -> None:
     # trade row has to say so rather than repeating the ceiling.
     s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
     cand = _cand("SUNE", 5, 10.0, 9.84, [_bar(10, 10.5, 9.9, 10.4)])  # risk/sh $0.16
-    trades, _sk = _take_day(date(2026, 7, 1), [cand], 500.0, s, 2.0, 0.0)
+    trades, _sk = _take_day([cand], 500.0, s, 2.0, 0.0)
     (t,) = trades
     assert t.sized_by == "cap"
     assert t.qty == 25  # cap floor(250/10)=25, vs risk floor(25/0.16)=156
@@ -665,9 +665,7 @@ def test_paper_trade_risk_fraction_follows_the_throttled_rung() -> None:
     # On a throttled day risk_fraction must be the RUNG, not the configured ceiling — otherwise the
     # trade log would claim 5% on a day the kill-switch deliberately halved the size.
     s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
-    trades, _sk = _take_day(
-        date(2026, 7, 1), [_win_cand("W")], 500.0, s, 2.0, 0.0, risk_fraction=0.025
-    )
+    trades, _sk = _take_day([_win_cand("W")], 500.0, s, 2.0, 0.0, risk_fraction=0.025)
     (t,) = trades
     assert t.risk_fraction == 0.025
     assert (t.qty, t.risk_usd, t.risk_pct) == (12, 12.0, 0.024)  # floor(12.50/1)=12 shares
@@ -1199,6 +1197,104 @@ def test_extract_float_is_none_when_no_fundamentals_landed(tmp_path: Path) -> No
     [c] = extract_day_trades(store, _s(), date(2026, 6, 29))
     assert c.float_shares is None
     assert c.max_r is not None  # the peak does not depend on fundamentals landing
+
+
+# --- the "collected, never gated" invariant (#551/#554) ----------------------------------
+#
+# `research/strategy.md` §4 states, as the spec's central claim, that float and news are collected
+# and never gated. That section is hand-written prose inside `strategy_doc.py`'s renderer — the
+# generator guarantees the *numbers* track Settings, and guarantees nothing about the claim. Before
+# these tests you could add a float filter to `_qualify` and no test would fail while the spec went
+# on printing "No." Eight surfaces asserted a `float < 20M` filter the engine has never applied,
+# and two published reports argued about it.
+
+
+def test_the_book_takes_a_high_float_name(tmp_path: Path) -> None:
+    """⚠️ FLOAT IS NOT A GATE. If you added one and this failed, DELETE THIS TEST — deliberately.
+
+    246,000,000 is CLSK, which is in the published book at 12x `float_max_shares`. That setting's
+    only consumer is `gates.py::float_gate`, whose only caller is the EOD report's `float_ok`
+    count; nothing in the selection path reads it.
+
+    If float should ever gate, the check goes in `portfolio.extract._qualify` — and then this test
+    comes out and `research/strategy.md` §4 changes in the same PR. That is the whole point: the
+    invariant is a decision someone makes, not an accident nobody notices.
+    """
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    store = Store(tmp_path)
+    _seed_premarket(
+        store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC), float_shares=246_000_000
+    )
+    cands = extract_day_trades(store, _s(), date(2026, 6, 29))
+
+    assert cands, (
+        "a 246M-float setup was dropped from the book, so float has become a gate. If that is "
+        "intended: delete this test and change research/strategy.md §4 in the same PR."
+    )
+    [c] = cands
+    assert c.float_shares == 246_000_000  # carried as context...
+    assert c.max_r is not None  # ...and the setup is still fully measured and takeable
+
+
+def test_the_book_takes_a_name_with_no_news(tmp_path: Path) -> None:
+    """⚠️ NEWS IS NOT A GATE either. Same contract as the float test above.
+
+    The original brief made "breaking news on the stock" a hard requirement. It never shipped as
+    one: `extract.py` does not read the `news` dataset at all, and `gates.py::news_gate` feeds only
+    the EOD report's `with_recent_news` count.
+    """
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))
+    assert store.read("news").is_empty()  # nothing seeded a headline
+
+    [c] = extract_day_trades(store, _s(), date(2026, 6, 29))
+    assert c.max_r is not None
+
+
+def test_news_rows_do_not_change_which_candidates_the_book_takes(tmp_path: Path) -> None:
+    """The stronger half: news present or absent, the book extracts the same trades.
+
+    Catches a news read entering by the back door as well as an explicit gate — and note that
+    `payload._EXTRACT_DATASETS` deliberately omits `news`, so adding one would also silently bust
+    every cached day's candidate fingerprint.
+    """
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    seeded_at = datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC)
+
+    quiet = Store(tmp_path / "quiet")
+    _seed_premarket(quiet, oid_time_utc=seeded_at)
+
+    loud = Store(tmp_path / "loud")
+    _seed_premarket(loud, oid_time_utc=seeded_at)
+    loud.append(
+        "news",
+        [
+            {
+                "opportunity_id": f"{day.isoformat()}:AZI",
+                "symbol": "AZI",
+                "time": "2026-06-29 08:00:00",
+                "ts_utc": seeded_at,
+                "provider": "DJ-N",
+                "headline": "AZI announces something material",
+                "article_id": "a1",
+            }
+        ],
+        partition_date=day,
+    )
+    assert loud.read("news").height == 1
+
+    key = lambda c: (c.symbol, c.entry_price, c.stop, c.max_r)  # noqa: E731
+    assert [key(c) for c in extract_day_trades(loud, _s(), day)] == [
+        key(c) for c in extract_day_trades(quiet, _s(), day)
+    ]
 
 
 def test_taken_and_skipped_trades_both_carry_the_peak_and_float() -> None:
@@ -1886,7 +1982,7 @@ def test_throttled_sitout_is_logged_as_throttled_not_cap_or_unaffordable() -> No
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
 
-    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
+    trades, skipped = _take_day(cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
 
     assert trades == []
     assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [
@@ -1916,7 +2012,7 @@ def test_take_day_selection_follows_select_day(monkeypatch: pytest.MonkeyPatch) 
         "small_cap_stack.portfolio.sim._select_day",
         lambda cands, s: sorted(cands, key=lambda c: c.trigger_at)[:1],
     )
-    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0)
+    trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0)
 
     assert [t.symbol for t in trades] == ["AAA"]  # followed the selector...
     assert [sk.symbol for sk in skipped] == ["BBB", "CCC"]  # ...and the rest is the remainder
@@ -1934,7 +2030,7 @@ def test_throttled_rung_sizing_to_zero_is_not_called_unaffordable() -> None:
     s = _s()
     assert size_position(500.0, 20.0, 5.0, risk_fraction=0.025, max_position_fraction=0.5).qty == 0
 
-    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0, risk_fraction=0.025)
+    trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0, risk_fraction=0.025)
 
     assert trades == []
     # Throttled, not unaffordable — the book could afford it at full risk. Recorded either way,
@@ -1948,7 +2044,7 @@ def test_unaffordable_still_recorded_at_full_risk() -> None:
     cands = [_cand("AAA", 5, 10.0, 9.0, win)]
     s = _s()
 
-    trades, skipped = _take_day(date(2026, 7, 14), cands, 5.0, s, 2.0, 0.0)
+    trades, skipped = _take_day(cands, 5.0, s, 2.0, 0.0)
 
     assert trades == []
     assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [("AAA", "unaffordable")]
@@ -1971,7 +2067,7 @@ def test_every_candidate_leaves_by_exactly_one_door() -> None:
     s = _s()
 
     for rf in (0.0, 0.025, 0.05):
-        trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0, risk_fraction=rf)
+        trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0, risk_fraction=rf)
         seen = [t.symbol for t in trades] + [sk.symbol for sk in skipped]
         assert sorted(seen) == ["AAA", "BBB", "CCC"], rf
         assert len(seen) == len(set(seen)), rf  # and never through two doors at once
@@ -2009,7 +2105,7 @@ def test_rung_zero_day_does_not_blame_the_daily_cap() -> None:
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand(x, i + 5, 10.0, 9.0, win) for i, x in enumerate(["AAA", "BBB", "CCC"])]
 
-    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
+    trades, skipped = _take_day(cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
 
     assert trades == []
     assert [sk.symbol for sk in skipped] == ["AAA", "BBB", "CCC"]
@@ -2030,7 +2126,7 @@ def test_take_day_tolerates_a_non_prefix_selector(monkeypatch: pytest.MonkeyPatc
         lambda cs, st: [c for c in sorted(cs, key=lambda c: c.trigger_at) if c.symbol != "BBB"],
     )
 
-    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0)
+    trades, skipped = _take_day(cands, 500.0, _s(), 2.0, 0.0)
 
     assert [t.symbol for t in trades] == ["AAA", "CCC"]
     assert [sk.symbol for sk in skipped] == ["BBB"]  # the real drop, not CCC
@@ -2043,7 +2139,7 @@ def test_skipped_is_returned_in_trigger_order() -> None:
     cands = [_cand(x, i + 5, 10.0, 9.0, win) for i, x in enumerate(["AAA", "BBB", "CCC"])]
     s = _s(portfolio_max_trades_per_day=2, portfolio_start_equity_usd=20.0)
 
-    _, skipped = _take_day(date(2026, 7, 14), cands, 20.0, s, 2.0, 0.0)
+    _, skipped = _take_day(cands, 20.0, s, 2.0, 0.0)
 
     triggers = [sk.trigger_at for sk in skipped]
     assert triggers == sorted(triggers)

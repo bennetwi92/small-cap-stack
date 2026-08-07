@@ -53,7 +53,6 @@ def _skipped(
 
 
 def _take_day(
-    day: date,
     cands: Sequence[CandidateTrade],
     equity: float,
     s: Settings,
@@ -274,7 +273,7 @@ def _run_book(
         target = target_for_day(i, day)
         risk_fraction = None if risk_for_day is None else risk_for_day(i, day, cands, target)
         day_trades, day_skipped = _take_day(
-            day, cands, equity, s, target, breakeven_r, risk_fraction=risk_fraction
+            cands, equity, s, target, breakeven_r, risk_fraction=risk_fraction
         )
         data_fees.observe(day_trades)
         tax.observe(day_trades)
@@ -306,7 +305,7 @@ def simulate_portfolio(
     tr = s.portfolio_target_r if target_r is None else target_r
     be = s.portfolio_breakeven_r if breakeven_r is None else breakeven_r
     days = sorted(candidates_by_day, key=lambda dc: dc[0])
-    return _run_book(days, s, lambda i, day: tr, be)
+    return _run_book(days, s, lambda i, day: tr, be)  # noqa: ARG005 — target_for_day shape
 
 
 @dataclass(frozen=True)
@@ -499,7 +498,12 @@ def simulate_portfolio_adaptive(
         chosen.append((day, fit))
         return fit.target_r
 
-    def risk_for_day(i: int, day: date, cands: Sequence[CandidateTrade], target: float) -> float:
+    def risk_for_day(
+        i: int,  # noqa: ARG001 — _run_book's risk_for_day callback shape
+        day: date,
+        cands: Sequence[CandidateTrade],
+        target: float,
+    ) -> float:
         # Apply today's rung, then step the ladder for TOMORROW from today's setups
         # (size-independent → the book re-arms even when throttled to the 0 rung).
         risk_fraction = ladder[rung_state[0]]

@@ -106,12 +106,23 @@ class TradeCosts:
         return round(self.commission_usd + self.fees_usd, 4)
 
 
-def trade_costs(qty: int, entry_price: float, exit_price: float, s: Settings) -> TradeCosts:
+def trade_costs(
+    qty: int,
+    entry_price: float,  # noqa: ARG001 — see the note on the 1% commission cap below
+    exit_price: float,
+    s: Settings,
+) -> TradeCosts:
     """Full IBKR tiered round-trip cost for ``qty`` shares (#232 §1).
 
     Both sides pay commission + exchange removal + clearing; only the sell pays TAF and SEC. The
     book is always liquidity-removing (stop-triggered entries, stop/market exits), so no
-    add-liquidity rebate is ever credited."""
+    add-liquidity rebate is ever credited.
+
+    ``entry_price`` is not read yet, which is why it carries a ``noqa`` — but it is a *missing
+    feature* rather than a dead parameter (#519). IBKR tiered commission is capped at **1% of
+    trade value**, and ``commission()`` doesn't model that cap. On this book's cheapest names the
+    cap can bind: 100 shares of a $1.20 stock is $1.20 of value against a $1.00 minimum. Modelling
+    it needs both prices, so the signature is already the right shape."""
     if qty < 1:
         return TradeCosts(0.0, 0.0)
     comm = 2 * commission(qty, s.portfolio_commission_per_share, s.portfolio_commission_min)
