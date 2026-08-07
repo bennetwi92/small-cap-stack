@@ -6,8 +6,16 @@ research record. This file documents **how we work** — follow it on every task
 
 ## Project shape
 - **Phases:** P1 = tracker only (no orders, 3 months data collection) · P2 = paper trading · P3 = live.
-- **Strategy (live — engine v2):** price $1–50 (widened from $2–10, #126) · float < 20M **shares** ·
-  breaking news · trailing 5-min volume > 100k · change > 10% · window 04:00–11:59 ET.
+- **Strategy (live — engine v2):** price $1–50 (widened from $2–10, #126) · trailing 5-min volume
+  > 100k · change > 10% · window 04:00–11:59 ET.
+  ⚠️ **Float and news are COLLECTED, never gated.** The IBKR scan filters on price / change /
+  5-min volume only; `float < 20M` and "breaking news" are enrichment written *after* a name is
+  flagged, and nothing downstream filters on them. `capture.on_scan_tick` opens an opportunity for
+  every scanner candidate; `rmetrics.takeable` is `setup.passed and not setup.exhausted`, where
+  `passed` is the **bull-flag shape gates only**. `gates.py::float_gate` / `news_gate` feed the EOD
+  report's `float_ok` / `with_recent_news` counts and nothing else. So the virtual portfolio does
+  take high-float names — the published book holds CLSK (246M float) and XRX (119M). If that should
+  change, the gate goes in `portfolio.extract._qualify`; until then this line is the spec.
   Bull-flag: **pole = a run of higher highs**, colour-gated to green thrust bars (≤4, a red peak is
   allowed) · **flag = a pullback** (≤4 candles) making **lower highs**, retracing **≤50%** of the
   pole · pole must clear a **2% minimum move** · pole peak-bar volume **>** consolidation volume
