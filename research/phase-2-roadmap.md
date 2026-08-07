@@ -39,16 +39,29 @@ below are greenfield.
 | # | Gate | Issue | Deliverable | Blocked by |
 |---|---|---|---|---|
 | **0** | Truth debt | #302 · #297 · #270 | Settings flip · docs · spike import | — |
-| **1** | Spread capture | **#309** | `whatToShow="BID_ASK"` in the EOD batch → new `quotes` table | — |
+| **1** | Spread capture | **#309** | `whatToShow="BID_ASK"` in the EOD batch → new `quotes` table | 4 |
 | **2** | Go/no-go criteria | **#310** | The bar for entering P2, written in `decisions.md` (+ #273 payload OOM) | — |
-| **3** | Validation | #49 | 3-month collection completes (~2026-10-01); sim clears Gate 2's bar | 1, 2 |
-| **4** | Market data | **#311** | $10/mo L1 bundle — unblocks everything real-time | — |
+| **3** | Validation | **#462** | The sample clears Gate 2's bar, and the reconstruction is trusted to carry it | 2 |
+| **4** | Market data | **#311** | $10/mo L1 bundle — unblocks everything real-time | 2, 3 |
 | **5** | Live detection (shadow) | **#312** | `live_detect.py` — streams bars, detects, **logs only** | 0, 4 |
 | **6** | Execution | **#313** | `ibkr/orders.py` + `execution.py` — LMT entry/exit, app-side stop, OMS | 5 |
 | **7** | Paper live | **#314** | Reconciliation, live-vs-sim divergence report, order/fill observability | 3, 6 |
 
-Gates 0–2 are unblocked today and need no data subscription. Gate 3 is a calendar wait. Gates 5–7
-are the build and start whenever Gate 4 lands.
+**Gate 2 is the only one open today, and money sits in the middle of the ladder.** The account is
+not funded until the bar is written (2) and the sample clears it (3); the feed follows the funding
+(4); spread capture reads that feed, so gate 1 — numbered before 4 — actually runs after it. Gate
+numbers are labels, not order. Gates 5–7 are the build and start whenever Gate 4 lands.
+
+**Gate 3 is no longer a calendar wait (#49, closed 2026-08-07).** It was "3 months of live
+collection completes (~2026-10-01)", on the premise that there wasn't enough data to judge the
+strategy. The harvest (#431) retired that premise: it rebuilt 31 pre-market sessions in ~3 nights
+against 29 the live tracker managed in five weeks, out of ~501 in its two-year window, and #428's
+out-of-sample check found **31/31 same trade** (decision + entry bar + stop) on days the calibration
+fixtures never saw. Waiting until October would produce a smaller sample, from one regime, later.
+The gate is now the *trust* question — #462, is the strategy overfitted or does the reconstruction
+diverge — not the *quantity* one. Live collection keeps running regardless: it is the only thing
+that can keep validating recon against reality, and 09:30–11:59 exists in live data and nowhere
+else (the recon store is pre-market only).
 
 > This table is **mirrored on the dashboard's Plan page** (`docs/plan.js`, `GATES`), which is where
 > the trader reads it. The mirror carries each gate's **name, issue numbers and dependencies** only

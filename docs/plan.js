@@ -32,10 +32,12 @@ const HARVEST_STALE_H = 36;
    The committed skeleton — names, windows, issue numbers
    ============================================================ */
 
-// The 3-month collection window (decisions.md §11 + phase-2-roadmap Gate 3:
-// "3-month collection completes (~2026-10-01)"). The XNYS closures inside it — the app's
-// calendar of record is `exchange_calendars` XNYS (#137), and these are the only two
-// sessions it drops in this window.
+// The 3-month collection window (decisions.md §11). It is a **data readout**, not a gate: the
+// harvest overtook it as the sample of record, so nothing waits on this window closing (#49).
+// Collection keeps running because the live leg is the only thing that can validate the
+// reconstructed one — and because 09:30–11:59 exists in live data and nowhere else.
+// The XNYS closures inside it — the app's calendar of record is `exchange_calendars` XNYS
+// (#137) — are the only two sessions it drops.
 const COLLECT_START = "2026-07-01";
 const COLLECT_END = "2026-09-30";
 const HOLIDAYS = new Set([
@@ -49,21 +51,23 @@ const VERDICT_TRADES = 100;
 
 const PHASES = [
   { id: "p1", n: "01", name: "Tracker", tag: "data collection", window: `${COLLECT_START} → ${COLLECT_END}` },
-  { id: "p2", n: "02", name: "Paper", tag: "shadow orders", window: "gated · earliest 2026-10-01" },
+  { id: "p2", n: "02", name: "Paper", tag: "shadow orders", window: "gated · on the go/no-go bar" },
   { id: "p3", n: "03", name: "Live", tag: "real capital", window: "gated · after paper" },
 ];
 
 // The Phase-2 gates (research/phase-2-roadmap.md, epic #308). `issues` is what decides the
 // status — a gate is done when all of them are closed; `after` is the dependency graph the
 // page falls back to when GitHub can't be reached. No status is written here.
+// Numbers are labels, not order: the ladder was numbered before we knew that money sits in the
+// middle of it. Gate 4 buys the market-data feed, so gate 1 — which captures spreads off that
+// feed — runs after it, and the account is not funded until the bar is written (2) and the
+// sample clears it (3). Rows stay in numeric order and the Blocked pill names what each waits on.
 const GATES = [
   { n: "0", name: "Truth debt", issues: [302, 297, 270] },
-  { n: "1", name: "Spread capture", issues: [309] },
+  { n: "1", name: "Spread capture", issues: [309], after: ["4"] },
   { n: "2", name: "Go/no-go criteria", issues: [310] },
-  // Gate 3 is the collection countdown: a calendar wait that runs whether or not 1 and 2
-  // are closed, so it reports its own progress rather than sitting greyed out behind them.
-  { n: "3", name: "Validation", issues: [49], after: ["1", "2"], progress: "collection" },
-  { n: "4", name: "Market data", issues: [311] },
+  { n: "3", name: "Validation", issues: [462], after: ["2"] },
+  { n: "4", name: "Market data", issues: [311], after: ["2", "3"] },
   { n: "5", name: "Live detection", issues: [312], after: ["0", "4"] },
   { n: "6", name: "Execution", issues: [313], after: ["5"] },
   { n: "7", name: "Paper live", issues: [314], after: ["3", "6"] },
@@ -193,19 +197,22 @@ function bookState(pf) {
 // Gate status, derived. A gate is done when every issue it names is closed; blocked when a
 // gate it depends on isn't done; open otherwise. `states` empty (GitHub unreachable) means
 // nothing reads as done and the ladder degrades to the dependency graph.
-function gateState(states, collection) {
-  const doneById = new Map();
+function gateState(states) {
+  // Two passes: a gate can depend on one listed after it (1 waits on 4), so every `done` has to
+  // be known before any `waiting` is resolved.
+  const doneById = new Map(
+    GATES.map((g) => {
+      const known = g.issues.filter((n) => states.has(n));
+      return [g.n, known.length === g.issues.length && g.issues.every((n) => states.get(n) === "closed")];
+    }),
+  );
   const rows = GATES.map((g) => {
-    const known = g.issues.filter((n) => states.has(n));
-    const done = known.length === g.issues.length && g.issues.every((n) => states.get(n) === "closed");
-    doneById.set(g.n, done);
+    const done = doneById.get(g.n);
     const waiting = (g.after || []).filter((d) => !doneById.get(d));
     let status = "open";
     if (done) status = "done";
-    else if (g.progress === "collection") status = "running";
     else if (waiting.length) status = "blocked";
-    const frac = g.progress === "collection" ? collection.frac : null;
-    return { ...g, done, status, waiting, frac, states };
+    return { ...g, done, status, waiting, states };
   });
   return {
     rows,
@@ -653,7 +660,7 @@ function renderChecks(c, book, status) {
    Column 3 — the gate ladder
    ============================================================ */
 
-const GATE_LABEL = { done: "Done", open: "Open now", running: "Running", blocked: "Blocked" };
+const GATE_LABEL = { done: "Done", open: "Open now", blocked: "Blocked" };
 
 function renderGates(gates) {
   el("pl-gates-count").textContent = `${gates.done} / ${gates.total} done · ${gates.open} open now`;
@@ -663,9 +670,7 @@ function renderGates(gates) {
       const pill =
         g.status === "blocked" && g.waiting.length
           ? `Blocked · ${esc(g.waiting.join(" · "))}`
-          : g.status === "running" && g.frac != null
-            ? `Running · ${(g.frac * 100).toFixed(0)}%`
-            : GATE_LABEL[g.status];
+          : GATE_LABEL[g.status];
       const issues = g.issues
         .map((num) => {
           const st = g.states.get(num);
@@ -684,10 +689,6 @@ function renderGates(gates) {
         `<p class="plan-gate-h"><span class="plan-gate-name">${esc(g.name)}</span>` +
         `<span class="pill plan-gate-pill">${pill}</span></p>` +
         `<p class="plan-gate-iss">${issues}</p>` +
-        (g.frac != null
-          ? `<div class="plan-bar plan-gate-bar"><span class="plan-bar-fill" ` +
-            `style="width:${(g.frac * 100).toFixed(1)}%"></span></div>`
-          : "") +
         `</div></li>`
       );
     })
@@ -715,7 +716,7 @@ async function refresh() {
     // Best-effort: a rate-limited or offline GitHub yields an empty map and the ladder
     // falls back to its dependency graph rather than the page failing.
     const states = await issueStates(GATES.flatMap((g) => g.issues)).catch(() => new Map());
-    const gates = gateState(states, collection);
+    const gates = gateState(states);
 
     renderSpine(collection, book, gates);
     renderProgress(collection);
