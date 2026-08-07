@@ -91,6 +91,7 @@ between §1 and §2.
 | Fill (R is measured here) | last consolidation high + 3 ticks ($0.03) | `bull_flag_fill_offset_ticks` |
 | Stop | the consolidation low | — `R = fill − stop` |
 | Staleness | the trigger bar must open ≤ 30 min after the first scanner hit | `entry_staleness_min` |
+| Gap pole | disabled — a pole needs a higher high into its peak | `bull_flag_gap_pole` |
 | Exhaustion | reject the 3rd+ contiguous cycle of the day | `bull_flag_exhaustion_cap` |
 | Cycle volume floor | 50,000 (any bar in the cycle, pole or fade) | `scan_min_5m_volume` // 2 |
 | Tick size | $0.01 | `tick_size` |

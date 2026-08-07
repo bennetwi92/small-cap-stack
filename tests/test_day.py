@@ -181,3 +181,70 @@ def test_selection_defaults_are_permissive() -> None:
     """A caller configuring neither selects on shape alone — spikes and unit tests need that."""
     d = detect_day(_PASS)
     assert d is not None and d.in_price_band is True and d.in_window is True
+
+
+# --- #587: the session's first bar as a pole (off by default) -----------------------------------
+#
+# A day that gaps up and runs on its opening print has no prior bar to be higher than, so
+# `segment_cycles` never proposes it and `refine_pole` could not anchor it — the shape is ABSENT
+# from the candidate space, not rejected by a rule. There is no earlier bar to reach for either:
+# IBKR's US extended session floor IS 04:00 and neither store holds a pre-04:00 row.
+
+# bar 0 is the day's dominant thrust; bar 1 pulls back; bar 2 breaks bar 1's high.
+_GAP = [
+    _b(0, 9.00, 12.00, 9.00, 11.80, 400_000),  # gap-up thrust — big green, no predecessor
+    _b(1, 11.80, 11.00, 10.50, 10.80, 120_000),  # consolidation
+    _b(2, 10.80, 11.50, 10.60, 11.40, 150_000),  # breaks 11.00 -> the entry
+]
+
+
+def test_gap_pole_is_invisible_by_default() -> None:
+    """The pre-#587 behaviour, pinned: the walk finds no usable candidate at all."""
+    assert detect_day(_GAP) is None
+
+
+def test_gap_pole_is_found_when_enabled() -> None:
+    d = detect_day(_GAP, gap_pole=True)
+    assert d is not None
+    assert (d.segment.base_idx, d.segment.peak_idx, d.segment.cons_end_idx) == (0, 0, 1)
+    assert (d.segment.pole_len, d.segment.cons_len) == (1, 1)
+    assert d.trigger_idx == 2
+    assert d.breakout_level == 11.00 and d.stop == 10.50
+
+
+def test_a_gap_pole_is_always_a_fresh_cycle() -> None:
+    """`contiguous_prior_cycles` filters on `peak < base_idx`, and base_idx is 0 — so nothing can
+    precede it. Exhaustion counts are structurally unreachable here, which is why enabling the knob
+    moved `cycle_num` on 0 of 849 recon runs."""
+    d = detect_day(_GAP, gap_pole=True)
+    assert d is not None and d.cycle_num == 1 and d.exhausted is False
+
+
+def test_a_gap_pole_has_no_thrust_bars_to_concentrate_volume_across() -> None:
+    """base == peak, so the thrust span is empty. It must read 0.0, not divide by zero (#587)."""
+    d = detect_day(_GAP, gap_pole=True)
+    assert d is not None
+    assert d.features.pole_vol_concentration == 0.0
+    assert d.features.pole_height_pct > 0  # span is high - low, positive by construction
+
+
+def test_a_quiet_first_bar_does_not_anchor_a_gap_pole() -> None:
+    """The opening bar still has to be a genuine thrust — `is_big_green`, same as any pole bar."""
+    doji_open = [_b(0, 10.50, 12.00, 9.00, 10.50, 400_000), *_GAP[1:]]  # zero body
+    assert detect_day(doji_open, gap_pole=True) is None
+
+
+def test_a_first_bar_that_is_already_part_of_a_pole_is_not_a_gap_pole() -> None:
+    """`tokens[0] == "H"` means bar 1 made a higher high, so the normal walk already owns this
+    shape — the special case must not shadow it with a worse one-bar pole."""
+    rising = [
+        _b(0, 9.00, 10.00, 9.00, 9.90, 200_000),
+        _b(1, 9.90, 12.00, 9.80, 11.80, 400_000),  # H: a normal pole forms here
+        _b(2, 11.80, 11.00, 10.50, 10.80, 120_000),
+        _b(3, 10.80, 11.50, 10.60, 11.40, 150_000),
+    ]
+    with_gap = detect_day(rising, gap_pole=True)
+    without = detect_day(rising)
+    assert with_gap is not None and without is not None
+    assert (with_gap.segment.base_idx, with_gap.segment.peak_idx) == (0, 1)
+    assert with_gap.segment == without.segment  # the knob changes nothing here

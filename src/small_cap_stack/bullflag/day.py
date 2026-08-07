@@ -27,6 +27,7 @@ from .cycles import prior_cycle_count, segment_cycles, significant_cycles
 from .features import FeatureVector, extract, trailing_atr
 from .gates import GateResult, evaluate
 from .gates import passed as gates_passed
+from .primitives import is_big_green
 from .score import DEFAULT_WEIGHTS, score
 from .segment import Segment, refine_pole
 from .tokens import token_eps, tokenize
@@ -90,6 +91,7 @@ def detect_day(
     staleness_min: int = 30,
     cycle_min_volume: float = 50_000.0,
     exhaustion_cap: int = 2,
+    gap_pole: bool = False,
     atr_window: int = 14,
     weights: Mapping[str, float] = DEFAULT_WEIGHTS,
     window_start: time = time(4, 0),
@@ -120,12 +122,29 @@ def detect_day(
     # #182: MSTZ). When an entry isn't takeable we fall through to the next cycle's later pole.
     chosen: tuple[int, int, int, int] | None = None  # (base, peak, cons_end, trigger)
     pole_len = 0
+    # The candidate poles, chronologically: each is (peak_idx, (base_idx, pole_len)).
+    candidates: list[tuple[int, tuple[int, int]]] = []
+    # GAP POLE (#587), off by default. `segment_cycles` only opens a pole on an `H` token and
+    # `refine_pole` requires a higher-high step INTO the peak, so a session whose dominant thrust is
+    # its own first bar is never proposed as a candidate — not rejected, absent. (MTVA 2026-05-19,
+    # SBFM 2026-05-18 run 1.) There is no earlier bar to look back to either: IBKR's US extended
+    # session floor IS 04:00, and neither store holds a pre-04:00 row, so a lookback knob would be a
+    # permanent no-op rather than a fix.
+    #
+    # Special-cased HERE rather than by relaxing refine_pole's `tokens[peak-1] == "H"` test: that
+    # predicate is what guarantees `base.high < peak.high` and therefore a positive pole span — the
+    # #181 ITRG/IVF zero-span bug came from exactly that drift. A single-bar pole's span is
+    # `high - low`, positive by construction, so the invariant survives the special case.
+    if gap_pole and tokens and tokens[0] != "H" and is_big_green(bars[0]):
+        candidates.append((0, (0, 1)))
     for c in all_cycles:
         refined = refine_pole(
             bars, tokens, c.peak, max_pole=max_pole, min_step_share=pole_min_step_share
         )
-        if refined is None:
-            continue  # no higher-high step into this peak
+        if refined is not None:
+            candidates.append((c.peak, refined))
+
+    for peak_idx, refined_pole in candidates:
         # The break that fires the setup must clear the prior bar's high by `trigger_offset` — the
         # SAME offset that prices `entry_trigger` below (#555). Before that it was a hardcoded
         # `tick`, so raising `bull_flag_trigger_offset_ticks` moved the published trigger price
@@ -135,17 +154,17 @@ def detect_day(
         trig = next(
             (
                 j
-                for j in range(c.peak + 1, len(bars))
+                for j in range(peak_idx + 1, len(bars))
                 if bars[j].high >= bars[j - 1].high + trigger_offset
             ),
             None,
         )
-        if trig is None or trig <= c.peak + 1:
+        if trig is None or trig <= peak_idx + 1:
             continue  # need >= 1 consolidation bar between the peak and the entry
         if first_hit is not None and bars[trig].start < first_hit:
             continue  # entry bar opened before/contains the appearance -> couldn't have taken it
-        base, pole_len = refined
-        chosen = (base, c.peak, trig - 1, trig)
+        base, pole_len = refined_pole
+        chosen = (base, peak_idx, trig - 1, trig)
         break
     if chosen is None:
         return None
@@ -262,6 +281,7 @@ def detect_day_with_settings(
         staleness_min=settings.entry_staleness_min,
         cycle_min_volume=settings.scan_min_5m_volume // 2,
         exhaustion_cap=settings.bull_flag_exhaustion_cap,
+        gap_pole=settings.bull_flag_gap_pole,
         atr_window=settings.bull_flag_atr_window,
         window_start=settings.select_window_start,
         window_end=settings.select_window_end,

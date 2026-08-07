@@ -128,9 +128,11 @@ def extract(
     cons_low = min(b.low for b in cons)
     peak_vol = bars[peak_idx].volume
     cons_vmax = max(b.volume for b in cons)
-    thrust_vsum = sum(
-        b.volume for b in thrust
-    )  # concentration denominator (thrust always non-empty)
+    # Concentration denominator. Non-empty for every pole with a higher-high step into its peak —
+    # but EMPTY for a #587 gap pole, whose base and peak are the same (first) bar. The `> 0` guard
+    # below is what makes that safe; `pole_vol_concentration` then reads 0.0, which is honest: a
+    # one-bar pole has no thrust bars to concentrate volume across.
+    thrust_vsum = sum(b.volume for b in thrust)
     pole_span = pole_high - pole_base  # > 0: peak.high >= base.high > base.low
     pole_height_pct = pole_span / pole_base if pole_base > 0 else 0.0
 
