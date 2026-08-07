@@ -143,6 +143,9 @@ jobs:
       - name: Publish the result to the data-export branch
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Via env:, not interpolated — see the note at the top of this file (#548).
+          IN_DATASET: ${{ inputs.dataset }}
+          IN_FORMAT: ${{ inputs.format }}
         run: |
           set -euo pipefail
           authrepo="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
@@ -165,7 +168,7 @@ jobs:
           git -C "$pub" \
             -c user.name='github-actions[bot]' \
             -c user.email='github-actions[bot]@users.noreply.github.com' \
-            commit -m "data: export run ${GITHUB_RUN_ID} (${{ inputs.dataset }}, ${{ inputs.format }})"
+            commit -m "data: export run ${GITHUB_RUN_ID} (${IN_DATASET}, ${IN_FORMAT})"
           git -C "$pub" push origin HEAD:data-export
 
       - name: Job summary

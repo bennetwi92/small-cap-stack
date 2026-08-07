@@ -31,24 +31,34 @@ runs:
   steps:
     # Composite-action inputs are always STRINGS, so guards compare against 'true' rather than
     # using `!inputs.restart_only` — `!'false'` is false, which would silently skip every step.
+    # ⚠️ Free-text inputs reach the shell through `env:`, never through `${{ }}` (#548).
+    # `${{ }}` is substituted into the script TEXT before bash parses it, so a `"` in the value
+    # closes the string and the rest runs — here, on the box, as the runner user with the Docker
+    # socket. Via `env:` the value is a real environment variable that bash never re-parses.
+    # Every workflow in this repo already follows this rule; the composite action did not, and
+    # actionlint cannot see it (1.7 refuses to lint composite actions at all).
     - name: Update working tree
       if: inputs.restart_only != 'true'
       shell: bash
       working-directory: /opt/small-cap-stack
+      env:
+        IN_REF: ${{ inputs.ref }}
       run: |
         set -euo pipefail
         git fetch --all --prune
-        git checkout "${{ inputs.ref }}"
-        git pull --ff-only origin "${{ inputs.ref }}" || true
+        git checkout "$IN_REF"
+        git pull --ff-only origin "$IN_REF" || true
 
     - name: Resolve the image tag
       if: inputs.restart_only != 'true'
       id: image
       shell: bash
       working-directory: /opt/small-cap-stack
+      env:
+        IN_IMAGE_TAG: ${{ inputs.image_tag }}
       run: |
         set -euo pipefail
-        TAG="${{ inputs.image_tag }}"
+        TAG="$IN_IMAGE_TAG"
         if [ -z "$TAG" ]; then
           # Must match build-image.yml's metadata-action `type=sha` tag exactly. Cut to 7 rather
           # than trusting `rev-parse --short`, whose length grows to stay unambiguous.
@@ -60,9 +70,10 @@ runs:
     - name: Wait for the image in GHCR
       if: inputs.restart_only != 'true'
       shell: bash
+      env:
+        IMAGE: ${{ steps.image.outputs.image }}
       run: |
         set -euo pipefail
-        IMAGE="${{ steps.image.outputs.image }}"
         # build-image.yml runs on the *push*, the deploy on a dispatch — so they race. On
         # 2026-07-17 a deploy finished 15s BEFORE its own image was pushed; don't assume, wait.
         # The package is public, so this needs no auth.
@@ -80,16 +91,18 @@ runs:
     - name: Deploy
       shell: bash
       working-directory: /opt/small-cap-stack
+      env:
+        IN_RESTART_ONLY: ${{ inputs.restart_only }}
+        TAG: ${{ steps.image.outputs.tag }}
       run: |
         set -euo pipefail
-        if [ "${{ inputs.restart_only }}" = "true" ]; then
+        if [ "$IN_RESTART_ONLY" = "true" ]; then
           # Full restart of both services (the "something's wedged" escape hatch).
           systemctl restart small-cap-stack
         else
           # PULL the prebuilt image — never build on-box (#278). Recreates ONLY the app
           # container, so the Gateway keeps its session (no re-login / healthcheck wait).
-          # DEPLOYED_COMMIT is baked into the image by build-image.yml.
-          TAG="${{ steps.image.outputs.tag }}"
+          # DEPLOYED_COMMIT is baked into the image by build-image.yml. TAG arrives via env:.
           # Pin in .env so the systemd unit (on reboot) and any manual `docker compose up`
           # resolve this same image instead of drifting to :latest.
           sed -i '/^IMAGE_TAG=/d' .env

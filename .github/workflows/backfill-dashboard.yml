@@ -75,7 +75,16 @@ jobs:
           BOX_JOB_IGNORE_WINDOW: ${{ inputs.ignore_window && '1' || '' }}
         run: |
           set -euo pipefail
-          args=""
+          # An ARRAY, not a string (#548). Built as a string, this expanded unquoted — so the
+          # value word-split AND glob-expanded: `date: "*"` became a directory listing, and a
+          # stray space silently corrupted the date. Quoting the string would break the two-word
+          # `--all --force` case; an array keeps each argument whole.
+          #
+          # It was NOT an argument-injection, though the first version of this comment said
+          # so: `dashboard_backfill.py` puts the date and all flags in a mutually exclusive group,
+          # so a date input carrying a second flag is rejected by argparse before the force guard
+          # is even reached. Two CLI defences already covered that.
+          args=()
           if [ "$IN_ALL" = "true" ]; then
             # A second, separate confirmation — the `all` toggle alone is not enough. --all rebuilds
             # every collected date in one process and has OOM-killed the box (#264), and this
@@ -87,8 +96,8 @@ jobs:
               echo "If you really mean the full archive, re-run with force: true." >&2
               exit 1
             fi
-            args="--all --force"
+            args=(--all --force)
           elif [ -n "$IN_DATE" ]; then
-            args="--date $IN_DATE"
+            args=(--date "$IN_DATE")
           fi
-          scripts/box-job.sh backfill -- -m small_cap_stack.dashboard_backfill $args
+          scripts/box-job.sh backfill -- -m small_cap_stack.dashboard_backfill ${args[@]+"${args[@]}"}

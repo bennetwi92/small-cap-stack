@@ -70,6 +70,14 @@ jobs:
       - name: Ruff (lint)
         run: uv run --no-sync ruff check .
 
+      # ~1.9k lines of shell and YAML run the box, and none of it was statically analysed
+      # while the Python got mypy --strict (#548). A malformed box workflow costs hours of runner
+      # outage (#264 was 5h37m), so this is the cheapest gate available — both linters are in the
+      # lock and take about five seconds. `uv run` puts .venv/bin on PATH, which is also how
+      # actionlint finds shellcheck to check `run:` blocks with.
+      - name: Shellcheck + actionlint
+        run: make lint-sh
+
       - name: Ruff (format check)
         run: uv run --no-sync ruff format --check .
 

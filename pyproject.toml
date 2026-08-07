@@ -37,6 +37,14 @@ small-cap-stack = "small_cap_stack.app:run_sync"
 [project.optional-dependencies]
 dev = [
     "ruff>=0.8",
+    # The deploy path is ~1.9k lines of shell and YAML that had zero static analysis while the
+    # Python got mypy --strict (#548). Both of these ship the real binary in a wheel, so they are
+    # in the lock like everything else — CI and `make check` run one recorded version, not
+    # whatever the runner image happens to carry. actionlint also runs shellcheck over `run:`
+    # blocks when it finds it on PATH, which is how it caught the argument-injection in the
+    # backfill dispatch.
+    "shellcheck-py>=0.11",
+    "actionlint-py>=1.7",
     "mypy>=1.13",
     "pytest>=8.3",
     "pytest-cov>=6.0",
