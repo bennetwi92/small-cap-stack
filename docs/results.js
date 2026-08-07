@@ -155,6 +155,11 @@ function toRow(date, c, source = "live") {
     stoppedOut: c.stopped_out ?? null,
     float: floats.length ? floats[0].float : null,
     entry: c.levels ? c.levels.entry : null,
+    // Stop distance as a share of the price paid — the same 1R the LEVELS group shows in dollars
+    // (RISK $), in percent. Measured off the FILL rather than off the ENTRY trigger beside it, so
+    // it shares Max %'s denominator: Max % ÷ Stop % is Pred Max R. Derived here from two fields
+    // every payload already carries, so nothing is added to the published charts.
+    stopPct: fill != null && lv.stop != null && fill > 0 ? (fill - lv.stop) / fill : null,
     maxRPrice: maxRPrice(c),
 
     // engine verdict context
@@ -272,7 +277,8 @@ function buildOptbar() {
           "Session: Pre < 09:30 ET · Open ≥ 09:30 ET (first scanner appearance; unknowns only under All). " +
           "Engine Reject folds in no-setup rows. Pred Max R is the engine's measured Max R (3-tick fill, " +
           "stop-first); Max % is that same peak as a plain move off the fill, so a wide stop can't hide a " +
-          "big run. Time is the first scanner appearance (sorts by time of day, across dates). " +
+          "big run. Stop % is the other half of that: the stop distance as a share of the fill, so Max % ÷ " +
+          "Stop % is Max R. Time is the first scanner appearance (sorts by time of day, across dates). " +
           "“+ Engine” adds every feature the detector gated and scored on, by area — sort one against " +
           "Max R to see whether it separates anything. Score contributions are omitted: each is just " +
           "weight × the feature beside it. Reads the same published data as the review workbench. " +
@@ -464,6 +470,13 @@ const CORE = [
     headerTooltip: "That same peak as a plain move off the fill — R normalises by the stop, so a " +
       "wide-stop 0.9R and a tight-stop 0.9R read alike while being very different moves",
   },
+  {
+    title: "STOP %", field: "stopPct", width: 84, hozAlign: R, formatter: fracFmt(1),
+    sorter: numNullsLast,
+    headerTooltip: "How far the stop sits below the fill, as a share of it — 1R in plain price " +
+      "terms (the LEVELS group shows the same distance in dollars as RISK $). R divides it out, " +
+      "so nothing else here says whether a 1R risk was a 2% stop or an 8% one",
+  },
   { title: "FLOAT", field: "float", width: 76, hozAlign: R, formatter: floatFmt, sorter: numNullsLast },
   { title: "ENTRY", field: "entry", width: 80, hozAlign: R, formatter: priceFmt, sorter: numNullsLast },
   {
@@ -606,7 +619,11 @@ grid.on("rowClick", (e, row) => {
 async function rowsForDates(dates, source) {
   const perDate = await Promise.all(
     dates.map(async (date) => {
-      const payload = await fetchJson(chartsUrl(date, source));
+      // Per-date catch, or the comment above is a lie (#509). `fetchJson` answers null for a
+      // missing or unparsable file, but a transport failure REJECTS — and a bare Promise.all turns
+      // one dropped request into a failed table, which is the opposite of "degrades to no rows for
+      // that day".
+      const payload = await fetchJson(chartsUrl(date, source)).catch(() => null);
       const charts = (payload && payload.charts) || [];
       return charts.map((c) => toRow(date, c, source));
     }),

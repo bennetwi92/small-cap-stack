@@ -59,7 +59,25 @@ export const chartsUrl = (date, source = "live") =>
 
 export function chartsFor(date, source = "live") {
   const key = `${source}|${date}`;
-  if (!_payloads.has(key)) _payloads.set(key, fetchJson(chartsUrl(date, source)));
+  if (!_payloads.has(key)) {
+    // Evict on rejection rather than memoising it (#509). `fetchJson` already answers `null` for a
+    // missing or unparsable file, so the only way this rejects is a transport failure — offline,
+    // DNS, CORS — which is exactly the transient case that must not be cached. Caching it made one
+    // dropped request permanent for that date: every later open of the dock re-awaited the same
+    // rejected promise, and both hosts await it inside an unguarded `async` after painting
+    // "loading…", so the panel sat on that word until a reload.
+    //
+    // Resolving to `null` rather than re-throwing keeps the callers' contract unchanged (they
+    // already handle a null payload) while making the *next* attempt a real retry.
+    const pending = fetchJson(chartsUrl(date, source)).catch(() => {
+      // Identity-guarded: evict only the entry THIS call created. An unconditional delete lets a
+      // slow rejection throw away a newer entry — a Refresh's in-flight refetch, and for reviews
+      // the post-save seed below.
+      if (_payloads.get(key) === pending) _payloads.delete(key);
+      return null;
+    });
+    _payloads.set(key, pending);
+  }
   return _payloads.get(key);
 }
 
@@ -235,11 +253,28 @@ async function _fetchReview(oid) {
     `https://raw.githubusercontent.com/${REPO}/${REVIEW_BRANCH}/${reviewPath(oid)}?t=${Date.now()}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) return null; // 404 = never reviewed; anything else, treat the same and stay quiet
-  return res.json();
+  try {
+    return await res.json();
+  } catch {
+    return null; // unparsable review file — same answer as "none", and cacheable (cf. fetchJson)
+  }
 }
 
 export function reviewFor(oid) {
-  if (!_reviews.has(oid)) _reviews.set(oid, _fetchReview(oid).catch(() => null));
+  if (!_reviews.has(oid)) {
+    // Same eviction-on-rejection as `chartsFor` (#509), for the same reason. This one already
+    // caught — but caching the caught failure still made a dropped request permanent, so a
+    // transient blip hid an opportunity's saved annotations until a reload. A *legitimate* "no
+    // review saved" resolves null without rejecting, and is still cached, which is the point.
+    const pending = _fetchReview(oid).catch(() => {
+      // Identity-guarded — see `chartsFor`. Without it, a stalled fetch that rejects AFTER the
+      // trader saves would delete `cacheReview`'s seed, and the note they just wrote would read
+      // back as absent until the branch propagated.
+      if (_reviews.get(oid) === pending) _reviews.delete(oid);
+      return null;
+    });
+    _reviews.set(oid, pending);
+  }
   return _reviews.get(oid);
 }
 
