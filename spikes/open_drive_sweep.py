@@ -522,8 +522,15 @@ def select_one_per_day_list(
 
 
 def select_one_per_day(cands: Sequence[OdCandidate]) -> OdCandidate | None:
-    """First to trigger. Ranking a day's candidates against each other is the lookahead bias
-    #379 forbids; "first" is known the moment it fires."""
+    """First to trigger — the originally-specified rule, kept as the published baseline.
+
+    ⚠️ **Superseded by `select_commit_widest` (#535).** This docstring used to say flatly that
+    "ranking a day's candidates against each other is the lookahead bias #379 forbids", which
+    contradicts `select_commit_widest` a hundred lines up: #379 forbids *look-ahead*, and ranking a
+    set that is already complete at 09:40 needs no future. Worse, "first" is not knowable on 5-min
+    bars — fifteen candidates shared a trigger bar on 2026-07-30 and this function returns whichever
+    the sort put first, i.e. alphabetical. Keep it to reproduce the published month; don't read it
+    as the rule."""
     return cands[0] if cands else None
 
 

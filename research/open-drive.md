@@ -4,7 +4,8 @@
 > trading the 09:30 bell rather than the pre-market. Companion to `bull-flag.md`, which specifies
 > the strategy the book trades today. Same document shape: this is the *what*.
 >
-> **Status (2026-08-02): specified, measured, NOT trading.** The rules below are locked; no
+> **Status (2026-08-02, selection amended 2026-08-07 #535): specified, measured, NOT trading.**
+> The rules below are locked — see §4 and §6.7 for the one that changed; no
 > `opendrive/` package exists and none should be built yet. The measurement is
 > `docs/reports/2026-08-02-the-0930-open-a-second-strategy.md`, from the harness
 > `spikes/open_drive_sweep.py` (#418). It found a positive-expectancy setup that **cannot be
@@ -121,8 +122,14 @@ distance being the single strongest effect the engine-feature report found for t
 (+0.72R at `risk ≥ $0.10`, the only contrast to survive Holm there).
 
 ⚠️ **`RISK_pct` is nonetheless the most important number in this strategy**, because of §5: stops
-of 1–7% put it permanently against the notional cap. It is a `record` because no *threshold* on it
-is defensible, not because it doesn't matter.
+of 1–7% put it permanently against the notional cap.
+
+⚠️ **Amended 2026-08-07 (#535): a threshold on it *is* now locked** — the `[3%, 10%)` band of
+§4/§6.7. That is not a reversal of the sweep above, which asked whether a stop-width cutoff
+improves *expectancy* and correctly found it doesn't. The band is a **sizing** rule: it selects
+which of several simultaneous candidates converts its R into money, not which setups are good.
+`RISK_pct` stays typed `record` for the same reason the price band is selection rather than a
+shape gate (#567) — it doesn't describe whether the setup is well-formed.
 
 ### 3.4 `LOC` — location
 
@@ -158,10 +165,38 @@ decides *when* while R is measured against something deliberately worse:
 | **Gap-through** | fill no better than the trigger bar's open, mirroring `rmetrics._measure` |
 | **Stop-first** | a bar breaching the stop *before* the trigger kills the setup; a bar doing both in the same 5 minutes counts as the break |
 
-**Selection: one trade per day, first to trigger.** Ranking a day's candidates against each other is
-look-ahead bias (#379) — "first" is known the moment it fires. The one-a-day cap is the trader's own
+**Selection: banded sequential commit.** At 09:40, rank the day's gate-passing setups by **planned
+stop width** — `(entry_fill − stop) / entry_fill`, where `entry_fill` is the *planned* consolidation
+high + 3 ticks, **not** the gap-through-adjusted fill in the table above, which isn't knowable until
+the trigger bar opens — keep only the band **[3%, 10%)**, and commit to the widest.
+**One working order at a time**, never a basket. The one-a-day cap is the trader's own
 quality-over-quantity constraint, and #418 measured it as non-binding anyway: 46 candidates over 13
 days.
+
+> ⚠️ **Corrected 2026-08-07 (#535).** This section locked "**one trade per day, first to trigger**"
+> on the grounds that ranking a day's candidates is look-ahead bias (#379). That caution is right
+> for the bull-flag and **over-general here.**
+>
+> Two things went wrong with it. First, *first to trigger is not a rule* on 5-minute bars: on
+> 2026-07-30 fifteen candidates triggered on the same bar, and the replay broke the tie
+> **alphabetically**. Reversing that arbitrary tie-break moves the published month from +5.67R /
+> −0.5% to −0.15R / −11.4% — the rule was a lottery, and the spec locked the winning ticket.
+> Second, the look-ahead objection doesn't bind: **every OD-5/5 setup is clock-fixed and final at
+> 09:40**, the same instant as the universe cutoff, so the whole ranking set exists before any
+> entry can fire. Ranking a set that is complete is not the same as ranking a stream that is
+> still arriving — which is what makes this legal here and illegal for the bull-flag.
+>
+> Measured over the same month: 7 trades, **+3.49R, +6.0%** at **4.2%** drawdown, against −0.5% at
+> 10.4% for the locked rule. `docs/reports/2026-08-02-open-drive-picking-the-days-stock.md` has the
+> derivation. #423 locked this spec knowing the correction was outstanding
+> (`findings-index.md` flagged it); this applies it.
+>
+> **The residual objection is in-sample fitting, not look-ahead.** The 10% ceiling is structural —
+> it is the sizing crossover `risk_fraction / position_fraction`, read off configuration and not
+> fitted — and it is load-bearing: removing it lets widest-first walk into the >10% names that
+> lose at full size. The **3% floor was read off the same 46-candidate month**. It sits on a
+> plateau (0.025–0.035 all land within $15), which is reassuring rather than conclusive. Treat the
+> band edge as provisional until the out-of-sample re-run at 60+ days.
 
 ## 5. Capital — the finding that matters most
 
@@ -169,10 +204,20 @@ days.
 than `risk_fraction / position_fraction` = **10% of entry**. The bull-flag's stops run a median
 13.9% wide and are usually risk-bound. **Open Drive's stops are 1–7%, so it is almost always
 cap-bound** — 10 of 13 trades at the live configuration, each risking **2.46%** of equity against a
-configured 5%.
+configured 5%. (That 1–7% describes the thirteen *traded* picks; the 46-candidate population runs
+wider, with eight in 5–10% and four above 10%, which is what §6.7's ceiling exists to refuse.)
 
 The consequence: **+5.67R over 13 trades ends the month at $497.67 on its own $500.** Even at 20%
 risk and a 100% notional cap every trade is cap-bound, returning +7.1% for a 21.5% drawdown.
+
+> ⚠️ **This finding is superseded for selection (#535).** The $497.67 is *first-to-trigger's*
+> month, and that rule was a lottery. **§6.7's banded sequential commit exists precisely to escape
+> this cap**, and does: the same month ends at **$529.80 (+6.0%) at 4.2% drawdown**, every trade
+> deploying 1.4–3.8% of equity because the 0.4–1% picks are excluded structurally rather than
+> filtered afterwards. So "the R cannot be monetised at $500" is no longer true of the best-known
+> rule. It **does not reopen decision 5** — the sample-size finding (13 trades, then 7, expectancy
+> interval covering zero) and the own-book finding (merging costs $218) are untouched, and they are
+> enough on their own. What changes is that the capital objection is no longer one of the reasons.
 
 **If it were ever traded**, the shape is: `portfolio_max_trades_per_day` stays **2** — slot 1
 pre-market bull-flag, slot 2 Open Drive, fractions 0.50/0.50 — which keeps the settled-cash
@@ -193,11 +238,33 @@ the bull-flag leg is no longer the one that was measured.
 3. **`CONS_wickier` and pre-market-relative RVOL are dropped** — measured inert, removed rather than
    demoted, with the measurement retained as the record (§3.1, §3.2).
 4. **No fitted threshold is adopted.** All four swept knobs stayed at their permissive defaults;
-   nothing cleared its baseline on a bootstrap interval.
-5. **Do not trade it, and do not merge it into the adaptive book.**
+   nothing cleared its baseline on a bootstrap interval. ⚠️ **Qualified by decision 7 (#535):** the
+   `[3%, 10%)` band is a threshold, and the 10% ceiling is one of the very knobs swept here
+   (`STOP_CEILING_GRID`). It is adopted *despite* not clearing that baseline, because the sweep
+   asked an expectancy question and the ceiling answers a **sizing** one — it is the configured
+   `risk_fraction / position_fraction` crossover, not a fitted number. Decision 6's pre-registered
+   method was correspondingly not applied to the band.
+5. **Do not trade it, and do not merge it into the adaptive book.** ⚠️ **Still holds after #535,
+   on narrower grounds.** One of its three legs — "the R cannot be monetised at $500" — is
+   superseded by decision 7 (§5's box). The other two are untouched and sufficient on their own:
+   the sample is 13 trades, then 7, with an expectancy interval covering zero; and merging it into
+   the shared adaptive book costs $218 because the target re-fit sees the merged stream. This is a
+   *rule* lock, not a trade lock.
 6. **Fitting is pre-registered and thresholds-only** for any future pass — day-block bootstrap,
    within-day permutation, Holm across pre-registered contrasts, matching the method of the existing
    reports.
+
+**Locked 2026-08-07 (#535), correcting the above:**
+
+7. **Selection is banded sequential commit, not first-to-trigger** (§4). Rank at 09:40 by planned
+   stop width, keep `[3%, 10%)`, commit to the widest, one working order at a time. First-to-trigger
+   was not a rule at all on 5-min bars — fifteen candidates shared a trigger bar on 2026-07-30 and
+   the tie broke alphabetically, the difference between +5.67R/−0.5% and −0.15R/−11.4% depending on
+   which way it fell. Ranking is legal *here*, and only
+   here, because every OD-5/5 setup is final at 09:40 before any entry can fire; the bull-flag's
+   triggers arrive over hours and the same rule would be look-ahead. ⚠️ The **3% floor is
+   in-sample** (one month, 46 candidates, on a plateau); the 10% ceiling is structural. Re-derive
+   the floor out of sample, and re-derive both if 1-minute capture ever lands.
 
 **Open:**
 
@@ -208,3 +275,5 @@ the bull-flag leg is no longer the one that was measured.
 - **The float direction.** Positive here, negative for the tail elsewhere, gated the other way live.
 - **Re-run at 60+ days** — Phase-1 collection completes ~2026-10-01. Nothing above is established:
   13 trades, expectancy interval −0.40R to +1.26R, covering zero and covering every variant tested.
+  Decision 7's refined book is **7** trades and its interval covers zero too — a better rule on the
+  same month, not a longer month. Its 3% floor needs re-deriving out of sample either way.
