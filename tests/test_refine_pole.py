@@ -8,7 +8,7 @@ sharing segment_at_end's colour/thrust extension rule but NOT its dominant-peak/
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from small_cap_stack.bullflag import (
     Segment,
@@ -20,9 +20,8 @@ from small_cap_stack.bullflag import (
 )
 from small_cap_stack.bullflag.gates import passed
 from small_cap_stack.capture import Bar
+from tests.support import T0 as _T0
 from tests.support import settings
-
-_T0 = datetime(2026, 7, 1, 14, 0, tzinfo=UTC)
 
 
 def _bars(highs: list[float], *, colors: list[str] | None = None) -> list[Bar]:

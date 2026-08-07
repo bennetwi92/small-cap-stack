@@ -2,24 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
-from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from small_cap_stack.rmetrics import compute_r_metrics
+from tests.support import T0 as _T0
+from tests.support import bar as _bar
 from tests.support import settings
-
-_T0 = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
 
 
 def _settings() -> Settings:
     return settings()
-
-
-def _bar(i: int, o: float, h: float, low: float, c: float, vol: float = 1e3) -> Bar:
-    return Bar(start=_T0 + timedelta(minutes=5 * i), open=o, high=h, low=low, close=c, volume=vol)
 
 
 # A bull flag: a launch bar (5.8) + one higher-high green thrust pole bar (6.5, heavier volume) then

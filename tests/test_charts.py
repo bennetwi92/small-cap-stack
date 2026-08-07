@@ -9,24 +9,18 @@ from __future__ import annotations
 
 import json
 from dataclasses import fields
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from small_cap_stack.bullflag.features import FeatureVector
 from small_cap_stack.charts import build_opportunity_chart
 from small_cap_stack.config import Settings
+from tests.support import T0 as _T0
+from tests.support import bar as _bar
 from tests.support import settings
-
-_T0 = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
 
 
 def _settings() -> Settings:
     return settings()
-
-
-def _bar(i: int, o: float, h: float, low: float, c: float, vol: float = 1e3):  # noqa: ANN202
-    from small_cap_stack.capture import Bar
-
-    return Bar(start=_T0 + timedelta(minutes=5 * i), open=o, high=h, low=low, close=c, volume=vol)
 
 
 def _ts(i: int) -> int:

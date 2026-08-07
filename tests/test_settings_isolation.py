@@ -17,6 +17,7 @@ already too late.
 
 from __future__ import annotations
 
+import ast
 import os
 import subprocess
 import sys
@@ -82,6 +83,33 @@ def test_the_isolation_list_covers_every_settings_field() -> None:
 
     assert set(_SETTINGS_ENV) == {name.upper() for name in Settings.model_fields}
     assert set(ENGINE_KNOBS) <= set(_SETTINGS_ENV)
+
+
+def test_no_test_module_constructs_settings_directly() -> None:
+    """The convention has to be enforced, not just established.
+
+    Within minutes of the factory landing, a parallel branch (#560) added a fresh
+    `Settings(_env_file=None)  # type: ignore[call-arg]` — the exact idiom #507 removed. Nothing
+    told the author, because the old form still works; it is only *forgetting* the argument that
+    breaks, and it breaks silently. So the rule is checked rather than remembered.
+    """
+    offenders: list[str] = []
+    for path in sorted(Path(__file__).parent.glob("*.py")):
+        if path.name in {"support.py", Path(__file__).name}:
+            continue  # the factory itself, and this module's deliberate counter-case
+        # AST, not a text scan: `Settings(` appears in prose in several docstrings here, and a
+        # regex guard that trips over its own explanation is worse than none.
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "Settings"
+            ):
+                offenders.append(f"{path.name}:{node.lineno}")
+    assert not offenders, (
+        "construct test settings with tests.support.settings(), which cannot see the developer's "
+        f".env — direct Settings() at: {', '.join(offenders)}"
+    )
 
 
 @pytest.mark.parametrize("knob", ["BULL_FLAG_MIN_POLE_PCT=0.10", "BULL_FLAG_MAX_CONS=1"])
