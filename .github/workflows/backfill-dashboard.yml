@@ -75,7 +75,11 @@ jobs:
           BOX_JOB_IGNORE_WINDOW: ${{ inputs.ignore_window && '1' || '' }}
         run: |
           set -euo pipefail
-          args=""
+          # An ARRAY, not a string (#548). `--date $IN_DATE` used to word-split, and `IN_DATE`
+          # is a workflow_dispatch input — so `2026-01-01 --all` would have smuggled `--all` past
+          # the refusal three lines below. Quoting a string would break the two-word case; this
+          # keeps each argument whole.
+          args=()
           if [ "$IN_ALL" = "true" ]; then
             # A second, separate confirmation — the `all` toggle alone is not enough. --all rebuilds
             # every collected date in one process and has OOM-killed the box (#264), and this
@@ -87,8 +91,8 @@ jobs:
               echo "If you really mean the full archive, re-run with force: true." >&2
               exit 1
             fi
-            args="--all --force"
+            args=(--all --force)
           elif [ -n "$IN_DATE" ]; then
-            args="--date $IN_DATE"
+            args=(--date "$IN_DATE")
           fi
-          scripts/box-job.sh backfill -- -m small_cap_stack.dashboard_backfill $args
+          scripts/box-job.sh backfill -- -m small_cap_stack.dashboard_backfill ${args[@]+"${args[@]}"}

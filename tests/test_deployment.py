@@ -803,3 +803,78 @@ def test_no_action_runs_on_the_box_unpinned() -> None:
     assert not unpinned_on_box, (
         f"floating actions in workflows that run on the box: {unpinned_on_box}"
     )
+
+
+# ------------------------------------------------ the deploy path is linted too (#548)
+
+
+def _all_workflow_text() -> str:
+    wf = ROOT / ".github" / "workflows"
+    return "\n".join(p.read_text() for p in sorted(wf.glob("*.y*ml")))
+
+
+def test_make_check_still_mirrors_ci_after_adding_the_shell_lint() -> None:
+    """CLAUDE.md's parity property — `make check` runs exactly what CI runs — is worth preserving,
+    and it only holds if a new CI step gets a make target and vice versa."""
+    mk = (ROOT / "Makefile").read_text()
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert "make lint-sh" in ci, "CI must run the shell/workflow lint"
+    assert re.search(r"^lint-sh:", mk, re.M), "`make lint-sh` is what CI calls"
+    check = re.search(r"^check:([^\n]*)", mk, re.M)
+    assert check and "lint-sh" in check.group(1), (
+        "`make check` must include lint-sh, or the local gate stops predicting CI"
+    )
+
+
+def test_every_shell_script_in_the_tree_is_linted() -> None:
+    """The Makefile lists the scripts rather than globbing them, so this is what stops the list
+    going stale. A glob would have been worse, not better: `shellcheck $(wildcard scripts/*.sh)`
+    with a typo'd path expands to nothing and exits 0 — a lint step that lints nothing, reported
+    as green. Listing them makes the omission possible; this makes it fail.
+    """
+    mk = (ROOT / "Makefile").read_text()
+    block = mk.split("SHELL_FILES :=")[1].split("\n\n")[0]
+    listed = set(re.findall(r"[\w./-]+\.sh", block))
+    on_disk = {
+        str(p.relative_to(ROOT))
+        for p in [
+            *ROOT.glob("scripts/*.sh"),
+            *ROOT.glob("deploy/*.sh"),
+            *ROOT.glob(".claude/hooks/*.sh"),
+        ]
+    }
+    assert on_disk, "no shell scripts found — has the layout changed?"
+    assert listed == on_disk, (
+        f"SHELL_FILES and the tree disagree. Only in the tree: {sorted(on_disk - listed)}; "
+        f"only in the Makefile: {sorted(listed - on_disk)}"
+    )
+
+
+def test_the_self_hosted_label_is_declared_for_actionlint() -> None:
+    """`vps` is a custom label actionlint cannot know, so without this every box job reports as a
+    typo — eight identical non-findings, which is how a reader learns to skim past the real ones.
+    It doubles as the only machine-readable statement of the runner topology."""
+    cfg = (ROOT / ".github" / "actionlint.yaml").read_text()
+    lines = [ln.strip() for ln in cfg.splitlines() if ln.strip().startswith("- ")]
+    labels = {ln.lstrip("- ").strip() for ln in lines}
+    assert "vps" in labels
+    used = set(re.findall(r"runs-on:\s*\[self-hosted,\s*([\w-]+)\]", _all_workflow_text()))
+    assert used, "no self-hosted jobs found — has the runner label changed?"
+    assert used <= labels, (
+        f"workflows use self-hosted labels actionlint isn't told about: {sorted(used - labels)}"
+    )
+
+
+def test_the_backfill_dispatch_builds_its_arguments_as_an_array() -> None:
+    """SC2086 here was a real argument-injection, not lint noise (#548). `args="--date $IN_DATE"`
+    expanded unquoted, and `IN_DATE` is a `workflow_dispatch` input — so `2026-01-01 --all` would
+    have smuggled `--all` past the refusal three lines above it, dispatching the very rebuild that
+    OOM-killed the box for 5h37m (#264). Quoting the string would break the two-word
+    `--all --force` case; an array keeps each argument whole."""
+    for name in ("backfill-dashboard.yml", "deploy-backfill-publish.yml"):
+        w = (ROOT / ".github" / "workflows" / name).read_text()
+        assert 'args="--date $IN_DATE"' not in w, f"{name}: the injectable string form is back"
+        assert 'args=(--date "$IN_DATE")' in w, f"{name}: the date arg must be an array element"
+        assert '${args[@]+"${args[@]}"}' in w, (
+            f"{name}: expand the array with the empty-safe idiom box-job.sh uses"
+        )

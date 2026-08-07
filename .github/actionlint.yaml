@@ -1,0 +1,12 @@
+# actionlint config (#548).
+#
+# `vps` is the label on the self-hosted runner that lives on the Hetzner box. actionlint can't know
+# it — it only knows GitHub's hosted labels — so without this every `runs-on: [self-hosted, vps]`
+# is reported as a typo, which is eight findings that are all the same non-problem and would train
+# a reader to skim past real ones.
+#
+# Declaring it here is also the only machine-readable statement of the runner topology: one box,
+# one label. If a second runner is ever added, this is the file that has to know.
+self-hosted-runner:
+  labels:
+    - vps
