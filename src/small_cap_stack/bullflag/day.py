@@ -82,6 +82,7 @@ def detect_day(
     eps: float = 0.005,
     max_pole: int = 4,
     pole_min_step_share: float = 0.0,
+    pole_extension_min_body: float = 0.5,
     max_cons: int = 4,
     max_retracement: float = 0.50,
     max_peak_wick: float = 0.50,
@@ -139,7 +140,12 @@ def detect_day(
         candidates.append((0, (0, 1)))
     for c in all_cycles:
         refined = refine_pole(
-            bars, tokens, c.peak, max_pole=max_pole, min_step_share=pole_min_step_share
+            bars,
+            tokens,
+            c.peak,
+            max_pole=max_pole,
+            min_step_share=pole_min_step_share,
+            min_body_frac=pole_extension_min_body,
         )
         if refined is not None:
             candidates.append((c.peak, refined))
@@ -272,6 +278,7 @@ def detect_day_with_settings(
         eps=token_eps(settings),
         max_pole=settings.bull_flag_max_pole,
         pole_min_step_share=settings.bull_flag_pole_min_step_share,
+        pole_extension_min_body=settings.bull_flag_pole_extension_min_body,
         max_cons=settings.bull_flag_max_cons,
         min_pole_pct=settings.bull_flag_min_pole_pct,
         max_retracement=settings.bull_flag_max_retracement,

@@ -133,6 +133,11 @@ def render_engine(s: Settings) -> str:
             _field("bull_flag_min_pole_pct"),
         ),
         _row(
+            "Pole thrust body",
+            f"an extension bar's body ≥ {_pct(s.bull_flag_pole_extension_min_body)} of its range",
+            _field("bull_flag_pole_extension_min_body"),
+        ),
+        _row(
             "Pole step minimum",
             (
                 f"each extension bar carries ≥ {_pct(s.bull_flag_pole_min_step_share)} of the pole"

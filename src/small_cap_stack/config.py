@@ -237,6 +237,15 @@ class Settings(BaseSettings):
     # AKAN's quiet bar above the WULF extension a reviewed fixture keeps. 0.0 disables it.
     # The admissible window is only (0.0677, 0.1058) — one observation at each end, so provisional.
     bull_flag_pole_min_step_share: float = 0.08
+    # Minimum body fraction for a bar to EXTEND the pole (#607), split out from the locked 0.50 in
+    # `is_big_green`. A hard cut with no tolerance truncates poles on near-misses and inflates the
+    # reported retracement: BNAI 2026-06-09's 06:20 bar ran +7.5% on 163k shares carrying 72% of the
+    # pole's advance and was called a quiet pause on a body of 0.4861 — a 1.4-point miss. Read ONLY
+    # by refine_pole's walk; `significant_cycles` and `pole_has_big_green` keep 0.50, or exhaustion
+    # counts move with it. Admissible window (0.4526, 0.4861] — CIFR 2026-07-06's 11:35 bar stays
+    # out, BNAI's comes in — i.e. 0.033 wide on two observations. As provisional as the step share
+    # above; a reviewed case inside that window closes it.
+    bull_flag_pole_extension_min_body: float = 0.47
     bull_flag_max_cons: int = 4  # max consolidation candles
     # Minimum meaningful pole move (#176, `research/bull-flag.md §3.4`): a "pole" that rises less
     # than this fraction of its base is noise, not a thrust. A loose floor — the abnormality signal
