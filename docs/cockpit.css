@@ -264,9 +264,6 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
 }
 .page-sub{ color:var(--dim); font-size:11px; }
 
-/* full-bleed grid: fill everything between the bars */
-.fill-grid{ height:calc(100vh - var(--chrome-v)); }
-
 /* ---------- panels & stat tiles (dense) ---------- */
 .panel{
   background:var(--panel);
@@ -1059,7 +1056,6 @@ body.review{
   padding:4px 8px;
 }
 .rs-side[hidden]{ display:none; }
-.rs-hint{ margin:auto; color:var(--dim); font-size:11px; padding:12px; text-align:center; }
 /* The selected row is the chart's source, so it has to read louder than :hover.
    Applied by the grid's rowFormatter (Tabulator recycles row elements as you
    scroll, so a hand-applied class drifts onto whatever row inherits the div).
@@ -1138,7 +1134,6 @@ body.review{
 .tabulator .tabulator-col.tabulator-sortable[aria-sort="descending"] .tabulator-col-content .tabulator-arrow{ border-top-color:var(--acc); }
 .tabulator .tabulator-cell.up{ color:var(--win); }
 .tabulator .tabulator-cell.down{ color:var(--loss); }
-.tabulator .tabulator-cell.cell-dim{ color:var(--dim); }
 .tabulator .tabulator-placeholder .tabulator-placeholder-contents{
   color:var(--dim);
   font-size:12px;
