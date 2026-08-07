@@ -33,6 +33,7 @@ import {
   fmtPctPlain,
   fmtNum,
   paintR,
+  reconChip,
   etClockSec,
   etClockNowSec,
   etMinutesSec,
@@ -398,15 +399,7 @@ const chartFmt = (cell) => {
 };
 // The date, tagged when the row came from reconstructed history — the same `.pf-src` chip the
 // Portfolio trade table uses, so one row is never mistaken for a captured one on either page.
-const dateFmt = (cell) => {
-  const d = cell.getRow().getData();
-  return (
-    esc(cell.getValue()) +
-    (isRecon(d)
-      ? ' <span class="pf-src" title="Reconstructed from vendor minute bars, not captured live">recon</span>'
-      : "")
-  );
-};
+const dateFmt = (cell) => esc(cell.getValue()) + reconChip(isRecon(cell.getRow().getData()));
 
 const timeFmt = (cell) => etClockSec(cell.getRow().getData().firstHit);
 const pctFmt = (cell) => fmtPct(cell.getValue());
@@ -827,11 +820,7 @@ function select(oid) {
 
 // The provenance tag the dock header carries, so a chart drawn from vendor bars
 // is never read as one the tracker watched.
-const dockTitle = (text, recon) =>
-  esc(text) +
-  (recon
-    ? ' <span class="pf-src" title="Reconstructed from vendor minute bars, not captured live">recon</span>'
-    : "");
+const dockTitle = (text, recon) => esc(text) + reconChip(recon);
 
 async function drawNow(oid) {
   if (!dockOn()) return;
