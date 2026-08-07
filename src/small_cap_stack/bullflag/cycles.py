@@ -13,7 +13,9 @@ Two layers, validated across 25 reviewed opportunities:
   both ends that cycle and starts the next). No colour/thrust rule, no gates — it just finds every
   pump/fade the grammar admits, including noise.
 - :func:`significant_cycles` — keep only cycles that are a REAL pump: the pole span must carry a
-  green *thrust* bar (``is_big_green``) AND some bar must clear ``min_volume``. Structure drops
+  green *thrust* bar (``is_big_green``) AND some bar **in the cycle — pole or fade** must clear
+  ``min_volume`` (#582: a pole that lifts quietly then dumps on size is an exhausting cycle, and
+  measuring volume over the pole alone discarded the dump). Structure drops
   high-volume flat/doji churn (SNDQ); the (deliberately low, ``scan_min_5m_volume // 2``) volume
   floor drops tiny green blips (ARCT/FCEL/SDOT) while keeping genuine low-volume pumps (WULF's 84k).
   Volume alone is the wrong axis — it was simultaneously too high (dropped WULF) and too low (kept
@@ -92,14 +94,32 @@ def significant_cycles(
     bars: Sequence[Bar], cycles: Sequence[Cycle], min_volume: float
 ) -> list[Cycle]:
     """Keep only cycles that are a REAL pump: a green thrust bar in the pole span AND a bar clearing
-    ``min_volume``. Structure kills flat/doji churn (even at high volume); the low volume floor
-    kills tiny green blips while keeping genuine low-volume pumps. See the module docstring."""
+    ``min_volume`` **anywhere in the cycle, pole or fade**. Structure kills flat/doji churn (even at
+    high volume); the low volume floor kills tiny green blips while keeping genuine low-volume
+    pumps. See the module docstring.
+
+    The two tests read different spans on purpose (#582). *Thrust* is a property of the pole — a
+    fade cannot make a move a pump. *Volume* is a property of the whole pump-and-fade: a pole that
+    lifts quietly and then **dumps** on size is the definition of an exhausting cycle, and slicing
+    the fade off threw that evidence away. QUCY 2026-05-18's 06:45→06:50 cycle failed on a pole bar
+    of 13,064 shares (26% of the floor) while its fade traded 137,565; counting it makes the setup
+    the day's 3rd contiguous pump rather than its 2nd, which is what the chart reads.
+
+    Deliberately NOT a threshold change: ``min_volume`` still arrives as ``scan_min_5m_volume //
+    2``. Lowering the floor promotes WULF's 33,104-share bar, and a pole-move OR-clause promotes
+    SDOT — both reviewed sign-offs the module docstring names, and no volume- or move-shaped cut
+    separates SDOT from QUCY (SDOT's cycle is larger on shares, dollar volume and pole move alike).
+    Widening the window is the only change that moves QUCY without moving either.
+
+    Because the fade span is a superset of the pole span, this can only ever *add* cycles.
+    """
     out: list[Cycle] = []
     for c in cycles:
-        span = bars[c.pole_start + 1 : c.peak + 1]
+        span = bars[c.pole_start + 1 : c.peak + 1]  # thrust test: the pole only
+        whole = bars[c.pole_start + 1 : c.cons_end + 1]  # volume test: the pole AND its fade
         if not span:
             continue
-        if any(is_big_green(b) for b in span) and max(b.volume for b in span) >= min_volume:
+        if any(is_big_green(b) for b in span) and max(b.volume for b in whole) >= min_volume:
             out.append(c)
     return out
 

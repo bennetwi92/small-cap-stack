@@ -91,7 +91,7 @@ between §1 and §2.
 | Stop | the consolidation low | — `R = fill − stop` |
 | Staleness | the trigger bar must open ≤ 30 min after the first scanner hit | `entry_staleness_min` |
 | Exhaustion | reject the 3rd+ contiguous cycle of the day | `bull_flag_exhaustion_cap` |
-| Cycle volume floor | 50,000 (a cycle counts only above this) | `scan_min_5m_volume` // 2 |
+| Cycle volume floor | 50,000 (any bar in the cycle, pole or fade) | `scan_min_5m_volume` // 2 |
 | Tick size | $0.01 | `tick_size` |
 | ATR window | 14 bars (score only, gates nothing) | `bull_flag_atr_window` |
 | **Selection** — price band | $2.00 ≤ `entry_fill` ≤ $20.00 | `select_price_min / select_price_max` |
