@@ -24,6 +24,17 @@ updates:
       day: saturday
     open-pull-requests-limit: 5
 
+  # Covers both images: `python:3.11-slim` in the Dockerfile and the digest-pinned Gateway in
+  # docker-compose.yml (#549). The Gateway is the one that matters — nothing else re-pulls it, so
+  # before this it aged silently on a live trading box.
+  - package-ecosystem: docker
+    directories:
+      - /
+    schedule:
+      interval: weekly
+      day: saturday
+    open-pull-requests-limit: 5
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
