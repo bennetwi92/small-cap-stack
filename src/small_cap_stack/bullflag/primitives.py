@@ -26,8 +26,18 @@ def classify(bar: Bar) -> str:
 
 def is_big_green(bar: Bar) -> bool:
     """A strong-bodied green candle: green with a body >= half its range (#127 'big green')."""
+    return is_green_bodied(bar, 0.5)
+
+
+def is_green_bodied(bar: Bar, min_body_frac: float) -> bool:
+    """Green, with a body at least ``min_body_frac`` of its range.
+
+    The tunable form of :func:`is_big_green`, read **only** by ``refine_pole``'s backward extension
+    walk (#607). Everything else — ``significant_cycles``, ``pole_has_big_green`` — must keep the
+    locked 0.50, or exhaustion counts and the feature vector move with it.
+    """
     rng = bar.high - bar.low
-    return classify(bar) == "green" and rng > 0 and (bar.close - bar.open) / rng >= 0.5
+    return classify(bar) == "green" and rng > 0 and (bar.close - bar.open) / rng >= min_body_frac
 
 
 def upper_wick_frac(bar: Bar) -> float:

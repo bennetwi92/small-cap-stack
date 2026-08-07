@@ -38,7 +38,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ..capture import Bar
-from .primitives import classify, find_pole_peak, is_big_green
+from .primitives import classify, find_pole_peak, is_green_bodied
 from .tokens import Token
 
 
@@ -120,6 +120,7 @@ def refine_pole(
     *,
     max_pole: int,
     min_step_share: float = 0.0,
+    min_body_frac: float = 0.5,
 ) -> tuple[int, int] | None:
     """``(base_idx, pole_len)`` for the pole ending at a GIVEN ``peak``, or ``None`` if none forms.
 
@@ -148,7 +149,16 @@ def refine_pole(
 
     The admissible window here is narrow — (0.0677, 0.1058) — and set by one observation at each
     end. Treat the default as provisional; a reviewed case with a genuine sub-0.08 extension would
-    close it entirely."""
+    close it entirely.
+
+    ``min_body_frac`` (#607) is the thrust-body threshold for the same walk, split out from the
+    locked 0.50 in :func:`.is_big_green` because a hard cut with no tolerance truncates poles on
+    near-misses and inflates the reported retracement. BNAI 2026-06-09's 06:20 bar ran +7.5% on
+    163k shares and carried **72% of the pole's advance**, and was called a quiet pause on a body of
+    0.4861 — a 1.4-percentage-point miss. Only this walk reads it: ``significant_cycles`` and
+    ``pole_has_big_green`` keep 0.50, or exhaustion counts move with it. Its admissible window is
+    (0.4526, 0.4861] — CIFR 2026-07-06's 11:35 bar must stay excluded, BNAI's must come in — which
+    is **0.033 wide on two observations**, and just as provisional as ``min_step_share``'s."""
     if max_pole < 1 or peak - 1 < 0 or tokens[peak - 1] != "H":
         return None
     base, pole_len = peak - 1, 1
@@ -156,7 +166,7 @@ def refine_pole(
         pole_len < max_pole
         and base - 1 >= 0
         and tokens[base - 1] == "H"
-        and is_big_green(bars[base])
+        and is_green_bodied(bars[base], min_body_frac)
         and _step_share(bars, base, peak) >= min_step_share
     ):
         base -= 1
