@@ -79,10 +79,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      # From the lock, like CI and the image (#546). A replay harness that resolved its own
+      # polars would be measuring a different engine than the one the numbers came from, which is
+      # the whole point of a replay.
       - name: Install the package
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
+          pip install --require-hashes -r requirements.lock
+          pip install --no-deps -e .
 
       - name: Run the harness
         id: run

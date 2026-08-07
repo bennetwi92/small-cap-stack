@@ -10,16 +10,28 @@ PYTEST := $(VENV)/bin/pytest
 # called portfolio/extract.py 92% while its branch figure was 80%.
 COV := --cov --cov-report=term-missing --cov-fail-under=90
 
-.PHONY: help setup lint fmt fmt-check typecheck test cov check clean reports strategy fetch-fixtures
+# The interpreter `setup` builds the venv from. Bare `python3` is whatever is first on PATH,
+# which on a machine with several installed is not necessarily the 3.11 `requires-python` asks for
+# — and a venv on the wrong minor resolves a different dependency set than CI and the image do.
+# Falls back rather than hard-requiring 3.11: `.claude/hooks/session-setup.sh` runs `make setup` on
+# hosted runners where only `python3` exists, and it swallows the failure, so a hard requirement
+# would leave a delegated agent silently without a venv and unable to run `make check`.
+PYTHON ?= $(shell command -v python3.11 2>/dev/null || command -v python3)
+
+.PHONY: help setup lock lint fmt fmt-check typecheck test cov check clean reports strategy fetch-fixtures
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 setup: ## Create the venv and install the package + dev tools
-	python3 -m venv $(VENV)
+	$(PYTHON) -m venv $(VENV)
 	$(PIP) install -U pip
 	$(PIP) install -e ".[dev]"
+
+lock: ## Re-resolve uv.lock and regenerate requirements.lock from it
+	uv lock
+	uv export --frozen --no-dev --no-emit-project --format requirements-txt -o requirements.lock
 
 lint: ## Ruff lint
 	$(RUFF) check .

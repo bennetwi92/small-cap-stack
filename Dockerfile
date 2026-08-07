@@ -9,17 +9,24 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# 1. Dependencies in their OWN layer — only re-runs when pyproject.toml changes, so a source-only
-#    deploy skips the (slow) dependency reinstall (#72). Extract [project].dependencies to a
-#    requirements file (tomllib is stdlib on 3.11); the BuildKit cache also avoids re-downloads.
-COPY pyproject.toml ./
+# 1. Dependencies in their OWN layer — only re-runs when the lock changes, so a source-only deploy
+#    skips the (slow) dependency reinstall (#72). The BuildKit cache also avoids re-downloads.
+#
+#    Installs from `requirements.lock`, NOT from pyproject's ranges (#546). Every runtime dep was
+#    declared `>=` with no upper bound, and this layer resolved independently of CI on whatever day
+#    it was built — so two builds of the SAME commit could bake different polars/duckdb, and "the
+#    box disagrees with my Mac" was not a diagnosable statement. `--require-hashes` makes the
+#    install refuse anything the lock didn't record, which also closes the mid-build swap.
+#
+#    `requirements.lock` is generated from `uv.lock` — see the Makefile's `lock` target. Editing it
+#    by hand is pointless: `tests/test_deployment.py` fails when it drifts from `uv.lock`.
+COPY requirements.lock ./
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip \
- && python -c "import tomllib, pathlib; deps = tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']; pathlib.Path('/tmp/requirements.txt').write_text(chr(10).join(deps))" \
- && pip install -r /tmp/requirements.txt
+ && pip install --require-hashes -r requirements.lock
 
 # 2. The package itself installs with --no-deps (fast) and re-runs only when the source changes.
-COPY README.md ./
+COPY pyproject.toml README.md ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/pip pip install --no-deps .
 

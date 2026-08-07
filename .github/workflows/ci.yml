@@ -46,25 +46,39 @@ jobs:
       # exchange-calendars, ib-async) and identical every run, so the old pip editable install
       # spent ~23 s of a 75 s job on resolution + wheel install. `setup-python`'s `cache: pip`
       # cached the downloads, not that work, so it goes too; `setup-uv`'s cache is the one that
-      # applies now. `--system` because there is no virtualenv here — uv must install into
-      # `setup-python`'s interpreter or the bare `ruff` / `mypy` / `pytest` steps below won't
-      # find the package. Guarded by `test_ci_installs_with_uv`, which also forbids the old
+      # applies now. Guarded by `test_ci_installs_from_the_lock`, which also forbids the old pip
       # string reappearing — so don't quote it in this comment.
+      #
+      # `setup-python` above is load-bearing and not redundant: `uv sync` takes the first
+      # interpreter satisfying `requires-python` (">=3.11"), which on this runner would otherwise
+      # be its system 3.12 — and the lock is marker-split at 3.12, so CI would resolve a different
+      # numpy than the `python:3.11-slim` image runs. `.python-version` pins it belt-and-braces.
+      # `--locked`, NOT `--frozen` (#546). The two are easy to confuse and only one is a gate:
+      # `--frozen` installs the lock and says nothing when pyproject has moved past it, while
+      # `--locked` exits 1 with "the lockfile needs to be updated". Measured, not assumed — with a
+      # dep added to pyproject and no re-lock, `--frozen` exits 0 and installs without it.
+      #
+      # That matters because `build-image` builds the deployed image from `requirements.lock` and
+      # does NOT run on pull requests. Under `--frozen`, forgetting `make lock` would go green on
+      # the PR *and* on the push to main, and the failure would appear as the live tracker
+      # ImportError-ing on the box. `--locked` turns it into a red PR instead.
+      #
+      # `--all-extras` picks up `[dev]`.
       - name: Install
-        run: uv pip install --system -e ".[dev]"
+        run: uv sync --locked --all-extras
 
       - name: Ruff (lint)
-        run: ruff check .
+        run: uv run --no-sync ruff check .
 
       - name: Ruff (format check)
-        run: ruff format --check .
+        run: uv run --no-sync ruff format --check .
 
       - name: Mypy (type-check)
-        run: mypy
+        run: uv run --no-sync mypy
 
       # PRs run the suite bare (~14 s off a 37 s step); the covered run happens on the push to
       # main, where the number describes the branch it is measuring (#494/#495). The flags are
       # spelled here rather than in pyproject's addopts so that a bare `pytest tests/one_file.py`
       # doesn't fail on coverage (#530) — `make cov` is the local mirror of this line.
       - name: Pytest
-        run: pytest ${{ github.event_name == 'push' && '--cov --cov-report=term-missing --cov-fail-under=90' || '' }}
+        run: uv run --no-sync pytest ${{ github.event_name == 'push' && '--cov --cov-report=term-missing --cov-fail-under=90' || '' }}
