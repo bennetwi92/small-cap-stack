@@ -62,7 +62,12 @@ def extract_day_trades(
         return []
     bars_df = store.read("bars", dt=trading_date)
     scans = store.read("scanner_hits", dt=trading_date)
-    # Float is context, never a filter here — the float gate already ran upstream, at flag time.
+    # Float is context, never a filter — and NOT because it "already ran upstream". It never runs.
+    # The IBKR scan gates on price / change / 5-min volume only; float is enrichment written after a
+    # name is flagged (`capture._open_opportunity`), and `_qualify` below tests the price band and
+    # the takeable window, not the float. `gates.py::float_gate` exists, but its only consumer is
+    # the EOD report's `float_ok` count. So the book does take names over `float_max_shares` — put
+    # the gate in `_qualify` if that should change; don't assume it happened somewhere else.
     # Read through the same `_funds_for` seam the EOD report uses so the book quotes the same
     # source-merged number the results/review pages do (fmp first), rather than a second opinion.
     # NOTE: adding this read means `payload._EXTRACT_DATASETS` must list `fundamentals` too, or the
