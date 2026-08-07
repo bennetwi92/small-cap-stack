@@ -1,0 +1,51 @@
+name: Publish the dashboard data branch
+description: >-
+  Copy the app container's /data/dashboard tree out and force-push it to the orphan
+  `dashboard-data` branch. The single source of truth for publishing — publish-dashboard.yml (the
+  */15 cron) and deploy-backfill-publish.yml (the phone pipeline) both call this (#526).
+
+# Runs on the self-hosted `vps` runner. Extracted because the two callers held BYTE-IDENTICAL
+# 27-line copies — `diff` produced no output at all — and a fix to one silently didn't reach the
+# other. #545's memory guard had to be applied to the sibling backfill block twice for exactly
+# that reason.
+#
+# A composite action rather than `workflow_call`, for the same reason `deploy-app` is one: both
+# callers serialise on concurrency groups, and a called workflow sharing its caller's group
+# deadlocks. See `.github/actions/deploy-app/action.yml`.
+#
+# ⚠️ Force-push is deliberate and load-bearing: `dashboard-data` is a fresh single commit every
+# cycle, which is why nothing hand-written may live on that branch (CLAUDE.md). Reports live in
+# `docs/`, not here.
+
+runs:
+  using: composite
+  steps:
+    - name: Extract dashboard JSON from the app container
+      shell: bash
+      run: |
+        set -euo pipefail
+        rm -rf out && mkdir out
+        cid="$(docker ps --filter 'name=small-cap-stack-app' --format '{{.ID}}' | head -1)"
+        if [ -n "$cid" ]; then
+          docker cp "$cid:/data/dashboard/." out/ 2>/dev/null || true
+        fi
+        # Guarantee the branch/URL always exists, even before the first tick / EOD.
+        [ -f out/status.json ] || echo '{"status":"no data yet"}' > out/status.json
+        printf '{"published_utc":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > out/published.json
+        ls -la out
+
+    - name: Force-update the dashboard-data branch
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        cd out
+        git init -q
+        git checkout -q -b dashboard-data
+        git config user.email "actions@github.com"
+        git config user.name "scs-dashboard-bot"
+        git add -A
+        git commit -qm "dashboard data $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        git push -f "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" dashboard-data
