@@ -60,7 +60,7 @@ jobs:
       # workspace across workflows — a prior sparse-checkout run can leave `scripts/` absent
       # or stale. `docker exec` needed nothing checked out; this does (#545).
       - name: Check out the job runner
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Regenerate the dashboard JSON
         # Dispatch inputs are read as runtime env vars, never interpolated into the script by the
