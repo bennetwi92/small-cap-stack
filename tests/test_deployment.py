@@ -583,3 +583,80 @@ def test_runtime_deps_are_imported_or_explained() -> None:
         f"declared but never imported and unexplained: {unexplained}. Either drop it, or add a "
         f"comment above it saying what needs it — `pyarrow` looked droppable and was not."
     )
+
+
+# ------------------------------------------------ every action is SHA-pinned (#547)
+
+#: `uses: owner/repo@ref`, ignoring local composite refs (`./.github/actions/...`), which are this
+#: repo's own files and move with the commit being run.
+_USES = re.compile(r"^\s*(?:-\s*)?uses:\s*(?!\./)(\S+)(.*)$", re.M)
+_SHA = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _action_uses() -> list[tuple[str, str, str]]:
+    """(workflow, ref, trailing) for every third-party action the workflows run."""
+    out: list[tuple[str, str, str]] = []
+    wf_dir = ROOT / ".github" / "workflows"
+    for path in sorted([*wf_dir.glob("*.yml"), *wf_dir.glob("*.yaml")]):
+        for ref, trailing in _USES.findall(path.read_text()):
+            out.append((path.name, ref, trailing))
+    return out
+
+
+def test_every_action_is_pinned_to_a_commit_sha() -> None:
+    """A tag is mutable. `actions/checkout@v7` is whatever `v7` points at *today*, and six of these
+    run on `[self-hosted, vps]` — the trading box, with the runner's ambient Docker socket. A
+    retagged action there executes on the machine holding the live tracker and its data.
+
+    Before #547 exactly one of 22 was pinned, and it was the one on a *hosted* runner — the inverse
+    of the risk ordering. This makes the rule total rather than a posture applied by hand: there is
+    no per-action judgement to get wrong, and the box jobs are covered by construction.
+    """
+    floating = [
+        f"{wf}: {ref}" for wf, ref, _ in _action_uses() if not _SHA.match(ref.split("@")[-1])
+    ]
+    assert not floating, (
+        "these actions float on a mutable tag:\n  "
+        + "\n  ".join(floating)
+        + "\nPin to the commit SHA and keep a trailing `# vN` comment so dependabot still bumps it:"
+        "\n  gh api repos/<owner>/<repo>/git/ref/tags/<tag>"
+    )
+
+
+def test_every_pin_keeps_the_version_comment_dependabot_reads() -> None:
+    """The pin is only maintainable because dependabot rewrites *both* the SHA and the `# vN`
+    comment beside it. Drop the comment and the pin silently stops being updated — which is worse
+    than floating: it looks deliberate while quietly ageing into an unpatched action."""
+    missing = [
+        f"{wf}: {ref}" for wf, ref, trailing in _action_uses() if not re.search(r"#\s*v", trailing)
+    ]
+    assert not missing, (
+        "these pins have no `# vN` comment, so dependabot will not bump them:\n  "
+        + "\n  ".join(missing)
+    )
+
+
+def test_the_uses_scanner_sees_the_real_workflows() -> None:
+    """A regex that matched nothing would make both checks above pass on an empty list."""
+    uses = _action_uses()
+    assert len(uses) >= 20
+    assert {wf for wf, _, _ in uses} >= {"ci.yml", "deploy.yml", "harvest.yml", "build-image.yml"}
+    # The local composite actions are deliberately excluded, and they do exist.
+    wf_text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text()
+    assert "./.github/actions/" in wf_text
+    assert not any(ref.startswith("./") for _, ref, _ in uses)
+
+
+def test_no_action_runs_on_the_box_unpinned() -> None:
+    """States the risk ordering the original posture got backwards, so it is checked rather than
+    remembered: whatever else is true, nothing floating may execute on the trading box."""
+    box_workflows = {wf for wf, _, runs_on, _ in _workflow_jobs() if "self-hosted" in runs_on}
+    assert box_workflows, "no self-hosted jobs found — has the runner label changed?"
+    unpinned_on_box = [
+        f"{wf}: {ref}"
+        for wf, ref, _ in _action_uses()
+        if wf in box_workflows and not _SHA.match(ref.split("@")[-1])
+    ]
+    assert not unpinned_on_box, (
+        f"floating actions in workflows that run on the box: {unpinned_on_box}"
+    )

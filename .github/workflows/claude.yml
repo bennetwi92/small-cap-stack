@@ -80,7 +80,7 @@ jobs:
             echo "::warning::CLAUDE_CODE_OAUTH_TOKEN is not set — delegation is inert. Owner: run 'claude setup-token' locally and save the result as a repo secret."
           fi
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         if: steps.gate.outputs.ok == 'true'
         with:
           fetch-depth: 1
