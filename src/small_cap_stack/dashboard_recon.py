@@ -254,7 +254,9 @@ def publish_recon_charts(
             entries[d.isoformat()] = entry
             del charts
         except Exception as exc:  # noqa: BLE001 — see the docstring: one bad date, not the night
-            log.warning("dashboard.recon_charts_failed", date=d.isoformat(), error=str(exc))
+            log.warning(
+                "dashboard.recon_charts_failed", date=d.isoformat(), error=str(exc), exc_info=True
+            )
             failed.append(d)
         else:
             published.append(d)

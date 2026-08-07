@@ -235,7 +235,7 @@ class Application:
             report = build_eod_report(self.store, self.settings, now.date())
             self._export_stats_charts(report, now.astimezone(UTC))
         except Exception:  # noqa: BLE001 — a dashboard refresh must never break the tick
-            log.warning("dashboard.refresh_failed")
+            log.warning("dashboard.refresh_failed", exc_info=True)
 
     def _export_stats_charts(self, report: EodReport, now_utc: datetime) -> None:
         """Write stats.json + charts.json + the dated review payload for ``report``.
@@ -252,7 +252,7 @@ class Application:
         try:
             write_json_if_changed(out / "stats.json", build_stats(report, now_utc))
         except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
-            log.warning("dashboard.stats_write_failed")
+            log.warning("dashboard.stats_write_failed", exc_info=True)
         try:
             charts = build_charts(self.store, self.settings, report.trading_date, now_utc)
             write_json_if_changed(out / "charts.json", charts)  # legacy single-day file
@@ -264,7 +264,7 @@ class Application:
                 ),
             )
         except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
-            log.warning("dashboard.charts_write_failed")
+            log.warning("dashboard.charts_write_failed", exc_info=True)
 
     def _export_status(self, now: datetime) -> None:
         """Write the dashboard status snapshot (#68). Best-effort — never breaks a tick."""
@@ -315,7 +315,7 @@ class Application:
             }
             write_json(self.settings.data_dir / "dashboard" / "status.json", payload)
         except Exception:  # noqa: BLE001 — a dashboard write must never break the tick
-            log.warning("dashboard.status_write_failed")
+            log.warning("dashboard.status_write_failed", exc_info=True)
         # Data-quality canary (#346), throttled: positive-confirmation assertions over today's
         # partitions. Kept outside the status try-block so one failing never hides the other.
         try:
@@ -325,7 +325,7 @@ class Application:
                 write_json(self.settings.data_dir / "dashboard" / "canary.json", canary)
                 self._canary_next = now_utc + timedelta(minutes=self.settings.canary_interval_min)
         except Exception:  # noqa: BLE001 — a canary failure must never break the tick
-            log.warning("dashboard.canary_write_failed")
+            log.warning("dashboard.canary_write_failed", exc_info=True)
 
     async def _on_scan_start(self) -> None:
         log.info("scan.window_open")
@@ -363,7 +363,10 @@ class Application:
                 return
             except Exception:  # noqa: BLE001 — retry any transient failure; back-fill is the net
                 log.warning(
-                    "bars.eod_attempt_failed", attempt=attempt, of=self.settings.eod_retry_attempts
+                    "bars.eod_attempt_failed",
+                    attempt=attempt,
+                    of=self.settings.eod_retry_attempts,
+                    exc_info=True,
                 )
                 if attempt < self.settings.eod_retry_attempts:
                     await asyncio.sleep(self.settings.eod_retry_delay_sec)
@@ -383,7 +386,9 @@ class Application:
             if filled:
                 log.info("fundamentals.backfilled", count=filled, date=trading_date.isoformat())
         except Exception:  # noqa: BLE001 — never let this take down the EOD path
-            log.warning("fundamentals.backfill_failed", date=trading_date.isoformat())
+            log.warning(
+                "fundamentals.backfill_failed", date=trading_date.isoformat(), exc_info=True
+            )
 
     async def _on_portfolio_refresh(self) -> None:
         """Rebuild the paper book so the overnight harvest is on the page before the open (#458).
@@ -476,7 +481,7 @@ class Application:
             )
             write_json(self.settings.data_dir / "dashboard" / "portfolio.json", payload)
         except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
-            log.warning("dashboard.portfolio_write_failed")
+            log.warning("dashboard.portfolio_write_failed", exc_info=True)
 
     def _write_report_markdown(self, report: EodReport) -> None:
         out = self.settings.data_dir / "reports"

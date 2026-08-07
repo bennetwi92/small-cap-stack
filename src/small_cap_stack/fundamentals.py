@@ -18,7 +18,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from .logging import get_logger
 from .scanner import Candidate
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -113,6 +116,7 @@ class YFinanceFundamentals:
             async with asyncio.timeout(self.timeout_sec):
                 info = await asyncio.to_thread(self._info, candidate.symbol)
         except Exception:  # noqa: BLE001 — best-effort; a hang/hiccup must not break capture
+            log.warning("fundamentals.yfinance_failed", symbol=candidate.symbol, exc_info=True)
             return None
         if not info:
             return None
@@ -146,6 +150,7 @@ class FMPFundamentals:
             async with asyncio.timeout(self.timeout_sec):
                 payload = await asyncio.to_thread(self._get, candidate.symbol)
         except Exception:  # noqa: BLE001 — best-effort; a hang/hiccup must not break capture
+            log.warning("fundamentals.fmp_failed", symbol=candidate.symbol, exc_info=True)
             return None
         row = _first_row(payload)
         if row is None:

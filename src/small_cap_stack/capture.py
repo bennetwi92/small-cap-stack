@@ -200,7 +200,9 @@ class CaptureService:
                 try:
                     await self._open_opportunity(oid, c, now, trading_date)
                 except Exception:  # noqa: BLE001 — one candidate must not stall the rest
-                    log.warning("capture.open_opportunity_failed", opportunity_id=oid)
+                    log.warning(
+                        "capture.open_opportunity_failed", opportunity_id=oid, exc_info=True
+                    )
             hits.append(scanner_hit_record(oid, c, now))
         # One append per tick, not one per candidate (#247): the old per-candidate call wrote a
         # separate single-row Parquet file, so ~50 candidates x ~480 in-window ticks produced ~24k
@@ -214,7 +216,7 @@ class CaptureService:
         try:
             await self.store.append_async("scanner_hits", hits, partition_date=trading_date)
         except Exception:  # noqa: BLE001 — a hit-log failure must not abort the tick
-            log.warning("capture.scanner_hits_append_failed", count=len(hits))
+            log.warning("capture.scanner_hits_append_failed", count=len(hits), exc_info=True)
 
     async def _open_opportunity(
         self, oid: str, c: Candidate, now: datetime, trading_date: date
@@ -238,7 +240,7 @@ class CaptureService:
                 c, lookback_days=self.settings.news_lookback_days, limit=self.settings.news_max
             )
         except Exception:  # noqa: BLE001 — news is best-effort; never block opening the record
-            log.warning("capture.news_fetch_failed", opportunity_id=oid)
+            log.warning("capture.news_fetch_failed", opportunity_id=oid, exc_info=True)
             items = []
         if items:
             await self.store.append_async(
@@ -285,7 +287,7 @@ class CaptureService:
             try:
                 bars = await self.bars.fetch_day_bars(cand, trading_date=trading_date, end=end)
             except Exception:  # noqa: BLE001 — one symbol's failure must not stall the batch
-                log.warning("capture.day_bars_failed", opportunity_id=oid)
+                log.warning("capture.day_bars_failed", opportunity_id=oid, exc_info=True)
                 continue
             if not bars:
                 continue
@@ -354,7 +356,7 @@ class CaptureService:
                 if await self.capture_missing_bars(d):
                     filled.append(d)
             except Exception:  # noqa: BLE001 — one day's failure must not stall the rest
-                log.warning("capture.backfill_failed", date=d.isoformat())
+                log.warning("capture.backfill_failed", date=d.isoformat(), exc_info=True)
         return filled
 
     async def capture_day_news(self, trading_date: date) -> None:
@@ -381,7 +383,7 @@ class CaptureService:
                     limit=self.settings.news_max,
                 )
             except Exception:  # noqa: BLE001 — one symbol's failure must not stall the batch
-                log.warning("capture.day_news_failed", opportunity_id=oid)
+                log.warning("capture.day_news_failed", opportunity_id=oid, exc_info=True)
                 continue
             if items:
                 await self.store.append_async(
@@ -442,7 +444,7 @@ class CaptureService:
             try:
                 funds = await self.fundamentals.fetch_all(cand)
             except Exception:  # noqa: BLE001 — one symbol's failure must not stall the batch
-                log.warning("capture.day_fundamentals_failed", opportunity_id=oid)
+                log.warning("capture.day_fundamentals_failed", opportunity_id=oid, exc_info=True)
                 continue
             if not funds:
                 continue  # still unavailable; the next EOD run tries again
