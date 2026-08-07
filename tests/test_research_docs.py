@@ -175,3 +175,44 @@ def test_claude_md_does_not_restate_the_strategy_numbers() -> None:
         "CLAUDE.md restates strategy numbers; link research/strategy.md instead (#551):\n  "
         + "\n  ".join(offenders)
     )
+
+
+#: `[text](path)` — a markdown link. Anchors, external URLs and mail links are not files.
+_MD_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
+
+
+def _linking_docs() -> list[Path]:
+    return [p for p in (REPO_ROOT / "CLAUDE.md", REPO_ROOT / "README.md") if p.is_file()] + (
+        _research_docs()
+    )
+
+
+@pytest.mark.parametrize("doc", _linking_docs(), ids=lambda p: str(p.relative_to(REPO_ROOT)))
+def test_every_relative_link_resolves(doc: Path) -> None:
+    """A link that 404s is worse than no link: it says "the answer is over there" and isn't.
+
+    #540 moved five blocks of CLAUDE.md narrative out to the files that already owned it, replacing
+    each with a pointer — which converts a maintenance problem (duplicated prose drifting) into a
+    link-rot one. This is the guard that makes that trade safe. It complements
+    `test_every_research_doc_is_referenced_somewhere`: that one catches a doc nothing points *at*,
+    this one catches a pointer aimed at nothing.
+    """
+    broken = []
+    for target in _MD_LINK.findall(doc.read_text()):
+        if target.startswith(("http://", "https://", "mailto:", "#")):
+            continue
+        path = (doc.parent / target.split("#", 1)[0]).resolve()
+        if not path.exists():
+            broken.append(f"{target} -> {path.relative_to(REPO_ROOT)}")
+    assert not broken, f"{doc.relative_to(REPO_ROOT)} links to files that do not exist:\n  " + (
+        "\n  ".join(broken)
+    )
+
+
+def test_the_link_check_actually_looks_at_links() -> None:
+    """A regex that matched nothing would make every case above pass on an empty list."""
+    counts = {p: len(_MD_LINK.findall(p.read_text())) for p in _linking_docs()}
+    assert sum(counts.values()) > 30, counts
+    assert counts[REPO_ROOT / "CLAUDE.md"] >= 3, (
+        "CLAUDE.md's pointers are what #540 relies on — it trades duplicated prose for links"
+    )

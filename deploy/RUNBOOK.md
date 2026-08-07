@@ -234,6 +234,18 @@ hcloud server request-console small-cap-stack   # VNC URL — works when sshd is
    partition, not the dataset — but prefer the reboot.
 4. After **any** of these, re-check the runner and the app container — an interrupted deploy can
    leave the app **stopped**. See §11 and `docker ps`; re-run `deploy.yml` if needed.
+5. ⚠️ **Confirm the runner is actually back.** An OOM leaves the runner service `failed`, and CI
+   then queues **silently forever** rather than failing:
+   ```bash
+   gh api repos/bennetwi92/small-cap-stack/actions/runners --jq '.runners[]|"\(.name) \(.status)"'
+   ```
+   `deploy/actions-runner-restart.conf` (a `Restart=always` drop-in) should self-heal this within
+   30 s. If it doesn't, the drop-in is missing — reinstall it (§11 step 1; `svc.sh install` rewrites
+   the unit and drops it).
+
+⚠️ **Never `systemctl restart` the runner while a job is in flight** — it cancels the job. If that
+job is a deploy, compose may have torn the old container down without bringing the new one up, which
+leaves the app **stopped**. Check `docker ps` and re-run `deploy.yml` before walking away.
 
 **Caveats.**
 - `hcloud server metrics` is **`[ALPHA]`** and its `--type` is `cpu|disk|network` — there is **no

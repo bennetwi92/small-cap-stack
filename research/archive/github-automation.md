@@ -17,7 +17,7 @@
 *Added 2026-07-17. Standing report / decision input. Scope: how we develop and operate this
 project **without the laptop**, using GitHub's free tier (Actions / Issues / Pages / secrets) and
 **Claude Code in CI on the Max subscription** for research, spec, build, triage, self-heal, and
-box monitoring. Companion to [`free-tier-services.md`](./free-tier-services.md) (runtime/hosting
+box monitoring. Companion to [`free-tier-services.md`](../free-tier-services.md) (runtime/hosting
 free tier); this doc is the **automation & agentic layer** on top of it.*
 
 The repo is **public** (`bennetwi92/small-cap-stack`) and runs a **self-hosted `vps` runner** on
