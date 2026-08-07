@@ -92,10 +92,18 @@ hours, not authoring speed (see the remote-work limits above).
 
 ## Issue & project hygiene (keep these current — every task)
 - **Every unit of work is a GitHub issue** with labels: `epic`, `phase-1`, `spike`, `infra`, `setup`, `ibkr`, `data`, `strategy`, `bug`. Epic is **#1**.
-- **Project board:** `https://github.com/users/bennetwi92/projects/3` (project id `PVT_kwHOCGbB5M4Bb_HY`, Status field `PVTSSF_lAHOCGbB5M4Bb_HYzhWrRtM`; options Todo `f75ad846` / In Progress `47fc9ee4` / Done `98236657`).
+- **Project board:** `https://github.com/users/bennetwi92/projects/3` (project id `PVT_kwHOCGbB5M4Bb_HY`).
+  - **Status** field `PVTSSF_lAHOCGbB5M4Bb_HYzhWrRtM` — Backlog `9544b6ad` / Todo `f75ad846` /
+    In Progress `47fc9ee4` / Blocked `ab0407fa` / Done `98236657`.
+  - **Size** field `PVTSSF_lAHOCGbB5M4Bb_HYzhZ7oxU` — XS `2c5c01af` / S `dbe01fd8` / M `07ea1ac7` /
+    L `69a53ac5`. These are the **estimation tiers** from "Throughput & estimation" below; set one on
+    every issue so a slice of the board can be costed and the anchors can be checked against reality.
   - When creating an issue: `gh issue create` then add it to the board (`gh project item-add 3 --owner bennetwi92 --url <issue-url>`) and set Status.
-  - **Status lifecycle:** Todo → In Progress (when work starts) → Done (when its PR merges / issue closes).
-  - Set status: `gh project item-edit --project-id <PROJ_ID> --id <itemId> --field-id <FIELD_ID> --single-select-option-id <optId>`.
+  - **Status lifecycle:** Backlog (real, but not next) → Todo (next up, ready to start) →
+    In Progress → Done (when its PR merges / issue closes). **Blocked** is for waiting on the world —
+    a calendar, a purchase, another issue — *not* for "haven't got to it", which is Backlog.
+    Keep In Progress honest: if it hasn't moved this week it belongs in Todo or Backlog.
+  - Set a field: `gh project item-edit --project-id <PROJ_ID> --id <itemId> --field-id <FIELD_ID> --single-select-option-id <optId>`.
 - **Record findings on the issue**, not just in chat — spikes/experiments get a results comment on their issue (`gh issue comment N`).
 - When a decision is made, update `research/decisions.md` (and memory).
 
@@ -220,7 +228,10 @@ boards, so any writing that explains, justifies or concludes belongs here rather
   the next cycle. `docs/` is already the Pages source: a merged report is a served report.
 
 ## Helper scripts
-- `scripts/board.sh <issue#> <Todo|"In Progress"|Done>` — set an issue's status on project board #3 (encapsulates the project/field IDs). Use it instead of re-deriving `gh project item-edit` calls.
+- `scripts/board.sh <issue#> <Backlog|Todo|"In Progress"|Blocked|Done>` — set an issue's Status on
+  project board #3. The same script takes a size tier instead — `scripts/board.sh <issue#> <XS|S|M|L>`
+  — to set Size; the two value spaces don't collide. It encapsulates the project/field IDs, so use it
+  instead of re-deriving `gh project item-edit` calls.
 
 ## Box access — YOU HAVE IT from the Mac (do not claim otherwise)
 When running on the **Mac** (the primary working dir, not a cloud/web session), you can operate the live box directly — don't tell the user "I have no box access":
