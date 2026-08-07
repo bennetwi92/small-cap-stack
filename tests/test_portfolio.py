@@ -1199,6 +1199,104 @@ def test_extract_float_is_none_when_no_fundamentals_landed(tmp_path: Path) -> No
     assert c.max_r is not None  # the peak does not depend on fundamentals landing
 
 
+# --- the "collected, never gated" invariant (#551/#554) ----------------------------------
+#
+# `research/strategy.md` §4 states, as the spec's central claim, that float and news are collected
+# and never gated. That section is hand-written prose inside `strategy_doc.py`'s renderer — the
+# generator guarantees the *numbers* track Settings, and guarantees nothing about the claim. Before
+# these tests you could add a float filter to `_qualify` and no test would fail while the spec went
+# on printing "No." Eight surfaces asserted a `float < 20M` filter the engine has never applied,
+# and two published reports argued about it.
+
+
+def test_the_book_takes_a_high_float_name(tmp_path: Path) -> None:
+    """⚠️ FLOAT IS NOT A GATE. If you added one and this failed, DELETE THIS TEST — deliberately.
+
+    246,000,000 is CLSK, which is in the published book at 12x `float_max_shares`. That setting's
+    only consumer is `gates.py::float_gate`, whose only caller is the EOD report's `float_ok`
+    count; nothing in the selection path reads it.
+
+    If float should ever gate, the check goes in `portfolio.extract._qualify` — and then this test
+    comes out and `research/strategy.md` §4 changes in the same PR. That is the whole point: the
+    invariant is a decision someone makes, not an accident nobody notices.
+    """
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    store = Store(tmp_path)
+    _seed_premarket(
+        store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC), float_shares=246_000_000
+    )
+    cands = extract_day_trades(store, _s(), date(2026, 6, 29))
+
+    assert cands, (
+        "a 246M-float setup was dropped from the book, so float has become a gate. If that is "
+        "intended: delete this test and change research/strategy.md §4 in the same PR."
+    )
+    [c] = cands
+    assert c.float_shares == 246_000_000  # carried as context...
+    assert c.max_r is not None  # ...and the setup is still fully measured and takeable
+
+
+def test_the_book_takes_a_name_with_no_news(tmp_path: Path) -> None:
+    """⚠️ NEWS IS NOT A GATE either. Same contract as the float test above.
+
+    The original brief made "breaking news on the stock" a hard requirement. It never shipped as
+    one: `extract.py` does not read the `news` dataset at all, and `gates.py::news_gate` feeds only
+    the EOD report's `with_recent_news` count.
+    """
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    store = Store(tmp_path)
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC))
+    assert store.read("news").is_empty()  # nothing seeded a headline
+
+    [c] = extract_day_trades(store, _s(), date(2026, 6, 29))
+    assert c.max_r is not None
+
+
+def test_news_rows_do_not_change_which_candidates_the_book_takes(tmp_path: Path) -> None:
+    """The stronger half: news present or absent, the book extracts the same trades.
+
+    Catches a news read entering by the back door as well as an explicit gate — and note that
+    `payload._EXTRACT_DATASETS` deliberately omits `news`, so adding one would also silently bust
+    every cached day's candidate fingerprint.
+    """
+    from small_cap_stack.portfolio import extract_day_trades
+    from small_cap_stack.storage import Store
+
+    day = date(2026, 6, 29)
+    seeded_at = datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC)
+
+    quiet = Store(tmp_path / "quiet")
+    _seed_premarket(quiet, oid_time_utc=seeded_at)
+
+    loud = Store(tmp_path / "loud")
+    _seed_premarket(loud, oid_time_utc=seeded_at)
+    loud.append(
+        "news",
+        [
+            {
+                "opportunity_id": f"{day.isoformat()}:AZI",
+                "symbol": "AZI",
+                "time": "2026-06-29 08:00:00",
+                "ts_utc": seeded_at,
+                "provider": "DJ-N",
+                "headline": "AZI announces something material",
+                "article_id": "a1",
+            }
+        ],
+        partition_date=day,
+    )
+    assert loud.read("news").height == 1
+
+    key = lambda c: (c.symbol, c.entry_price, c.stop, c.max_r)  # noqa: E731
+    assert [key(c) for c in extract_day_trades(loud, _s(), day)] == [
+        key(c) for c in extract_day_trades(quiet, _s(), day)
+    ]
+
+
 def test_taken_and_skipped_trades_both_carry_the_peak_and_float() -> None:
     """Both logs answer the same question, so both need the same columns.
 
