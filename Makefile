@@ -10,16 +10,25 @@ PYTEST := $(VENV)/bin/pytest
 # called portfolio/extract.py 92% while its branch figure was 80%.
 COV := --cov --cov-report=term-missing --cov-fail-under=90
 
-.PHONY: help setup lint fmt fmt-check typecheck test cov check clean reports strategy fetch-fixtures
+# The interpreter `setup` builds the venv from. `python3` is whatever is first on PATH, which on
+# a machine with several installed is not necessarily the 3.11 `requires-python` asks for — and a
+# venv on the wrong minor resolves a different dependency set than CI and the image do.
+PYTHON ?= python3.11
+
+.PHONY: help setup lock lint fmt fmt-check typecheck test cov check clean reports strategy fetch-fixtures
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 setup: ## Create the venv and install the package + dev tools
-	python3 -m venv $(VENV)
+	$(PYTHON) -m venv $(VENV)
 	$(PIP) install -U pip
 	$(PIP) install -e ".[dev]"
+
+lock: ## Re-resolve uv.lock and regenerate requirements.lock from it
+	uv lock
+	uv export --frozen --no-dev --no-emit-project --format requirements-txt -o requirements.lock
 
 lint: ## Ruff lint
 	$(RUFF) check .

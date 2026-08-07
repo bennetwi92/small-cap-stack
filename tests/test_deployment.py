@@ -85,13 +85,95 @@ def test_build_image_covers_every_main_commit() -> None:
     assert "paths:" not in push, "main/tags builds must not be path-filtered"
 
 
-def test_ci_installs_with_uv() -> None:
-    """The Install step was ~23 s of a 75 s job under pip (#493). uv does the same install in a
-    handful of seconds, and `--system` is what puts it in `setup-python`'s interpreter — without
-    it the bare `ruff` / `mypy` / `pytest` steps find no package."""
+def test_ci_installs_from_the_lock() -> None:
+    """The Install step was ~23 s of a 75 s job under pip (#493), and it also **re-resolved** —
+    so CI and the shipped image could bake different polars/duckdb from the same commit (#546).
+
+    `--frozen` is the load-bearing flag: without it `uv sync` silently re-locks when pyproject and
+    the lock disagree, which is the failure this whole change exists to remove. `uv sync` installs
+    into `.venv` rather than the system interpreter, so every tool step runs through `uv run` —
+    the two halves only work together.
+    """
     w = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
-    assert "uv pip install --system" in w, "CI installs with uv, not pip"
+    assert "uv sync --frozen" in w, "CI must install the recorded set, not re-resolve"
     assert "pip install -e" not in w, "the pip install path is gone; uv replaced it"
+    for tool in ("ruff check .", "ruff format --check .", "mypy", "pytest"):
+        assert f"uv run {tool}" in w, (
+            f"`{tool}` must run through `uv run` — uv sync installs into .venv, so a bare "
+            "invocation would silently use whatever the runner's interpreter happens to have"
+        )
+
+
+def test_every_install_path_reads_the_lock() -> None:
+    """Three installers, one recorded set. Before #546 they were `pip install -e '.[dev]'`, a bare
+    `pip install -e .`, and a Dockerfile that extracted pyproject's unpinned ranges — resolving
+    independently, on different days, from `>=` constraints with no upper bound.
+
+    For a system whose product is numbers, that made "the box disagrees with my Mac" an
+    undiagnosable statement rather than a bug report.
+    """
+    paths = {
+        "ci.yml": (ROOT / ".github" / "workflows" / "ci.yml").read_text(),
+        "spike-massive.yml": (ROOT / ".github" / "workflows" / "spike-massive.yml").read_text(),
+        "Dockerfile": (ROOT / "Dockerfile").read_text(),
+    }
+    assert "uv sync --frozen" in paths["ci.yml"]
+    for name in ("spike-massive.yml", "Dockerfile"):
+        assert "--require-hashes -r requirements.lock" in paths[name], (
+            f"{name} must install the locked set with hashes, not resolve its own"
+        )
+    # The Dockerfile's old path extracted pyproject's ranges with tomllib — it must not come back.
+    assert "tomllib" not in paths["Dockerfile"], (
+        "the Dockerfile is back to extracting unpinned ranges from pyproject"
+    )
+
+
+def test_the_lockfiles_exist_and_pin_every_runtime_dependency() -> None:
+    """`requirements.lock` is generated from `uv.lock` (`make lock`) and is what the pip-based
+    paths read. Every line must be an exact `==` pin carrying hashes — a single `>=` surviving in
+    there would reopen the hole for that package alone, silently."""
+    uv_lock = ROOT / "uv.lock"
+    req_lock = ROOT / "requirements.lock"
+    assert uv_lock.is_file(), "uv.lock is the source of truth for resolution"
+    assert req_lock.is_file(), "requirements.lock is what the Dockerfile and the spike install"
+
+    body = [
+        ln
+        for ln in req_lock.read_text().splitlines()
+        if ln and not ln.startswith(("#", " ", "\t", "--hash"))
+    ]
+    assert len(body) >= 30, "the export looks truncated"
+    unpinned = [ln for ln in body if "==" not in ln]
+    assert not unpinned, f"these are not exact pins: {unpinned}"
+    assert "--hash=sha256:" in req_lock.read_text(), "the export must carry hashes"
+
+
+def test_requirements_lock_is_in_step_with_uv_lock() -> None:
+    """The two files are one artifact in two formats, and only `uv.lock` is authoritative. If they
+    drift, the image installs a set CI never tested — which is the original defect wearing a
+    lockfile. Regenerate with `make lock`.
+
+    Compared on the (name, version) pairs rather than byte-for-byte: the export embeds the command
+    that produced it, so a byte comparison would fail on an incidental flag change.
+    """
+    import re
+    import tomllib
+
+    locked = {
+        (p["name"], p.get("version"))
+        for p in tomllib.loads((ROOT / "uv.lock").read_text())["package"]
+        if p.get("version")
+    }
+    exported_text = (ROOT / "requirements.lock").read_text()
+    exported = set(re.findall(r"^([A-Za-z0-9._-]+)==(\S+?)(?:\s|$)", exported_text, re.M))
+    # uv normalises names to lowercase-with-hyphens in uv.lock; the export keeps the sdist casing.
+    norm = {(n.lower().replace("_", "-"), v) for n, v in exported}
+    locked_norm = {(n.lower().replace("_", "-"), v) for n, v in locked}
+    drifted = norm - locked_norm
+    assert not drifted, (
+        f"requirements.lock has {sorted(drifted)[:5]} which uv.lock does not — run `make lock`"
+    )
+    assert norm, "the export parsed to nothing; has the format changed?"
 
 
 def test_ci_gates_coverage_on_main_not_on_prs() -> None:

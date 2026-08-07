@@ -46,25 +46,29 @@ jobs:
       # exchange-calendars, ib-async) and identical every run, so the old pip editable install
       # spent ~23 s of a 75 s job on resolution + wheel install. `setup-python`'s `cache: pip`
       # cached the downloads, not that work, so it goes too; `setup-uv`'s cache is the one that
-      # applies now. `--system` because there is no virtualenv here — uv must install into
-      # `setup-python`'s interpreter or the bare `ruff` / `mypy` / `pytest` steps below won't
-      # find the package. Guarded by `test_ci_installs_with_uv`, which also forbids the old
+      # applies now. Guarded by `test_ci_installs_from_the_lock`, which also forbids the old pip
       # string reappearing — so don't quote it in this comment.
+      # `--frozen`: install exactly what `uv.lock` records and fail if the lock is stale, rather
+      # than re-resolving here (#546). Before this, CI and the shipped image resolved independently
+      # on different days, so two builds of the same commit could disagree on polars/duckdb — for
+      # a system whose product is numbers, that made a difference between the box and a laptop
+      # undiagnosable. `--all-extras` picks up `[dev]`; `--no-editable` is deliberate — the tests
+      # should exercise the installed package, the way the image runs it.
       - name: Install
-        run: uv pip install --system -e ".[dev]"
+        run: uv sync --frozen --all-extras --no-editable
 
       - name: Ruff (lint)
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: Ruff (format check)
-        run: ruff format --check .
+        run: uv run ruff format --check .
 
       - name: Mypy (type-check)
-        run: mypy
+        run: uv run mypy
 
       # PRs run the suite bare (~14 s off a 37 s step); the covered run happens on the push to
       # main, where the number describes the branch it is measuring (#494/#495). The flags are
       # spelled here rather than in pyproject's addopts so that a bare `pytest tests/one_file.py`
       # doesn't fail on coverage (#530) — `make cov` is the local mirror of this line.
       - name: Pytest
-        run: pytest ${{ github.event_name == 'push' && '--cov --cov-report=term-missing --cov-fail-under=90' || '' }}
+        run: uv run pytest ${{ github.event_name == 'push' && '--cov --cov-report=term-missing --cov-fail-under=90' || '' }}
