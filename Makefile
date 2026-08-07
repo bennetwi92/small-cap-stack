@@ -5,8 +5,12 @@ PIP := $(VENV)/bin/pip
 RUFF := $(VENV)/bin/ruff
 MYPY := $(VENV)/bin/mypy
 PYTEST := $(VENV)/bin/pytest
+# The coverage gate, in one place: `make check` and CI's push-to-main run must agree, or the
+# local gate stops predicting the remote one. Branch coverage included — line coverage alone
+# called portfolio/extract.py 92% while its branch figure was 80%.
+COV := --cov --cov-report=term-missing --cov-fail-under=90
 
-.PHONY: help setup lint fmt fmt-check typecheck test check clean reports strategy fetch-fixtures
+.PHONY: help setup lint fmt fmt-check typecheck test cov check clean reports strategy fetch-fixtures
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -29,8 +33,11 @@ fmt-check: ## Ruff format check (no write)
 typecheck: ## Mypy (strict, package only)
 	$(MYPY)
 
-test: ## Pytest + coverage
+test: ## Pytest (fast — no coverage)
 	$(PYTEST)
+
+cov: ## Pytest with the coverage gate (what CI enforces on main)
+	$(PYTEST) $(COV)
 
 reports: ## Rebuild docs/reports/index.json from the report markdown (run after adding one)
 	$(PY) -m small_cap_stack.reports build
@@ -41,7 +48,7 @@ strategy: ## Regenerate research/strategy.md from config.py (run after changing 
 fetch-fixtures: ## Pull a sanitized sample dataset into data/fixtures/ (set FIXTURES_URI)
 	./scripts/fetch_fixtures.sh
 
-check: lint fmt-check typecheck test ## Run all CI gates locally (do this before pushing)
+check: lint fmt-check typecheck cov ## Run all CI gates locally (do this before pushing)
 
 clean: ## Remove venv and tool caches
 	rm -rf $(VENV) .mypy_cache .ruff_cache .pytest_cache .coverage htmlcov

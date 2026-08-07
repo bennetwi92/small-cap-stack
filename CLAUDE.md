@@ -62,14 +62,22 @@ Toolchain lives in `.venv`. CI runs ruff + mypy + pytest on every PR.
 .venv/bin/ruff check .          # lint
 .venv/bin/ruff format --check . # format
 .venv/bin/mypy                  # type-check (strict; package only)
-.venv/bin/pytest                # tests + coverage
+.venv/bin/pytest                # tests (bare — no coverage)
+make cov                        # tests + the coverage gate CI enforces on main
 ```
 - Python **3.11**. mypy is `--strict` and only checks `src/small_cap_stack` (so `spikes/` is exempt).
 - Trading logic (gates, sizing, stats) must be exhaustively unit-tested — it is the product.
-- **Coverage is gated on `main`, not on PRs (#494/#495).** The PR run is the merge gate and passes
-  `--no-cov`; the push-to-main run is the covered one and enforces `--cov-fail-under=80`. Locally
-  `make check` always runs with coverage, so a PR that would drop `main` below 80% is visible
-  before you push — the split is about CI cost, not about relaxing the bar.
+- **Coverage is gated on `main`, not on PRs (#494/#495).** The PR run is the merge gate and runs the
+  suite bare; the push-to-main run is the covered one and enforces `--cov-fail-under=90` over
+  **line *and* branch** coverage (#530 — line alone called `portfolio/extract.py` 92% while its
+  branch figure was 80%). `make check` runs `make cov`, so a PR that would drop `main` below the
+  bar is visible before you push — the split is about CI cost, not about relaxing the bar.
+- **The coverage flags live on the CI line and in `make cov`, never in pytest's `addopts` (#530).**
+  In addopts, `pytest tests/one_file.py` exits 1 with "Required test coverage of 80% not reached.
+  Total coverage: 4.77%" while every test passes — which teaches you to read past a red pytest.
+- `filterwarnings = ["error"]`: a deprecation from polars/duckdb is a change to how this system
+  computes money, so it fails the build on the PR that bumps the dep. If a floating dep trips it
+  on an unrelated PR, add a targeted `ignore` for that message — don't remove the gate.
 
 ## Throughput & estimation (calibration for "how long will this take")
 Use these as **estimation anchors**, not targets — they're what one focused agent day actually

@@ -2,9 +2,9 @@ name: CI
 
 # Two runs per change, doing deliberately different jobs (#494/#495): the PR run is the merge gate
 # and skips coverage, the main run is what makes "main is green" a measured statement rather than an
-# inference and carries the 80% coverage gate. Dropping the main run would leave no coverage gate
-# anywhere; leaving coverage on PRs costs ~40% of the pytest step to re-measure a number that has
-# sat at 94% for weeks and says nothing about the diff under review.
+# inference and carries the 90% line+branch coverage gate (#530). Dropping the main run would leave
+# no coverage gate anywhere; leaving coverage on PRs costs ~40% of the pytest step to re-measure a
+# number that has sat above 93% for weeks and says nothing about the diff under review.
 on:
   pull_request:
   push:
@@ -59,8 +59,9 @@ jobs:
       - name: Mypy (type-check)
         run: mypy
 
-      # `--no-cov` on PRs (~14 s off a 37 s step); the covered run with `--cov-fail-under=80` from
-      # pyproject's addopts happens on the push to main, where the number describes the branch it is
-      # measuring. `make check` locally is unchanged — it always runs with coverage.
+      # PRs run the suite bare (~14 s off a 37 s step); the covered run happens on the push to
+      # main, where the number describes the branch it is measuring (#494/#495). The flags are
+      # spelled here rather than in pyproject's addopts so that a bare `pytest tests/one_file.py`
+      # doesn't fail on coverage (#530) — `make cov` is the local mirror of this line.
       - name: Pytest
-        run: pytest ${{ github.event_name == 'pull_request' && '--no-cov' || '' }}
+        run: pytest ${{ github.event_name == 'push' && '--cov --cov-report=term-missing --cov-fail-under=90' || '' }}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import tomllib
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
@@ -92,13 +93,71 @@ def test_ci_installs_with_uv() -> None:
 
 
 def test_ci_gates_coverage_on_main_not_on_prs() -> None:
-    """PRs run the suite bare and main carries the 80% gate (#494/#495) — the two halves only add
-    up together, so dropping either the main-side trigger or the addopts threshold would leave
-    coverage ungated everywhere."""
+    """PRs run the suite bare and main carries the gate (#494/#495) — the two halves only add up
+    together, so dropping either the main-side trigger or the threshold would leave coverage
+    ungated everywhere."""
     w = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
     assert "branches: [main]" in w, "the main-side run is where the coverage gate lives"
-    assert "github.event_name == 'pull_request' && '--no-cov'" in w, "PR runs must skip coverage"
-    assert "--cov-fail-under=80" in (ROOT / "pyproject.toml").read_text()
+    # One joined substring, not three independent ones: asserting the condition and the flags
+    # separately would pass an INVERTED ternary (coverage on PRs, bare on main) — exactly the
+    # silent-loss mode this test exists to prevent.
+    assert (
+        "${{ github.event_name == 'push' "
+        "&& '--cov --cov-report=term-missing --cov-fail-under=90' || '' }}"
+    ) in w, "the coverage flags must hang off the push-to-main condition, in that order"
+
+
+def _addopts() -> str:
+    """pytest's effective addopts, parsed — not grepped.
+
+    A line-prefix scan is evadable: pytest accepts a multi-line `addopts = \"\"\"...\"\"\"` (and a
+    TOML array), so `--cov-fail-under=80` could be smuggled back onto a continuation line while a
+    string search of the first line stayed clean.
+    """
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        cfg = tomllib.load(fh)["tool"]["pytest"]["ini_options"]
+    opts = cfg.get("addopts", "")
+    return opts if isinstance(opts, str) else " ".join(opts)
+
+
+def test_coverage_flags_are_not_in_addopts() -> None:
+    """A bare `pytest tests/one_file.py` must not fail on coverage (#530).
+
+    With `--cov-fail-under` in addopts it printed a red "Required test coverage of 80% not
+    reached. Total coverage: 4.77%" and exited 1 while every test passed — which teaches you to
+    read past a failing pytest, on the suite that is the product.
+    """
+    opts = _addopts()
+    assert "--cov" not in opts, f"coverage flags belong in `make cov` / CI, not addopts: {opts}"
+
+
+def test_pytest_errors_on_warnings_and_unknown_markers() -> None:
+    """Both are part of the #530 arrangement and were silently deletable without this."""
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        cfg = tomllib.load(fh)["tool"]["pytest"]["ini_options"]
+    assert "--strict-markers" in _addopts()
+    assert "error" in cfg["filterwarnings"], (
+        "a dep deprecation must fail the build, not scroll past"
+    )
+
+
+def test_make_check_mirrors_the_ci_coverage_gate() -> None:
+    """`make check` is only useful if it predicts CI. Both must run the same gate at the same
+    number — a local gate that is laxer than the remote one is worse than none, because it is
+    trusted."""
+    mk = (ROOT / "Makefile").read_text()
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    # The Makefile's EFFECTIVE gate, not any line mentioning it: a stale comment quoting the right
+    # number would otherwise satisfy a whole-file substring search while COV said something else.
+    cov = next(ln for ln in mk.splitlines() if ln.startswith("COV :="))
+    assert "--cov-fail-under=90" in cov, f"the local gate is not 90: {cov}"
+    assert "--cov-fail-under=90" in ci, "CI and `make check` must enforce the same number"
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        assert tomllib.load(fh)["tool"]["coverage"]["run"]["branch"] is True
+    check = next(ln for ln in mk.splitlines() if ln.startswith("check:"))
+    assert "cov" in check.split("##")[0].split(), (
+        f"`make check` must run the covered target, not bare pytest: {check}"
+    )
 
 
 def test_runbook_present() -> None:

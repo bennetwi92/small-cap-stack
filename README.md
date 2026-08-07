@@ -26,7 +26,7 @@ is next. See [`research/`](./research) for the full record — start with
 
 ```bash
 make setup     # create .venv, install package + dev tools (Python 3.11)
-make check     # run all CI gates: lint, format-check, type-check, test
+make check     # run all CI gates: lint, format-check, type-check, tests + coverage
 make help      # list all commands
 ```
 

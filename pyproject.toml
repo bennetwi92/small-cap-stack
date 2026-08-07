@@ -87,5 +87,25 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --cov=small_cap_stack --cov-report=term-missing --cov-fail-under=80"
+# Coverage flags are NOT here (#530). With `--cov-fail-under` in addopts, running one file
+# (`pytest tests/test_gates.py`) printed a red "Required test coverage of 80% not reached.
+# Total coverage: 4.77%" and exited 1 despite every test passing — which trains you to read
+# past a failing pytest. They live in `make cov` / `make check` and in CI's main-only run
+# instead, so a bare `pytest` is always usable and always means what it says.
+addopts = "-ra --strict-markers"
 pythonpath = ["src", "."]
+# A warning is the only notice you get that a numeric dependency changed under you — a polars or
+# duckdb deprecation is a change to how this system computes money. Erroring makes that a red CI
+# run on the PR that bumps the dep, instead of a line nobody reads. Note the coupling to #546:
+# with no lockfile, a floating dep can turn this red on an unrelated PR. When that happens the fix
+# is a targeted `"ignore:<msg>:DeprecationWarning:<module>"` line here — not deleting the gate.
+# `default::ResourceWarning` is deliberately NOT an error: `error` clears Python's default
+# filters, and this suite does a lot of parquet/duckdb file I/O, so a handle reaped late by GC
+# would fail an innocent test on GC timing — a flake class unrelated to the signal above.
+# Note the blast radius of the rest: a dep that warns at IMPORT time aborts collection, so the
+# whole suite reports 0 tests and no PR can merge until the ignore lands. Fix it promptly.
+filterwarnings = ["error", "default::ResourceWarning"]
+
+[tool.coverage.run]
+source = ["small_cap_stack"]
+branch = true
