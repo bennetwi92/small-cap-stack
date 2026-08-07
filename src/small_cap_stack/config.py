@@ -221,13 +221,12 @@ class Settings(BaseSettings):
     # deeper pullback retraces "back through the pole"). Volume: the pole's peak bar volume must
     # exceed the consolidation's (hard); the consolidation volume ideally reduces (soft, recorded).
     #
-    # These are read by BOTH detectors: `day.detect_day_with_settings` (the live path — rmetrics /
-    # charts) and `setup.detect_setup_with_settings` (end-anchored, tests / ad-hoc replay). Since
-    # #302 there is no second set of caps hiding in function defaults.
-    bull_flag_min_pole: int = 1  # a pole can be a single higher-high bar
+    # These are read by `day.detect_day_with_settings` — the live path (rmetrics / charts) and,
+    # since #518 deleted the end-anchored `detect_setup`, the only detector. Since #302 there is no
+    # second set of caps hiding in function defaults.
     # Caps locked by the engine-v2 review (#176/#182): 4 and 4, NOT the legacy 8/6. Until #302
     # these lived only as `detect_day` defaults and the values here were stale fiction — the live
-    # detector never read them. They are now the single source of truth for both detectors.
+    # detector never read them. They are now the single source of truth.
     bull_flag_max_pole: int = 4  # cap on the higher highs counted as the pole
     # Minimum share of the pole's advance each EXTENSION bar must carry (#585). A bar that ticks
     # higher but adds almost nothing to the move is a quiet pause, not thrust, and it inflates

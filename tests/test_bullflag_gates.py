@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from small_cap_stack.bullflag import evaluate, extract, segment_at_end, tokenize
+from small_cap_stack.bullflag import Segment, evaluate, extract, tokenize
 from small_cap_stack.bullflag.features import FeatureVector
 from small_cap_stack.bullflag.gates import passed
 from tests.support import bar as _bar
@@ -22,10 +22,24 @@ _DEFAULTS = {
 }
 
 
+def _seg_of(bars, *, peak: int = 1):  # noqa: ANN001, ANN202
+    """The `Segment` for a single-bar pole at `peak`, consolidating to the last bar.
+
+    Explicit since #518 deleted `segment_at_end`: these tests are about the stages after
+    segmentation, so the shape is an input to state, not a thing to derive.
+    """
+    return Segment(
+        base_idx=peak - 1,
+        peak_idx=peak,
+        cons_end_idx=len(bars) - 1,
+        tokens=tuple(tokenize(bars, eps=0.01)[peak - 1 :]),
+        pole_len=1,
+        cons_len=len(bars) - 1 - peak,
+    )
+
+
 def _fv() -> FeatureVector:
-    seg = segment_at_end(_BARS, tokenize(_BARS, eps=0.01), max_pole=4, max_cons=4)
-    assert seg is not None
-    return extract(_BARS, seg)
+    return extract(_BARS, _seg_of(_BARS))
 
 
 def test_clean_setup_passes_all() -> None:
@@ -58,8 +72,10 @@ def test_wick_gate_boundary() -> None:
     assert passed(evaluate(_fv(), **{**_DEFAULTS, "max_peak_wick": 0.05})) is False
 
 
-def test_window_gate_optional() -> None:
+def test_there_is_no_window_gate() -> None:
+    """The trading window is a *selection* rule (`day.py`, #567), so gating it here too would
+    double-gate it. `evaluate` used to take an off-by-default `gate_window=` for that; #518 deleted
+    it along with the end-anchored detector, its only other reader. `trigger_in_window` stays a
+    scored feature."""
     assert not any(g.name == "loc_in_window" for g in evaluate(_fv(), **_DEFAULTS))
-    with_win = evaluate(_fv(), **_DEFAULTS, gate_window=True)
-    loc = next(g for g in with_win if g.name == "loc_in_window")
-    assert loc.passed is True  # 10:00 ET is in window
+    assert extract(_BARS, _seg_of(_BARS)).trigger_in_window is True  # still a feature

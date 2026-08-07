@@ -6,7 +6,7 @@ from datetime import UTC, datetime, time, timedelta
 
 import pytest
 
-from small_cap_stack.bullflag import extract, segment_at_end, tokenize, trailing_atr
+from small_cap_stack.bullflag import Segment, extract, tokenize, trailing_atr
 from small_cap_stack.capture import Bar
 from tests.support import bar as _bar
 
@@ -24,10 +24,20 @@ _BARS = [
 ]
 
 
-def _seg_of(bars, *, max_pole=4, max_cons=4):
-    seg = segment_at_end(bars, tokenize(bars, eps=0.01), max_pole=max_pole, max_cons=max_cons)
-    assert seg is not None
-    return seg
+def _seg_of(bars, *, peak: int = 1):  # noqa: ANN001, ANN202
+    """The `Segment` for a single-bar pole at `peak`, consolidating to the last bar.
+
+    Explicit since #518 deleted `segment_at_end`: these tests are about the stages after
+    segmentation, so the shape is an input to state, not a thing to derive.
+    """
+    return Segment(
+        base_idx=peak - 1,
+        peak_idx=peak,
+        cons_end_idx=len(bars) - 1,
+        tokens=tuple(tokenize(bars, eps=0.01)[peak - 1 :]),
+        pole_len=1,
+        cons_len=len(bars) - 1 - peak,
+    )
 
 
 def test_full_feature_vector() -> None:
@@ -85,7 +95,7 @@ def test_equal_high_splits_pole_but_is_ok_in_cons() -> None:
     # The E before the peak splits the pole, so the pole is just the final strict-H step (pole_len
     # 1, base at bar 2); the consolidation L E L keeps its E (cons_strictness = 2 of 3).
     bars = [_hbar(i, h) for i, h in enumerate([4.0, 5.0, 5.0, 6.0, 5.5, 5.5, 5.2])]
-    seg = _seg_of(bars)
+    seg = _seg_of(bars, peak=3)
     assert (seg.base_idx, seg.peak_idx, seg.pole_len, seg.cons_len) == (2, 3, 1, 3)
     fv = extract(bars, seg)
     assert fv.token_string == "HLEL"  # tokens from base_idx (2) onward
@@ -159,7 +169,7 @@ def test_retracement_anchors_on_strict_pole_base() -> None:
     # The pole base is where the strict-H run starts (bar 2 here — the E before it splits the pole),
     # so retracement anchors on bars[2].low, not the earlier bar 0.
     bars = [_hbar(i, h) for i, h in enumerate([4.0, 5.0, 5.0, 6.0, 5.5, 5.5, 5.2])]
-    seg = _seg_of(bars)
+    seg = _seg_of(bars, peak=3)
     assert seg.base_idx == 2
     fv = extract(bars, seg)
     pole_high, pole_base = bars[3].high, bars[2].low

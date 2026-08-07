@@ -1,11 +1,10 @@
 """Engine-v2 full-day detector (#211 stage 3) — the compute-on-read setup the trader would take.
 
-See ``research/engine-v2.md §13``. Unlike the end-anchored :func:`.setup.detect_setup`
-(does a flag end at
-the LAST bar?), :func:`detect_day` scans a WHOLE day of bars at once and returns the one setup a
-trader would have taken, given the scanner-appearance time — matching "store raw, compute derived on
-read". It is the port of the visual-review prototype (``spikes/viz_engine.py::pick_setup`` + the
-exhaustion wiring), validated against 25 reviewed opportunities (#194).
+See ``research/engine-v2.md §13``. :func:`detect_day` scans a WHOLE day of bars at once and
+returns the one setup a trader would have taken, given the scanner-appearance time — matching
+"store raw, compute derived on read". It is the port of the visual-review prototype
+(``spikes/viz_engine.py::pick_setup`` + the exhaustion wiring), validated against 25 reviewed
+opportunities (#194).
 
 Pipeline: a greedy H/E/L **cycle walk** (:func:`.cycles.segment_cycles`) proposes each candidate
 pole; :func:`.segment.refine_pole` refines it (colour/thrust, red peak allowed); the **entry** is

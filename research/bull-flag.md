@@ -78,10 +78,10 @@ drifting the base onto a bar above the peak (#181: ITRG/IVF).
 > genuine +$0.01 higher high was swallowed as `E` and truncated the pole. A full one-tick higher
 > high *is* directional and must extend the pole; only a truly flat top (Δhigh = 0) is `E`. The
 > live value is `bullflag/tokens.py::token_eps` → `settings.tick_size / 2` — derived from
-> `tick_size`, and **not** a `Settings` knob of its own. The end-anchored `detect_setup` keeps its
-> own `eps` *argument*, but its settings wrapper now passes the same `token_eps` — until **#513**
-> it resolved a `getattr` on the name that was never added and silently ran at a full tick, so the
-> two detectors disagreed in code for a year. Both are the half-tick now.
+> `tick_size`, and **not** a `Settings` knob of its own. There was a second, end-anchored detector
+> whose wrapper resolved a `getattr` on a name that was never added, so it silently ran at a full
+> tick and the two disagreed in code for a year (**#513**). That detector was deleted in **#518**,
+> so there is now one tokenisation path and the divergence cannot recur.
 
 ### 2.2 Segmentation (stage 2)
 
@@ -102,7 +102,6 @@ A candidate shape is `base → POLE → CONSOLIDATION → (trigger)`:
 |----------------|-------------------|-------------------------------|------|
 | max pole `H`   | **4**             | `bull_flag_max_pole = 4`      | reduced from the legacy 8 |
 | max cons `L`   | **4**             | `bull_flag_max_cons = 4`      | reduced from the legacy `max_flag` 6 |
-| min pole `H`   | **1**             | `bull_flag_min_pole = 1`      | single higher-high bar allowed |
 
 **Decision (locked 2026-07-10) — max pole/consolidation length = 4 / 4.** Both segments are hard-
 gated at 4 for now. _Intent: "Anecdotally the longer patterns (pole and consolidation) are worse
@@ -149,8 +148,9 @@ belong to the pole if it's a genuine green thrust candle.** Validated against 8 
   green peak", which is not what the live path does: `segment.refine_pole` *keeps* a red- or
   flat-closing peak so the trader is shown the setup they'd read on the chart, and the
   **`peak_green` gate** then rejects it with a reason. Reject-and-explain, not skip-and-vanish.
-  Every *other* pole bar is still verified green (and thrust-bodied) by the walk. The end-anchored
-  `segment_at_end` is the one path that still pre-rejects a red peak during segmentation.
+  Every *other* pole bar is still verified green (and thrust-bodied) by the walk. (The
+  end-anchored `segment_at_end` used to pre-reject a red peak during segmentation instead; it was
+  deleted in #518, so reject-and-explain is now the only behaviour.)
 - **A technically-higher-high bar that's doji-like (small body relative to range) doesn't extend
   the pole**, even though its high still ticks up (e.g. MUZ, CRCG, CONL — a quiet 1–2 bar pause
   sitting between two real thrusts). The walk stops at the first such bar going backward from the
@@ -293,7 +293,7 @@ Gates (reject) vs. score (rank), starting point:
 
 - **Gates** — as shipped, one name per entry:
   `pole_len ≤ cap`, `cons_len ≤ cap`, `vol_peak_gt_cons`, `wick_peak`, `peak_green`,
-  `pole_height ≥ min`, `cons_retracement ≤ 0.50`, `cons_holds_base`, `loc_in_window`.
+  `pole_height ≥ min`, `cons_retracement ≤ 0.50`, `cons_holds_base`.
 - **Score:** everything else, plus the graded sides of `SHAPE_pole_len` / `CONS_retracement` /
   `POLE_height_pct`.
 
@@ -301,8 +301,9 @@ That list drifted and was corrected in #534; it is now checked against `bullflag
 `evaluate` on every run, as is the fuller table in `engine-v2.md §7`. Two notes about it, kept
 *out* of the bullet so the bullet stays machine-readable. There is no
 `shape_valid` gate — a shape that doesn't segment yields no `Segment`, so there is nothing to gate;
-it was listed here until #534. And `loc_in_window` is **opt-in** (`gate_window=False` by default):
-the live detector never enables it, because the window is applied in the selection tier instead.
+it was listed here until #534. A `loc_in_window` gate was listed too, opt-in behind a
+`gate_window` flag no live caller set; #518 deleted the flag, because the window is applied in the
+selection tier instead (#567).
 
 ---
 
@@ -339,5 +340,5 @@ the live detector never enables it, because the window is applied in the selecti
    features.
 10. **Appearance-anchoring** — a pole whose peak bar had already fully closed before the symbol's
     first scanner appearance isn't observable and can't be "the" pole for execution (validated on
-    MSTZ). Needs `first_hit`, which `detect_setup` doesn't take — deferred to #180's rmetrics
+    MSTZ). Needs `first_hit`, which the then end-anchored detector didn't take — deferred to #180's rmetrics
     wiring (an orchestration-layer concern, mirrors the existing #99/#122 appearance gate).

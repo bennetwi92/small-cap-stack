@@ -25,8 +25,7 @@ from .features import FeatureVector, extract, trailing_atr
 from .gates import GateResult, evaluate
 from .primitives import classify, find_pole_peak, is_big_green, non_increasing, upper_wick_frac
 from .score import DEFAULT_WEIGHTS, score
-from .segment import Segment, refine_pole, segment_at_end
-from .setup import Setup, detect_setup, detect_setup_with_settings
+from .segment import Segment, refine_pole
 from .tokens import Token, token_eps, tokenize
 
 __all__ = [
@@ -36,14 +35,11 @@ __all__ = [
     "FeatureVector",
     "GateResult",
     "Segment",
-    "Setup",
     "Token",
     "classify",
     "contiguous_prior_cycles",
     "detect_day",
     "detect_day_with_settings",
-    "detect_setup",
-    "detect_setup_with_settings",
     "evaluate",
     "extract",
     "find_pole_peak",
@@ -52,7 +48,6 @@ __all__ = [
     "prior_cycle_count",
     "refine_pole",
     "score",
-    "segment_at_end",
     "segment_cycles",
     "significant_cycles",
     "token_eps",

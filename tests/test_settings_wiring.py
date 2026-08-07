@@ -28,8 +28,7 @@ import pytest
 
 from small_cap_stack.bullflag import day as day_mod
 from small_cap_stack.bullflag import gates as gates_mod
-from small_cap_stack.bullflag import setup as setup_mod
-from small_cap_stack.bullflag.tokens import token_eps
+from small_cap_stack.bullflag.tokens import token_eps, tokenize
 from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from tests.support import settings
@@ -53,9 +52,9 @@ def _distinct_settings_at_tick(trigger_ticks: int) -> Settings:
     )
 
 
-# The params both detectors take that must come from Settings, mapped to their Settings field.
-# `min_pole` is deliberately absent: detect_day has no such parameter (its pole comes from the
-# cycle walk), so only the end-anchored detector reads it.
+# The `detect_day` params that must come from Settings, mapped to their field. Named `_SHARED`
+# when two detectors had to agree on them; since #518 deleted the end-anchored one there is a
+# single detector, and this is simply the list a cap must not silently default out of (#302).
 _SHARED = {
     "max_pole": "bull_flag_max_pole",
     "max_cons": "bull_flag_max_cons",
@@ -93,31 +92,6 @@ def test_detect_day_with_settings_forwards_every_shared_rule() -> None:
     kw: dict[str, Any] = spy.call_args.kwargs
     for param, field in _SHARED.items():
         assert kw[param] == getattr(s, field), f"detect_day({param}=) is not wired to {field}"
-
-
-def test_detect_setup_with_settings_forwards_every_shared_rule() -> None:
-    s = _distinct_settings()
-    with patch.object(setup_mod, "detect_setup", return_value=None) as spy:
-        setup_mod.detect_setup_with_settings([], s)
-    kw: dict[str, Any] = spy.call_args.kwargs
-    for param, field in _SHARED.items():
-        assert kw[param] == getattr(s, field), f"detect_setup({param}=) is not wired to {field}"
-    assert kw["min_pole"] == s.bull_flag_min_pole
-
-
-def test_both_detectors_agree_on_every_shared_rule() -> None:
-    """The two detectors ask different questions (whole-day vs end-anchored) but must apply the
-    SAME rules. Before #302 they disagreed: the live path ran caps 4/4 + a 2% pole floor while the
-    end-anchored one ran the stale 8/6 with the floor silently at 0.0."""
-    s = _distinct_settings()
-    with patch.object(day_mod, "detect_day", return_value=None) as day_spy:
-        day_mod.detect_day_with_settings([], s, None)
-    with patch.object(setup_mod, "detect_setup", return_value=None) as setup_spy:
-        setup_mod.detect_setup_with_settings([], s)
-    for param in _SHARED:
-        assert day_spy.call_args.kwargs[param] == setup_spy.call_args.kwargs[param], (
-            f"the detectors disagree on {param}"
-        )
 
 
 def test_entry_trigger_and_fill_are_derived_from_settings_ticks() -> None:
@@ -168,7 +142,6 @@ def test_locked_v2_defaults() -> None:
     assert s.bull_flag_max_pole == 4
     assert s.bull_flag_max_cons == 4
     assert s.bull_flag_min_pole_pct == 0.02
-    assert s.bull_flag_min_pole == 1
     assert s.bull_flag_max_retracement == 0.50
     assert s.bull_flag_max_peak_wick == 0.50
     assert s.bull_flag_trigger_offset_ticks == 1
@@ -204,6 +177,10 @@ _RETIRED_SETTINGS_NAMES = {
         "the getattr that referenced this name in setup.py was removed in #513"
     ),
     "bull_flag_score_weights": "never existed — bullflag/score.py::DEFAULT_WEIGHTS (#534)",
+    "bull_flag_min_pole": (
+        "read only by the end-anchored detect_setup, which #518 deleted; detect_day's pole "
+        "comes from its cycle walk and has no such parameter"
+    ),
 }
 
 _RESEARCH = Path(__file__).resolve().parents[1] / "research"
@@ -235,10 +212,7 @@ def test_the_specs_only_name_settings_fields_that_exist() -> None:
     )
 
 
-_WRAPPERS = (
-    (day_mod, "detect_day_with_settings"),
-    (setup_mod, "detect_setup_with_settings"),
-)
+_WRAPPERS = ((day_mod, "detect_day_with_settings"),)
 
 
 def _wrapper_ast(module: object, func_name: str) -> ast.AST:
@@ -277,9 +251,9 @@ def test_every_engine_knob_is_read_by_a_detector() -> None:
     ran at a full tick while the live one ran at half. This derives the check instead: every
     `bull_flag_*` field must be read by at least one settings wrapper.
 
-    "At least one", not both — `bull_flag_min_pole` is end-anchored-only (the day detector's pole
-    comes from its cycle walk) and `bull_flag_pole_min_step_share` / `bull_flag_exhaustion_cap` are
-    day-only. A knob read by neither is dead config: it looks tunable and does nothing.
+    Since #518 there is one detector, so "at least one wrapper" is "the wrapper". That deletion is
+    also what retired `bull_flag_min_pole`, the one knob this check had to reason about as
+    end-anchored-only. A knob no detector reads is dead config: it looks tunable and does nothing.
     """
     read: set[str] = set()
     for module, func_name in _WRAPPERS:
@@ -288,7 +262,7 @@ def test_every_engine_knob_is_read_by_a_detector() -> None:
     unwired = sorted(f for f in knobs if f not in read)
     assert not unwired, (
         f"{unwired} are Settings fields no detector reads — either wire them through "
-        "detect_day_with_settings / detect_setup_with_settings, or delete them. A knob that "
+        "detect_day_with_settings, or delete them. A knob that "
         "does nothing is worse than no knob: it reads as the source of truth."
     )
 
@@ -313,21 +287,18 @@ def test_no_detector_reads_settings_through_a_getattr_fallback() -> None:
     )
 
 
-def test_both_detectors_tokenise_at_the_same_eps() -> None:
-    """#513: they didn't. The live path used `token_eps` (half a tick, #196/SNDQ — a genuine +0.01
-    higher high must extend the pole); the end-anchored wrapper resolved a `getattr` on a field
-    that doesn't exist and got a full tick. Measured over the 25 committed review fixtures: of
-    3403 end-anchored prefixes, 282 returned a different result, 181 gained or lost a shape
-    entirely, and 20 flipped `passed` (15 gained, 5 lost).
+def test_the_detector_tokenises_at_half_a_tick() -> None:
+    """`token_eps` is half a tick (#196/SNDQ — a genuine +0.01 higher high must extend the pole).
 
-    Both wrappers are asserted, not just the one that was broken — a test called "both detectors"
-    that only spies on one would stay green if the *right* side were changed."""
+    This was "both detectors tokenise at the same eps" until #518: the end-anchored wrapper
+    resolved a `getattr` on a field that has never existed and silently got a *full* tick, which
+    #513 found and measured over the 25 committed fixtures (of 3403 end-anchored prefixes, 282
+    returned a different result, 181 gained or lost a shape, 20 flipped `passed`). That detector is
+    now deleted, so the divergence is structurally impossible rather than merely tested — but the
+    value itself still has to be right for the one detector that remains."""
     s = _distinct_settings()
-    with patch.object(setup_mod, "detect_setup", return_value=None) as setup_spy:
-        setup_mod.detect_setup_with_settings([], s)
     with patch.object(day_mod, "detect_day", return_value=None) as day_spy:
         day_mod.detect_day_with_settings([], s, None)
-    assert setup_spy.call_args.kwargs["eps"] == token_eps(s)
     assert day_spy.call_args.kwargs["eps"] == token_eps(s)
     assert token_eps(s) == s.tick_size / 2  # derived, not a knob — nothing to add to Settings
 
@@ -335,19 +306,26 @@ def test_both_detectors_tokenise_at_the_same_eps() -> None:
 def test_the_eps_change_is_visible_in_behaviour_not_just_in_a_spy() -> None:
     """A spy assertion pins the plumbing; this pins the rule.
 
-    Three bars whose consolidation step is exactly **one tick down**: at the old full-tick eps that
-    step tokenises `E`, `segment_at_end` requires at least one strict `L` in the consolidation, and
-    the shape is rejected. At half a tick it is `L` and the flag forms. Without a case like this,
-    every eps assertion in this module is structural and the suite would stay green at any value
-    (verified: doubling eps failed only the spy test before this was added)."""
+    The rule is #196/SNDQ: a genuine **+0.01 higher high must extend the pole**. Half a tick is
+    what makes that true — at a full tick the same step reads `E` (flat), the pole stops there, and
+    a two-thrust pole is reported as one. Without a case like this every eps assertion in this
+    module is structural and the suite stays green at any value (verified: doubling eps failed only
+    the spy test before this was added).
+
+    ⚠️ Asserted on `tokenize` since #518. It used to run through `detect_setup`, which observed a
+    *tokeniser* property through a whole detector; that detector is now deleted, and the live
+    `detect_day` needs a full cycle walk (volume, first_hit, a longer series) to say anything — so
+    it would test the cycle walk's setup requirements as much as eps. This is the level the rule is
+    actually decided at."""
+    s = settings(bull_flag_min_pole_pct=0.0)
     bars = [
         _bar(0, 1.00, 1.02, 0.99, 1.02),  # base
-        _bar(1, 1.02, 1.10, 1.02, 1.09),  # peak: green, closes strong, ~8% pole
-        _bar(2, 1.09, 1.09, 1.05, 1.06, vol=50_000.0),  # cons: exactly one tick below the peak
+        _bar(1, 1.02, 1.20, 1.02, 1.19),  # thrust 1
+        _bar(2, 1.19, 1.21, 1.18, 1.205),  # thrust 2: exactly +0.01 over thrust 1
+        _bar(3, 1.205, 1.15, 1.10, 1.11, vol=50_000.0),  # a pullback that is `L` at either eps
     ]
-    s = settings(bull_flag_min_pole_pct=0.0)
-    assert setup_mod.detect_setup(bars, eps=s.tick_size, min_pole_pct=0.0) is None
-    assert setup_mod.detect_setup(bars, eps=token_eps(s), min_pole_pct=0.0) is not None
+    assert tokenize(bars, eps=s.tick_size) == ["H", "E", "L"]  # +0.01 reads flat: pole stops
+    assert tokenize(bars, eps=token_eps(s)) == ["H", "H", "L"]  # ...and extends at half a tick
 
 
 def test_the_retired_names_have_not_quietly_come_back() -> None:

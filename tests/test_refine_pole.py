@@ -1,9 +1,11 @@
 """Engine-v2 rule ports (#211 stage 2): the greedy anchored pole (segment.refine_pole),
 the half-tick tokenisation tolerance (tokens.token_eps), and the peak_green gate (#196).
 
-refine_pole is the full-day detector's pole finder — anchored to a peak the greedy cycle walk found,
-sharing segment_at_end's colour/thrust extension rule but NOT its dominant-peak/green-peak checks
-(a red/flat peak forms a pole here and is rejected downstream by the peak_green gate).
+refine_pole is the full-day detector's pole finder — anchored to a peak the greedy cycle walk
+found. A second, end-anchored segmenter (segment_at_end) once shared its colour/thrust extension
+rule while adding dominant-peak and green-peak checks of its own; #518 deleted it, so refine_pole
+now has exactly one caller. A red/flat peak forms a pole here and is rejected downstream by the
+peak_green gate, rather than being skipped during segmentation.
 """
 
 from __future__ import annotations
@@ -76,8 +78,10 @@ def test_doji_bar_stops_extension_and_becomes_base() -> None:
 
 
 def test_red_peak_still_forms_a_pole() -> None:
-    # THE key difference from segment_at_end: a red peak is NOT skipped here (rejected later by
-    # the peak_green gate), so refine_pole still returns a pole anchored to it.
+    # Identify-and-reject: a red peak is NOT skipped here (the peak_green gate rejects it later),
+    # so refine_pole still returns a pole anchored to it. This was THE difference from the
+    # end-anchored segment_at_end, which pre-rejected during segmentation; #518 deleted that path,
+    # so this is now the only behaviour.
     assert _refine([4.0, 5.0, 4.5], peak=1, colors=["green", "red", "green"]) == (0, 1)
 
 
@@ -167,7 +171,9 @@ def test_a_real_step_still_extends_the_pole() -> None:
 
 
 def test_the_rule_is_off_by_default_so_shape_only_callers_are_unchanged() -> None:
-    """`min_step_share=0.0` reproduces the pre-#585 walk, which `segment_at_end` still relies on."""
+    """`min_step_share=0.0` reproduces the pre-#585 walk. It was load-bearing while the
+    end-anchored `segment_at_end` shared this function and wanted shape only; #518 deleted that
+    caller, so today the default is what keeps a shape-only caller (a test, a spike) unchanged."""
     assert _refined(_pole_with_step_share(0.0677), 0.0) == (0, 2)
 
 

@@ -5,10 +5,11 @@ feature becomes one
 :class:`GateResult`; a setup is accepted iff every gate passes. Returning an *ordered* list of
 results (not just a bool) lets the review page show **which** gate rejected a shape and by how much.
 
-``loc_in_window`` is optional (``gate_window``) and **off by default**: the trading-window check
-lives in the selection tier (``day.py``'s ``in_window`` / ``select_window_start``, #567), so
-gating it here too would double-gate the same rule. It once pointed at a `trading_window_gate`
-in the root ``gates.py``; that was unused scaffolding, deleted in #517.
+⚠️ There is deliberately **no trading-window gate here**. The window is a *selection* rule and
+lives in the selection tier (``day.py``'s ``in_window`` / ``select_window_start``, #567); gating it
+here too would double-gate it. An optional ``gate_window=`` flag used to exist for that, defaulting
+off and passed ``True`` by exactly one test — deleted in #518 along with the end-anchored detector
+that was its only other reader. ``trigger_in_window`` remains a *feature*, scored not gated.
 """
 
 from __future__ import annotations
@@ -34,12 +35,11 @@ def evaluate(
     min_pole_pct: float,
     max_retracement: float,
     min_vol_ratio: float = 1.0,
-    gate_window: bool = False,
 ) -> tuple[GateResult, ...]:
     """Ordered gate results for a feature vector. ``all(g.passed for g in ...)`` = accepted.
 
-    The ``pole_len``/``cons_len`` gates are redundant when called from ``detect_setup`` (the
-    segmenter already caps both with the same params, so they always pass there) — they exist for
+    The ``pole_len``/``cons_len`` gates are redundant when the caller already capped both with
+    the same params during segmentation (they always pass there) — they exist for
     callers that gate against *tighter* caps than segmentation used, e.g. the #181 divergence spike
     segmenting at 8/6 but gating at 4/4 to measure what the cap change removes.
     """
@@ -56,15 +56,12 @@ def evaluate(
         # "No red candle in the pole" as an identify-and-reject gate rather than a detection skip
         # (#196). refine_pole keeps a red/flat-peaked pole so the trader sees the setup they'd read;
         # here it fails instead. Intermediate pole bars are green (the thrust walk), so the peak is
-        # the only bar that can be non-green. For the end-anchored segment_at_end, which already
-        # requires a green peak, this gate always passes.
+        # the only bar that can be non-green.
         GateResult("peak_green", fv.peak_is_green, fv.peak_is_green),
         GateResult("pole_height", fv.pole_height_pct >= min_pole_pct, fv.pole_height_pct),
         GateResult("cons_retracement", fv.retracement <= max_retracement, fv.retracement),
         GateResult("cons_holds_base", fv.holds_base, fv.holds_base),
     ]
-    if gate_window:
-        gates.append(GateResult("loc_in_window", fv.trigger_in_window, fv.trigger_in_window))
     return tuple(gates)
 
 
