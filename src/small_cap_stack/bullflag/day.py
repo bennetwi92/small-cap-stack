@@ -80,6 +80,7 @@ def detect_day(
     first_hit: datetime | None = None,
     eps: float = 0.005,
     max_pole: int = 4,
+    pole_min_step_share: float = 0.0,
     max_cons: int = 4,
     max_retracement: float = 0.50,
     max_peak_wick: float = 0.50,
@@ -120,7 +121,9 @@ def detect_day(
     chosen: tuple[int, int, int, int] | None = None  # (base, peak, cons_end, trigger)
     pole_len = 0
     for c in all_cycles:
-        refined = refine_pole(bars, tokens, c.peak, max_pole=max_pole)
+        refined = refine_pole(
+            bars, tokens, c.peak, max_pole=max_pole, min_step_share=pole_min_step_share
+        )
         if refined is None:
             continue  # no higher-high step into this peak
         # The break that fires the setup must clear the prior bar's high by `trigger_offset` — the
@@ -249,6 +252,7 @@ def detect_day_with_settings(
         first_hit=first_hit,
         eps=token_eps(settings),
         max_pole=settings.bull_flag_max_pole,
+        pole_min_step_share=settings.bull_flag_pole_min_step_share,
         max_cons=settings.bull_flag_max_cons,
         min_pole_pct=settings.bull_flag_min_pole_pct,
         max_retracement=settings.bull_flag_max_retracement,

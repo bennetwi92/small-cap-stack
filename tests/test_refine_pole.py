@@ -136,3 +136,55 @@ def test_peak_green_gate_fails_on_a_red_peak() -> None:
     peak_green = next(g for g in gates if g.name == "peak_green")
     assert peak_green.passed is False
     assert passed(gates) is False  # a red-peaked shape is not takeable
+
+
+# --- #585: a quiet bar must not be swallowed into the pole ---------------------------------------
+#
+# The discriminating pair, from the real record. AKAN 2026-05-22's 08:00 bar contributed 6.8% of
+# its pole's advance and must be rejected; the WULF 09:25 extension a reviewed fixture KEEPS
+# contributed 10.6%. The default 0.08 sits between them, and the window is only that wide — every
+# other axis tested (step %, ATR multiple, body size, volume) ranks these two the wrong way round.
+
+
+def _pole_with_step_share(share: float) -> list[Bar]:
+    """Three bars whose middle one contributes exactly ``share`` of the pole's advance."""
+    base_high, peak_high = 10.0, 20.0
+    return _bars([base_high, base_high + share * (peak_high - base_high), peak_high])
+
+
+def _refined(bars: list[Bar], share: float) -> tuple[int, int] | None:
+    return refine_pole(bars, tokenize(bars, eps=0.005), 2, max_pole=4, min_step_share=share)
+
+
+def test_a_quiet_step_does_not_extend_the_pole() -> None:
+    """AKAN-shaped: 6.8% of the advance is a pause, not thrust — the walk stops, it becomes base."""
+    assert _refined(_pole_with_step_share(0.0677), 0.08) == (1, 1)
+
+
+def test_a_real_step_still_extends_the_pole() -> None:
+    """WULF-shaped: 10.6% is a genuine part of the move and must survive the default."""
+    assert _refined(_pole_with_step_share(0.1058), 0.08) == (0, 2)
+
+
+def test_the_rule_is_off_by_default_so_shape_only_callers_are_unchanged() -> None:
+    """`min_step_share=0.0` reproduces the pre-#585 walk, which `segment_at_end` still relies on."""
+    assert _refined(_pole_with_step_share(0.0677), 0.0) == (0, 2)
+
+
+def test_step_share_is_measured_against_the_pole_it_would_create() -> None:
+    """Not against the bar, the prior high, or a trailing baseline — the whole point of the axis.
+
+    Both poles below take the same absolute 0.68 step. The first is a 10.0-wide advance (6.8% —
+    blocked), the second a 2.0-wide one (34% — kept). An absolute or trailing-relative rule cannot
+    tell them apart, which is why every such alternative broke a reviewed fixture.
+    """
+    wide = _bars([10.0, 10.68, 20.0])
+    narrow = _bars([10.0, 10.68, 12.0])
+    assert _refined(wide, 0.08) == (1, 1)  # blocked
+    assert _refined(narrow, 0.08) == (0, 2)  # kept
+
+
+def test_a_non_positive_span_blocks_the_extension() -> None:
+    """A peak at or below the would-be base cannot be judged, so it must not extend the pole."""
+    flat = _bars([20.0, 20.5, 20.0])
+    assert refine_pole(flat, ["H", "L"], 2, max_pole=4, min_step_share=0.08) is None

@@ -80,6 +80,7 @@ between §1 and §2.
 |---|---|---|
 | Pole | ≤ 4 higher highs | `bull_flag_max_pole` |
 | Pole minimum move | ≥ 2% | `bull_flag_min_pole_pct` |
+| Pole step minimum | each extension bar carries ≥ 8% of the pole | `bull_flag_pole_min_step_share` |
 | Consolidation | ≤ 4 candles | `bull_flag_max_cons` |
 | Retracement | ≤ 50% of the pole | `bull_flag_max_retracement` |
 | Peak upper wick | ≤ 50% of the bar's range | `bull_flag_max_peak_wick` |
