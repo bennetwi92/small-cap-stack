@@ -171,30 +171,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Extract dashboard JSON from the app container
-        run: |
-          set -euo pipefail
-          rm -rf out && mkdir out
-          cid="$(docker ps --filter 'name=small-cap-stack-app' --format '{{.ID}}' | head -1)"
-          if [ -n "$cid" ]; then
-            docker cp "$cid:/data/dashboard/." out/ 2>/dev/null || true
-          fi
-          # Guarantee the branch/URL always exists, even before the first tick / EOD.
-          [ -f out/status.json ] || echo '{"status":"no data yet"}' > out/status.json
-          printf '{"published_utc":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > out/published.json
-          ls -la out
+      # Composite actions resolve from the workspace, so the action directory must exist locally.
+      # Sparse: this job otherwise never checks out. ~1s on the box, where the workspace persists.
+      - name: Check out the publish action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/actions
 
-      - name: Force-update the dashboard-data branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          cd out
-          git init -q
-          git checkout -q -b dashboard-data
-          git config user.email "actions@github.com"
-          git config user.name "scs-dashboard-bot"
-          git add -A
-          git commit -qm "dashboard data $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" dashboard-data
+      # One composite action (#526): these 27 lines were BYTE-IDENTICAL in both callers, so a fix
+      # to one silently missed the other — which is how #545's memory guard had to be applied to
+      # the sibling backfill block twice.
+      - name: Publish
+        uses: ./.github/actions/publish-dashboard

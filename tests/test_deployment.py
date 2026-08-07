@@ -1170,3 +1170,72 @@ def test_the_healthcheck_command_actually_probes_the_metrics_server() -> None:
     assert live.returncode == 0, (
         f"the probe failed against a live metrics server: {live.stderr.decode()[-300:]}"
     )
+
+
+def test_both_publishers_use_the_shared_action() -> None:
+    """The publish block was BYTE-IDENTICAL in `publish-dashboard.yml` and
+    `deploy-backfill-publish.yml` — `diff` produced no output at all — so a fix to one silently
+    missed the other. That is not hypothetical: #545's memory guard had to be applied to the
+    sibling backfill block twice for exactly this reason (#526).
+
+    Both callers also need the sparse checkout, because a composite action resolves from the
+    workspace. `publish-dashboard.yml` didn't check out at all before this; it costs ~1s on the
+    box against a 36s job, measured, which is the only reason it is acceptable in a `*/15` cron.
+    """
+    for name in ("publish-dashboard.yml", "deploy-backfill-publish.yml"):
+        w = (ROOT / ".github" / "workflows" / name).read_text()
+        assert "uses: ./.github/actions/publish-dashboard" in w, name
+        assert "sparse-checkout: .github/actions" in w, (
+            f"{name} must check the action directory out, or the composite ref won't resolve"
+        )
+        # Comments excluded: both files describe the mechanism in their headers, and a check
+        # that banned the words would ban the explanation of what the action does.
+        code = "\n".join(ln for ln in w.splitlines() if not ln.lstrip().startswith("#"))
+        assert "git push -f" not in code, f"{name} still inlines the publish; delegate it"
+        assert "docker cp" not in code, f"{name} still inlines the extraction; delegate it"
+
+
+def test_the_container_lookup_has_one_form() -> None:
+    """Five variants of "find the app container" once existed, including a hardcoded
+    `small-cap-stack-app-1` that would miss a renamed container (#526). #545 and #580 removed
+    most; extracting the publish action removed the last two. Keep it that way — a job that picks
+    the wrong container copies the wrong data onto a public branch.
+    """
+    hits = [
+        f"{p.name}:{i}"
+        for p in _action_files()
+        for i, ln in enumerate(p.read_text().splitlines(), 1)
+        if "small-cap-stack-app" in ln and not ln.lstrip().startswith("#")
+    ]
+    assert hits == ["action.yml:26"] or len(hits) == 1, (
+        f"the app-container lookup should exist once, in the publish action; found: {hits}"
+    )
+
+
+def test_every_composite_action_step_declares_its_shell() -> None:
+    """A composite action's `run:` step MUST carry `shell:` — GitHub fails the step at runtime
+    without it, with "Required property is missing: shell".
+
+    Nothing else catches this. actionlint 1.7 refuses to lint composite actions at all (#548), so
+    `make lint-sh` passes a broken one — verified by mutation. And these are the deploy and publish
+    paths, which only run on the box: the failure surfaces as a deploy dying mid-flight, not as a
+    red PR.
+    """
+    for path in sorted((ROOT / ".github").glob("actions/*/action.y*ml")):
+        lines = path.read_text().splitlines()
+        for i, ln in enumerate(lines):
+            if not re.match(r"^\s*run:\s*\|?\s*$", ln) and "run:" not in ln:
+                continue
+            if not re.match(r"^\s+run:", ln):
+                continue
+            # Walk the step this `run:` belongs to — back to its `- ` bullet, forward to the next.
+            start = next(j for j in range(i, -1, -1) if lines[j].lstrip().startswith("- "))
+            end = next(
+                (j for j in range(i + 1, len(lines)) if lines[j].lstrip().startswith("- ")),
+                len(lines),
+            )
+            step = "\n".join(lines[start:end])
+            assert re.search(r"^\s+shell:\s*\S", step, re.M), (
+                f"{path.parent.name}/action.yml step at line {start + 1} has `run:` without "
+                "`shell:` — it will fail at runtime, on the box, and no linter here will say so"
+            )
