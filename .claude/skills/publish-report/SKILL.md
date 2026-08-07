@@ -26,11 +26,16 @@ scheduled, nothing is automatic.
 3. **Scaffold the file:**
    ```bash
    .venv/bin/python -m small_cap_stack.reports new \
-     --title "Float gate revisited" --summary "What the 20M-share cap costs us." --tags strategy,data
+     --title "What a wide stop costs" --summary "Stop distance vs realised R." --tags strategy,data
    ```
    That writes `docs/reports/<today>-<slug>.md` with front matter (`title`, `published`, `summary`,
    `tags`; `author` optional, defaults to Claude) and re-indexes. Pass `--published YYYY-MM-DD` to
    date it differently — the list sorts on that field, newest first.
+
+   ⚠️ **Check `research/strategy.md` before asserting any rule as live.** It is the canonical spec,
+   generated from `config.py`. Two published reports argued about a float gate that has never run
+   (#551) — the strategy the repo *talks* about and the one it *runs* are not automatically the
+   same, and a report that gets this wrong is what makes the drift permanent.
 
 4. **Write the report.** Markdown; GFM tables, code blocks and blockquotes all render. Conventions:
    - The page renders the title and metadata from the front matter, so the body's own opening
@@ -39,6 +44,13 @@ scheduled, nothing is automatic.
    - Lead with the answer. The reader is the person who asked; they want the finding, then the
      evidence, then the method.
    - Link the issues and decisions the analysis touches (`#127`, `research/decisions.md`).
+   - **Don't restate a rule's numbers** — link `research/strategy.md`. A number copied into prose
+     is a number that goes stale the next time the knob moves.
+
+   **Correcting an already-published report:** never rewrite the analysis — it is dated evidence of
+   what was believed when a decision was taken. Add a `correction:` line to its front matter
+   instead (one sentence, dated, e.g. `correction: 2026-08-07 — superseded by …`); it renders as a
+   gold banner on the list row and above the body, then `make reports`.
 
 5. **Rebuild the index and check:**
    ```bash

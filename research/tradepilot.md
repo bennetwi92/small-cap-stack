@@ -1,5 +1,11 @@
 # TradePilot — Prior Trading System Code Mining Report
 
+> ⚠️ **Prior art, not the spec.** This report inventories a *previous* repo against the
+> **2026-06-29 brief**, so where it restates a strategy rule (the ≤2-green/≤2-red candle counts,
+> the $2–10 band, float/news as hard filters) it is quoting that brief, not the live system. For
+> what this system actually does, read [`strategy.md`](./strategy.md) — generated from `config.py`.
+> The **exit engine** described below is still the live target for Phase 2 (`phase-2-roadmap.md`).
+
 **Repo:** https://github.com/bennetwi92/tradepilot (cloned read-only, depth 1, default branch)
 **Date analyzed:** 2026-06-29
 **Verdict:** This repo is a **manual-entry, semi-automated risk-management + execution console**, NOT an end-to-end scanner-driven momentum bot. It is strong on steps **6–8** of the target 8-step process (plan / execute / manage exits) and essentially **absent** on steps 1–5 (scan / float / news / daily-chart / pattern detection). The exit-automation engine (trailing stop + breakeven + R-multiple) is the highest-value reusable asset.

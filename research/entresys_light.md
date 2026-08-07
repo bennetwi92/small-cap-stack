@@ -1,5 +1,11 @@
 # Prior-Repo Mining Report: `entresys_light`
 
+> ⚠️ **Prior art, not the spec.** This report inventories a *previous* repo against the
+> **2026-06-29 brief**, so where it restates a strategy rule (the ≤2-green/≤2-red candle counts,
+> float/news as hard filters) it is quoting that brief, not the live system. For what this system
+> actually does, read [`strategy.md`](./strategy.md) — generated from `config.py`. The **IBKR
+> infrastructure** described below is still the live target for Phase 2.
+
 Source: `https://github.com/bennetwi92/entresys_light` (cloned `--depth 1`, read-only, into scratch).
 Date: 2026-06-29. 264 tracked files, Python 3.11, conda env `e-lite`.
 

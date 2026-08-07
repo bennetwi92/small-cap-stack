@@ -5,6 +5,12 @@
 
 This is the table of contents for the `research/` folder, a consolidated reusable-assets list, and the open questions to resolve before the design phase.
 
+> ⚠️ **This file is dated 2026-06-29 and describes the strategy as it was then proposed.** Several
+> of its rules changed once the engine was built — notably the price band, the candle counts, and
+> the fact that **float and news are collected but never gated**. Where anything below disagrees
+> with [`strategy.md`](./strategy.md), that file wins: it is generated from `config.py` and CI
+> fails when it drifts (#551).
+
 ---
 
 ## 0. Later additions (this file is dated 2026-06-29 — the record kept growing)
@@ -14,6 +20,7 @@ the way into `research/`, rather than only the pre-design snapshot below.
 
 | Doc | What it is |
 |---|---|
+| [`strategy.md`](./strategy.md) | ⭐ **The canonical spec — start here.** What the scan, the engine and the paper book actually do, **generated from `config.py`** so it cannot go stale. Every other doc on this page defers to it on numbers. |
 | [`bull-flag.md`](./bull-flag.md) | The *what* of the live strategy — pattern grammar, feature areas, entry/stop. |
 | [`engine-v2.md`](./engine-v2.md) | The *how* — module layout, stages, settings, rollout. |
 | [`open-drive.md`](./open-drive.md) | **The second strategy (#418):** a 10-minute opening-range breakout with a consolidation requirement, for the 09:30 open. **Specified and measured, not trading** — positive in R (+5.67R/13 trades) but unmonetisable at $500, no individual rule separable from noise, and costly to the adaptive book if merged. Measured in `docs/reports/2026-08-02-the-0930-open-a-second-strategy.md`. **Selection refined the same day:** "first to trigger" proved an alphabetical lottery among same-bar fills landing on cap-crushed ~1%-risk picks; the banded sequential commit (rank by planned stop in `[3%, 10%)` at 09:40, one working order, roll on pre-fill stop breach) turns the same month from −0.5% into +6.0% at 4.2% dd — `docs/reports/2026-08-02-open-drive-picking-the-days-stock.md`. The spec's selection section needs the correction when #423 lands. |
@@ -47,7 +54,7 @@ What it costs to run the live strategy through IBKR from a **UK cash account at 
 ### [`phase-2-roadmap.md`](./phase-2-roadmap.md) — the sequence from tracker to paper orders *(added 2026-07-17)*
 Gates 0–7 from the Phase-1 tracker to paper trading (epic #308), and the state that motivates them: the **brain is built, the body is not**. Engine v2 *is* live and `portfolio/` selects/sizes/simulates exits over the captured dataset — but **nothing in the live runtime detects a setup** (`app.py` is scanner → capture → one EOD bar batch; the engine has zero live callers), **no order code exists**, and **the account's feed is ~15 min delayed** (`marketdata.py:4`). So `decisions.md` §230's "only simulate-exit gets swapped for place-order" is true of the sizing/selection brain but understates the gap — live detection, execution, and reconciliation are greenfield. **Pre-market is limit-only** (#37, confirmed from live trading), so the app fires every entry and exit itself, and the **exit-limit fill policy** — how far through the bid to price a stop exit, which can fail to fill in a fast drop — is the parameter that costs real money. The sleeper risk is **prefix stability**: the v2 detector segments the *longest valid* pole+consolidation over a day's bars, so live (growing prefix) and replay (full day) can disagree, which would silently invalidate the sim as a predictor of the live book — hence Gate 5 is log-only shadow detection *before* any order code.
 
-### [`strategy-validation.md`](./strategy-validation.md) — data feasibility per criterion
+### [`archive/strategy-validation.md`](./archive/strategy-validation.md) — data feasibility per criterion *(archived 2026-08-07)*
 Most **per-ticker** criteria are Easy/Medium on free sources (Finnhub quote/news + FMP shares-float + FINRA short interest); price/change%/quote are Easy. The **two hardest gaps** both point to IBKR as the practical backbone: (a) the **pre-market 4am–noon window** — only IBKR (`useRTH=0`) supplies real-time pre-market 5-min bars cheaply; yfinance is too delayed/rate-limited/ToS-exposed for live use; and (b) the **universe scanner** — there is no free real-time pre-market low-float gainer scanner; IBKR's scanner (≤50 rows, ≤10 scans, weak pre-market coverage) is the only cheap option, with float/short applied as post-filters. Bull-flag and candle-count detection are local compute, feasible given clean gap-free bars. Short interest is inherently stale (~1–2 wk lag).
 
 ---
@@ -70,7 +77,7 @@ Most **per-ticker** criteria are Easy/Medium on free sources (Finnhub quote/news
 |---|---|---|
 | tradepilot | `src/broker_service/tw_app.py` | IBKR wrapper incl. `keepUpToDate` live 5-min bar streaming (step-5 input); `outsideRth=True` pre-market order config. |
 | tradepilot | `src/broker_service/config.py` | Paper/live port + env safety guards (prevents live-money accidents). |
-| tradepilot | `src/risk_one/broker_client.py` (`_round_price_to_tick_size`) | Tick-size rounding essential for $2–10 names; clean WS-client pattern. |
+| tradepilot | `src/risk_one/broker_client.py` (`_round_price_to_tick_size`) | Tick-size rounding essential across the scan band ([`strategy.md`](./strategy.md) §1); clean WS-client pattern. |
 | tradepilot | `src/broker_service/diagnostics.py` | WebSocket stream latency/frequency metrics — observability, reusable as-is. |
 | tradepilot | `src/risk_one/STATE_MACHINE.md` | Documented arm/fill/exit position lifecycle. |
 | tradepilot | `tests/mock_tw_app.py` + `tests/conftest.py` | Simulated IBKR for safe testing without live fills. |
@@ -84,7 +91,13 @@ Most **per-ticker** criteria are Easy/Medium on free sources (Finnhub quote/news
 | entresys_light | `backtest/analysis/pipeline/bracket_simulator.py`, `exit_simulator.py` | Offline 1R/2R/split/time exit simulation — evaluate TP/SL schemes before live. |
 | entresys_light | `live/validate_setup.py` | Daily TWS connection/data/order smoke test — pre-trade safety check. |
 
-**Build new (no reusable prior art):** universe scanner (step 1), float/short-interest hard gate (step 2), news feed + relevance scoring (step 3), daily-chart context (step 4), algorithmic bull-flag detector with ≤2 green / ≤2 red candle counting (step 5), 4am–11:59am ET trading-window guard, IBKR auto-reconnect/resubscribe, headless multi-symbol orchestration, real account/position wiring, trade journaling/DB.
+**Build new (no reusable prior art):** universe scanner (step 1), float/short-interest capture (step 2), news feed (step 3), daily-chart context (step 4), algorithmic bull-flag detector (step 5), trading-window guard, IBKR auto-reconnect/resubscribe, headless multi-symbol orchestration, real account/position wiring, trade journaling/DB.
+
+> **Built — and three of these landed differently than planned (#551).** Float and short interest
+> are a **hard gate** in this list; what shipped is capture only, and short interest was never
+> wired at all. The bull-flag detector shipped with **pole/consolidation caps and a lower-highs
+> pullback rule**, not the ≤2-green/≤2-red counting described here. Daily-chart context (step 4)
+> was never built. See [`strategy.md`](./strategy.md) for the built article.
 
 ---
 
@@ -95,8 +108,16 @@ Most **per-ticker** criteria are Easy/Medium on free sources (Finnhub quote/news
 
 ### Strategy / data
 1. **Float definition:** Is "float should be less than $20M" **20 million shares** or **$20M market value**? Changes the filter entirely. *(README §Strategy says "$20million"; needs your confirmation.)*
+   > **✅ ANSWERED — shares, and it is not a filter.** `decisions.md:9` locks 20 million **shares**.
+   > But the question is moot in the built system: **float never became a gate.** It is captured as
+   > enrichment and counted in the EOD report; nothing downstream filters on it, and the paper book
+   > holds names well above 20M shares. See [`strategy.md`](./strategy.md) §4 (#551).
 2. **Scanner approach:** No free real-time pre-market low-float gainer scanner exists. Accept IBKR's scanner (≤50 rows, ≤10 scans, weak pre-market coverage) with float/short as post-filters — or is broader universe coverage a hard requirement (may force a paid scanner)?
 3. **Exit strategy (README leaves this open):** Adopt tradepilot's proven scheme — fixed R:R target + breakeven auto-arm at 1.5R + high-water-mark trailing stop, most-protective-stop-wins? Or define a different TP/SL model? (Note tradepilot's ~10% bid-haircut on exits should be re-examined.)
+   > **✅ ANSWERED 2026-07-16 (`decisions.md` §230/#476) — a different model.** The book exits on a
+   > **fixed R target re-fit from trailing expectancy**, plus an optional breakeven arm. The
+   > **trailing stop was not adopted**, and the breakeven arm ships disabled. Current values:
+   > [`strategy.md`](./strategy.md) §3.
 4. **News source:** Free IBKR/Finnhub feeds are commentary/lagging only; true per-symbol breaking news ≈ Benzinga Pro ~$35/mo. Stay free-only and accept weaker news signal, or is news a hard gate worth paying for? (Also: use Claude to assess news quality, per README §Process step 3?)
 
 ### Infrastructure / ops
@@ -116,9 +137,9 @@ Most **per-ticker** criteria are Easy/Medium on free sources (Finnhub quote/news
 ## 4. What we still don't know
 
 - **Live data quality of free per-ticker sources** (Finnhub/FMP/FINRA) for genuinely thin, low-float small-caps — coverage gaps and staleness are likely but unquantified until tested.
-- **Pre-market 5-min bar completeness from IBKR** for low-volume names at 4am — sparse/missing bars would distort the bull-flag and ≤2-green/≤2-red candle-count logic. Needs empirical validation.
+- **Pre-market 5-min bar completeness from IBKR** for low-volume names at 4am — sparse/missing bars would distort the bull-flag detection. Needs empirical validation.
 - **IBKR scanner adequacy** — whether its pre-market scan actually surfaces the strategy's candidates, or misses them. Unverified.
-- **Bull-flag detection spec** — the precise algorithmic definition (flagpole criteria, consolidation tolerance, how ≤2 green / ≤2 red maps to bar classification) is not yet pinned down; no prior repo implements it.
+- ~~**Bull-flag detection spec** — the precise algorithmic definition (flagpole criteria, consolidation tolerance, how ≤2 green / ≤2 red maps to bar classification) is not yet pinned down; no prior repo implements it.~~ **✅ Resolved (#127/#182/#190/#302).** The ≤2-green/≤2-red counting was **not** what shipped: the pole is a colour-gated run of higher highs and the flag is a lower-highs pullback, both capped. Grammar in [`bull-flag.md`](./bull-flag.md), current values in [`strategy.md`](./strategy.md) §2.
 - **Real-world unattended uptime** — how often cold restarts / VPS reboots / OS updates will force mid-week 2FA re-auth in practice.
 - **Daily-chart check (step 4)** — the README itself flags this step as "need to research what this step would do"; its purpose/criteria are undefined.
 - **Whether free news is good enough** — can't know without your guidance on "what constitutes good news."

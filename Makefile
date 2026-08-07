@@ -6,7 +6,7 @@ RUFF := $(VENV)/bin/ruff
 MYPY := $(VENV)/bin/mypy
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: help setup lint fmt fmt-check typecheck test check clean reports fetch-fixtures
+.PHONY: help setup lint fmt fmt-check typecheck test check clean reports strategy fetch-fixtures
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -34,6 +34,9 @@ test: ## Pytest + coverage
 
 reports: ## Rebuild docs/reports/index.json from the report markdown (run after adding one)
 	$(PY) -m small_cap_stack.reports build
+
+strategy: ## Regenerate research/strategy.md from config.py (run after changing a rule)
+	$(PY) -m small_cap_stack.strategy_doc build
 
 fetch-fixtures: ## Pull a sanitized sample dataset into data/fixtures/ (set FIXTURES_URI)
 	./scripts/fetch_fixtures.sh

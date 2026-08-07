@@ -3,6 +3,7 @@ title: The plan, and what the projection assumes
 published: 2026-08-01
 summary: The commentary that used to live on the Plan page and the Projection view: the five standing orders and why each exists, and the assumptions every projected number rests on.
 tags: strategy,process
+correction: 2026-08-07 — the risk-throttle ladder described here shipped OFF on 2026-08-06 (#474), so the projection now resamples days at a flat risk fraction. Its claim that "roughly two qualifying setups a day reach the book" is also wrong by about 4.5× — the measured rate is 0.44 a session, with 60% of sessions producing none ("The 2-trade-a-day cap", 2026-08-01). Rules and current values: research/strategy.md.
 ---
 
 The Plan page and the Projection view were rebuilt as status boards (#414): numbers, statuses,

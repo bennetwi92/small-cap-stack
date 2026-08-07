@@ -35,7 +35,13 @@ INDEX_FILENAME = "index.json"
 
 _FM_FENCE = "---"
 _REQUIRED_KEYS = ("title", "published")
-_OPTIONAL_KEYS = ("summary", "tags", "author")
+#: `correction` (#551): a report is a **dated** analysis and is never silently rewritten — but a
+#: reader has no way to tell a current one from a superseded one, so all of them read as live. This
+#: is one line of free text ("no longer true: …", "superseded by …") rendered as a warning banner on
+#: the list row and above the body. Free text rather than a `superseded_by` slug because the two
+#: cases it has to cover — a wrong premise and a later report overtaking this one — do not share a
+#: shape, and one flexible field beats two rigid ones.
+_OPTIONAL_KEYS = ("summary", "tags", "author", "correction")
 _KNOWN_KEYS = frozenset(_REQUIRED_KEYS + _OPTIONAL_KEYS)
 _DEFAULT_AUTHOR = "Claude"
 
@@ -58,6 +64,7 @@ class Report:
     tags: list[str]
     author: str
     words: int
+    correction: str  # "" when the report still stands as published
 
 
 def slugify(text: str) -> str:
@@ -143,6 +150,7 @@ def parse_report(path: Path) -> Report:
         tags=tags,
         author=meta.get("author") or _DEFAULT_AUTHOR,
         words=count_words(body),
+        correction=meta.get("correction", ""),
     )
 
 

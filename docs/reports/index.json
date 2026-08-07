@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-08-06T13:15:35+00:00",
+  "generated_utc": "2026-08-07T10:52:19+00:00",
   "reports": [
     {
       "slug": "2026-08-06-does-past-behaviour-predict-future-performance",
@@ -12,7 +12,8 @@
         "portfolio"
       ],
       "author": "Claude",
-      "words": 1970
+      "words": 1970,
+      "correction": ""
     },
     {
       "slug": "2026-08-02-the-0930-open-a-second-strategy",
@@ -26,7 +27,8 @@
         "research"
       ],
       "author": "Claude",
-      "words": 1859
+      "words": 1859,
+      "correction": "2026-08-07 — two premises have moved. There is no live `float_max_shares < 20M` gate (#551); that threshold feeds a report count and filters nothing. And the risk throttle described as live shipped OFF on 2026-08-06 (#474), with the adaptive target now fit over all history behind a paired margin gate (#476). The Open Drive measurements are unaffected; the selection rule was superseded the same day by \"Open Drive: picking the day's stock\"."
     },
     {
       "slug": "2026-08-02-open-drive-picking-the-days-stock",
@@ -40,7 +42,8 @@
         "research"
       ],
       "author": "Claude",
-      "words": 1085
+      "words": 1085,
+      "correction": ""
     },
     {
       "slug": "2026-08-01-the-plan-and-what-the-projection-assumes",
@@ -53,7 +56,8 @@
         "process"
       ],
       "author": "Claude",
-      "words": 1503
+      "words": 1503,
+      "correction": "2026-08-07 — the risk-throttle ladder described here shipped OFF on 2026-08-06 (#474), so the projection now resamples days at a flat risk fraction. Its claim that \"roughly two qualifying setups a day reach the book\" is also wrong by about 4.5× — the measured rate is 0.44 a session, with 60% of sessions producing none (\"The 2-trade-a-day cap\", 2026-08-01). Rules and current values: research/strategy.md."
     },
     {
       "slug": "2026-08-01-the-2-trade-a-day-cap-is-it-wasting-capital",
@@ -66,7 +70,8 @@
         "portfolio"
       ],
       "author": "Claude",
-      "words": 2036
+      "words": 2036,
+      "correction": "2026-08-07 — the \"adaptive book\" here runs the risk-throttle ladder, which shipped OFF on 2026-08-06 (#474) after 500 calendar-preserving shuffles showed it cost a mean $22.35; the adaptive target also now fits over all history behind a paired margin gate (#476). The cap findings and the sizing crossover are unaffected — the throttle never bound in this window."
     },
     {
       "slug": "2026-07-31-time-of-day-when-the-entry-fires-and-what-it-s-worth",
@@ -79,7 +84,8 @@
         "data"
       ],
       "author": "Claude",
-      "words": 2861
+      "words": 2861,
+      "correction": ""
     },
     {
       "slug": "2026-07-31-how-reports-work",
@@ -92,7 +98,8 @@
         "process"
       ],
       "author": "Claude",
-      "words": 464
+      "words": 464,
+      "correction": ""
     },
     {
       "slug": "2026-07-31-float-vs-max-r",
@@ -106,7 +113,8 @@
         "float"
       ],
       "author": "Claude",
-      "words": 1925
+      "words": 1925,
+      "correction": "2026-08-07 — this report calls `float < 20M` \"the live rule\" and charts it as a gate. There is no live float gate and never was (#551): `float_max_shares` feeds a count in the EOD report and filters nothing, so the closing recommendation argues against a rule that was not running. The measured float/Max-R relationship stands; its framing as a re-gating decision does not. Data window ends 2026-07-25."
     },
     {
       "slug": "2026-07-31-engine-feature-analysis-which-gates-and-score-terms-actually-earn-their-keep",
@@ -119,7 +127,8 @@
         "data"
       ],
       "author": "Claude",
-      "words": 2988
+      "words": 2988,
+      "correction": ""
     }
   ]
 }
