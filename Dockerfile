@@ -34,6 +34,20 @@ RUN mkdir -p /data
 VOLUME ["/data"]
 EXPOSE 9090
 
+# The Gateway is health-gated and the app that depends on it was not (#549): compose could report
+# `Up` for a tracker wedged mid-tick, and the deploy had to hand-roll a metrics probe to tell.
+# `/metrics` is served by the app's own metrics server, so a response means the process is
+# answering rather than merely running.
+#
+# Uses python rather than curl/wget: python:3.11-slim ships neither, and adding one to the image
+# for a healthcheck would be a package installed on every deploy to ask one question.
+#
+# NOTE this reports health; it does not restore it. `restart: unless-stopped` acts on exit, not on
+# unhealthy — plain compose has no restart-on-unhealthy. The dead-man's switch (Healthchecks.io,
+# monitoring.py) remains the thing that notices a tracker that has stopped ticking.
+HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9090/metrics', timeout=4)" || exit 1
+
 # Deployed commit — baked by the deploy via --build-arg GIT_SHA (compose reads $GIT_SHA).
 # After the install layers so a commit-only change doesn't invalidate them.
 ARG GIT_SHA=""

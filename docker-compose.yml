@@ -2,8 +2,27 @@
 # Secrets come from .env (gitignored). See deploy/RUNBOOK.md.
 services:
   ibgateway:
-    image: ghcr.io/gnzsnz/ib-gateway:stable
+    # Digest-pinned, not `:stable` (#549). `:stable` is mutable, and NOTHING here re-pulls it: the
+    # deploy runs `docker compose pull app` — app only — and the systemd unit uses `--pull missing`,
+    # which fetches only when the image is absent. So the Gateway froze at whatever resolved on the
+    # first pull and silently aged past every IBC/Gateway fix since, on a live trading box.
+    #
+    # This digest is the one the box was ALREADY running when the pin was added, so adding it
+    # changed nothing at runtime. That is the point: dependabot's `docker` ecosystem now turns each
+    # Gateway update into a reviewable commit instead of an invisible non-event — and a Gateway
+    # bump lands when someone chooses, not on whatever restart happens to pull first.
+    #
+    # It is the multi-arch index digest, so the host stays swappable (CLAUDE.md).
+    image: ghcr.io/gnzsnz/ib-gateway@sha256:d39c30526f2c20b37fa5ae89d81057e93d9c37fccd11120b68d8d2b1f2c80b66  # :stable
     restart: unless-stopped
+    # Unbounded json-file logs are not a generic worry here: the nightly harvest ABORTS when free
+    # disk drops below `harvest_min_disk_free_mb` (2 GB, config.py), so logs quietly eating the
+    # disk disables the harvest rather than filling it. 10m x 3 caps each service at 30 MB.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     # #320: generous cap (observed steady ~570 MB) so only a pathological Java leak hits it, and a
     # strongly negative OOM score so if a host-wide OOM ever happens anyway, the kernel prefers the
     # recoverable app over the Gateway — killing the Gateway mid-session is the long outage.
@@ -37,6 +56,13 @@ services:
     # build-image.yml pushes `sha-<short>` for every commit on main; deploy.yml sets IMAGE_TAG to
     # the deployed commit's. `latest` is the fallback for a plain `docker compose up` by hand.
     image: ghcr.io/bennetwi92/small-cap-stack:${IMAGE_TAG:-latest}
+    # See the Gateway's note above — the app logs a JSON line per tick, so it is the bigger of the
+    # two producers.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     # Kept for LOCAL dev only (`docker compose build app`) — deploys pass --no-build so this is
     # never the source on the box. GIT_SHA is baked into DEPLOYED_COMMIT by CI (#72).
     build:

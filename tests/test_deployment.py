@@ -1065,3 +1065,108 @@ def test_no_workflow_still_claims_to_be_blocked_on_the_runner_issue() -> None:
         assert "this workflow is inert" not in text.replace(
             'header used to say "blocked on #6 … this workflow is inert"', ""
         ), f"{path.name} still claims to be inert"
+
+
+# ------------------------------------------------ container hygiene (#549)
+
+
+def _compose_services() -> dict[str, str]:
+    """`{service: its yaml block}` from docker-compose.yml, hand-parsed.
+
+    Per this module's standing convention: PyYAML is not a dependency of this project, and adding
+    one solely for a test is what `_workflow_jobs` already declines to do. My first version
+    imported it regardless — it happened to be a leftover in the local venv, and #546's lockfile is
+    precisely what caught that CI installs only the recorded set. A good demonstration of the
+    lockfile earning its keep on the PR after it landed.
+
+    Stops at the top-level `volumes:` key: `scs-data` is indented exactly like a service, so a
+    naive two-space split reports it as a third one.
+    """
+    text = (ROOT / "docker-compose.yml").read_text().split("\nvolumes:")[0]
+    parts = re.split(r"^  ([\w-]+):$", text, flags=re.M)[1:]
+    services = dict(zip(parts[::2], parts[1::2], strict=True))
+    assert set(services) == {"ibgateway", "app"}, f"unexpected services: {sorted(services)}"
+    return services
+
+
+def test_both_services_cap_their_logs() -> None:
+    """Unbounded `json-file` logs are not a generic worry here. The nightly harvest **aborts** when
+    free disk drops below `harvest_min_disk_free_mb` (2 GB), so logs quietly eating the disk
+    disables the harvest rather than filling it — and the app writes a JSON line per tick."""
+    for name, block in _compose_services().items():
+        assert "driver: json-file" in block, f"{name} has no logging driver pinned"
+        assert re.search(r"max-size:\s*\d+m", block), f"{name} has no max-size"
+        assert re.search(r'max-file:\s*"?\d+', block), f"{name} has no max-file"
+
+
+def test_the_gateway_is_pinned_by_digest() -> None:
+    """`:stable` is mutable and **nothing re-pulls it**: the deploy runs `docker compose pull app`
+    — app only — and the systemd unit uses `--pull missing`, which fetches only when the image is
+    absent. So the Gateway froze at its first pull and aged silently past every IBC fix, on a live
+    trading box (#549).
+
+    The pin was set to the digest the box was ALREADY running, so adding it changed nothing at
+    runtime — the value is that dependabot's `docker` ecosystem now makes each Gateway update a
+    reviewable commit, landing when someone chooses rather than on whatever restart pulls first.
+    """
+    compose = (ROOT / "docker-compose.yml").read_text()
+    assert re.search(r"image:\s*ghcr\.io/gnzsnz/ib-gateway@sha256:[0-9a-f]{64}", compose), (
+        "the Gateway must be digest-pinned; a mutable tag here is never re-pulled and so never "
+        "updated, which is worse than drifting"
+    )
+    assert "ib-gateway:stable" not in compose.replace("# :stable", ""), "the mutable tag is back"
+
+
+def test_dependabot_watches_every_ecosystem_the_repo_actually_uses() -> None:
+    """Each of these was added because the previous set silently froze something: `uv` because the
+    lock nothing bumps freezes by hash (#546), `docker` because nothing re-pulls the Gateway
+    (#549). A pinned dependency with no bumper is worse than an unpinned one — it looks
+    deliberate."""
+    cfg = (ROOT / ".github" / "dependabot.yml").read_text()
+    declared = set(re.findall(r"package-ecosystem:\s*(\S+)", cfg))
+    assert {"pip", "uv", "github-actions", "docker"} <= declared, (
+        f"dependabot is missing an ecosystem this repo depends on: {declared}"
+    )
+
+
+def test_the_app_image_reports_its_own_health() -> None:
+    """The Gateway was health-gated and the app depending on it was not (#549) — compose could
+    report `Up` for a tracker wedged mid-tick, and the deploy hand-rolled a metrics probe to tell.
+
+    The probe must use python: `python:3.11-slim` ships neither curl nor wget, and adding one to
+    the image for a healthcheck would be a package installed on every deploy to ask one question.
+    The command itself is exercised against the real metrics server in
+    `test_the_healthcheck_command_actually_probes_the_metrics_server`.
+    """
+    df = (ROOT / "Dockerfile").read_text()
+    assert "HEALTHCHECK" in df, "the app image must report its own health"
+    assert "9090/metrics" in df, "probe the metrics endpoint the app actually serves"
+    assert not re.search(r"HEALTHCHECK[^\n]*\n?[^\n]*\b(curl|wget)\b", df), (
+        "python:3.11-slim has neither curl nor wget; use the interpreter that is already there"
+    )
+
+
+def test_the_healthcheck_command_actually_probes_the_metrics_server() -> None:
+    """Lifted verbatim from the Dockerfile and run for real, because a healthcheck that always
+    passes is worse than none: it turns `docker compose ps` into a green light that means nothing.
+    Both directions — no server must fail, a live server must pass."""
+    import sys
+    import time as clock
+
+    from small_cap_stack.monitoring import start_metrics_server
+
+    df = (ROOT / "Dockerfile").read_text()
+    match = re.search(r'CMD python -c "([^"]+)"', df)
+    assert match, "the HEALTHCHECK CMD is not in the shape this test reads"
+    port = 9393
+    cmd = match.group(1).replace("9090", str(port))
+
+    dead = subprocess.run([sys.executable, "-c", cmd], capture_output=True)  # noqa: S603
+    assert dead.returncode != 0, "the probe passed with nothing listening — it checks nothing"
+
+    start_metrics_server(port)
+    clock.sleep(0.5)
+    live = subprocess.run([sys.executable, "-c", cmd], capture_output=True)  # noqa: S603
+    assert live.returncode == 0, (
+        f"the probe failed against a live metrics server: {live.stderr.decode()[-300:]}"
+    )
