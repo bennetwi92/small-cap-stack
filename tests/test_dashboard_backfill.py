@@ -19,7 +19,7 @@ from small_cap_stack.dashboard_backfill import (
 )
 from small_cap_stack.portfolio import collected_dates
 from small_cap_stack.storage import Store
-from tests.support import settings
+from tests.support import opportunity_row, settings
 
 _DAY = date(2026, 6, 29)
 
@@ -34,14 +34,14 @@ def _seed_day(store: Store, day: date, symbol: str) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": oid,
-                "symbol": symbol,
-                "con_id": 1,
-                "trading_date": day,
-                "first_seen_utc": t0,
-                "first_rank": 0,
-            }
+            opportunity_row(
+                oid,
+                symbol,
+                trading_date=day,
+                first_seen=t0,
+                con_id=1,
+                rank=0,
+            )
         ],
         partition_date=day,
     )

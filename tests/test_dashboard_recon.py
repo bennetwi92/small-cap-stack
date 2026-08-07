@@ -29,7 +29,7 @@ from small_cap_stack.dashboard_recon import (
 )
 from small_cap_stack.portfolio import open_recon_store
 from small_cap_stack.storage import Store
-from tests.support import settings
+from tests.support import opportunity_row, settings
 
 _NOW = datetime(2026, 8, 6, 14, 0, tzinfo=UTC)
 
@@ -45,14 +45,14 @@ def _seed_day(store: Store, day: date, symbol: str) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": oid,
-                "symbol": symbol,
-                "con_id": 0,
-                "trading_date": day,
-                "first_seen_utc": t0,
-                "first_rank": 0,
-            }
+            opportunity_row(
+                oid,
+                symbol,
+                trading_date=day,
+                first_seen=t0,
+                con_id=0,
+                rank=0,
+            )
         ],
         partition_date=day,
     )

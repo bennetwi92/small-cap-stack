@@ -29,7 +29,7 @@ from small_cap_stack.portfolio import extract_day_trades
 from small_cap_stack.portfolio.extract import _qualify, _resolved
 from small_cap_stack.rmetrics import RMetrics
 from small_cap_stack.storage import Store
-from tests.support import settings
+from tests.support import opportunity_row, settings
 
 _DAY = date(2026, 6, 29)
 _T0 = datetime(2026, 6, 29, 12, 0, tzinfo=UTC)  # 08:00 ET — pre-market
@@ -259,14 +259,14 @@ def _seed_same_bar_day(store: Store) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": _OID,
-                "symbol": "AZI",
-                "con_id": 1,
-                "trading_date": _DAY,
-                "first_seen_utc": _T0,
-                "first_rank": 0,
-            }
+            opportunity_row(
+                _OID,
+                "AZI",
+                trading_date=_DAY,
+                first_seen=_T0,
+                con_id=1,
+                rank=0,
+            )
         ],
         partition_date=_DAY,
     )
@@ -337,14 +337,14 @@ def test_an_opportunity_with_no_bars_is_skipped(tmp_path: Path) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": "2026-06-29:NOBARS",
-                "symbol": "NOBARS",
-                "con_id": 2,
-                "trading_date": _DAY,
-                "first_seen_utc": _T0,
-                "first_rank": 1,
-            }
+            opportunity_row(
+                "2026-06-29:NOBARS",
+                "NOBARS",
+                trading_date=_DAY,
+                first_seen=_T0,
+                con_id=2,
+                rank=1,
+            )
         ],
         partition_date=_DAY,
     )

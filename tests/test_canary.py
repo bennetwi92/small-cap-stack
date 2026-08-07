@@ -10,7 +10,7 @@ from typing import Any
 from small_cap_stack.canary import build_canary
 from small_cap_stack.config import Settings
 from small_cap_stack.storage import Store
-from tests.support import settings
+from tests.support import opportunity_row, settings
 
 _DAY = date(2026, 7, 17)
 _NOW = datetime(2026, 7, 17, 15, 0, tzinfo=UTC)
@@ -25,14 +25,14 @@ def _seed_opportunity(store: Store, symbol: str, con_id: int) -> str:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": oid,
-                "symbol": symbol,
-                "con_id": con_id,
-                "trading_date": _DAY,
-                "first_seen_utc": _NOW - timedelta(hours=3),
-                "first_rank": 0,
-            }
+            opportunity_row(
+                oid,
+                symbol,
+                trading_date=_DAY,
+                first_seen=_NOW - timedelta(hours=3),
+                con_id=con_id,
+                rank=0,
+            )
         ],
         partition_date=_DAY,
     )

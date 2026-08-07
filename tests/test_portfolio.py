@@ -37,7 +37,7 @@ from small_cap_stack.portfolio import (
     step_risk_rung,
     trade_costs,
 )
-from tests.support import settings
+from tests.support import opportunity_row, settings
 
 ET = ZoneInfo("America/New_York")
 ET_UTC = UTC  # seeds store timestamps in UTC (the store's native tz), like test_report
@@ -961,14 +961,14 @@ def _seed_premarket(
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": oid,
-                "symbol": symbol,
-                "con_id": 1,
-                "trading_date": day,
-                "first_seen_utc": t0,
-                "first_rank": 0,
-            },
+            opportunity_row(
+                oid,
+                symbol,
+                trading_date=day,
+                first_seen=t0,
+                con_id=1,
+                rank=0,
+            ),
         ],
         partition_date=day,
     )
