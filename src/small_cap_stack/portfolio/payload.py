@@ -68,6 +68,7 @@ def _trade_json(t: PaperTrade) -> dict[str, object]:
         # Is that Max R a measurement or the conservative assumption? (#581)
         "same_bar_stop": t.same_bar_stop,
         "fill_above_bar_high": t.fill_above_entry_bar_high,
+        "entry_resolution": t.entry_resolution,
         "float_shares": t.float_shares,
         "reason": t.reason,
         "exit_price": t.exit_price,
@@ -95,6 +96,7 @@ def _skipped_json(sk: SkippedTrade) -> dict[str, object]:
         "max_pct": sk.max_gain_pct,
         "same_bar_stop": sk.same_bar_stop,
         "fill_above_bar_high": sk.fill_above_entry_bar_high,
+        "entry_resolution": sk.entry_resolution,
         "float_shares": sk.float_shares,
         "reason": sk.reason,
         "exit_price": sk.exit_price,
@@ -355,6 +357,7 @@ def _candidate_to_json(c: CandidateTrade) -> dict[str, Any]:
         "max_gain_pct": c.max_gain_pct,
         "same_bar_stop": c.same_bar_stop,
         "fill_above_entry_bar_high": c.fill_above_entry_bar_high,
+        "entry_resolution": c.entry_resolution,
         "source": c.source,
         "bars": [_bar_to_json(b) for b in c.bars],
     }
@@ -384,6 +387,7 @@ def _candidate_from_json(d: dict[str, Any]) -> CandidateTrade:
         max_gain_pct=_opt_float(d["max_gain_pct"]),
         same_bar_stop=bool(d["same_bar_stop"]),
         fill_above_entry_bar_high=bool(d["fill_above_entry_bar_high"]),
+        entry_resolution=None if d["entry_resolution"] is None else str(d["entry_resolution"]),
         source=str(d["source"]),
         bars=tuple(_bar_from_json(b) for b in d["bars"]),
     )

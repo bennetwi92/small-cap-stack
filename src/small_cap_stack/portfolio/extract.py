@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from datetime import date
 
+import polars as pl
+
+from ..capture import Bar, bar_interval
 from ..config import Settings
 from ..report import _funds_for, day_chart_bars, day_opportunities, symbol_runs
-from ..rmetrics import compute_r_metrics
+from ..rmetrics import RMetrics, compute_r_metrics, measure_resolved_trade, resolve_entry_bar
 from ..storage import Store
 from .models import CandidateTrade
 
@@ -41,8 +44,64 @@ def _qualify(
     return not (rm_stop is None or rm_risk is None or rm_risk <= 0)
 
 
+def _resolved(
+    store: Store,
+    trading_date: date,
+    oid: str,
+    day_bars: list[Bar],
+    rm: RMetrics,
+) -> tuple[list[Bar], dict[str, object], str]:
+    """Re-cut a same-bar entry against 1-min bars. Returns ``(bars, measurement, outcome)``.
+
+    Only the ``"ran"`` outcome changes anything: the entry 5-min bar is replaced by the span we were
+    actually in and the trade is re-measured over that series. Every other outcome — including the
+    absence of minute bars — leaves the conservative reading exactly as it was, which is the modal
+    answer and not merely the safe one.
+    """
+    assert rm.entry_index is not None and rm.entry_fill is not None and rm.stop is not None
+    minute = store.read("bars_1m", dt=trading_date)
+    if minute.is_empty():
+        return day_bars, {}, "unresolved"
+    sub = minute.filter(pl.col("opportunity_id") == oid)
+    mins = [
+        Bar(
+            start=r["bar_start_utc"],
+            open=r["open"],
+            high=r["high"],
+            low=r["low"],
+            close=r["close"],
+            volume=r["volume"],
+        )
+        for r in sub.unique(subset="bar_start_utc", keep="first")
+        .sort("bar_start_utc")
+        .iter_rows(named=True)
+    ]
+    entry_bar = day_bars[rm.entry_index]
+    res = resolve_entry_bar(
+        mins,
+        entry_trigger=rm.entry_trigger if rm.entry_trigger is not None else rm.entry_fill,
+        entry_fill=rm.entry_fill,
+        stop=rm.stop,
+        bar_start=entry_bar.start,
+        bar_end=entry_bar.start + bar_interval(day_bars),
+    )
+    if not res.ran or res.synthetic_bar is None:
+        return day_bars, {}, res.outcome
+    recut = list(day_bars)
+    recut[rm.entry_index] = res.synthetic_bar
+    m = measure_resolved_trade(
+        recut, entry_fill=rm.entry_fill, stop=rm.stop, entry_index=rm.entry_index
+    )
+    return recut, m, res.outcome
+
+
 def extract_day_trades(
-    store: Store, s: Settings, trading_date: date, *, source: str = "live"
+    store: Store,
+    s: Settings,
+    trading_date: date,
+    *,
+    source: str = "live",
+    resolve_store: Store | None = None,
 ) -> list[CandidateTrade]:
     """Qualifying pre-market engine-v2 trades for one day, in trigger-time order.
 
@@ -95,6 +154,15 @@ def extract_day_trades(
             assert rm.entry_index is not None  # narrowed by _qualify
             assert rm.entry_price is not None and rm.entry_fill is not None
             assert rm.stop is not None and rm.initial_risk is not None
+            # A same-bar entry+stop is an assumption about intrabar order (#581). When the caller
+            # opted into a finer grid, ask it — and only a "ran" verdict changes any number (#583).
+            trade_bars: list[Bar] = day_bars
+            resolution: dict[str, object] = {}
+            outcome: str | None = None
+            if resolve_store is not None and rm.same_bar_stop:
+                trade_bars, resolution, outcome = _resolved(
+                    resolve_store, trading_date, oid, day_bars, rm
+                )
             out.append(
                 CandidateTrade(
                     trading_date=trading_date,
@@ -102,17 +170,20 @@ def extract_day_trades(
                     seg_id=run.seg_id,
                     run=run.idx,
                     trigger_at=day_bars[rm.entry_index].start,
-                    entry_price=rm.entry_price,
+                    entry_price=float(resolution.get("entry_price", rm.entry_price)),  # type: ignore[arg-type]
                     entry_fill=rm.entry_fill,
                     stop=rm.stop,
-                    risk=rm.initial_risk,
+                    risk=float(resolution.get("initial_risk", rm.initial_risk)),  # type: ignore[arg-type]
                     entry_index=rm.entry_index,
-                    bars=tuple(day_bars),
+                    bars=tuple(trade_bars),
                     float_shares=float_shares,
-                    max_r=rm.max_r,
-                    max_gain_pct=rm.max_gain_pct,
+                    max_r=float(resolution["max_r"]) if resolution else rm.max_r,  # type: ignore[arg-type]
+                    max_gain_pct=(
+                        float(resolution["max_gain_pct"]) if resolution else rm.max_gain_pct  # type: ignore[arg-type]
+                    ),
                     same_bar_stop=rm.same_bar_stop,
                     fill_above_entry_bar_high=rm.fill_above_entry_bar_high,
+                    entry_resolution=outcome,
                     source=source,
                 )
             )

@@ -6,8 +6,9 @@ from datetime import time, timedelta
 
 import pytest
 
+from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
-from small_cap_stack.rmetrics import compute_r_metrics
+from small_cap_stack.rmetrics import EntryResolution, compute_r_metrics, resolve_entry_bar
 from tests.support import T0 as _T0
 from tests.support import bar as _bar
 from tests.support import settings
@@ -318,3 +319,113 @@ def test_thin_risk_setup_stays_finite() -> None:
     assert m.setup_found and m.triggered
     assert m.initial_risk == round(6.13 - 6.09, 6)  # 0.04
     assert m.max_r == round((7.00 - 6.13) / 0.04, 3)
+
+
+# --- #583: resolving a same-bar entry+stop against 1-min bars -----------------------------------
+
+_BAR_START = _T0
+_BAR_END = _T0 + timedelta(minutes=5)
+
+
+def _min_bar(i: int, o: float, h: float, low: float, c: float, vol: float = 1_000.0) -> Bar:
+    return Bar(start=_T0 + timedelta(minutes=i), open=o, high=h, low=low, close=c, volume=vol)
+
+
+def _resolve(mins: list[Bar]) -> EntryResolution:
+    """Trigger 6.11, pessimistic fill 6.13, stop 5.60 — the `_SETUP` levels above."""
+    return resolve_entry_bar(
+        mins,
+        entry_trigger=6.11,
+        entry_fill=6.13,
+        stop=5.60,
+        bar_start=_BAR_START,
+        bar_end=_BAR_END,
+    )
+
+
+def test_resolve_ran_when_the_stop_is_untouched_after_the_fill() -> None:
+    """The conservative reading was wrong — the only outcome that changes a number."""
+    res = _resolve(
+        [
+            _min_bar(0, 5.90, 6.00, 5.85, 5.95),
+            _min_bar(1, 5.95, 6.20, 5.90, 6.15),  # trigger prints here
+            _min_bar(2, 6.15, 6.40, 6.10, 6.35),
+            _min_bar(3, 6.35, 6.50, 6.30, 6.45),
+            _min_bar(4, 6.45, 6.60, 5.70, 6.50),  # dips, but never to the 5.60 stop
+        ]
+    )
+    assert res.outcome == "ran" and res.ran is True
+    assert res.entry_at == _T0 + timedelta(minutes=1)
+    assert res.entry_price == 6.13  # the pessimistic fill, not the minute's 5.95 open
+    assert res.synthetic_bar is not None
+    # The re-cut bar spans only the part of the 5-min bar we were actually in, and opens at the
+    # realised fill so `_measure` reproduces the same entry.
+    assert res.synthetic_bar.open == 6.13
+    assert res.synthetic_bar.high == 6.60
+    assert res.synthetic_bar.low == 5.70  # the pre-fill 5.85 low is excluded — we weren't in yet
+    assert res.synthetic_bar.start == _BAR_START
+
+
+def test_resolve_confirmed_stop_when_the_stop_follows_the_fill() -> None:
+    """The conservative reading stands — now evidenced rather than assumed."""
+    res = _resolve(
+        [
+            _min_bar(0, 5.90, 6.00, 5.85, 5.95),
+            _min_bar(1, 5.95, 6.20, 5.90, 6.15),  # fills
+            _min_bar(2, 6.15, 6.20, 5.50, 5.55),  # then stops, still inside the 5-min bar
+            _min_bar(3, 5.55, 5.60, 5.40, 5.45),
+        ]
+    )
+    assert res.outcome == "confirmed_stop"
+    assert res.entry_at == _T0 + timedelta(minutes=1)
+    assert res.stopped_at == _T0 + timedelta(minutes=2)
+    assert res.synthetic_bar is None and res.ran is False
+
+
+def test_resolve_ambiguous_when_one_minute_spans_both_levels() -> None:
+    """Irreducible at this resolution: a finer grid narrows the window, it never removes it."""
+    res = _resolve(
+        [
+            _min_bar(0, 5.90, 6.00, 5.85, 5.95),
+            _min_bar(1, 5.95, 6.20, 5.50, 5.60),  # trigger AND stop inside one minute
+        ]
+    )
+    assert res.outcome == "ambiguous_same_minute"
+    assert res.entry_at == _T0 + timedelta(minutes=1)
+    assert res.synthetic_bar is None and res.ran is False
+
+
+def test_resolve_is_unresolved_without_minute_bars_or_a_trigger_print() -> None:
+    assert _resolve([]).outcome == "unresolved"
+    # Bars exist but never reach the 6.11 trigger.
+    never = [_min_bar(0, 5.90, 6.00, 5.85, 5.95), _min_bar(1, 5.95, 6.05, 5.90, 6.00)]
+    assert _resolve(never).outcome == "unresolved"
+    # Bars exist but all fall outside [bar_start, bar_end) — a neighbouring 5-min bar's minutes.
+    outside = [_min_bar(6, 5.95, 7.00, 5.90, 6.90), _min_bar(7, 6.90, 7.20, 6.80, 7.10)]
+    assert _resolve(outside).outcome == "unresolved"
+
+
+def test_resolve_keys_on_the_trigger_not_the_pessimistic_fill() -> None:
+    """BIYA 2026-05-22: the trigger printed, the +3-tick fill never did — still a fill (#583).
+
+    Keying the search on `entry_fill` printing would call a real fire a non-event. The fill is a
+    deliberately pessimistic *price*; a marketable limit at the trigger fills at or better than it.
+    """
+    mins = [
+        _min_bar(0, 5.90, 6.00, 5.85, 5.95),
+        _min_bar(
+            1, 5.95, 6.12, 5.90, 6.05
+        ),  # high 6.12: over the 6.11 trigger, under the 6.13 fill
+        _min_bar(2, 6.05, 6.30, 6.00, 6.25),
+    ]
+    res = _resolve(mins)
+    assert res.outcome == "ran"
+    assert res.entry_at == _T0 + timedelta(minutes=1)
+    assert res.entry_price == 6.13  # booked at the worse price we never saw print — the point
+
+
+def test_resolve_gap_through_takes_the_minute_open() -> None:
+    """A minute that opens above the fill fills there instead — the same rule `_measure` applies."""
+    mins = [_min_bar(0, 5.90, 6.00, 5.85, 5.95), _min_bar(1, 6.50, 6.80, 6.40, 6.70)]
+    res = _resolve(mins)
+    assert res.outcome == "ran" and res.entry_price == 6.50

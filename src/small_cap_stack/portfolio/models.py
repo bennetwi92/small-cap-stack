@@ -44,6 +44,11 @@ class CandidateTrade:
     # price that never printed (#555). Different defects — do not merge them into one boolean.
     same_bar_stop: bool = False
     fill_above_entry_bar_high: bool = False
+    # What a finer bar grid said about that same-bar case (#583), when one was consulted:
+    # "ran" | "confirmed_stop" | "ambiguous_same_minute" | "unresolved". None = never asked, which
+    # is the live store's permanent answer today — it collects no 1-min bars. `same_bar_stop` stays
+    # True either way: it is a fact about the 5-min grid, and this records what a finer one added.
+    entry_resolution: str | None = None
     # Provenance (#430). ``"live"`` = the tracker watched this day happen and captured the bars from
     # the scanner in real time. ``"recon"`` = the day was rebuilt after the fact from purchased
     # vendor minute bars, with the scanner appearance *reconstructed* rather than observed. The two
@@ -107,6 +112,7 @@ class PaperTrade:
     max_gain_pct: float | None = None
     same_bar_stop: bool = False  # see CandidateTrade — this trade's R is an assumption (#581)
     fill_above_entry_bar_high: bool = False  # see CandidateTrade (#555)
+    entry_resolution: str | None = None  # see CandidateTrade (#583)
     source: str = "live"  # "live" | "recon" — carried from the candidate, see CandidateTrade
 
 
@@ -157,6 +163,7 @@ class SkippedTrade:
     max_gain_pct: float | None = None
     same_bar_stop: bool = False  # see CandidateTrade — this trade's R is an assumption (#581)
     fill_above_entry_bar_high: bool = False  # see CandidateTrade (#555)
+    entry_resolution: str | None = None  # see CandidateTrade (#583)
     source: str = "live"  # "live" | "recon" — carried from the candidate, see CandidateTrade
 
 
