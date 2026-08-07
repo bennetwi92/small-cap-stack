@@ -126,6 +126,11 @@ between §1 and §2.
 - **Stop-first, intrabar.** If a bar breaches the stop, the trade is treated as closed at the stop
   on that bar — its high is not credited and no later bar is measured.
 - **Gap-through.** A fill is never better than the trigger bar's open.
+- **The fill is not checked against the bar's high.** The trigger fires on a 1-tick break, but R is
+  measured from the 3-tick fill — so when the trigger bar's high lands between the two, the book
+  records a fill *above that bar's entire range*, at a price it never printed. This is deliberate
+  and it never flatters the strategy: a higher entry means wider risk, a smaller position and a
+  worse R. It is the extreme of the conservative-fill rule, not an exception to it (#555).
 - **The analysis window ends at the regular close**, so R is measured over the full session even
   though entries are pre-market only.
 - **Store raw, compute derived on read.** Changing any rule above replays the entire history on the
