@@ -69,6 +69,25 @@ const booksFor = () => (SCOPE === "all" && hasRecon() ? PAYLOAD.books_all : PAYL
 
 /* ---------- options bar: view + book selector + refresh; meta line under ··· ---------- */
 
+// What the options bar's *control set* is built from: the book list (from the payload) and
+// whether the harvest has landed reconstructed days (which is what offers the DATA scope).
+// Selected values are deliberately absent — those live in the DOM once the bar exists, and
+// rebuilding on a user's own change would be the bug this signature prevents.
+const optbarSignature = () =>
+  JSON.stringify([PAYLOAD ? PAYLOAD.targets : null, hasRecon()]);
+let optbarBuiltFrom = null;
+
+// Rebuild only when the control set actually changes (#512). `createOptionsBar` wipes its mount,
+// and the `···` extras row — which is where `#pf-meta`'s config/coverage line lives — reopens
+// collapsed. Refresh calls `load()`, so an unconditional rebuild closed that panel out from under
+// someone mid-read. Results already guarded this; Portfolio didn't.
+function rebuildOptbarIfControlsChanged() {
+  const sig = optbarSignature();
+  if (sig === optbarBuiltFrom) return;
+  optbarBuiltFrom = sig;
+  buildOptbar();
+}
+
 function buildOptbar() {
   const books = PAYLOAD
     ? ["adaptive", ...PAYLOAD.targets].map((k) => ({
@@ -1708,10 +1727,13 @@ async function load() {
     return;
   }
   PAYLOAD = data;
+  // Reset before the rebuild, so a bar that IS rebuilt renders the corrected selection. A book
+  // can only vanish by leaving `targets` (payload.py derives `books` keys from the same list),
+  // which changes the signature — so the rebuild below already covers that case.
   if (!PAYLOAD.books[BOOK]) BOOK = "adaptive";
-  buildOptbar(); // the book list comes from the payload
+  rebuildOptbarIfControlsChanged();
   render();
 }
 
-buildOptbar();
+rebuildOptbarIfControlsChanged();
 load().catch((e) => showError("pf-error", "Failed to load portfolio", e));

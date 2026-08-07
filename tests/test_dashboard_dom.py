@@ -234,6 +234,78 @@ def test_a_memoised_fetch_evicts_itself_on_rejection(cache: str, populator: str)
         )
 
 
+# --------------------------------------------------- the options bar survives a Refresh (#512)
+#
+# `createOptionsBar` wipes its mount, and the `···` extras row — where the config/coverage line
+# lives — reopens collapsed. Refresh re-runs `load()`, so a rebuild there closes that panel out
+# from under someone mid-read.
+#
+# These are shape checks over source text: weak, and deliberately narrow. They pin the *mechanism*
+# each page uses rather than trying to prove conditionality in general. A JS parser would be the
+# honest tool; there is no browser and no JS toolchain in CI at all.
+
+#: page -> the memo it compares before rebuilding. This is the complete set of pages with a
+#: `buildOptbar` reachable from a refresh path: plan/app/reports call `createOptionsBar` once at
+#: module scope, and `review.js` hand-rolls its bar rather than importing the module.
+OPTBAR_MEMOS = {"portfolio.js": "optbarBuiltFrom", "results.js": "optbarOffersScope"}
+
+
+def _fn_body(src: str, header: str) -> str:
+    """A function's body, extracted by brace-matching from its opening `{`.
+
+    Not `src.find("\\n}")`: a template literal containing a column-0 `}` would end the slice early
+    and leave the rest of the function unscanned, silently passing whatever it contained.
+    """
+    open_at = src.index("{", src.index(header))
+    depth = 0
+    for j in range(open_at, len(src)):
+        if src[j] == "{":
+            depth += 1
+        elif src[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[open_at : j + 1]
+    raise AssertionError(f"unbalanced braces after {header!r}")
+
+
+@pytest.mark.parametrize("page", sorted(OPTBAR_MEMOS))
+def test_load_does_not_rebuild_the_options_bar_unconditionally(page: str) -> None:
+    """No `buildOptbar()` may sit directly in `load()`'s body."""
+    body = _fn_body((DOCS / page).read_text(encoding="utf-8"), "async function load(")
+    depth = 0
+    for line in body.splitlines():
+        if line.strip() == "buildOptbar();" and depth <= 1:
+            raise AssertionError(
+                f"{page}: `buildOptbar();` runs directly in `load()`, which Refresh re-runs, so it "
+                f"collapses the `···` extras row. Guard it on the control set changing."
+            )
+        for ch in line.split("//")[0]:
+            depth += (ch == "{") - (ch == "}")
+
+
+@pytest.mark.parametrize(("page", "memo"), sorted(OPTBAR_MEMOS.items()))
+def test_the_optbar_rebuild_is_memoised(page: str, memo: str) -> None:
+    """The page must record what its bar was built from, and compare it before rebuilding.
+
+    This is the half the first version of these tests missed. #512 moved `buildOptbar()` out of
+    `load()` entirely, so the check above matched **zero** lines in `portfolio.js` — a standing
+    regression guard for #512 that asserted nothing about the file it was written for.
+    `rebuildOptbarIfControlsChanged` could have been gutted to rebuild every time and it would
+    have stayed green.
+    """
+    src = (DOCS / page).read_text(encoding="utf-8")
+    assert memo in src, f"{page} has no record of what its options bar was last built from"
+    compared = [
+        ln.strip()
+        for ln in src.splitlines()
+        if memo in ln and ("===" in ln or "!==" in ln) and not ln.strip().startswith("//")
+    ]
+    assert compared, (
+        f"{page}: `{memo}` is never compared, so the rebuild cannot be conditional on it — "
+        f"Refresh would collapse the `···` extras row."
+    )
+
+
 # ------------------------------------------------ one staleness threshold, one place (#516)
 
 #: The single module allowed to define a staleness threshold.
