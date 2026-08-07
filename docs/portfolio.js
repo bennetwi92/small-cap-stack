@@ -14,7 +14,7 @@ import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
 import { el, setBanner, showError } from "./js/dom.js";
-import { esc, etClockIso, fmtPct, fmtShares, rRampClass } from "./js/fmt.js";
+import { esc, etClockIso, fmtPct, fmtPctPlain, fmtShares, rRampClass } from "./js/fmt.js";
 import {
   chartsFor,
   clearChartCache,
@@ -1026,6 +1026,21 @@ function riskCell(t) {
   return `<td class="r" title="${esc(tip)}"><span class="${capped ? "muted" : ""}">${pct(t.risk_pct)}</span>${badge}</td>`;
 }
 
+// Stop distance as a share of the entry price — the risk per share in plain price terms, which is
+// what the R column normalises away. Derived here rather than published: it is exactly
+// (entry − stop) / entry over two fields every payload already carries, so books written before
+// this column get it too. Unsigned (fmtPctPlain), because it is a distance, not a move — a leading
+// "−" would read as a loss on winning trades. It is also the number the sizing reacts to: a stop
+// tighter than risk/position (see riskCell) hands the size to the notional cap.
+function stopPctCell(t) {
+  const ok = isFinite(t.entry) && isFinite(t.stop) && t.entry > 0;
+  const d = ok ? (t.entry - t.stop) / t.entry : null;
+  const tip = ok
+    ? `${fmtUsd(t.entry - t.stop)} per share below the ${fmtUsd(t.entry)} entry`
+    : "Not recorded for this trade";
+  return `<td class="r ${d == null ? "muted" : ""}" title="${esc(tip)}">${fmtPctPlain(d, 1)}</td>`;
+}
+
 // R cells wear the shared diverging ramp (0R anchor, stop at −1R) so the
 // column reads as a distribution; Net keeps simple win/loss colouring.
 const rRampCell = (v) =>
@@ -1089,7 +1104,7 @@ function rowKey(kind, t) {
 }
 
 function tradeRows(book) {
-  if (!book.trades.length) return '<tr><td colspan="15" class="muted">No qualifying pre-market trades yet.</td></tr>';
+  if (!book.trades.length) return '<tr><td colspan="16" class="muted">No qualifying pre-market trades yet.</td></tr>';
   return book.trades
     .slice()
     .reverse() // newest first
@@ -1103,6 +1118,7 @@ function tradeRows(book) {
         `<td>${etClockIso(t.trigger_at)}</td>` +
         `<td class="r">${fmtUsd(t.entry)}</td>` +
         `<td class="r">${fmtUsd(t.stop)}</td>` +
+        stopPctCell(t) +
         `<td class="r">${fmtInt(t.qty)}</td>` +
         riskCell(t) +
         `<td class="r">${Number(t.target_r).toFixed(1)}R</td>` +
@@ -1181,7 +1197,7 @@ function skippedNote(book) {
 
 function skippedRows(book) {
   const skipped = book.skipped || [];
-  if (!skipped.length) return '<tr><td colspan="12" class="muted">None — the daily cap was never binding.</td></tr>';
+  if (!skipped.length) return '<tr><td colspan="13" class="muted">None — the daily cap was never binding.</td></tr>';
   return skipped
     .slice()
     .reverse() // newest first, matching the trade log
@@ -1195,6 +1211,7 @@ function skippedRows(book) {
         `<td>${etClockIso(t.trigger_at)}</td>` +
         `<td class="r">${fmtUsd(t.entry)}</td>` +
         `<td class="r">${fmtUsd(t.stop)}</td>` +
+        stopPctCell(t) +
         `<td class="r">${Number(t.target_r).toFixed(1)}R</td>` +
         `<td><span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtUsd(t.exit_price)}</td>` +
         rRampCell(t.realized_r) +
