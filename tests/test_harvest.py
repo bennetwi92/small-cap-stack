@@ -59,6 +59,7 @@ from small_cap_stack.harvest.runner import checkpoint_path, effective_deadline
 from small_cap_stack.harvest.source import HarvestEntitlementError, HarvestError
 from small_cap_stack.portfolio import extract_day_trades
 from small_cap_stack.storage import Store
+from tests.support import settings
 
 # A quiet weekday well inside the XNYS calendar; every fixture below is anchored to it.
 DAY = date(2026, 7, 2)
@@ -67,8 +68,7 @@ PREV = date(2026, 7, 1)
 
 def _settings(tmp_path: Path, **kw: Any) -> Settings:
     kw.setdefault("recon_subdir", "recon")
-    return Settings(
-        _env_file=None,  # type: ignore[call-arg]
+    return settings(
         data_dir=tmp_path / "data",
         **kw,
     )

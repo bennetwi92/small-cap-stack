@@ -8,8 +8,8 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from small_cap_stack.clock import ET
-from small_cap_stack.config import Settings
 from small_cap_stack.harvest.guard import RunWindow
+from tests.support import settings
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -223,7 +223,7 @@ def test_the_harvest_window_cannot_overlap_the_trackers_own_day() -> None:
     set `harvest_start_et=04:00` and a 05:00 fire passes while the harvest runs straight through
     the scan window. This pins the window against the tracker's schedule instead, which is the
     thing that actually must not be violated."""
-    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    s = settings()
     assert s.harvest_start_et >= s.scan_end, "the harvest may not open before the scan closes"
     assert s.harvest_stop_et <= s.eod_backfill, "the harvest must stop clear of eod_backfill"
     # ...and it must duck the EOD jobs it now spans, rather than relying on HostGuard, which is
@@ -239,7 +239,7 @@ def test_harvest_timer_fires_inside_the_window_and_never_catches_up_at_boot() ->
     assert "America/New_York" in timer
     assert "Persistent=false" in timer
 
-    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    s = settings()
     window = RunWindow(start=s.harvest_start_et, stop=s.harvest_stop_et)
     for at in _timer_fires():
         # RunWindow wraps midnight, so this cannot be a `start <= t < stop` comparison.
@@ -258,7 +258,7 @@ def test_the_timer_claims_the_widened_hours_and_can_recover_a_stopped_run() -> N
     A fire after the EOD recess is what resumes the evening, and later ones recover a run
     `HostGuard` ended at an arbitrary session boundary. Both bounds come from `Settings`, so moving
     the EOD jobs or the recess fails here rather than drifting."""
-    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    s = settings()
     fires = _timer_fires()
     assert any(f < s.harvest_eod_recess_et for f in fires), "nothing claims the afternoon hours"
     assert min(fires) <= _plus_minutes(s.harvest_start_et, 30), (

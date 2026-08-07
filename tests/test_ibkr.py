@@ -17,10 +17,11 @@ from small_cap_stack.ibkr.transport import (
     IBKRTransport,
     client_id_for_attempt,
 )
+from tests.support import settings
 
 
 def _settings(**overrides: object) -> Settings:
-    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
+    return settings(**overrides)
 
 
 # --- RetryPolicy ------------------------------------------------------------------------

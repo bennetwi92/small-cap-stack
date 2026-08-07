@@ -19,13 +19,14 @@ from small_cap_stack.dashboard_backfill import (
 )
 from small_cap_stack.portfolio import collected_dates
 from small_cap_stack.storage import Store
+from tests.support import settings
 
 _DAY = date(2026, 6, 29)
 _T0 = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
 
 
 def _settings(tmp_path: Path) -> Settings:
-    return Settings(_env_file=None, data_dir=tmp_path)  # type: ignore[call-arg]
+    return settings(data_dir=tmp_path)
 
 
 def _seed_day(store: Store, day: date, symbol: str) -> None:

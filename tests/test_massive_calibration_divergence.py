@@ -11,15 +11,14 @@ from __future__ import annotations
 import dataclasses
 from datetime import UTC, date, datetime, timedelta
 
-from tests.spike_import import load_spike
-
-from small_cap_stack.config import Settings
 from small_cap_stack.rmetrics import RMetrics
+from tests.spike_import import load_spike
+from tests.support import settings
 
 mc = load_spike("massive_calibration")
 
 HIT = datetime(2026, 7, 30, 12, 0, tzinfo=UTC)  # 08:00 ET, mid pre-market
-SETTINGS = Settings()
+SETTINGS = settings()
 
 
 def row(**kw: object) -> object:

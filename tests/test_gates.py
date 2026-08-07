@@ -11,10 +11,11 @@ from small_cap_stack.gates import (
     failed_names,
     passed_all,
 )
+from tests.support import settings
 
 
 def _settings(**o: object) -> Settings:
-    return Settings(_env_file=None, **o)  # type: ignore[call-arg]
+    return settings(**o)
 
 
 def _passing_inputs() -> GateInputs:

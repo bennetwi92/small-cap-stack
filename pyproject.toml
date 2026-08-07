@@ -59,6 +59,11 @@ extend-exclude = ["*.md"]
 # the contract, so the exception is stated rather than assumed.
 select = ["E", "F", "I", "UP", "B", "SIM", "C4", "ARG"]
 
+[tool.ruff.lint.isort]
+# `tests` is importable (pythonpath = ["src", "."]) but is not under `src`, so without this
+# isort files `from tests.support import ...` as third-party and sorts it above the package.
+known-first-party = ["small_cap_stack", "tests"]
+
 [tool.ruff.lint.per-file-ignores]
 # ARG is about the package's own API being honest about what it depends on. Test doubles and
 # spike harnesses exist precisely to satisfy a signature they don't use — a fake `fetch_day_bars`

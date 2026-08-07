@@ -21,6 +21,7 @@ from small_cap_stack.bullflag import day as day_mod
 from small_cap_stack.bullflag import setup as setup_mod
 from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
+from tests.support import settings
 
 _T0 = datetime(2026, 6, 29, 12, 0, tzinfo=UTC)  # 08:00 ET — inside the scan window
 
@@ -57,8 +58,7 @@ _SHARED = {
 def _distinct_settings() -> Settings:
     """Settings whose every relevant value differs from the detectors' function defaults, so a
     param that is NOT wired keeps its default and the assertion catches it."""
-    return Settings(
-        _env_file=None,  # type: ignore[call-arg]
+    return settings(
         bull_flag_max_pole=7,
         bull_flag_max_cons=5,
         bull_flag_min_pole_pct=0.09,
@@ -153,7 +153,7 @@ def test_locked_v2_defaults() -> None:
     """Pins the values the engine-v2 review locked (#176/#182). These are the rules the live
     tracker runs and the 25 reviewed fixtures were signed off against — changing one is a strategy
     decision (research/decisions.md), not a tidy-up."""
-    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    s = settings()
     assert s.bull_flag_max_pole == 4
     assert s.bull_flag_max_cons == 4
     assert s.bull_flag_min_pole_pct == 0.02
@@ -172,4 +172,4 @@ def test_locked_v2_defaults() -> None:
 def test_legacy_entry_offset_is_gone() -> None:
     """The legacy 5-tick entry died with the anchored detector (#296/#302); v2 uses the
     trigger/fill split. A reappearance means the legacy path is creeping back."""
-    assert not hasattr(Settings(_env_file=None), "entry_offset_ticks")  # type: ignore[call-arg]
+    assert not hasattr(settings(), "entry_offset_ticks")
