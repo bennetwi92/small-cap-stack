@@ -68,6 +68,13 @@ else (the recon store is pre-market only).
 > — its *status* is derived from whether those issues are closed on GitHub (#414), so a merged gate
 > closes on the page by itself. Change a gate's name, issues or blockers here and change them there
 > in the same PR; don't add a status field back.
+>
+> *How the derivation works* (moved here from `CLAUDE.md` in #540): `docs/js/gh.js` reads issue
+> state over **unauthenticated REST**, cached 30 min in `sessionStorage`, and falls back to this
+> table's `after` dependency graph when GitHub is unreachable. The Plan page also renders the phase
+> spine, the live collection countdown, the harvest's progress (#454, from `status.json.harvest`)
+> and the Phase-1 checks — all computed at render time from `index.json` / `portfolio.json` /
+> `status.json`, never from a committed value.
 
 ## The three things that will actually bite
 
