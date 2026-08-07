@@ -1891,3 +1891,190 @@ def test_the_afternoon_run_refuses_a_session_it_cannot_finish_before_the_recess(
     assert run.completed == ()
     assert "eod-recess" in run.stopped_because, run.stopped_because
     assert source.calls == 0, "it started a session it could not finish before the EOD jobs"
+
+
+# ================================================================================================
+# source: the transport itself, and the universe pagination (#532)
+# ================================================================================================
+# The existing pagination test stubs `_get_url` wholesale, so `_get_url`'s own body — key
+# injection, the retry ladder, the backoff — was never executed. These stub `urlopen` instead, one
+# layer down, so the transport runs for real.
+
+
+class _FakeResponse:
+    """The context-manager shape `urllib.request.urlopen` returns."""
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._body = json.dumps(payload).encode()
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self) -> _FakeResponse:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+def _urlopen_returning(monkeypatch: Any, pages: list[Any], seen: list[str]) -> None:
+    """Serve `pages` in order; an element that is an Exception is raised instead of returned."""
+
+    def fake(url: str, timeout: float | None = None) -> _FakeResponse:
+        seen.append(url)
+        nxt = pages.pop(0)
+        if isinstance(nxt, Exception):
+            raise nxt
+        return _FakeResponse(nxt)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake)
+
+
+def test_tickers_of_type_follows_pagination_to_exhaustion(monkeypatch: Any) -> None:
+    """A universe truncated to its first page is the failure this exists to prevent: the harvest
+    simply covers fewer names, with no error and nothing downstream that would notice."""
+    seen: list[str] = []
+    _urlopen_returning(
+        monkeypatch,
+        [
+            {"results": [{"ticker": "AAA"}, {"ticker": "BBB"}], "next_url": "https://v/next?cur=2"},
+            {"results": [{"ticker": "CCC"}]},
+        ],
+        seen,
+    )
+    src = MassiveSource(api_key="SECRET", rate_sleep_sec=0.0, sleep=lambda _s: None)
+
+    assert src.tickers_of_type("CS", active=True) == ["AAA", "BBB", "CCC"]
+    assert len(seen) == 2  # the second page was actually fetched, not assumed empty
+
+
+def test_tickers_of_type_signs_the_unsigned_next_url(monkeypatch: Any) -> None:
+    """`next_url` comes back from the vendor **unsigned**. Following it without re-injecting the
+    key 401s on page 2 — which, before this, would have surfaced as a short universe rather than
+    as an error, because the caller only sees the list it gets."""
+    seen: list[str] = []
+    _urlopen_returning(
+        monkeypatch,
+        [
+            {"results": [{"ticker": "AAA"}], "next_url": "https://v/next?cursor=abc"},
+            {"results": [{"ticker": "BBB"}]},
+        ],
+        seen,
+    )
+    src = MassiveSource(api_key="SECRET", rate_sleep_sec=0.0, sleep=lambda _s: None)
+    src.tickers_of_type("ETN", active=False)
+
+    assert "apiKey=SECRET" in seen[1], "the unsigned next_url must be signed before it is followed"
+    assert seen[1].count("apiKey=") == 1  # ...and signed once, not appended twice
+    assert "&apiKey=" in seen[1]  # joined with & — the URL already carries a query string
+
+
+def test_a_next_url_without_a_query_string_is_signed_with_a_question_mark(monkeypatch: Any) -> None:
+    """The other half of the join: a bare `next_url` needs `?apiKey=`, not `&`. Getting this wrong
+    produces a URL the vendor rejects, and only on the second page of a paginated call."""
+    seen: list[str] = []
+    _urlopen_returning(
+        monkeypatch,
+        [{"results": [{"ticker": "AAA"}], "next_url": "https://v/next"}, {"results": []}],
+        seen,
+    )
+    src = MassiveSource(api_key="SECRET", rate_sleep_sec=0.0, sleep=lambda _s: None)
+    src.tickers_of_type("CS", active=True)
+
+    assert seen[1] == "https://v/next?apiKey=SECRET"
+
+
+def test_tickers_of_type_skips_rows_with_no_ticker(monkeypatch: Any) -> None:
+    """A malformed row must be dropped, not turned into a `None` symbol that the harvest then
+    tries to request bars for."""
+    seen: list[str] = []
+    _urlopen_returning(
+        monkeypatch, [{"results": [{"ticker": "AAA"}, {"name": "no ticker key"}, {}]}], seen
+    )
+    src = MassiveSource(api_key="k", rate_sleep_sec=0.0, sleep=lambda _s: None)
+    assert src.tickers_of_type("CS", active=True) == ["AAA"]
+
+
+def test_a_network_error_is_retried_with_bounded_exponential_backoff(monkeypatch: Any) -> None:
+    """A `URLError` is transient by nature — the harvest runs overnight on a box whose Gateway
+    restarts nightly. It must retry, back off, and be *bounded*: an unbounded ladder would still
+    be sleeping when the 03:00 hard stop arrives, and the session would be lost anyway."""
+    slept: list[float] = []
+    seen: list[str] = []
+    _urlopen_returning(
+        monkeypatch,
+        [
+            urllib.error.URLError("connection reset"),
+            urllib.error.URLError("connection reset"),
+            {"results": [{"ticker": "AAA"}]},
+        ],
+        seen,
+    )
+    src = MassiveSource(api_key="k", rate_sleep_sec=0.0, max_retries=3, sleep=slept.append)
+
+    assert src.tickers_of_type("CS", active=True) == ["AAA"]
+    assert len(seen) == 3  # two failures, then the success
+    assert slept == [2.0, 4.0]  # exponential, and no sleep after the attempt that worked
+
+
+def test_a_network_error_that_never_clears_raises_without_leaking_the_key(monkeypatch: Any) -> None:
+    """The give-up path. The message must name the endpoint and **not** the query string — the URL
+    carries `apiKey`, and this error goes to `journalctl` on a box whose logs are not secret."""
+    slept: list[float] = []
+    seen: list[str] = []
+    _urlopen_returning(monkeypatch, [urllib.error.URLError("down")] * 3, seen)
+    src = MassiveSource(
+        api_key="SUPERSECRET", rate_sleep_sec=0.0, max_retries=2, sleep=slept.append
+    )
+
+    with pytest.raises(HarvestError) as exc:
+        src.tickers_of_type("CS", active=True)
+
+    assert "SUPERSECRET" not in str(exc.value)
+    assert "network error" in str(exc.value)
+    assert len(seen) == 3 and slept == [2.0, 4.0]  # max_retries=2 means three attempts total
+
+
+def test_from_env_builds_a_source_from_the_box_environment(monkeypatch: Any) -> None:
+    """The refusal path is covered; this is the other half. `from_env` is how the box and the
+    Actions runner build the source, so a broken kwarg passthrough would only surface there."""
+    monkeypatch.setenv("MASSIVE_API_KEY", "  FROM_ENV  ")  # padded: the env var is stripped
+    src = MassiveSource.from_env(rate_sleep_sec=0.0)
+    assert src.api_key == "FROM_ENV"
+    assert src.rate_sleep_sec == 0.0  # kwargs reach the constructor
+
+
+def test_grouped_daily_and_minute_bars_unwrap_their_payloads(monkeypatch: Any) -> None:
+    """Two thin wrappers, both load-bearing for the harvest's two phases: `grouped_daily` builds
+    the universe (phase 1) and `minute_bars` fetches a session (phase 2). Thin is not the same as
+    trivial — each has to unwrap `results` and survive a payload that carries none."""
+    seen: list[str] = []
+    _urlopen_returning(
+        monkeypatch,
+        [
+            {"results": [{"T": "AAA", "c": 1.5}]},  # grouped_daily
+            {},  # grouped_daily on a day the vendor has nothing for
+            {"results": [{"t": 1, "c": 2.0}]},  # minute_bars, via aggregates
+        ],
+        seen,
+    )
+    src = MassiveSource(api_key="k", rate_sleep_sec=0.0, sleep=lambda _s: None)
+
+    assert src.grouped_daily(DAY) == [{"T": "AAA", "c": 1.5}]
+    assert src.grouped_daily(DAY) == []  # a missing `results` key is empty, not a crash
+    assert src.minute_bars("AAA", DAY) == [{"t": 1, "c": 2.0}]
+    assert f"/{DAY.isoformat()}" in seen[0]  # the day reached the URL
+
+
+def test_the_retry_loop_cannot_fall_through_silently() -> None:
+    """`raise HarvestError("unreachable")` after the loop is defensive, and this pins it as such.
+
+    ⚠️ It is not reachable through any real configuration: `range(max_retries + 1)` always runs at
+    least once for `max_retries >= 0`, so the loop returns or raises. Only a negative `max_retries`
+    falls through. Kept — and tested — because the alternative to raising there is returning `None`
+    into a function typed as returning a payload, which would surface much later as an attribute
+    error on a dict that was never fetched.
+    """
+    src = MassiveSource(api_key="k", rate_sleep_sec=0.0, max_retries=-1, sleep=lambda _s: None)
+    with pytest.raises(HarvestError, match="unreachable"):
+        src.get("/v2/whatever")
