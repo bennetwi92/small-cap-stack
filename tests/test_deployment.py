@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 import tomllib
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -89,18 +91,27 @@ def test_ci_installs_from_the_lock() -> None:
     """The Install step was ~23 s of a 75 s job under pip (#493), and it also **re-resolved** —
     so CI and the shipped image could bake different polars/duckdb from the same commit (#546).
 
-    `--frozen` is the load-bearing flag: without it `uv sync` silently re-locks when pyproject and
-    the lock disagree, which is the failure this whole change exists to remove. `uv sync` installs
-    into `.venv` rather than the system interpreter, so every tool step runs through `uv run` —
-    the two halves only work together.
+    Two flags do the work, and my first draft got both wrong:
+
+    - **`--locked`, not `--frozen`.** Measured: with a dep added to pyproject and no re-lock,
+      `--frozen` exits 0 and installs *without* it, while `--locked` exits 1 saying the lockfile
+      needs updating. Only `--locked` is a gate.
+    - **`uv run --no-sync`.** A bare `uv run` re-resolves and **rewrites** `uv.lock` before running
+      the command. So the tool steps would quietly repair a stale lock, CI would go green on the PR
+      and on the push to main, and `build-image` — which reads `requirements.lock` and does not run
+      on pull requests — would build an image without the dependency. That surfaces as the live
+      tracker ImportError-ing on the box, which is a worse failure than the one #546 set out to fix.
     """
     w = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
-    assert "uv sync --frozen" in w, "CI must install the recorded set, not re-resolve"
+    assert "uv sync --locked" in w, (
+        "CI must use --locked: --frozen installs a stale lock without complaining"
+    )
+    assert "uv sync --frozen" not in w, "--frozen is not a gate; see the docstring"
     assert "pip install -e" not in w, "the pip install path is gone; uv replaced it"
     for tool in ("ruff check .", "ruff format --check .", "mypy", "pytest"):
-        assert f"uv run {tool}" in w, (
-            f"`{tool}` must run through `uv run` — uv sync installs into .venv, so a bare "
-            "invocation would silently use whatever the runner's interpreter happens to have"
+        assert f"uv run --no-sync {tool}" in w, (
+            f"`{tool}` must run through `uv run --no-sync` — a bare `uv run` re-resolves and "
+            "rewrites uv.lock, hiding a stale lock from CI and breaking only the image"
         )
 
 
@@ -117,7 +128,7 @@ def test_every_install_path_reads_the_lock() -> None:
         "spike-massive.yml": (ROOT / ".github" / "workflows" / "spike-massive.yml").read_text(),
         "Dockerfile": (ROOT / "Dockerfile").read_text(),
     }
-    assert "uv sync --frozen" in paths["ci.yml"]
+    assert "uv sync --locked" in paths["ci.yml"]
     for name in ("spike-massive.yml", "Dockerfile"):
         assert "--require-hashes -r requirements.lock" in paths[name], (
             f"{name} must install the locked set with hashes, not resolve its own"
@@ -148,32 +159,46 @@ def test_the_lockfiles_exist_and_pin_every_runtime_dependency() -> None:
     assert "--hash=sha256:" in req_lock.read_text(), "the export must carry hashes"
 
 
-def test_requirements_lock_is_in_step_with_uv_lock() -> None:
-    """The two files are one artifact in two formats, and only `uv.lock` is authoritative. If they
-    drift, the image installs a set CI never tested — which is the original defect wearing a
-    lockfile. Regenerate with `make lock`.
+def test_requirements_lock_is_exactly_what_uv_would_export() -> None:
+    """The two lockfiles are one artifact in two formats, and only `uv.lock` is authoritative. If
+    they drift, the image installs a set CI never tested — the original defect wearing a lockfile.
 
-    Compared on the (name, version) pairs rather than byte-for-byte: the export embeds the command
-    that produced it, so a byte comparison would fail on an incidental flag change.
+    **`uv export` is the oracle**, rather than a comparison written by hand. My first version
+    diffed `requirements.lock` against `uv.lock` and needed a hand-kept list of dev-only packages
+    to subtract; that list was already wrong on its first run (it missed three transitives), and a
+    guard whose correctness depends on an allowlist someone must remember to extend is a guard
+    that quietly stops guarding. Regenerating and comparing has no such list, and it is the
+    definition of "in step" — this file is *by construction* what `make lock` produces.
+
+    It also catches the direction that actually breaks the image: deleting `polars` outright from
+    `requirements.lock` passed the hand-written version, and the image would have built clean and
+    died at import on the box.
     """
-    import re
-    import tomllib
-
-    locked = {
-        (p["name"], p.get("version"))
-        for p in tomllib.loads((ROOT / "uv.lock").read_text())["package"]
-        if p.get("version")
-    }
-    exported_text = (ROOT / "requirements.lock").read_text()
-    exported = set(re.findall(r"^([A-Za-z0-9._-]+)==(\S+?)(?:\s|$)", exported_text, re.M))
-    # uv normalises names to lowercase-with-hyphens in uv.lock; the export keeps the sdist casing.
-    norm = {(n.lower().replace("_", "-"), v) for n, v in exported}
-    locked_norm = {(n.lower().replace("_", "-"), v) for n, v in locked}
-    drifted = norm - locked_norm
-    assert not drifted, (
-        f"requirements.lock has {sorted(drifted)[:5]} which uv.lock does not — run `make lock`"
+    uv = shutil.which("uv")
+    assert uv, (
+        "uv is not on PATH, so this guard cannot run. CI installs it via setup-uv before pytest; "
+        "locally, `make lock` needs it too."
     )
-    assert norm, "the export parsed to nothing; has the format changed?"
+    result = subprocess.run(  # noqa: S603
+        [uv, "export", "--frozen", "--no-dev", "--no-emit-project", "--format", "requirements-txt"],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
+    assert result.returncode == 0, f"uv export failed: {result.stderr[-400:]}"
+
+    def pins(text: str) -> list[str]:
+        # The header records the command that produced the file, which differs by `-o` path — so
+        # compare the pins and their hashes, not the bytes.
+        return [ln for ln in text.splitlines() if ln and not ln.lstrip().startswith("#")]
+
+    committed = pins((ROOT / "requirements.lock").read_text())
+    fresh = pins(result.stdout)
+    assert committed, "requirements.lock parsed to nothing; has the format changed?"
+    assert committed == fresh, (
+        "requirements.lock is not what `uv export` produces from the current uv.lock — "
+        "run `make lock` and commit the result."
+    )
 
 
 def test_ci_gates_coverage_on_main_not_on_prs() -> None:

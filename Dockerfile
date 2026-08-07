@@ -20,13 +20,13 @@ WORKDIR /app
 #
 #    `requirements.lock` is generated from `uv.lock` — see the Makefile's `lock` target. Editing it
 #    by hand is pointless: `tests/test_deployment.py` fails when it drifts from `uv.lock`.
-COPY pyproject.toml requirements.lock ./
+COPY requirements.lock ./
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip \
  && pip install --require-hashes -r requirements.lock
 
 # 2. The package itself installs with --no-deps (fast) and re-runs only when the source changes.
-COPY README.md ./
+COPY pyproject.toml README.md ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/pip pip install --no-deps .
 

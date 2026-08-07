@@ -8,6 +8,22 @@ updates:
       interval: weekly
       day: saturday  # never inside the scan window; CI runs on the PR like any other
     open-pull-requests-limit: 5
+  # `uv`, not `pip`, is what reads `uv.lock` (#546) — and the `pip` entry above has never opened
+  # a PR here, because every constraint is an unbounded `>=` so nothing is ever out of range. Now
+  # that the runtime set is pinned by hash, a lock nothing bumps freezes indefinitely, security
+  # fixes included, which is worse than no lock at all.
+  #
+  # ⚠️ It updates `uv.lock` and NOT the `requirements.lock` exported from it, so a dependabot PR
+  # will fail `test_requirements_lock_is_in_step_with_uv_lock` until someone runs `make lock` on
+  # the branch. That red X is correct — the export really is stale — and it is exactly why the two
+  # files are checked against each other rather than trusted to agree.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+      day: saturday
+    open-pull-requests-limit: 5
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

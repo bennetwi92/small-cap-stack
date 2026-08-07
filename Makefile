@@ -10,10 +10,13 @@ PYTEST := $(VENV)/bin/pytest
 # called portfolio/extract.py 92% while its branch figure was 80%.
 COV := --cov --cov-report=term-missing --cov-fail-under=90
 
-# The interpreter `setup` builds the venv from. `python3` is whatever is first on PATH, which on
-# a machine with several installed is not necessarily the 3.11 `requires-python` asks for — and a
-# venv on the wrong minor resolves a different dependency set than CI and the image do.
-PYTHON ?= python3.11
+# The interpreter `setup` builds the venv from. Bare `python3` is whatever is first on PATH,
+# which on a machine with several installed is not necessarily the 3.11 `requires-python` asks for
+# — and a venv on the wrong minor resolves a different dependency set than CI and the image do.
+# Falls back rather than hard-requiring 3.11: `.claude/hooks/session-setup.sh` runs `make setup` on
+# hosted runners where only `python3` exists, and it swallows the failure, so a hard requirement
+# would leave a delegated agent silently without a venv and unable to run `make check`.
+PYTHON ?= $(shell command -v python3.11 2>/dev/null || command -v python3)
 
 .PHONY: help setup lock lint fmt fmt-check typecheck test cov check clean reports strategy fetch-fixtures
 
