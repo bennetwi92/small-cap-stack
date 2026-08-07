@@ -7,12 +7,11 @@ opportunities is pinned separately by the graduated fixtures (stage 4).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from small_cap_stack.bullflag import DaySetup, detect_day
 from small_cap_stack.capture import Bar
-
-_T0 = datetime(2026, 7, 1, 14, 0, tzinfo=UTC)  # 10:00 ET (in the strategy window)
+from tests.support import T0 as _T0
 
 
 def _b(i: int, o: float, h: float, low: float, c: float, v: float = 100_000.0) -> Bar:
