@@ -30,9 +30,13 @@ from .config import Settings
 class GateInputs:
     """Facts a gate evaluates, derived from an opportunity's raw record at a moment in time.
 
-    Only the three fields the live gates read. `price` / `change_pct` / `volume_5m` / `tradable` /
-    `bull_flag` went with the gates that consumed them: no production caller ever populated them,
-    so every gate reading one saw `None` and returned the conservative "missing" result.
+    `float_shares` and `has_recent_news` are what the two live gates read. `ts_utc` is read by
+    neither — it is kept as the provenance stamp the caller already has, and so a gate that later
+    needs a time doesn't have to reintroduce it.
+
+    `price` / `change_pct` / `volume_5m` / `tradable` / `bull_flag` went with the gates that
+    consumed them (#517): no production caller ever populated them, so every gate reading one saw
+    `None` and returned the conservative "missing" result.
     """
 
     ts_utc: datetime
@@ -62,7 +66,7 @@ def float_gate(i: GateInputs, s: Settings) -> GateResult:
     )
 
 
-def news_gate(i: GateInputs, s: Settings) -> GateResult:  # noqa: ARG001 — uniform Gate signature
+def news_gate(i: GateInputs, s: Settings) -> GateResult:  # noqa: ARG001 — see the docstring
     """Counted, never enforced. `s` is unused but kept so both gates share one shape."""
     if i.has_recent_news is None:
         return _missing("news")

@@ -341,8 +341,9 @@ def _analyze_run(
     # exhaustion counts pump/fade cycles across the day; ``obars`` (the run window) is just the bar
     # count shown in the UI.
     rm = compute_r_metrics(day_bars, s, first_hit=first_hit)
-    # Single source of truth for the threshold predicates: reuse the gate engine rather than
+    # Single source of truth for the two counted predicates: reuse `gates.py` rather than
     # re-deriving them here (a None datum stays None to distinguish "no data" from "fails gate").
+    # Neither gates anything — they become the report's `float_ok` / `with_recent_news` counts.
     gi = GateInputs(ts_utc=first_seen, float_shares=float_shares, has_recent_news=news_count > 0)
     return OpportunityAnalysis(
         opportunity_id=seg_id,

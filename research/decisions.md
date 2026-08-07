@@ -100,7 +100,12 @@ closing once the harvest lands; not worth building against 30 sessions.
   > **Criterion #5 (5-min volume > 100k) resolved:** native `stVolume5minAbove` scanner filter. This was a previously-open data-feasibility item in [`archive/strategy-validation.md`](./archive/strategy-validation.md).
 - **B. Pre-market bar completeness** (#9): ✅ **GREEN** — active names get contiguous gap-free 5-min bars from 04:00 ET; only a leading absence before first trade. No interpolation needed.
 - **C. IBKR news sufficiency** (#10): ✅ **GREEN to start** — account entitled to 8 providers incl. Dow Jones DJ-N (per-symbol headlines + retrievable bodies + halt notices). Start with included feed; measure timeliness in Phase 1 before paying.
-- **D. Tradability gate** (#25, new): ✅ **GREEN** — `whatIfOrder` + error 201 reliably flags symbols IBKR blocks for the account even while they trade. Confirmed CBRG BLOCKED (PRIIPs/KID). **Account is under EU/UK PRIIPs rules** → expect some US small-cap SPAC/warrant/ETP runners to be un-orderable. **Add a tradability gate to the gate engine (#15).** Re-validate on live in P3.
+- **D. Tradability gate** (#25, new): ✅ **GREEN** — `whatIfOrder` + error 201 reliably flags symbols IBKR blocks for the account even while they trade. Confirmed CBRG BLOCKED (PRIIPs/KID). **Account is under EU/UK PRIIPs rules** → expect some US small-cap SPAC/warrant/ETP runners to be un-orderable. **Add a tradability gate to the gate engine (#15).** ⚠️ **AMENDED 2026-08-07 (#517):** the
+  placeholder `tradable_gate` was deleted as dead scaffolding — no caller ever populated
+  `GateInputs.tradable`, so it always returned the conservative "missing" result and gated
+  nothing. The *requirement* stands and is still unimplemented: nothing in `src/` names
+  tradability today (only `spikes/ibkr_tradability_check.py`). It belongs where the order goes
+  out in P3, not in an enrichment module. Re-validate on live in P3.
 
 ## Architecture decisions (2026-06-29) — see [architecture-review.md](./archive/architecture-review.md)
 - **Trading core:** assemble on **`ib_async`** (no framework) for P1–P2; revisit NautilusTrader at P3 only if justified.
@@ -127,7 +132,8 @@ closing once the harvest lands; not worth building against 30 sessions.
     before the 3-month collection; #102 adds the *meaningful* per-move pump metrics later.
   - **Schema impact (intended):** the persisted `analysis` dataset drops the `setup_count` column,
     and the EOD markdown + Pages dashboard drop the `setups` column. `GateInputs.bull_flag` (the
-    gate-engine input) is unrelated and unchanged.
+    gate-engine input) was unrelated to this change and unchanged by it — and was itself deleted
+    later, in #517, having never been populated by any caller.
 
 ## Scanner price range widened (DECISION 2026-07-02, #126)
 - **$2–10 → $1–$50** (`scan_min_price`/`scan_max_price`). The original $2–10 band was the locked
