@@ -1,15 +1,18 @@
 """Export a slice of the tracker's ``/data`` store for offline analysis from the phone.
 
-Runs ON THE BOX inside the app container — the same ``docker exec -i ... python -`` recipe as
-``probe_run.py``. The ``data-export.yml`` workflow pipes this in on the self-hosted ``vps`` runner,
-then commits the produced file to the ``data-export`` branch. A Claude Code web/mobile session can
-then pull it back over GitHub and analyze it *without* SSH or any secret in the cloud (direct SSH
-into the box is impossible from a web session — HTTP-only proxy, no secret store; see the
-``box-data`` skill).
+Runs ON THE BOX, in its **own** container via ``scripts/box-job.sh`` — never `docker exec` into
+the app, whose cgroup is the tracker's 2 GB budget (#545). ``Store.query`` builds a DuckDB view
+over every parquet in the dataset, so an unbounded export sharing that cgroup takes the live
+tracker down with it rather than itself.
 
-    docker exec -i -e SCS_DATASET -e SCS_START -e SCS_END -e SCS_SYMBOLS \\
-        -e SCS_FORMAT -e SCS_OUT small-cap-stack-app-1 python - \\
-        < scripts/analysis/export_query.py
+The ``data-export.yml`` workflow pipes this in on the self-hosted ``vps`` runner, then commits the
+produced file to the ``data-export`` branch. A Claude Code web/mobile session can then pull it back
+over GitHub and analyze it *without* SSH or any secret in the cloud (direct SSH into the box is
+impossible from a web session — HTTP-only proxy, no secret store; see the ``box-data`` skill).
+
+    scripts/box-job.sh export \\
+        -e SCS_DATASET=bars -e SCS_START=… -e SCS_END=… -e SCS_OUT=/data/exports/x.parquet \\
+        -- - < scripts/analysis/export_query.py
 
 Env (all optional unless noted):
   SCS_DATASET   one of: bars, opportunities, scanner_hits, news, fundamentals, analysis.
