@@ -1,9 +1,13 @@
 """Fundamentals: float / shares outstanding / short interest (issue #17).
 
 IBKR (Reuters) fundamentals require a paid entitlement (paper returns error 10358), so the
-free Phase-1 source is **yfinance** (no API key; what tradepilot used). The float gate (#15)
-consumes ``float_shares``. Values are captured raw at flag time and recomputed on read, so we
-can swap in a more reliable source (FMP float / FINRA short interest) later without re-collecting.
+free Phase-1 source is **yfinance** (no API key; what tradepilot used). Values are captured raw at
+flag time and recomputed on read, so we can swap in a more reliable source (FMP float / FINRA short
+interest) later without re-collecting.
+
+⚠️ ``float_shares`` is **context, not a filter.** Its only consumer is ``gates.py::float_gate``,
+whose only caller is the EOD report's ``float_ok`` count — nothing in the selection path or the
+paper book reads it (#551, ``research/strategy.md`` §4). Short interest has no source wired at all.
 """
 
 from __future__ import annotations

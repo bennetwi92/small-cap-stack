@@ -1177,6 +1177,23 @@ body.review{
   padding:0 5px;
   white-space:nowrap;
 }
+/* A superseded or partly-wrong report keeps its text and gains a banner (#551). Gold, the
+   same signal `.warn` uses elsewhere, so it reads as "still true? check" rather than "error". */
+.rp-correction{
+  color:var(--gold);
+  font-size:11px;
+  line-height:1.4;
+  border-left:2px solid var(--gold);
+  padding-left:6px;
+}
+.rp-correction-doc{
+  font-size:12px;
+  margin:0 0 14px;
+  padding:8px 10px;
+  border:1px solid var(--gold);
+  border-left-width:3px;
+  border-radius:2px;
+}
 .rp-back{ font-size:11px; color:var(--dim); }
 .rp-back:hover{ color:var(--ink); text-decoration:none; }
 .rp-doc-head{ margin:8px 0 10px; padding-bottom:8px; border-bottom:1px solid var(--line); }

@@ -140,7 +140,7 @@ scanner appearance.
 
 | Not in the spec | Why |
 |---|---|
-| Float gate | `float ≥ 20M` measured **+0.226R** — the *opposite* direction to the live `float_max_shares < 20M`. `docs/reports/2026-07-31-float-vs-max-r.md` found small float better *for the tail* (P(≥3R)), which is a different question from expectancy at a fixed 2R. Possibly not a real conflict; 22 days cannot tell. **Open.** |
+| Float gate | `float ≥ 20M` measured **+0.226R** — the *opposite* direction to what `float_max_shares < 20M` implies. ⚠️ **There is no live float gate** (#551): that threshold feeds an EOD report count and filters nothing, so this row contrasts against an unapplied rule, not against current behaviour. `docs/reports/2026-07-31-float-vs-max-r.md` found small float better *for the tail* (P(≥3R)), which is a different question from expectancy at a fixed 2R. Possibly not a real conflict; 22 days cannot tell. **Open.** |
 | Price band | `price ≥ $5` measured +0.310R with the lowest raw p of any contrast (0.080 → 0.796 after Holm). The strongest candidate for a future gate, and still not adoptable. |
 | Quality score | The bull-flag's 0–1 score was measured to have **no rank power** (ρ = +0.053). Do not build a second one before the first is fixed. |
 | News gate | Not tested. The scanner's change% and volume filters already select for it upstream. |

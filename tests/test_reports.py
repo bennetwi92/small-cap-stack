@@ -89,6 +89,27 @@ def test_parse_front_matter_rejects_malformed(text: str, match: str) -> None:
 # ---------------------------------------------------------------- one report
 
 
+def test_correction_is_parsed_and_reaches_the_index(tmp_path: Path) -> None:
+    """#551: a report is dated and never silently rewritten, so a superseded one has to *say* so.
+
+    Without this the Reports list gives a reader no way to tell a current analysis from one whose
+    premise has since been disproved — which is how two reports kept asserting a float gate that
+    had never run.
+    """
+    text = DOC.replace("tags: strategy, data", "tags: strategy\ncorrection: 2026-08-07 — no gate")
+    report = parse_report(write(tmp_path, "2026-07-20-float-gate.md", text))
+    assert report.correction == "2026-08-07 — no gate"
+
+    row = build_index(tmp_path)["reports"][0]
+    assert row["correction"] == "2026-08-07 — no gate"
+
+
+def test_a_report_without_a_correction_still_stands(tmp_path: Path) -> None:
+    report = parse_report(write(tmp_path, "2026-07-20-float-gate.md", DOC))
+    assert report.correction == ""
+    assert build_index(tmp_path)["reports"][0]["correction"] == ""
+
+
 def test_parse_report_maps_every_field(tmp_path: Path) -> None:
     report = parse_report(write(tmp_path, "2026-07-20-float-gate.md", DOC))
     assert report == Report(
@@ -99,6 +120,7 @@ def test_parse_report_maps_every_field(tmp_path: Path) -> None:
         summary="What the 20M cap costs us.",
         tags=["strategy", "data"],
         author="Claude",
+        correction="",  # absent front-matter key -> the report still stands as published
         words=5,  # "Body" + the four-word sentence; front matter and the `#` don't count
     )
 

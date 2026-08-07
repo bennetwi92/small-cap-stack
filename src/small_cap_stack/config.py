@@ -206,7 +206,12 @@ class Settings(BaseSettings):
     scan_exclude_stock_types: tuple[str, ...] = ("ETF", "ETN")
 
     # Gate thresholds (issue #15) — most reuse the scan_* values above.
-    float_max_shares: int = 20_000_000  # float < 20M shares
+    # ⚠️ `float_max_shares` GATES NOTHING. `gates.py::float_gate` has exactly one caller — the EOD
+    # report's `float_ok` count — so this is a reporting threshold, not a filter, and the paper book
+    # takes names far above it (CLSK 246M, XRX 119M). Eight surfaces asserted otherwise before #551;
+    # if float should ever gate, the check goes in `portfolio.extract._qualify` and this comment
+    # comes out. Same story for `news_gate` / `with_recent_news`. See `research/strategy.md` §4.
+    float_max_shares: int = 20_000_000  # float < 20M SHARES (not $), for the report count only
 
     # Bull-flag detection — engine v2 (#176/#182; see `research/bull-flag.md` + `engine-v2.md`).
     # The pole is a run of HIGHER HIGHS, colour-gated to green thrust bars (a red PEAK is allowed
