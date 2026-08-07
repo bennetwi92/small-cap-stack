@@ -24,6 +24,7 @@ from .capture import Bar
 from .clock import ET
 from .config import Settings
 from .gates import GateInputs, float_gate, news_gate
+from .market_calendar import previous_session
 from .rmetrics import compute_r_metrics
 from .storage import Store
 
@@ -189,23 +190,28 @@ def _news_for(news: pl.DataFrame, oid: str) -> tuple[list[datetime], int]:
     return dated, sub.height - len(dated)
 
 
-def _previous_trading_day(d: date) -> date:
-    """The prior weekday (skip Sat/Sun) — the last session before ``d`` (holidays aside, #163)."""
-    prev = d - timedelta(days=1)
-    while prev.weekday() >= 5:  # Saturday (5) / Sunday (6): markets closed
-        prev -= timedelta(days=1)
-    return prev
-
-
-def _news_recent(news_times: list[datetime], trading_date: date) -> bool:
+def _news_recent(news_times: list[datetime], trading_date: date, s: Settings) -> bool:
     """True if any news is dated within the gap since the last close, in ET (#101).
 
     A tighter recency signal than the 7-day `has_news`: 'was there a fresh catalyst?' rather than
     'any story this week'. The window spans the previous *trading* day through the trade date
     inclusive, so it catches a Friday catalyst AND weekend news ahead of a Monday gap — the most
     common pre-Monday driver — which a plain today/yesterday window silently dropped (#163-C4).
-    Compared in ET so a late-UTC print lands on the right market day."""
-    earliest = _previous_trading_day(trading_date)
+    Compared in ET so a late-UTC print lands on the right market day.
+
+    The window opens at the previous *session*, from the trading calendar (#514). This used to
+    walk back over ``weekday() >= 5`` and said so in its own docstring — which meant that after
+    every holiday the window started on a **closed** day: the Friday after Thanksgiving looked
+    back to a shut Thursday instead of to Wednesday's session, so Wednesday-evening catalysts
+    went unflagged. Nothing gates on news (CLAUDE.md), so this only ever mis-reported the EOD
+    `with_recent_news` count — but a wrong number in a report is still a wrong number.
+
+    If the calendar finds no session in its lookback the window degenerates to the trade date
+    alone: narrower than intended, which under-counts, rather than opening onto closed days."""
+    prior = previous_session(trading_date, extra_closed=s.calendar_closed_dates)
+    # None means no session in a fortnight, which the real calendar never produces; falling back
+    # to the trade date narrows the window rather than opening it onto arbitrary closed days.
+    earliest = prior if prior is not None else trading_date
     return any(earliest <= t.astimezone(ET).date() <= trading_date for t in news_times)
 
 
@@ -397,7 +403,7 @@ def _analyses_for_symbol(
     # News is attributed per-run by publish time (#97): a later run gets only the stories that
     # broke in its window. Undated news (unparseable / legacy) falls back to run 1 so it's not lost.
     news_times, news_undated = _news_for(news, oid)
-    news_recent = _news_recent(news_times, row["trading_date"])  # day-level recency (#101)
+    news_recent = _news_recent(news_times, row["trading_date"], s)  # day-level recency (#101)
     float_shares, short_percent = _funds_for(funds, oid)
     # Engine-v2 detection runs over the full trading day (#180); shared across the symbol's runs.
     day_bars = day_chart_bars(bars, oid, s)
