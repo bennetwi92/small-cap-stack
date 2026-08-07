@@ -18,7 +18,7 @@ from small_cap_stack.config import Settings
 from small_cap_stack.fundamentals import Fundamentals
 from small_cap_stack.scanner import Candidate
 from small_cap_stack.storage import Store
-from tests.support import settings
+from tests.support import opportunity_row, settings
 
 _TRADING_DATE = date(2026, 6, 29)
 
@@ -186,14 +186,14 @@ def test_hydration_and_day_opportunities_scoped_to_requested_date(tmp_path: Path
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": "2026-06-26:OLD",
-                "symbol": "OLD",
-                "con_id": 9,
-                "trading_date": other,
-                "first_seen_utc": datetime(2026, 6, 26, 13, 0, tzinfo=UTC),
-                "first_rank": 0,
-            }
+            opportunity_row(
+                "2026-06-26:OLD",
+                "OLD",
+                trading_date=other,
+                first_seen=datetime(2026, 6, 26, 13, 0, tzinfo=UTC),
+                con_id=9,
+                rank=0,
+            )
         ],
         partition_date=other,
     )

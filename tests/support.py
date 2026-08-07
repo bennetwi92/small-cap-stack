@@ -6,10 +6,17 @@ Fixtures go there; plain callables go here.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from small_cap_stack.capture import Bar
+from small_cap_stack.capture import (
+    Bar,
+    Candidate,
+    NewsItem,
+    news_record,
+    opportunity_record,
+    scanner_hit_record,
+)
 from small_cap_stack.config import Settings
 
 #: The canonical bar-series anchor: 2026-06-29 14:00 UTC = **10:00 ET**, on a Monday session.
@@ -50,3 +57,67 @@ def settings(**overrides: Any) -> Settings:
     `Settings()` in a test mean the same thing on a laptop and in CI.
     """
     return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
+
+
+# --- store rows, built by the SAME functions production uses (#523 slice 3) -------------------
+#
+# Every test seeded `opportunities` by hand, and every one of them omitted `currency` and
+# `exchange`; several seeded `news` without `ts_utc`. Production always writes those fields
+# (`capture.opportunity_record` / `news_record`), so the suite was exercising a store shape that
+# never occurs — a narrower parquet schema than the one the readers actually meet.
+#
+# These are deliberately THIN: they build the argument objects and delegate. The point is not to
+# save typing, it is that a new column added to a record function reaches the fixtures for free
+# instead of silently only existing in production.
+#
+# ⚠️ Not a shared `seed_day(...)`. The three seeders those literals live in are not three copies of
+# one thing — `test_dashboard` seeds deliberate duplicates and a rank flip, `test_report` a clean
+# flag plus a control, `test_portfolio` a pre-market window — and their differences ARE what each
+# asserts. One seeder serving all three needs enough flags that the call site stops being readable.
+# The duplication worth removing was in the row builders, not the composition.
+
+
+def opportunity_row(
+    oid: str,
+    symbol: str,
+    *,
+    trading_date: date,
+    first_seen: datetime | None = None,
+    con_id: int = 1,
+    rank: int = 0,
+    exchange: str = "NASDAQ",
+    currency: str = "USD",
+) -> dict[str, Any]:
+    """One `opportunities` row, shaped exactly as `capture.on_scan_tick` writes it."""
+    candidate = Candidate(
+        symbol=symbol, con_id=con_id, exchange=exchange, currency=currency, rank=rank
+    )
+    return opportunity_record(candidate, oid, first_seen or T0, trading_date)
+
+
+def scanner_hit_row(
+    oid: str, symbol: str, *, ts: datetime | None = None, rank: int = 0, con_id: int = 1
+) -> dict[str, Any]:
+    """One `scanner_hits` row, as production writes it."""
+    candidate = Candidate(
+        symbol=symbol, con_id=con_id, exchange="NASDAQ", currency="USD", rank=rank
+    )
+    return scanner_hit_record(oid, candidate, ts or T0)
+
+
+def news_row(
+    oid: str,
+    symbol: str,
+    *,
+    time: str = "2026-06-29 13:45:00.0",
+    provider: str = "DJ-N",
+    headline: str = "h",
+    article_id: str = "a1",
+) -> dict[str, Any]:
+    """One `news` row. The default `time` is a real IBKR timestamp string, so `ts_utc` parses —
+    the hand-written rows used `"t"`, which parses to None and made every recency test blind."""
+    return news_record(
+        oid,
+        symbol,
+        NewsItem(time=time, provider=provider, headline=headline, article_id=article_id),
+    )

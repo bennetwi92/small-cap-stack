@@ -25,7 +25,7 @@ from small_cap_stack.dashboard import (
 )
 from small_cap_stack.report import EodReport, OpportunityAnalysis
 from small_cap_stack.storage import Store
-from tests.support import settings
+from tests.support import news_row, opportunity_row, settings
 
 _DAY = date(2026, 6, 29)
 _TS1 = datetime(2026, 6, 29, 13, 0, tzinfo=UTC)
@@ -37,31 +37,31 @@ def _seed(store: Store) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": "2026-06-29:AZI",
-                "symbol": "AZI",
-                "con_id": 1,
-                "trading_date": _DAY,
-                "first_seen_utc": _TS1,
-                "first_rank": 0,
-            },
-            {
-                "opportunity_id": "2026-06-29:DUD",
-                "symbol": "DUD",
-                "con_id": 2,
-                "trading_date": _DAY,
-                "first_seen_utc": _TS1,
-                "first_rank": 1,
-            },
+            opportunity_row(
+                "2026-06-29:AZI",
+                "AZI",
+                trading_date=_DAY,
+                first_seen=_TS1,
+                con_id=1,
+                rank=0,
+            ),
+            opportunity_row(
+                "2026-06-29:DUD",
+                "DUD",
+                trading_date=_DAY,
+                first_seen=_TS1,
+                con_id=2,
+                rank=1,
+            ),
             # duplicate row (a restart re-opened AZI) — must not double-count
-            {
-                "opportunity_id": "2026-06-29:AZI",
-                "symbol": "AZI",
-                "con_id": 1,
-                "trading_date": _DAY,
-                "first_seen_utc": _TS1,
-                "first_rank": 0,
-            },
+            opportunity_row(
+                "2026-06-29:AZI",
+                "AZI",
+                trading_date=_DAY,
+                first_seen=_TS1,
+                con_id=1,
+                rank=0,
+            ),
         ],
         partition_date=_DAY,
     )
@@ -116,14 +116,14 @@ def _seed(store: Store) -> None:
     store.append(
         "news",
         [
-            {
-                "opportunity_id": "2026-06-29:AZI",
-                "symbol": "AZI",
-                "time": "t",
-                "provider": "DJ-N",
-                "headline": "h",
-                "article_id": "a1",
-            }
+            news_row(
+                "2026-06-29:AZI",
+                "AZI",
+                time="t",
+                provider="DJ-N",
+                headline="h",
+                article_id="a1",
+            )
         ],
         partition_date=_DAY,
     )
@@ -268,14 +268,14 @@ def test_open_opportunities_scoped_to_requested_date(tmp_path: Path) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": "2026-06-26:OLD",
-                "symbol": "OLD",
-                "con_id": 9,
-                "trading_date": other,
-                "first_seen_utc": datetime(2026, 6, 26, 13, 0, tzinfo=UTC),
-                "first_rank": 0,
-            }
+            opportunity_row(
+                "2026-06-26:OLD",
+                "OLD",
+                trading_date=other,
+                first_seen=datetime(2026, 6, 26, 13, 0, tzinfo=UTC),
+                con_id=9,
+                rank=0,
+            )
         ],
         partition_date=other,
     )
@@ -378,14 +378,14 @@ def test_build_charts_shares_float_and_news_across_runs(tmp_path: Path) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": oid,
-                "symbol": "RUN",
-                "con_id": 3,
-                "trading_date": _DAY,
-                "first_seen_utc": _TS1,
-                "first_rank": 0,
-            }
+            opportunity_row(
+                oid,
+                "RUN",
+                trading_date=_DAY,
+                first_seen=_TS1,
+                con_id=3,
+                rank=0,
+            )
         ],
         partition_date=_DAY,
     )
@@ -407,14 +407,14 @@ def test_build_charts_shares_float_and_news_across_runs(tmp_path: Path) -> None:
     store.append(
         "news",
         [
-            {
-                "opportunity_id": oid,
-                "symbol": "RUN",
-                "time": "t",
-                "provider": "DJ-N",
-                "headline": "h",
-                "article_id": "a1",
-            }
+            news_row(
+                oid,
+                "RUN",
+                time="t",
+                provider="DJ-N",
+                headline="h",
+                article_id="a1",
+            )
         ],
         partition_date=_DAY,
     )
@@ -465,14 +465,14 @@ def _seed_full_day(store: Store) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": "2026-06-29:FDY",
-                "symbol": "FDY",
-                "con_id": 9,
-                "trading_date": _FD_DAY,
-                "first_seen_utc": _FD_HIT,
-                "first_rank": 0,
-            }
+            opportunity_row(
+                "2026-06-29:FDY",
+                "FDY",
+                trading_date=_FD_DAY,
+                first_seen=_FD_HIT,
+                con_id=9,
+                rank=0,
+            )
         ],
         partition_date=_FD_DAY,
     )

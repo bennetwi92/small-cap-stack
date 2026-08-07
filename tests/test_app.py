@@ -15,7 +15,7 @@ from small_cap_stack.app import Application
 from small_cap_stack.clock import ET
 from small_cap_stack.config import Settings
 from small_cap_stack.storage import Store
-from tests.support import settings
+from tests.support import opportunity_row, settings
 
 _DAY = date(2026, 7, 2)
 
@@ -30,14 +30,14 @@ def _seed_day(store: Store, day: date) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": f"{day}:AAA",
-                "symbol": "AAA",
-                "con_id": 1,
-                "trading_date": day,
-                "first_seen_utc": ts,
-                "first_rank": 0,
-            }
+            opportunity_row(
+                f"{day}:AAA",
+                "AAA",
+                trading_date=day,
+                first_seen=ts,
+                con_id=1,
+                rank=0,
+            )
         ],
         partition_date=day,
     )

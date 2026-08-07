@@ -23,7 +23,7 @@ from small_cap_stack.report import (
 )
 from small_cap_stack.storage import Store
 from tests.support import T0 as _T0
-from tests.support import settings
+from tests.support import news_row, opportunity_row, settings
 
 # Derived, not restated: the seeded rows are stamped from `_T0`, so a `_DAY` that drifted from
 # it would silently break the news-recency assertions (which compare against this date).
@@ -54,36 +54,36 @@ def _seed(store: Store) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": "2026-06-29:AZI",
-                "symbol": "AZI",
-                "con_id": 1,
-                "trading_date": _DAY,
-                "first_seen_utc": _T0,
-                "first_rank": 0,
-            },
-            {
-                "opportunity_id": "2026-06-29:DUD",
-                "symbol": "DUD",
-                "con_id": 2,
-                "trading_date": _DAY,
-                "first_seen_utc": _T0,
-                "first_rank": 1,
-            },
+            opportunity_row(
+                "2026-06-29:AZI",
+                "AZI",
+                trading_date=_DAY,
+                first_seen=_T0,
+                con_id=1,
+                rank=0,
+            ),
+            opportunity_row(
+                "2026-06-29:DUD",
+                "DUD",
+                trading_date=_DAY,
+                first_seen=_T0,
+                con_id=2,
+                rank=1,
+            ),
         ],
         partition_date=_DAY,
     )
     store.append(
         "news",
         [
-            {
-                "opportunity_id": "2026-06-29:AZI",
-                "symbol": "AZI",
-                "time": "t",
-                "provider": "DJ-N",
-                "headline": "h",
-                "article_id": "a1",
-            },
+            news_row(
+                "2026-06-29:AZI",
+                "AZI",
+                time="t",
+                provider="DJ-N",
+                headline="h",
+                article_id="a1",
+            ),
         ],
         partition_date=_DAY,
     )
@@ -174,14 +174,14 @@ def test_analysis_excludes_after_hours_bars(tmp_path: Path) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": oid,
-                "symbol": "AH",
-                "con_id": 1,
-                "trading_date": _DAY,
-                "first_seen_utc": _T0,
-                "first_rank": 0,
-            }
+            opportunity_row(
+                oid,
+                "AH",
+                trading_date=_DAY,
+                first_seen=_T0,
+                con_id=1,
+                rank=0,
+            )
         ],
         partition_date=_DAY,
     )
@@ -214,14 +214,14 @@ def test_day_opportunities_scoped_to_requested_date(tmp_path: Path) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": "2026-06-26:OLD",
-                "symbol": "OLD",
-                "con_id": 9,
-                "trading_date": other,
-                "first_seen_utc": datetime(2026, 6, 26, 13, 0, tzinfo=UTC),
-                "first_rank": 0,
-            }
+            opportunity_row(
+                "2026-06-26:OLD",
+                "OLD",
+                trading_date=other,
+                first_seen=datetime(2026, 6, 26, 13, 0, tzinfo=UTC),
+                con_id=9,
+                rank=0,
+            )
         ],
         partition_date=other,
     )
@@ -318,14 +318,14 @@ def test_reentry_segments_into_two_runs(tmp_path: Path) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": oid,
-                "symbol": "RUN",
-                "con_id": 3,
-                "trading_date": _DAY,
-                "first_seen_utc": _T0,
-                "first_rank": 0,
-            }
+            opportunity_row(
+                oid,
+                "RUN",
+                trading_date=_DAY,
+                first_seen=_T0,
+                con_id=3,
+                rank=0,
+            )
         ],
         partition_date=_DAY,
     )
@@ -367,14 +367,14 @@ def test_bull_flag_true_when_setup_forms_then_breaks_out_midwindow(tmp_path: Pat
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": oid,
-                "symbol": "MID",
-                "con_id": 1,
-                "trading_date": _DAY,
-                "first_seen_utc": _T0,
-                "first_rank": 0,
-            }
+            opportunity_row(
+                oid,
+                "MID",
+                trading_date=_DAY,
+                first_seen=_T0,
+                con_id=1,
+                rank=0,
+            )
         ],
         partition_date=_DAY,
     )
@@ -426,14 +426,14 @@ def test_news_attributed_to_run_by_publish_time(tmp_path: Path) -> None:
     store.append(
         "opportunities",
         [
-            {
-                "opportunity_id": oid,
-                "symbol": "RUN",
-                "con_id": 3,
-                "trading_date": _DAY,
-                "first_seen_utc": _T0,
-                "first_rank": 0,
-            }
+            opportunity_row(
+                oid,
+                "RUN",
+                trading_date=_DAY,
+                first_seen=_T0,
+                con_id=3,
+                rank=0,
+            )
         ],
         partition_date=_DAY,
     )
@@ -476,14 +476,14 @@ def test_news_recent_flags_today_or_yesterday(tmp_path: Path) -> None:
         store.append(
             "opportunities",
             [
-                {
-                    "opportunity_id": oid,
-                    "symbol": sym,
-                    "con_id": 1,
-                    "trading_date": _DAY,
-                    "first_seen_utc": _T0,
-                    "first_rank": 0,
-                }
+                opportunity_row(
+                    oid,
+                    sym,
+                    trading_date=_DAY,
+                    first_seen=_T0,
+                    con_id=1,
+                    rank=0,
+                )
             ],
             partition_date=_DAY,
         )
