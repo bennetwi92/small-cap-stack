@@ -45,7 +45,7 @@ from .runner import (
 from .source import HarvestError, MassiveSource
 
 
-def _now(s: Settings) -> datetime:
+def _now() -> datetime:
     """The CLI's clock, in one place.
 
     ``run_harvest`` takes a ``now_fn`` and defaults it to its own ``datetime.now(UTC)``. Letting it
@@ -143,7 +143,7 @@ def cmd_status(s: Settings, args: argparse.Namespace) -> int:
     live = _live_dates(s)
     pending = _plan(s, today, cp.done, live, cp)
     daily_pending = _plan(s, today, cp.daily_done, live, cp)
-    now = _now(s)
+    now = _now()
     win = _window(s)
     _print(
         {
@@ -191,10 +191,8 @@ def cmd_daily(s: Settings, args: argparse.Namespace) -> int:
         return 0
     source = MassiveSource.from_env(rate_sleep_sec=s.harvest_rate_sleep_sec)
     win = _window(s)
-    deadline = None if args.ignore_window else effective_deadline(win, s, _now(s))
-    results = harvest_daily(
-        source, store, s, todo, checkpoint=cp, deadline=deadline, now_fn=lambda: _now(s)
-    )
+    deadline = None if args.ignore_window else effective_deadline(win, s, _now())
+    results = harvest_daily(source, store, s, todo, checkpoint=cp, deadline=deadline, now_fn=_now)
     _print(
         {
             "phase": "daily",
@@ -224,7 +222,7 @@ def _window_blocks(s: Settings, args: argparse.Namespace) -> int | None:
             file=sys.stderr,
         )
         return 2
-    now = _now(s)
+    now = _now()
     if not args.ignore_window and not win.is_open(now):
         print(
             f"refusing to start at {now:%H:%M} ET — the harvest window is {win.describe()}. "
@@ -253,7 +251,7 @@ def cmd_run(s: Settings, args: argparse.Namespace) -> int:
         window=_window(s),
         ignore_window=args.ignore_window,
         max_sessions=args.limit,
-        now_fn=lambda: _now(s),
+        now_fn=_now,
         on_session=_session_reporter(s),
     )
     _print(
@@ -291,14 +289,14 @@ def cmd_auto(s: Settings, args: argparse.Namespace) -> int:
     store = harvest_store(s)
     source = MassiveSource.from_env(rate_sleep_sec=s.harvest_rate_sleep_sec)
     win = _window(s)
-    deadline = effective_deadline(win, s, _now(s))
+    deadline = effective_deadline(win, s, _now())
 
     daily_todo = sorted(_plan(s, today, cp.daily_done, live, cp))
     daily_results = []
     if daily_todo:
         print(f"phase 1: {len(daily_todo)} sessions need a universe", file=sys.stderr)
         daily_results = harvest_daily(
-            source, store, s, daily_todo, checkpoint=cp, deadline=deadline, now_fn=lambda: _now(s)
+            source, store, s, daily_todo, checkpoint=cp, deadline=deadline, now_fn=_now
         )
 
     # Re-plan against the checkpoint phase 1 just updated, so a session whose universe landed
@@ -313,7 +311,7 @@ def cmd_auto(s: Settings, args: argparse.Namespace) -> int:
         window=win,
         ignore_window=args.ignore_window,
         max_sessions=args.limit,
-        now_fn=lambda: _now(s),
+        now_fn=_now,
         on_session=_session_reporter(s),
     )
     _print(

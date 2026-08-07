@@ -305,7 +305,7 @@ def _settings_fingerprint(s: Settings) -> str:
     return hashlib.sha256(body.encode()).hexdigest()
 
 
-def _day_fingerprint(store: Store, s: Settings, trading_date: date, settings_fp: str) -> str:
+def _day_fingerprint(store: Store, trading_date: date, settings_fp: str) -> str:
     """Fingerprint the day's extraction inputs: the raw partition files (name/size/mtime) that
     ``extract_day_trades`` reads, plus the settings hash. Append-only immutable parts mean a stable
     fingerprint until a new part lands for the date (a late backfill), which correctly busts it."""
@@ -424,7 +424,7 @@ def _extract_day_trades_cached(
     caller knows just changed is always re-extracted (and its fingerprint refreshed)."""
     if cache_dir is None:
         return extract_day_trades(store, s, trading_date, source=source)
-    fingerprint = _day_fingerprint(store, s, trading_date, settings_fp)
+    fingerprint = _day_fingerprint(store, trading_date, settings_fp)
     path = cache_dir / f"{trading_date.isoformat()}.json"
     if not force:
         cached = _read_candidate_cache(path, fingerprint)

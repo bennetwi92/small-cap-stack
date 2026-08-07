@@ -404,7 +404,7 @@ def write_json_if_changed(path: Path, payload: dict[str, Any]) -> bool:
     """Write ``payload`` only if its content (ignoring ``generated_utc``) differs from disk.
 
     The stats/charts refresh runs on every tick (app.Application._refresh_stats_charts), not just at
-    EOD. Rewriting an unchanged charts.json each tick would bump its ``generated_utc`` and the
+    EOD. Rewriting an unchanged payload each tick would bump its ``generated_utc`` and the
     front-end — which redraws whenever that stamp changes — would reset the user's chart zoom/pan on
     every 60s poll. Skipping no-op writes keeps the published file (and its stamp) stable until the
     underlying data actually changes. Returns True iff it wrote.

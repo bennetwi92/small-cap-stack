@@ -88,8 +88,10 @@ def test_refresh_stats_charts_writes_todays_session_after_bars(tmp_path: Path) -
     stats = tmp_path / "dashboard" / "stats.json"
     assert stats.exists()
     assert json.loads(stats.read_text())["trading_date"] == "2026-07-02"
-    assert (tmp_path / "dashboard" / "charts.json").exists()
-    # The dated review payload + navigation index publish alongside the legacy files (#141).
+    # The undated charts.json is gone (#519) — nothing ever read it; every reader resolves
+    # charts/<date>.json. Asserted absent so a re-add has to argue for itself.
+    assert not (tmp_path / "dashboard" / "charts.json").exists()
+    # The dated review payload + navigation index (#141).
     assert (tmp_path / "dashboard" / "charts" / "2026-07-02.json").exists()
     index = json.loads((tmp_path / "dashboard" / "index.json").read_text())
     assert [d["date"] for d in index["dates"]] == ["2026-07-02"]

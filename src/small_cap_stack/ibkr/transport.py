@@ -84,7 +84,13 @@ class IBKRTransport:
     def _on_ib_disconnected(self) -> None:
         self._disconnected.set()
 
-    def _on_ib_error(self, reqId: int, code: int, msg: str, *_: object) -> None:
+    def _on_ib_error(
+        self,
+        reqId: int,  # noqa: ARG002 — ib_async errorEvent signature
+        code: int,
+        msg: str,  # noqa: ARG002 — ib_async errorEvent signature
+        *_: object,
+    ) -> None:
         action = classify_connection_error(code)
         if action is ConnAction.RESUBSCRIBE:
             self._data_farm_ok = True  # 1101: link restored (feed live again; nothing to replay)

@@ -640,7 +640,7 @@ def test_paper_trade_records_the_risk_it_actually_took() -> None:
     # _win_cand: entry 10 / stop 9 -> risk/sh $1. At $500 open equity the 5% budget buys 25 shares
     # and the 50% cap allows 25 -> a tie, so risk binds and the full $25 budget is spent.
     s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
-    trades, _sk = _take_day(date(2026, 7, 1), [_win_cand("W")], 500.0, s, 2.0, 0.0)
+    trades, _sk = _take_day([_win_cand("W")], 500.0, s, 2.0, 0.0)
     (t,) = trades
     assert (t.qty, t.sized_by) == (25, "risk")
     assert (t.risk_fraction, t.risk_usd, t.risk_pct) == (0.05, 25.0, 0.05)
@@ -652,7 +652,7 @@ def test_paper_trade_records_cap_bound_risk_well_under_the_ceiling() -> None:
     # trade row has to say so rather than repeating the ceiling.
     s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
     cand = _cand("SUNE", 5, 10.0, 9.84, [_bar(10, 10.5, 9.9, 10.4)])  # risk/sh $0.16
-    trades, _sk = _take_day(date(2026, 7, 1), [cand], 500.0, s, 2.0, 0.0)
+    trades, _sk = _take_day([cand], 500.0, s, 2.0, 0.0)
     (t,) = trades
     assert t.sized_by == "cap"
     assert t.qty == 25  # cap floor(250/10)=25, vs risk floor(25/0.16)=156
@@ -665,9 +665,7 @@ def test_paper_trade_risk_fraction_follows_the_throttled_rung() -> None:
     # On a throttled day risk_fraction must be the RUNG, not the configured ceiling — otherwise the
     # trade log would claim 5% on a day the kill-switch deliberately halved the size.
     s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
-    trades, _sk = _take_day(
-        date(2026, 7, 1), [_win_cand("W")], 500.0, s, 2.0, 0.0, risk_fraction=0.025
-    )
+    trades, _sk = _take_day([_win_cand("W")], 500.0, s, 2.0, 0.0, risk_fraction=0.025)
     (t,) = trades
     assert t.risk_fraction == 0.025
     assert (t.qty, t.risk_usd, t.risk_pct) == (12, 12.0, 0.024)  # floor(12.50/1)=12 shares
@@ -1886,7 +1884,7 @@ def test_throttled_sitout_is_logged_as_throttled_not_cap_or_unaffordable() -> No
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
 
-    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
+    trades, skipped = _take_day(cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
 
     assert trades == []
     assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [
@@ -1916,7 +1914,7 @@ def test_take_day_selection_follows_select_day(monkeypatch: pytest.MonkeyPatch) 
         "small_cap_stack.portfolio.sim._select_day",
         lambda cands, s: sorted(cands, key=lambda c: c.trigger_at)[:1],
     )
-    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0)
+    trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0)
 
     assert [t.symbol for t in trades] == ["AAA"]  # followed the selector...
     assert [sk.symbol for sk in skipped] == ["BBB", "CCC"]  # ...and the rest is the remainder
@@ -1934,7 +1932,7 @@ def test_throttled_rung_sizing_to_zero_is_not_called_unaffordable() -> None:
     s = _s()
     assert size_position(500.0, 20.0, 5.0, risk_fraction=0.025, max_position_fraction=0.5).qty == 0
 
-    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0, risk_fraction=0.025)
+    trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0, risk_fraction=0.025)
 
     assert trades == []
     # Throttled, not unaffordable — the book could afford it at full risk. Recorded either way,
@@ -1948,7 +1946,7 @@ def test_unaffordable_still_recorded_at_full_risk() -> None:
     cands = [_cand("AAA", 5, 10.0, 9.0, win)]
     s = _s()
 
-    trades, skipped = _take_day(date(2026, 7, 14), cands, 5.0, s, 2.0, 0.0)
+    trades, skipped = _take_day(cands, 5.0, s, 2.0, 0.0)
 
     assert trades == []
     assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [("AAA", "unaffordable")]
@@ -1971,7 +1969,7 @@ def test_every_candidate_leaves_by_exactly_one_door() -> None:
     s = _s()
 
     for rf in (0.0, 0.025, 0.05):
-        trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0, risk_fraction=rf)
+        trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0, risk_fraction=rf)
         seen = [t.symbol for t in trades] + [sk.symbol for sk in skipped]
         assert sorted(seen) == ["AAA", "BBB", "CCC"], rf
         assert len(seen) == len(set(seen)), rf  # and never through two doors at once
@@ -2009,7 +2007,7 @@ def test_rung_zero_day_does_not_blame_the_daily_cap() -> None:
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand(x, i + 5, 10.0, 9.0, win) for i, x in enumerate(["AAA", "BBB", "CCC"])]
 
-    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
+    trades, skipped = _take_day(cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
 
     assert trades == []
     assert [sk.symbol for sk in skipped] == ["AAA", "BBB", "CCC"]
@@ -2030,7 +2028,7 @@ def test_take_day_tolerates_a_non_prefix_selector(monkeypatch: pytest.MonkeyPatc
         lambda cs, st: [c for c in sorted(cs, key=lambda c: c.trigger_at) if c.symbol != "BBB"],
     )
 
-    trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0)
+    trades, skipped = _take_day(cands, 500.0, _s(), 2.0, 0.0)
 
     assert [t.symbol for t in trades] == ["AAA", "CCC"]
     assert [sk.symbol for sk in skipped] == ["BBB"]  # the real drop, not CCC
@@ -2043,7 +2041,7 @@ def test_skipped_is_returned_in_trigger_order() -> None:
     cands = [_cand(x, i + 5, 10.0, 9.0, win) for i, x in enumerate(["AAA", "BBB", "CCC"])]
     s = _s(portfolio_max_trades_per_day=2, portfolio_start_equity_usd=20.0)
 
-    _, skipped = _take_day(date(2026, 7, 14), cands, 20.0, s, 2.0, 0.0)
+    _, skipped = _take_day(cands, 20.0, s, 2.0, 0.0)
 
     triggers = [sk.trigger_at for sk in skipped]
     assert triggers == sorted(triggers)

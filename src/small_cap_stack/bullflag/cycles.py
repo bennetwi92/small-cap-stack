@@ -105,7 +105,9 @@ def significant_cycles(
 
 
 def contiguous_prior_cycles(
-    bars: Sequence[Bar], sig_cycles: Sequence[Cycle], pole_base_idx: int
+    bars: Sequence[Bar],  # noqa: ARG001 — symmetry with the module; see the docstring
+    sig_cycles: Sequence[Cycle],
+    pole_base_idx: int,
 ) -> list[Cycle]:
     """The prior cycles that count toward exhaustion, in chronological order: the contiguous run of
     significant cycles abutting the pole (walking back, ``<= 1`` bar gap; the first gap ends it).
