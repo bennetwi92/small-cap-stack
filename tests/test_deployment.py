@@ -320,6 +320,98 @@ def test_harvest_script_reasserts_the_container_data_path_over_the_env_file() ->
     assert "-e HEALTHCHECKS_PING_URL=" in sh
 
 
+# ------------------------------------------------------------- every job is bounded (#544)
+
+
+def _workflow_jobs() -> list[tuple[str, str, str, int | None]]:
+    """(workflow, job, runs-on, timeout-minutes) for every job in `.github/workflows`.
+
+    Hand-parsed rather than via PyYAML, which is not a dependency of this project and would be one
+    added solely for a test. The shape it relies on — two-space job keys, four-space job settings —
+    is pinned by `test_the_job_inventory_is_not_empty`, so a reformat that broke it fails loudly
+    rather than making every check below vacuous.
+    """
+    out: list[tuple[str, str, str, int | None]] = []
+    wf_dir = ROOT / ".github" / "workflows"
+    for path in sorted([*wf_dir.glob("*.yml"), *wf_dir.glob("*.yaml")]):
+        in_jobs = False
+        job = runs_on = ""
+        timeout: int | None = None
+        for line in path.read_text().splitlines():
+            if re.match(r"^jobs:\s*$", line):
+                in_jobs = True
+                continue
+            if not in_jobs:
+                continue
+            # Trailing comments and quoted keys were a SILENT bypass: the job vanished from
+            # the inventory AND its `runs-on` was then attributed to the previous job, so the
+            # all(runs_on) backstop was satisfied by a stolen value. Every job in these files
+            # carries comments, so this is the realistic shape, not a hypothetical one.
+            if m := re.match("^  [\"']?([\\w-]+)[\"']?:\\s*(?:#.*)?$", line):
+                if job:  # a new job key closes the previous one
+                    out.append((path.name, job, runs_on, timeout))
+                job, runs_on, timeout = m.group(1), "", None
+            elif m := re.match(r"^    runs-on:\s*(.+?)\s*$", line):
+                runs_on = m.group(1)
+            elif m := re.match(r"^    timeout-minutes:\s*(\d+)", line):
+                timeout = int(m.group(1))
+        if job:  # and end-of-file closes the last — the case a sentinel line got wrong
+            out.append((path.name, job, runs_on, timeout))
+    return out
+
+
+def test_every_workflow_contributes_to_the_job_inventory() -> None:
+    """The guards below are only as good as the parse, so pin the parse itself.
+
+    Not a `len(jobs) >= N` floor: with 13 jobs that tolerates a whole workflow being deleted
+    silently (#377 deleted a batch, so it happens), and then fails spuriously on the *second*
+    deletion with a message that reads like a parser break rather than an intentional change.
+    Per-file coverage binds regardless of how many workflows exist.
+    """
+    wf_dir = ROOT / ".github" / "workflows"
+    files = {p.name for p in [*wf_dir.glob("*.yml"), *wf_dir.glob("*.yaml")]}
+    jobs = _workflow_jobs()
+    parsed = {wf for wf, _, _, _ in jobs}
+    assert parsed == files, (
+        f"the job parser missed {sorted(files - parsed)} entirely — every workflow defines at "
+        f"least one job, so a file contributing none means the parse broke, and the timeout "
+        f"guards below would pass vacuously for it."
+    )
+    # A job whose `runs-on` is empty means the parser lost its place mid-file, which previously
+    # let a following job's value be attributed to the one before it.
+    assert all(runs_on for _, _, runs_on, _ in jobs), f"a job has no runs-on: {jobs}"
+
+
+def test_every_job_has_a_timeout() -> None:
+    """GitHub's default is 360 minutes, and there is exactly ONE self-hosted runner.
+
+    A hung job holds it and every other workflow queues behind — which is how an OOM-killed
+    backfill took CI offline for 5h37m (#264). `harvest.yml` already carried this reasoning in a
+    comment while applying it only to itself; #544 applied it everywhere.
+    """
+    untimed = [f"{wf}:{job} ({runs_on})" for wf, job, runs_on, t in _workflow_jobs() if t is None]
+    assert not untimed, "these jobs can run for GitHub's default 360 minutes:\n" + "\n".join(
+        untimed
+    )
+
+
+def test_box_jobs_are_bounded_well_below_the_harvest_window() -> None:
+    """The box's jobs must not be able to run into each other.
+
+    The harvest owns 12:30–03:00 ET and stops itself clear of the 03:45 `eod_backfill`. A
+    non-harvest job on the box that could run for hours would defeat that scheduling, so they are
+    capped at 30 minutes — comfortably above their observed p95 (deploy 0.9 min, publish 0.5).
+    """
+    over = [
+        f"{wf}:{job} = {t}m"
+        for wf, job, runs_on, t in _workflow_jobs()
+        if "self-hosted" in runs_on and wf != "harvest.yml" and (t is None or t > 30)
+    ]
+    assert not over, "box jobs (other than the harvest) must be capped at <= 30 min:\n" + "\n".join(
+        over
+    )
+
+
 # --------------------------------------------- on-demand jobs get their own cgroup (#545)
 
 #: Workflows that run work against the box's store on demand, and the label each passes.

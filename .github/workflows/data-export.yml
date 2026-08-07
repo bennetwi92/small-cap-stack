@@ -78,6 +78,8 @@ jobs:
     # Repository guard: box job runs only in THIS repo, never a fork (#333, A1 lockdown).
     if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
     runs-on: [self-hosted, vps]
+    # A hang holds the single vps runner and CI queues behind it (#544). arbitrary user SQL over the store; bounded, not predicted.
+    timeout-minutes: 30
     steps:
       - name: Check out the exporter at the requested ref
         uses: actions/checkout@v7

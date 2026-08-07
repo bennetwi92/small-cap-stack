@@ -70,6 +70,8 @@ jobs:
     # Repository guard: box jobs run only in THIS repo, never a fork (#333, A1 lockdown).
     if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
     runs-on: [self-hosted, vps]
+    # A hang holds the single vps runner and CI queues behind it (#544). as deploy.yml.
+    timeout-minutes: 25
     steps:
       # Composite actions resolve from the workspace, so the action directory must exist locally.
       # Sparse: these jobs otherwise never check out — they operate on /opt/small-cap-stack.
@@ -90,6 +92,8 @@ jobs:
     needs: deploy
     if: ${{ github.repository == 'bennetwi92/small-cap-stack' && !inputs.skip_backfill }}
     runs-on: [self-hosted, vps]
+    # A hang holds the single vps runner and CI queues behind it (#544). as backfill-dashboard.yml.
+    timeout-minutes: 30
     steps:
       # A FULL checkout, deliberately: the `deploy` job above sparse-checks-out only
       # `.github/actions` and runs `git clean -ffdx` in this same shared workspace, so
@@ -138,6 +142,8 @@ jobs:
     needs: [deploy, backfill]
     if: ${{ always() && github.repository == 'bennetwi92/small-cap-stack' && needs.deploy.result == 'success' && needs.backfill.result != 'failure' }}
     runs-on: [self-hosted, vps]
+    # A hang holds the single vps runner and CI queues behind it (#544). as publish-dashboard.yml.
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
