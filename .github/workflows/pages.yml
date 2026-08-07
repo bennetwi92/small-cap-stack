@@ -1,0 +1,61 @@
+name: pages
+
+# Publishes the dashboard frontend (`docs/`) to GitHub Pages.
+#
+# This replaces the GitHub-managed `pages-build-deployment` workflow that runs under
+# `build_type: legacy`. Nothing about the *site* changes — same source directory, same URL. What
+# changes is the client that waits on GitHub's publish step, because that is the only part of the
+# failure we own (#486):
+#
+#   * the managed workflow hard-codes `actions/deploy-pages`'s `timeout` at 600000 (10 min) and
+#     aborts the deployment when the publish overruns it. Publishes that took 17–50 s until
+#     2026-08-05 have been taking 200–580 s since, and one succeeded with 22 seconds to spare —
+#     so a slow publish was being turned into a failed one. Ours waits 30 minutes.
+#   * the managed workflow cancels an in-flight deploy when a newer commit lands. With deploys
+#     taking ~10 minutes and PRs merging ~10 minutes apart, a normal working session cancelled its
+#     own deploys. Ours queues instead: a late deploy still ships, a cancelled one never does.
+#
+# It does NOT make the publish faster — only GitHub can do that.
+
+on:
+  push:
+    branches: [main]
+    # Pages serves `docs/` and nothing else, so only a change there (or here) needs a deploy.
+    # Fewer deploys is also the right posture while each one takes minutes.
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+# Least-privilege, plus what deploy-pages needs: `pages: write` to publish and `id-token: write`
+# for the OIDC token it exchanges for the deployment.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: build-and-deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/configure-pages@v5
+
+      # `docs/` is ~520 KB of static files — no build step, no Jekyll (`docs/.nojekyll`).
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
+        with:
+          timeout: 1800000 # 30 min — see the header; the managed workflow's 10 was the bug

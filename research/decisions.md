@@ -329,6 +329,36 @@ in P2). Locks the following execution parameters (chosen by the user 2026-07-15)
   it moot)~~ **(reversed 2026-07-16, #239 — an adaptive risk throttle / kill-switch was added; see
   below.)** A hard **≤2 open / ≤2 entries-per-day guard** is kept as idempotency against a
   reconnect/detection bug over-firing.
+  - **All history, and a margin before switching (AMENDED 2026-08-06, #476).** Two changes, both
+    from the same report as #474. (1) **`portfolio_adaptive_window_days` → `None`.** A trailing
+    window is itself a regime bet — with a stationary distribution you would use every trade. Its
+    length trades estimation error (longer is better) against regime staleness (shorter is better),
+    and at n=13 we are overwhelmingly in the estimation-error half, so discarding trades to stay
+    current buys nothing. Shorten it again only when drift is something we can *measure*.
+    (2) **`portfolio_target_switch_z` = 1.0.** The fit was a raw argmax over four noisy means; a
+    pick other than the fallback must now clear one standard error of **paired** edge before the
+    book acts on it. Paired is both the correct test and far more powerful, because the same trades
+    are scored under both exit rules and the per-trade variance largely cancels: against the 2.0R
+    fallback on 13 trades, 1.5R is decisive at z=−4.38 while 2.5R (−0.89) and 3.0R (−0.84) are
+    merely undecided. On the current data the gate changes no historical decision — the fit's pick
+    never differed from the fallback on any of the 10 days it ran — so it is a guard for the future
+    bought at no cost. A zero-variance edge is scored as ±∞σ, not as an unmeasurable one: a
+    deterministic improvement is the *strongest* evidence, and dividing by a zero SE would block
+    exactly the switches most clearly justified. Three states are now published and rendered —
+    `fitted`, `thin` (never ran), `margin` (ran, not proven) — because "no evidence yet" and
+    "evidence too weak" point at different fixes.
+  - **Window widened 20 → 40 calendar days (AMENDED 2026-08-06, #463; superseded by #476 above).** "Window length is a tunable
+    parameter" turned out to be load-bearing: at 20 days the re-fit **never ran once**. The live
+    book takes ~13 candidates per 36 calendar days, so a 20-day window held at most **7** against a
+    `min_samples` of **8** — permanently one short. Every day of the book's published history, and
+    the target advertised for the next session, was the **2.0R fallback** while the page called it
+    a re-fitted target. 40 days (≈28 trading days) holds ~14 at the current arrival rate. Slower
+    response to regime drift is the accepted cost. `min_samples` deliberately did **not** move —
+    firing sooner by fitting a target on 5 trades buys a number, not evidence. The fix that keeps
+    this from recurring is the instrumentation, not the constant: `TargetFit` now carries
+    `fitted` + `trailing_n` through `daily_targets` and `next_session`, and both the portfolio and
+    plan pages render **FITTED vs FALLBACK** explicitly. Note the arrival rate, not the window, is
+    the real constraint — as the harvest deepens the sample this may want revisiting again.
 
 Deliverable: a typed, exhaustively-tested simulator in `src/small_cap_stack/` (per CLAUDE.md, this is
 trading logic — the product), a `portfolio.json` export to the `dashboard-data` branch, and a thin
@@ -430,6 +460,38 @@ loss-based kill-switch for now — 2 trades/day makes it moot"); this decision a
   page as a `daily_risk` series + a note, and exhaustively unit-tested (per CLAUDE.md). The
   settled-cash invariant is untouched: the throttle only ever sizes ≤ the existing 5% target, and
   the 50% notional cap remains the binding upper bound.
+
+### ⚠️ REVERSED 2026-08-06 (#474) — the throttle ships OFF (`portfolio_risk_rungs=1`)
+
+The decision above was never tested against data; it was adopted on the reasoning that exposure
+*should* track how hot the market is. Measured on the first 29 sessions (13 trades, 12 active days)
+in the report *"Does past behaviour predict future performance?"* (`docs/reports/`, 2026-08-06), the
+premise does not hold and the machinery is not free:
+
+- **The premise is a bet on serial correlation of daily results, and none is detectable.** Lag-1
+  autocorrelation of daily R: **+0.31**, permutation p=**0.27**, CI −0.32…+0.75. Conditioning on
+  *two* up days (+0.98R) is **worse** than on one (+1.23R) — the wrong shape for momentum. The
+  down-trigger has fired once in the book's life; the next day was +2.00R.
+- **Absent that correlation it is a structural drag, not a neutral guard.** Over 500
+  calendar-preserving shuffles — day order permuted, trade population preserved, so serial
+  correlation is zero *by construction* — the ladder cost a mean **$22.35**, losing on **291**
+  shuffles and winning on **72**. The mechanism is arithmetic, not luck: fixed-fractional sizing
+  already de-risks after a loss (5% of a smaller balance is fewer dollars), and the ladder cuts a
+  *second* time on the same information. Kelly sizes on current equity, not on recent streaks.
+- **On the live path** it cost **$32.84** (5.3% of the book) and bought **0.01pp** of drawdown,
+  having de-risked into the two best days in the sample.
+- Under the null it does buy **0.83pp** of drawdown reduction — real insurance, honestly measured.
+  The premium is ~**3.5% of the book per month**, which is a bad price for a small compounding
+  account. That trade is the whole decision; it is not a claim that the ladder does nothing.
+
+**Nothing is deleted.** `risk_ladder` / `step_risk_rung` / `_day_signal_r` stay implemented and
+exhaustively tested (the ladder tests now pin `portfolio_risk_rungs=3` explicitly), so re-enabling is
+a one-line config change. The bar for that is a sample which can *detect* the effect: ~85 active days
+for an autocorrelation of 0.3, against the 12 we have.
+
+If capital preservation is still wanted — and it reasonably might be — the right shape is a
+**drawdown circuit-breaker** (cut risk when equity falls X% from its high-water mark), which is a
+statement about ruin and needs no autocorrelation premise to justify itself. Not adopted here.
 
 ## Ledger gap-months + the skipped log's two populations (DECISION 2026-07-16, #249/#251 — refines #230/#232/#239)
 
@@ -673,10 +735,12 @@ Phase-1's deliverable is what the tracker actually saw, so it is preserved as-is
 Consequences of the same reasoning:
 
 - **The forward projection stays live-only.** It answers "what will *my account* do", so it must
-  resample observed returns. #428 proved the reconstruction cannot reproduce the IBKR 50-row rank
-  cap per-symbol (SNDQ passed every gate from 04:27 at a *higher* price than at its 08:35 live
-  appearance — only capacity explains that), so a reconstructed-heavy history describes a universe
-  we never had. It also keeps a second 500-path × 252-day Monte Carlo per target off the 2-vCPU box.
+  resample observed returns. A reconstructed-heavy history describes a universe we never had.
+  ⚠️ **AMENDED 2026-08-06 (#460):** the stated mechanism was wrong. This said "only capacity
+  explains" SNDQ's late live appearance; measurement says the 50-row cap has **never bound** (max 45
+  symbols in a tick across 20 live days, and **11** in pre-market). The divergence is real but comes
+  from appearance *timing* — most likely #433's change-percent reference price — not capacity. The
+  decision stands; the reason is corrected. It also keeps a second 500-path × 252-day Monte Carlo per target off the 2-vCPU box.
 - **Live wins on any overlapping date.** The #428 calibration days sit in both stores; live is the
   ground truth the reconstruction is measured against, so the harvested copy is dropped (and the
   drop is counted in the payload's `coverage` block, not silently swallowed).
@@ -701,3 +765,190 @@ full night runs.
 on the merits — it remains the correct escape hatch if the sample is wanted sooner, and flat files
 remain the right answer for any future harvest wider than two years. Nothing here forecloses
 either: the store layout and the portfolio's provenance split are the same whichever path fills them.
+
+## 2026-08-04 — The harvest runs as a memory-capped nightly job, not a batch (#431)
+
+**Decision: the producer for #430's store is a systemd-timed, containerised, checkpointed nightly
+run — `src/small_cap_stack/harvest/`, driven by `python -m small_cap_stack.harvest`.** #430 decided
+*what* to buy (free tier, REST, no purchase, newest-first); this decides *how it is allowed to run
+on a box that has already killed itself once*.
+
+**Three guards, in layers, because none of them alone is sufficient.**
+1. **Streaming** — one session, one symbol at a time; bars are derived to rows and dropped before
+   the next symbol. Peak resident set is one symbol-day of minute bars plus one session's rows, and
+   it does not grow with the number of sessions harvested. That is the #273 failure mode designed
+   against rather than promised away.
+2. **A window the job refuses to run outside** — ⚠️ **AMENDED 2026-08-05 (#455): 12:30→03:00 ET**,
+   from 17:00→03:00. At the free tier the harvest's calendar is set purely by hours-per-day, and
+   12:00–16:20 ET is the only block of the box's day nothing is scheduled in — worth ~4.5 hours,
+   taking ~40 nights to ~27. Still hard-stopping at 03:00, clear of the 03:45 `eod_backfill` and
+   the 04:00 scan window. Being *launched* at the right time and *refusing* the wrong one are
+   different guarantees; a late timer, a manual re-run or an overrun only trips the second.
+   Overriding takes two deliberate flags (#261's principle).
+   **The widened window spans the two EOD jobs, so it needed a third bound: `harvest_eod_recess_et`
+   (16:10).** The reviewed-away assumption was that `HostGuard` would cover this. It cannot — the
+   guard is checked once per *session*, and a session is ~47 min, so a 12:30 start puts session
+   boundaries at 15:38 and 16:25 and the harvest is *inside* a session, holding 1 GB with no swap,
+   across both EOD jobs while `build_portfolio_payload` runs. A deadline is enforced between
+   symbols and by the "don't start what you cannot finish" pre-check, so it bounds where the
+   container can still be *running*; the guard only bounds where a new session may *begin*.
+3. **A cgroup limit the kernel enforces** — a separate `docker run --memory=1g` with swap disabled
+   and `--oom-score-adj=800`. Deliberately **not** `docker exec` into the app: sharing the
+   tracker's 2 GB cgroup would spend the tracker's headroom and OOM the tracker instead of the
+   harvest. The in-process host-headroom check stops *at* a checkpoint; the cgroup cap kills
+   *before* the host is at risk. A promise is not a limit.
+   ⚠️ **AMENDED 2026-08-05 (#452):** the limits live on **`scs-harvest.slice`** with
+   `--cgroup-parent`, not on the service unit, and the deprioritisation is `CPUWeight`/`IOWeight`,
+   not ~~`nice -n 19`/`ionice` idle~~. `docker run` hands container creation to the daemon, so the
+   container landed in `/system.slice/docker-….scope` — the unit's `MemoryMax` bounded a ~15 MB
+   docker client and the `nice` prefix deprioritised a process blocked on a socket. Measured, and
+   verified by having the kernel kill a container given no `--memory` of its own inside a 64 M
+   slice.
+
+**A session is atomic.** Each dataset lands in one parquet file written at session end, and the
+checkpoint is marked after. So a kill — hard stop, OOM, hard reboot — leaves the date with no files
+and unclaimed, and the next run discards any leftovers before redoing it. The alternative fails
+silently: a half-written day extracts perfectly well, just from half the symbols, and nothing
+downstream could tell. One file per `dt=` partition is also what keeps read cost sane
+(#318/#319/#321).
+
+**Deviation from the issue, deliberate: the stored 5-min bars span the FULL session, not just
+pre-market.** #431 asked for pre-market only to bound the payload, but the vendor returns a whole
+session per request — so trimming saves storage, not API budget, and the budget is the scarce
+thing. Truncating at 09:30 would have cost accuracy for nothing: `portfolio.exit.simulate_exit`
+marks an unresolved trade to the *last bar it can see*, so every still-open 09:10 entry would close
+at 09:25 and be reported as that trade's result — a silent downward bias on exactly the trades that
+were working. The restriction is kept where it does buy something: the raw **1-min** series is
+stored pre-market only (~330 rows/symbol-day), because that is all the appearance reconstruction
+reads.
+
+**The reconstruction primitives moved from `spikes/` into the package.** They are a producer now —
+500 sessions written into the store the paper book reads — and spikes are exempt from mypy and the
+test suite. The spikes import them back rather than keeping a copy, so #428's calibration measures
+exactly the code the box runs; a second copy is how the evidence quietly stops describing the
+output.
+
+**Still not modelled, and it bounds what the harvest is evidence *for*:** the appearance *time*.
+⚠️ **AMENDED 2026-08-06 (#460):** this originally named the IBKR 50-row rank cap and cited #428 as
+having shown it load-bearing. Measured across 20 live days the cap has **never bound** — 45 symbols
+in the busiest tick, **11** in pre-market, zero ticks at 50 — so it explains nothing here. What does
+still differ is *when* a name is surfaced, and #433 is the open question on that (the vendor's daily
+close includes post-market prints IBKR's reference price does not). A reconstructed day can
+therefore still surface setups the live scanner would not have, which is why #430 keeps the two
+stores apart and stamps every trade with `source` — the harvest widens the sample, it does not
+extend the Phase-1 record.
+
+**Unchanged pending measurement:** the day-volume floor stays at 100k. `harvest sweep` measures
+what a tighter floor would cut, against stored rows and for no API calls; run it before the first
+full night (RUNBOOK §13.1). If it halves the candidate set, 45 nights becomes ~23.
+
+## 2026-08-06 — Delegation comes back, alone (#489, amends #377)
+
+**Decision.** One piece of the rolled-back automation layer returns: `claude.yml`, the delegation
+loop. Labelling an issue `agent` dispatches a Claude agent on a **GitHub-hosted** runner, which
+builds the issue on its own branch and opens a PR; `@claude …` on that PR revises it in place; a
+human reads the diff and squash-merges. Model is Sonnet 5.
+
+**Explicitly not returning:** the `/spec` gate, auto-triage, the slash-command control plane, the
+watchdogs, the overnight analyst, the auto-merge risk policy. Liveness remains the Healthchecks
+dead-man's switch (#29). #377's verdict on all of that stands unchanged.
+
+**Why this one and not the rest.** #377's finding was that the layer opened zero PRs — but the
+`claude` workflow was the only part of it whose job was to open PRs at all, and it was never
+actually used that way: it sat behind a `/spec` gate that had to be cleared first. The value here
+isn't automation, it's **concurrency** — three small issues building on hosted runners while the
+Mac session works on the piece that needs judgement. That is a real pain (serial single-session
+throughput) and it is the pain the archived doc's own lesson says to spend on first: *build the one
+piece that removes a real pain, use it for a week, and only then build the second.*
+
+**The triage rule** (the actual deliverable — a workflow nobody knows when to use is #377 again).
+Delegate only when **all four** hold:
+1. `make check` is a sufficient verdict — the hosted runner has no `.env`, no IB Gateway, no box,
+   no `/data`, no `data/recon/`.
+2. The brief is closed-form — exact files, exact behaviour, a named test. **The agent cannot ask a
+   question mid-flight**, so anything needing a mid-course decision is not delegable.
+3. XS or S tier (≤ ~250 lines, ≤ ~5 files). M/L cost more to review than they save in typing.
+4. It isn't the thing being actively iterated on right now.
+
+Engine/strategy work **qualifies** when the brief names the exact rule and the exact test — that
+logic is exhaustively unit-tested, so CI is a real gate there. Deliberately wider than #377's spec
+gate, which failed by fencing off precisely this category. Spikes, reports, review-page
+investigations, deploys/backfills/harvest and anything touching `data/` or IBKR stay in-house.
+
+**Nothing auto-merges.** Branch protection requires `lint-typecheck-test` and zero approvals, so an
+armed auto-merge would put unread agent code on `main`; the human read is the whole safeguard.
+
+**Cost.** These runs draw on the **same Max subscription quota** as the local session — this buys
+wall-clock parallelism, not extra capacity. Hosted-runner minutes are free on a public repo.
+
+**Standard it is held to.** Same one that retired the last layer: if it isn't used within a week,
+delete it. The procedure lives in the `delegate-issue` skill; the CLAUDE.md footprint is capped at
+the one bullet under "How work gets done".
+
+## 2026-08-06 — Reconstructed sessions publish to their OWN chart namespace (#488)
+
+Results only ever listed live-captured dates, so every harvested pre-market session was invisible
+there and a `recon` trade opened in the Portfolio inspector drew no candles. #488 offered two
+shapes for the fix; this is the one taken and why.
+
+**A separate namespace, not a `source` field on the live index.** Reconstructed dates get
+`recon_index.json` + `charts/recon/<date>.json`; `index.json` and `charts/<date>.json` are
+untouched, byte for byte. Tagging rows inside the one index would have made *every* existing
+consumer — Results, the review workbench, anything added later — start returning vendor-derived days
+the moment this landed, silently and with no tag, which is the failure #430 built two stores to
+prevent. Here a reader has to *ask*, exactly as `build_portfolio_payload` has to be handed a
+`recon_store`. The rows carry `source: "recon"` as well, so a future consumer that does merge the
+two indexes still cannot lose the provenance.
+
+**The producer is the harvest, one date at a time, per completed session.** `run`/`auto` publish
+each session's payload as it lands (`harvest charts` is the catch-up path). A session is ~47 minutes
+of rate-limited waiting and one date's charts are seconds of compute, so the work vanishes into a
+budget already dominated by `time.sleep` — whereas batching it to the end of a night would put an
+archive-shaped job exactly where the run is trying to stop clear of the 03:45 `eod_backfill` or the
+16:20 EOD batch. It also inherits the checkpoint's contract: a night killed mid-run has published
+everything it harvested.
+
+**At most `recon_charts_max_dates` (30) sessions are published at once, and eviction is by PUBLISH
+ORDER, not by date.** The cap is about the *publish pipe*, not memory: `publish-dashboard`
+force-pushes the whole `data/dashboard` tree every 15 minutes, and a date's payload is 1.5–3 MB of
+full-day bars — a finished ~500-session harvest would put ~1 GB through that push every quarter of
+an hour and the same again down every browser that opened Results with `+ History`.
+
+⚠️ The *anchor* was wrong in the first cut and it mattered. Capping to the newest 30 **dates** —
+chosen to mirror #449's "the segment contiguous with the live record" — looks reasonable and is
+useless: the harvest walks *backwards*, so once the window filled (~2 nights at ~18 sessions), every
+later session was older than everything already published, fell outside the window, and never
+published at all. ~94% of a finished harvest would have been permanently invisible in Results while
+the per-session hook kept paying for two store reads and an index rewrite to do nothing. Ranking on
+*when we published it* instead makes the window follow the harvest: every morning the page carries
+what last night rebuilt. It also makes every harvested session **reachable** — `harvest charts
+--dates <d>` republishes any date and moves it to the front of the window. The cap now decides how
+much is resident, not which half of the archive exists. The stated cost: a session published two
+nights ago is evicted, so a reader wanting a specific older one has to ask again — a command, where
+the alternative was an impossibility.
+
+Evicted dates are pruned from disk and from the index, and `capped_dates_dropped` says how many — a
+silent truncation would read as "that is all the harvest has". ⚠️ The cap bounds the date *count*,
+not bytes: `harvest_max_candidates` is uncapped, so a busy reconstructed session's payload can run
+well past a live day's. The ~500× arithmetic above is not a measurement; check `du -sh
+/data/dashboard` and the publish job's duration once the first window lands.
+
+**Results fetches the reconstruction only when asked.** The small index is read every load (it is
+what decides whether the DATA control exists at all); the multi-megabyte payloads are fetched on the
+first switch to `+ History` and then filtered, never refetched. Default behaviour is unchanged.
+
+**`harvest charts` takes the container-name lock even though it spends no vendor budget.** It and
+the per-session hook both read-modify-write `recon_index.json`; interleaved, one writes an index
+built from a stale snapshot and orphans the other's payload. That name is the only cross-process
+mutex on the box, so the lock now guards the checkpoint *and* the dashboard artifacts. `charts` also
+does real work (DuckDB + polars + the detector, per date), so it takes the harvest's cgroup slice
+rather than the 512 MB no-slice envelope `status`/`sweep`/`prefilter` use. Relatedly,
+`dashboard.write_json`'s temp file now carries the writer's pid: a fixed `<name>.tmp` is atomic
+against *readers* only, and two writers could `os.replace` a mixed payload under the final name —
+invalid JSON in an artifact the frontend parses on load.
+
+**What a reconstructed day cannot show, stated rather than zeroed:** no float (the vendor sells no
+share count), no news, and no saved review (the workbench annotates live opportunities only, so its
+link is hidden rather than pointed at a page that would load empty). The appearance time is a
+*reconstruction* — the live gates replayed over the minute tape — not an observed scanner hit.
+

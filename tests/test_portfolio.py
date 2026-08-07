@@ -429,10 +429,12 @@ def test_adaptive_falls_back_before_enough_samples_then_refits() -> None:
     from small_cap_stack.portfolio import simulate_portfolio_adaptive
 
     # 6 warm-up days (1 trade each) then a decision day. min_samples=6, window big, grid {1.5,3.0}.
-    # Warm-up trades reach exactly +2R favourable (high 12) then close, so over the trailing window
-    # target 1.5 hits (+1.5R each) and target 3.0 never hits (marks to close at +2R) -> 3.0 wins
-    # expectancy. The decision day must therefore be taken at 3.0, not the 2.0 fallback.
-    reach2 = [_bar(10, 12.0, 9.95, 12.0)]  # favourable to +2R then closes at +2R
+    # Warm-up trades run to +3R (high 13) then close, so over the trailing window target 1.5 banks
+    # +1.5R each and target 3.0 fills for +3R -> 3.0 wins expectancy. It also has to clear the #476
+    # margin gate against the 2.0 fallback: every trade gains exactly +1R by holding to 3R, so the
+    # paired edge is +1.0R with ZERO spread -> a deterministic edge, which the gate scores as
+    # infinitely many standard errors and lets through. The decision day is taken at 3.0.
+    reach2 = [_bar(10, 13.0, 9.95, 13.0)]  # favourable to +3R then closes there
     s = _s(
         portfolio_target_grid=(1.5, 3.0),
         portfolio_adaptive_min_samples=6,
@@ -446,8 +448,11 @@ def test_adaptive_falls_back_before_enough_samples_then_refits() -> None:
     book = simulate_portfolio_adaptive(days, s)
     res, chosen = book.result, book.daily_targets
     per_day = dict(chosen)
-    assert per_day[base] == s.portfolio_target_r  # day 0: no trailing samples -> fallback (2.0)
-    assert per_day[base + timedelta(days=6)] == 3.0  # decision day: re-fit to the best trailing T
+    day0, decision = per_day[base], per_day[base + timedelta(days=6)]
+    assert day0.target_r == s.portfolio_target_r  # day 0: no trailing samples -> fallback (2.0)
+    assert (day0.fitted, day0.trailing_n) == (False, 0)  # ...and it says so (#463)
+    assert decision.target_r == 3.0  # decision day: re-fit to the best trailing T
+    assert (decision.fitted, decision.trailing_n) == (True, 6)
     dec = [t for t in res.trades if t.symbol == "DEC"][0]
     assert dec.target_r == 3.0
 
@@ -501,7 +506,9 @@ def test_best_target_none_when_no_expectancy() -> None:
 
 def test_risk_ladder_shape() -> None:
     # 3 rungs incl. the 0 floor at the 5% default -> (0, 2.5%, 5%).
-    assert risk_ladder(_s()) == (0.0, 0.025, 0.05)
+    assert risk_ladder(_s(portfolio_risk_rungs=3)) == (0.0, 0.025, 0.05)
+    # The SHIPPED default is 1 rung: the throttle is switched off (#474).
+    assert risk_ladder(_s()) == (0.05,)
     assert risk_ladder(_s(portfolio_risk_rungs=1)) == (0.05,)  # 1 rung -> throttle disabled
     assert risk_ladder(_s(portfolio_risk_rungs=2)) == (0.0, 0.05)  # binary kill-switch
     # honours a different max + rung count (evenly spaced).
@@ -550,6 +557,15 @@ def _win_cand(sym: str) -> CandidateTrade:
     return _cand(sym, 5, 10.0, 9.0, [_bar(10, 12.0, 9.95, 12.0)])  # +2R vs risk 1
 
 
+def _win3_cand(sym: str) -> CandidateTrade:
+    """Runs to +3R and closes there — a trade where holding past the 2.0R fallback genuinely pays.
+
+    `_win_cand` tops out at exactly +2R, so under the #476 margin gate a 3.0R target is *identical*
+    to the fallback on it (both exit at +2R, edge 0) and the gate correctly refuses to switch. Tests
+    that need the fit to actually move need a trade with a real edge, which is this one."""
+    return _cand(sym, 5, 10.0, 9.0, [_bar(10, 13.0, 9.95, 13.0)])  # +3R vs risk 1
+
+
 def _loss_cand(sym: str) -> CandidateTrade:
     return _cand(sym, 5, 10.0, 9.0, [_bar(10, 10.3, 8.8, 9.0)])  # stops at -1R
 
@@ -560,6 +576,7 @@ def test_adaptive_risk_eager_step_throttles_down_then_rearms_from_zero() -> None
     # winning would-be setup still re-arms it 0% -> 2.5% -> 5%.
     s = _s(
         portfolio_risk_step_days=1,
+        portfolio_risk_rungs=3,  # the default is 1 (throttle off, #474) — this tests the ladder
         portfolio_adaptive_min_samples=999,
         portfolio_exit_slippage_ticks=0,
     )
@@ -582,7 +599,11 @@ def test_adaptive_risk_eager_step_throttles_down_then_rearms_from_zero() -> None
 def test_adaptive_risk_two_day_step_needs_a_streak() -> None:
     # Default step_days=2: it takes TWO losing days in a row to drop a rung, two wins to climb one.
     # 4 losses then 5 wins: risk holds each level for two days, down and back up.
-    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    s = _s(
+        portfolio_risk_rungs=3,  # default is 1 (throttle off, #474); this tests the ladder
+        portfolio_adaptive_min_samples=999,
+        portfolio_exit_slippage_ticks=0,
+    )
     base = date(2026, 7, 1)
     seq = [_loss_cand(f"L{i}") for i in range(4)] + [_win_cand(f"W{i}") for i in range(5)]
     days = [(base + timedelta(days=i), [c]) for i, c in enumerate(seq)]
@@ -659,7 +680,11 @@ def test_next_session_state_is_forward_looking_not_the_last_collected_day() -> N
     # The bug this exists to kill: the page rendered daily_risk[-1] as "Latest risk". After two
     # losing days the LAST day still traded at 5% (the step applies from tomorrow), so "latest"
     # said 5% while the book was in fact about to size the next setup at 2.5%.
-    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    s = _s(
+        portfolio_risk_rungs=3,  # default is 1 (throttle off, #474); this tests the ladder
+        portfolio_adaptive_min_samples=999,
+        portfolio_exit_slippage_ticks=0,
+    )
     base = date(2026, 7, 1)
     days = [(base + timedelta(days=i), [_loss_cand(f"L{i}")]) for i in range(2)]
     book = simulate_portfolio_adaptive(days, s)
@@ -674,7 +699,11 @@ def test_next_session_state_is_forward_looking_not_the_last_collected_day() -> N
 def test_next_session_state_reports_streak_progress_toward_a_step() -> None:
     # One decisive day at step_days=2: streak -1, so the rung has NOT moved yet and the page can
     # honestly say "one more net-negative day steps risk down".
-    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    s = _s(
+        portfolio_risk_rungs=3,  # default is 1 (throttle off, #474); this tests the ladder
+        portfolio_adaptive_min_samples=999,
+        portfolio_exit_slippage_ticks=0,
+    )
     days = [(date(2026, 7, 1), [_loss_cand("L0")])]
     st = simulate_portfolio_adaptive(days, s).state
     assert st is not None
@@ -705,19 +734,148 @@ def test_next_session_state_target_uses_every_collected_day() -> None:
         portfolio_exit_slippage_ticks=0,
     )
     base = date(2026, 7, 1)
-    days = [(base + timedelta(days=i), [_win_cand(f"W{i}")]) for i in range(6)]
+    days = [(base + timedelta(days=i), [_win3_cand(f"W{i}")]) for i in range(6)]
     book = simulate_portfolio_adaptive(days, s)
-    assert {t for _d, t in book.daily_targets} == {2.0}  # every day fell back
+    assert {f.target_r for _d, f in book.daily_targets} == {2.0}  # every day fell back
+    assert not any(f.fitted for _d, f in book.daily_targets)  # ...and every day is marked as such
     st = book.state
     assert st is not None
-    # _win_cand runs to +2R and CLOSES there: a 1.5R target banks 1.5R, a 3R target never fills and
-    # marks to close at 2R. So the fit picks 3.0 — and either way it is not the 2.0 fallback, which
-    # is the point: the next session re-fits off the 6th day that no collected day could see.
+    assert (st.target_fitted, st.target_trailing_n) == (True, 6)  # the next session does re-fit
+    # _win3_cand runs to +3R: a 1.5R target banks 1.5R, a 3R target fills for 3R. So the fit picks
+    # 3.0, and it clears the #476 margin gate (a deterministic +1R edge over the 2.0 fallback). The
+    # point stands: it is not the fallback, because the next session re-fits off the 6th day that
+    # no collected day could see.
     assert st.target_r == 3.0
+
+
+def test_the_shipped_default_fits_on_all_history_with_a_margin_gate() -> None:
+    # #476: the two knobs ship as "no trailing window" and "one standard error to switch".
+    s = _s()
+    assert s.portfolio_adaptive_window_days is None
+    assert s.portfolio_target_switch_z == 1.0
+
+
+def test_all_history_window_keeps_trades_a_trailing_window_would_have_dropped() -> None:
+    # Six warm-up trades, then a 200-day gap, then the decision day. Any calendar window shorter
+    # than the gap discards every warm-up trade and the fit starves; None keeps all of them.
+    base = date(2026, 1, 1)
+    days: list[tuple[date, list[CandidateTrade]]] = [
+        (base + timedelta(days=i), [_win3_cand(f"W{i}")]) for i in range(6)
+    ]
+    days.append((base + timedelta(days=200), [_win3_cand("DEC")]))
+
+    windowed = _s(
+        portfolio_adaptive_window_days=40,
+        portfolio_adaptive_min_samples=6,
+        portfolio_target_grid=(1.5, 3.0),
+        portfolio_exit_slippage_ticks=0,
+    )
+    unbounded = windowed.model_copy(update={"portfolio_adaptive_window_days": None})
+
+    decision = base + timedelta(days=200)
+    w_fit = dict(simulate_portfolio_adaptive(days, windowed).daily_targets)[decision]
+    u_fit = dict(simulate_portfolio_adaptive(days, unbounded).daily_targets)[decision]
+    # 40-day window: the warm-ups have aged out entirely, so the fit never runs.
+    assert (w_fit.trailing_n, w_fit.status) == (0, "thin")
+    # All history: every prior trade is in scope and the fit both runs and switches.
+    assert (u_fit.trailing_n, u_fit.status, u_fit.target_r) == (6, "fitted", 3.0)
+
+
+def test_margin_gate_holds_the_fallback_when_the_edge_is_not_worth_acting_on() -> None:
+    # A grid pick that beats the fallback ON AVERAGE but not reliably: five trades where 3.0R wins
+    # big and five where it loses, so the paired edge carries far more noise than signal. The
+    # optimiser still prefers 3.0 — argmax does not care about spread — and the gate is what stops
+    # the book acting on it. This is the case #476 exists for: an argmax over noisy means.
+    s = _s(
+        portfolio_adaptive_min_samples=4,
+        portfolio_target_grid=(2.0, 3.0),
+        portfolio_target_r=2.0,
+        portfolio_target_switch_z=1.0,
+        portfolio_exit_slippage_ticks=0,
+    )
+    base = date(2026, 7, 1)
+    # 7 runners at edge +1, 2 stall-outs at edge -3: mean edge +0.11R, SD 1.76 -> z ~= 0.19.
+    # 3.0R still wins the raw expectancy (2.11R vs the fallback's 2.00R), so the ARGMAX prefers it
+    # and only the gate stands between that 0.11R of signal and a live change to the exit rule.
+    stall = [
+        _bar(10, 12.2, 9.5, 12.0, minute=0),  # tags +2R (fills a 2R target), stop untouched
+        _bar(12, 12.5, 8.8, 8.8, minute=1),  # then breaks the stop, so a 3R target rides it to -1R
+    ]
+    seq = [_win3_cand(f"R{i}") for i in range(7)]  # +3R -> 3.0 fills (+3) vs fallback +2 -> edge +1
+    seq += [_cand(f"F{i}", 5, 10.0, 9.0, stall) for i in range(2)]  # edge -3
+    days = [(base + timedelta(days=i), [c]) for i, c in enumerate(seq)]
+    book = simulate_portfolio_adaptive(days, s)
+    st = book.state
+    assert st is not None
+    assert st.target_status == "margin"  # the fit ran, preferred 3.0, and was overruled
+    assert st.target_considered_r == 3.0
+    assert st.target_r == 2.0  # the fallback stands
+    assert st.target_fitted is False
+    assert st.target_edge_z is not None and st.target_edge_z < 1.0
+
+    # Same data, gate disabled -> the pre-#476 behaviour: the raw argmax is taken.
+    no_gate = s.model_copy(update={"portfolio_target_switch_z": 0.0})
+    open_gate = simulate_portfolio_adaptive(days, no_gate)
+    ost = open_gate.state
+    assert ost is not None
+    assert (ost.target_status, ost.target_r) == ("fitted", 3.0)
+
+
+def test_margin_gate_lets_a_deterministic_edge_through() -> None:
+    # Zero spread is the STRONGEST evidence, not the absence of it: every trade gains exactly +1R
+    # by holding to 3R. A naive `edge / se` would divide by zero and block the clearest switch there
+    # is, so the gate scores a zero-SE positive edge as infinitely many standard errors.
+    s = _s(
+        portfolio_adaptive_min_samples=4,
+        portfolio_target_grid=(2.0, 3.0),
+        portfolio_target_r=2.0,
+        portfolio_exit_slippage_ticks=0,
+    )
+    base = date(2026, 7, 1)
+    days = [(base + timedelta(days=i), [_win3_cand(f"W{i}")]) for i in range(6)]
+    st = simulate_portfolio_adaptive(days, s).state
+    assert st is not None
+    assert (st.target_status, st.target_r, st.target_fitted) == ("fitted", 3.0, True)
+    assert st.target_edge_r == 1.0
+    assert st.target_edge_z == float("inf")
+
+
+def test_a_zero_sample_window_is_reported_as_fallback_not_as_a_fit() -> None:
+    # min_samples=0 waves the sample gate through, so day 0 reaches the optimiser with an EMPTY
+    # trailing window: every grid target scores an undefined expectancy and `best_target` returns
+    # None. The target is still the fallback, and `fitted` must say so (#463) — the one path where
+    # the optimiser genuinely ran and declined to pick is exactly the path that would otherwise be
+    # mislabelled as an adaptive choice.
+    s = _s(
+        portfolio_adaptive_min_samples=0,
+        portfolio_target_grid=(1.5, 3.0),
+        portfolio_target_r=2.0,
+        portfolio_exit_slippage_ticks=0,
+    )
+    book = simulate_portfolio_adaptive([(date(2026, 7, 1), [_win_cand("W0")])], s)
+    (_day, fit), *_ = book.daily_targets
+    assert (fit.target_r, fit.fitted, fit.trailing_n) == (2.0, False, 0)
 
 
 def test_next_session_state_is_none_for_an_empty_book() -> None:
     assert simulate_portfolio_adaptive([], _s()).state is None
+
+
+def test_the_shipped_default_has_the_throttle_switched_off() -> None:
+    # #474: the ladder is a bet on serial correlation of daily results, and the measured cost of
+    # making that bet when it is absent is ~$22 per 29 sessions (500 calendar-preserving shuffles).
+    # It ships OFF. Losing days must NOT knock risk down, which is exactly what a re-enable would
+    # silently reintroduce — hence a test on the default rather than on the ladder helper.
+    s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
+    assert s.portfolio_risk_rungs == 1
+    base = date(2026, 7, 1)
+    days = [(base + timedelta(days=i), [_loss_cand(f"L{i}")]) for i in range(4)]
+    book = simulate_portfolio_adaptive(days, s)
+    assert {r for _d, r in book.daily_risk} == {s.portfolio_risk_fraction}  # flat through the run
+    st = book.state
+    assert st is not None
+    assert (st.risk_fraction, st.rung, st.n_rungs) == (s.portfolio_risk_fraction, 0, 1)
+    assert book.result.n_trades == 4  # four losing days and it never sat one out
 
 
 def test_single_rung_disables_the_throttle() -> None:
@@ -1176,6 +1334,14 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     assert {t for _d, t in [(d["date"], d["target"]) for d in adaptive["daily_targets"]]} <= set(
         payload["config"]["target_grid"] + [payload["config"]["target_fallback_r"]]
     )
+    # Every plotted day says whether the optimiser ran or the fallback stood in (#463) — a flat
+    # target line is otherwise indistinguishable from a re-fit that never fired.
+    day = adaptive["daily_targets"][0]
+    assert day["fitted"] is False and day["n"] == 0  # one seeded day: nothing trailing to fit on
+    # ...and WHY it fell back: no samples, not a failed margin gate (#476).
+    assert day["status"] == "thin"
+    assert payload["config"]["adaptive_window_days"] is None  # all history, not a trailing window
+    assert payload["config"]["target_switch_z"] == 1.0
     trade = adaptive["trades"][0]
     assert trade["symbol"] == "AZI" and trade["reason"] == "target"
     # Per-trade risk attribution + the next-session state reach the page (#286).
@@ -1190,6 +1356,10 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     assert state["risk_budget_usd"] == round(
         adaptive["stats"]["end_equity"] * state["risk_fraction"], 4
     )
+    # The target in force is published with its provenance, so the page can say "fallback" rather
+    # than presenting it as an adaptive choice (#463).
+    assert state["target_fitted"] is False and state["target_trailing_n"] == 1
+    assert state["target_status"] == "thin" and state["target_considered_r"] is None
     # Only the adaptive book throttles risk / re-fits a target, so only it carries the state.
     assert "next_session" not in payload["books"]["2"]
     # Skipped log rides along in every book (empty here — a single seeded setup never hits the cap).
@@ -1709,16 +1879,20 @@ def test_cap_dropped_setups_are_tagged_cap() -> None:
     assert res.skipped_total_r == res.skipped[0].realized_r  # cap-only headline still counts it
 
 
-def test_throttled_sitout_is_not_logged_as_unaffordable() -> None:
-    """rung-0 (risk_fraction=0) sizes every position to 0 on purpose — that's the kill-switch
-    sitting the day out, not information we lost. It must not flood the skipped log (#251)."""
+def test_throttled_sitout_is_logged_as_throttled_not_cap_or_unaffordable() -> None:
+    """rung-0 (risk_fraction=0) sizes every position to 0 on purpose — the kill-switch sitting the
+    day out. Attributing that to the cap or to the equity would misname the constraint (#251), but
+    logging nothing at all deleted the setup from every view the page has (#465)."""
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
 
     trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
 
     assert trades == []
-    assert skipped == []  # silence is correct here
+    assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [
+        ("AAA", "throttled"),
+        ("BBB", "throttled"),
+    ]
 
 
 def test_take_day_selection_follows_select_day(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1763,7 +1937,9 @@ def test_throttled_rung_sizing_to_zero_is_not_called_unaffordable() -> None:
     trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0, risk_fraction=0.025)
 
     assert trades == []
-    assert skipped == []  # throttled, not unaffordable — the book could afford it at full risk
+    # Throttled, not unaffordable — the book could afford it at full risk. Recorded either way,
+    # because a setup that is in neither log is a setup the page cannot show at all (#465).
+    assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [("AAA", "throttled")]
 
 
 def test_unaffordable_still_recorded_at_full_risk() -> None:
@@ -1778,16 +1954,66 @@ def test_unaffordable_still_recorded_at_full_risk() -> None:
     assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [("AAA", "unaffordable")]
 
 
+def test_every_candidate_leaves_by_exactly_one_door() -> None:
+    """``taken + skipped == cands``, at every rung (#465).
+
+    The accounting invariant behind the page: a qualifying setup is either in the trade log or in
+    the skipped log, never in neither. Asserting it at each rung is the point — the hole was
+    rung-specific, so a single-rung test would have passed throughout.
+    """
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    wide = [_bar(10, 21.0, 4.0, 20.0)]  # $15/share risk: sizes to 0 at a throttled rung
+    cands = [
+        _cand("AAA", 5, 10.0, 9.0, win),
+        _cand("BBB", 6, 20.0, 5.0, wide),
+        _cand("CCC", 7, 10.0, 9.0, win),  # beyond the 2/day cap
+    ]
+    s = _s()
+
+    for rf in (0.0, 0.025, 0.05):
+        trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, s, 2.0, 0.0, risk_fraction=rf)
+        seen = [t.symbol for t in trades] + [sk.symbol for sk in skipped]
+        assert sorted(seen) == ["AAA", "BBB", "CCC"], rf
+        assert len(seen) == len(set(seen)), rf  # and never through two doors at once
+
+
+def test_throttled_skips_stay_out_of_the_cap_headline() -> None:
+    """``skipped_total_r`` / ``skipped_count`` answer "what did the N/day cap cost me?".
+
+    Giving throttled setups their own reason (#465) is what lets them be recorded without being
+    counted here — the exact conflation the rung-0 silence was avoiding.
+    """
+    win = [_bar(10, 12.5, 9.95, 12.3)]
+    s = _s(
+        portfolio_risk_step_days=1, portfolio_adaptive_min_samples=999, portfolio_risk_rungs=2
+    )  # binary kill-switch: one losing day parks the book at 0%
+    base = date(2026, 7, 1)
+    days = [
+        (base, [_cand("L0", 5, 10.0, 9.0, [_bar(10, 10.1, 8.9, 9.0)])]),  # lose -> park
+        (base + timedelta(days=1), [_cand("W1", 5, 10.0, 9.0, win)]),  # parked: throttled
+    ]
+
+    res = simulate_portfolio_adaptive(days, s).result
+
+    assert [(sk.symbol, sk.skip_reason) for sk in res.skipped] == [("W1", "throttled")]
+    assert res.skipped_total_r == 0.0  # cap-only headline untouched by the throttle
+
+
 def test_rung_zero_day_does_not_blame_the_daily_cap() -> None:
-    """Nothing is taken on a rung-0 day, so the cap was never the binding constraint (#251)."""
+    """Nothing is taken on a rung-0 day, so the cap was never the binding constraint (#251).
+
+    CCC would be past the 2/day cap, but with nothing traded the cap cost us nothing — so the whole
+    day is the throttle's, including the candidates sitting beyond the cap. They are still recorded
+    (#465); what must not happen is their landing in the cap population.
+    """
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand(x, i + 5, 10.0, 9.0, win) for i, x in enumerate(["AAA", "BBB", "CCC"])]
 
     trades, skipped = _take_day(date(2026, 7, 14), cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
 
     assert trades == []
-    # CCC would be past the 2/day cap — but nothing traded, so the cap cost us nothing.
-    assert skipped == []
+    assert [sk.symbol for sk in skipped] == ["AAA", "BBB", "CCC"]
+    assert {sk.skip_reason for sk in skipped} == {"throttled"}
 
 
 def test_take_day_tolerates_a_non_prefix_selector(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1829,7 +2055,9 @@ def test_skipped_is_returned_in_trigger_order() -> None:
 # --------------------------------------------------------------------------------------------
 
 
-def _recon_payload(tmp_path: Path, *, live_day: datetime, recon_days: list[datetime]) -> dict:  # type: ignore[type-arg]
+def _recon_payload(
+    tmp_path: Path, *, live_day: datetime, recon_days: list[datetime], **settings: object
+) -> dict:  # type: ignore[type-arg]
     """Seed a live store + a recon store and build the payload over both."""
     import small_cap_stack.portfolio as pf
     from small_cap_stack.storage import Store
@@ -1840,7 +2068,10 @@ def _recon_payload(tmp_path: Path, *, live_day: datetime, recon_days: list[datet
     for d in recon_days:
         _seed_premarket(recon, oid_time_utc=d)
     return pf.build_portfolio_payload(
-        live, _s(), datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC), recon_store=recon
+        live,
+        _s(**settings),  # type: ignore[arg-type]
+        datetime(2026, 6, 30, 12, 0, tzinfo=ET_UTC),
+        recon_store=recon,
     )
 
 
@@ -1947,7 +2178,8 @@ def test_combined_books_carry_no_projection(tmp_path: Path) -> None:
     """The forward view resamples what the tracker OBSERVED, so it stays live-only (#430).
 
     Bootstrapping it from a reconstructed-heavy history would forecast an account trading a
-    universe we know differs from the live one (the 50-row rank cap, #428/#432)."""
+    universe we know differs from the live one — through appearance timing (#433), not the 50-row
+    rank cap once blamed for it, which #460 measured as never binding."""
     payload = _recon_payload(
         tmp_path,
         live_day=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC),
@@ -2001,3 +2233,63 @@ def test_cached_candidates_round_trip_their_provenance(tmp_path: Path) -> None:
     del stale["source"]  # a pre-#430 cache entry
     with pytest.raises(KeyError):
         pf._candidate_from_json(stale)
+
+
+def test_the_recon_candidate_budget_bounds_the_payload_newest_first(tmp_path: Path) -> None:
+    """The #448 bound on #273's failure mode, applied where it can still be applied.
+
+    `build_portfolio_payload` retains every day's bars (it re-simulates the same day list once per
+    selectable target), so peak memory is linear in days x candidates — which is what OOM-killed
+    the box at ~25 live days. A finished harvest makes it ~500, and reconstructed days are denser
+    than live ones — though not for the rank-cap reason once assumed (#460).
+    """
+    payload = _recon_payload(
+        tmp_path,
+        live_day=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC),
+        recon_days=[
+            datetime(2026, 6, 22, 12, 0, tzinfo=ET_UTC),
+            datetime(2026, 6, 23, 12, 0, tzinfo=ET_UTC),
+            datetime(2026, 6, 24, 12, 0, tzinfo=ET_UTC),
+        ],
+        portfolio_recon_max_candidates=2,  # each seeded day contributes one candidate
+    )
+
+    all_trades = payload["books_all"]["adaptive"]["trades"]  # type: ignore[index,call-overload]
+    # Newest-first: the two most recent reconstructed days survive, the oldest is dropped. That
+    # ordering matters — what survives is the segment contiguous with the live record.
+    assert [t["date"] for t in all_trades] == ["2026-06-23", "2026-06-24", "2026-06-29"]
+
+    cov = payload["coverage"]["recon"]  # type: ignore[index,call-overload]
+    # Never silent: a capped payload says so, or "coverage from 06-23" reads as "that is all the
+    # harvest has" rather than "that is all the payload can hold".
+    assert cov["capped_days_dropped"] == 1
+    assert cov["candidate_budget"] == 2
+    assert cov["days"] == 2
+
+
+def test_the_budget_always_yields_at_least_one_reconstructed_day(tmp_path: Path) -> None:
+    """A budget smaller than a single busy session must not produce an empty `books_all` with no
+    explanation — one unusually heavy day would silently disable the whole feature."""
+    payload = _recon_payload(
+        tmp_path,
+        live_day=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC),
+        recon_days=[datetime(2026, 6, 25, 12, 0, tzinfo=ET_UTC)],
+        portfolio_recon_max_candidates=1,
+    )
+    assert payload["coverage"]["recon"]["days"] == 1  # type: ignore[index,call-overload]
+    assert payload["coverage"]["recon"]["capped_days_dropped"] == 0  # type: ignore[index,call-overload]
+
+
+def test_the_budget_is_off_by_default_for_the_sizes_that_exist_today(tmp_path: Path) -> None:
+    """15k candidates is ~400 MB retained; nothing the harvest has produced comes near it, so the
+    cap must be invisible until it is genuinely needed."""
+    payload = _recon_payload(
+        tmp_path,
+        live_day=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC),
+        recon_days=[
+            datetime(2026, 6, 24, 12, 0, tzinfo=ET_UTC),
+            datetime(2026, 6, 25, 12, 0, tzinfo=ET_UTC),
+        ],
+    )
+    assert payload["coverage"]["recon"]["days"] == 2  # type: ignore[index,call-overload]
+    assert payload["coverage"]["recon"]["capped_days_dropped"] == 0  # type: ignore[index,call-overload]

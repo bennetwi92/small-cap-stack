@@ -41,7 +41,8 @@ class CandidateTrade:
     # the scanner in real time. ``"recon"`` = the day was rebuilt after the fact from purchased
     # vendor minute bars, with the scanner appearance *reconstructed* rather than observed. The two
     # are not interchangeable evidence — #428 measured the reconstruction's appearance timing at a
-    # median −0.34 min but found the IBKR 50-row rank cap (SNDQ) unreproducible per-symbol, so a
+    # median −0.34 min but found the IBKR 50-row rank cap (SNDQ) unreproducible per-symbol — #460
+    # since measured that cap as never binding at all (11 of 50 in pre-market), so a
     # reconstructed day can surface setups the live scanner would never have shown. Carrying the
     # label on the trade is what lets the book report the two populations apart instead of quietly
     # averaging them into one win rate.
@@ -104,15 +105,23 @@ class PaperTrade:
 class SkippedTrade:
     """A qualifying setup the book did **not** take — issue #230 follow-up.
 
-    Two reasons, kept apart by ``skip_reason``:
+    Three reasons, kept apart by ``skip_reason``:
 
     - ``"cap"`` — the day's ``max_trades_per_day`` was already filled by earlier (lower
       trigger-time) trades. This is the population the "what did the 2/day cap cost me?" R-log
       answers, and the only one the headline ``skipped_total_r`` counts.
-    - ``"unaffordable"`` — it was selected, but ``size_position`` returned ``qty < 1``, so the book
-      couldn't buy a single share. These used to vanish into neither log (#251). Practically
-      unreachable at the default book (it needs equity ~$40, a >90% drawdown), but a silently
-      dropped setup is worse than a rare one.
+    - ``"unaffordable"`` — it was selected, but ``size_position`` returned ``qty < 1`` **at full
+      configured risk**, so the book couldn't buy a single share. These used to vanish into neither
+      log (#251). Practically unreachable at the default book (it needs equity ~$40, a >90%
+      drawdown), but a silently dropped setup is worse than a rare one.
+    - ``"throttled"`` — the adaptive kill-switch, not the cap and not the equity, is why it wasn't
+      taken: either the day sat at rung 0 (risk 0%, nothing taken at all) or a throttled rung's
+      budget sized it to ``qty < 1``. Keeping these out of the two populations above is deliberate
+      and predates this reason — attributing a kill-switch day to the cap would inflate "what the
+      cap cost me", and calling a throttled rung "unaffordable" would blame the trader's equity for
+      the ladder's decision. What was wrong was leaving them out of the log *entirely* (#465): a
+      qualifying setup then appeared nowhere on the page, and the combined book silently lost three
+      live setups the live-only book trades.
 
     Carries what the trade *would* have returned at that day's (target, breakeven), simulated over
     the same bars with the same exit model as a taken trade. It is unsized on purpose: R is
@@ -132,7 +141,7 @@ class SkippedTrade:
     realized_r: float  # what it would have made/lost at the day's target (size-independent)
     reason: str  # exit reason: "target" | "stop" | "breakeven" | "close"
     exit_price: float
-    skip_reason: str = "cap"  # why it wasn't taken: "cap" | "unaffordable"
+    skip_reason: str = "cap"  # why it wasn't taken: "cap" | "unaffordable" | "throttled"
     # Carried from the candidate (#390) — same meaning as on PaperTrade.
     float_shares: int | None = None
     max_r: float | None = None

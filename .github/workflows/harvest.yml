@@ -1,0 +1,105 @@
+name: harvest
+
+# Phone-triggerable control for the overnight pre-market harvest (#431), on the box.
+#
+# The harvest's PRIMARY mechanism is `scs-harvest.timer` (systemd, 12:30/17:15/20:00/23:00 ET —
+# RUNBOOK §13).
+# This workflow is the mobile hand on it: check status, run the day-volume sweep, advance phase 1,
+# or drive the single-session smoke test the issue's acceptance list calls for. It is not how a
+# night's work normally happens.
+#
+# ⚠️ Bounded on purpose. Every command here is short, and `run` is capped at `--limit` sessions with
+# a job timeout on top. A full night's harvest would occupy the self-hosted `vps` runner for eight
+# hours — and a busy runner means CI silently queues behind it, which is one keystroke from the
+# 5h37m outage of #264. Long work belongs to the timer, which runs outside Actions entirely.
+#
+# The real guards live in the app, not here: it refuses to start outside 12:30-03:00 ET, recesses
+# at 16:10 to stay out of the EOD jobs, and hard-stops at 03:00 — so dispatching this at 09:00 does
+# nothing rather than competing with the scan window. A dispatch that finds the timer's own harvest
+# running exits NON-ZERO (#455): 'I did nothing' must not render as a green tick. `scripts/harvest.sh` puts it in its own 1 GB container — never `docker exec` into the
+# app, which would spend the tracker's cgroup.
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Harvest subcommand"
+        type: choice
+        required: true
+        default: status
+        options:
+          - status # what is harvested, what is left, is the window open now
+          - auto # what the nightly timer runs: phase 1 if outstanding, then phase 2
+          - install-key # ONE-TIME: put the vendor key on the box, from Actions secrets, no SSH
+          - install-units # ONE-TIME: install + enable the nightly systemd timer, no SSH
+          - sweep # candidates retained at each day-volume floor (no API calls) — RUNBOOK §13.1
+          - prefilter # what one session would fetch, from stored rows
+          - daily # phase 1: grouped-daily universe + previous closes (REQUIRED before `run`)
+          - run # phase 2: minute bars, newest-first — capped by `limit` here
+          - charts # publish reconstructed sessions to the dashboard (#488) — no API calls
+      limit:
+        description: "Sessions (daily/run) or dates (sweep/charts). Keep small — this holds the CI runner."
+        required: false
+        default: "1"
+      ref:
+        description: "Git ref to run the wrapper from (branch/tag/SHA)"
+        required: false
+        default: main
+
+concurrency:
+  # Never two harvests at once: they would double-spend a rate-limited budget and race on the
+  # checkpoint. The systemd timer takes the same lock by way of the container name (`scs-harvest`).
+  group: harvest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  harvest:
+    name: harvest ${{ inputs.command }}
+    # Repository guard: box jobs run only in THIS repo, never a fork (#333, A1 lockdown).
+    if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
+    runs-on: [self-hosted, vps]
+    # A hard ceiling on how long this can hold the runner, whatever `limit` says. One session is
+    # ~218 calls x 13s ~= 47 min at the free tier, so this admits a smoke test and little more.
+    timeout-minutes: 75
+    steps:
+      - name: Check out the wrapper at the requested ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Run the harvest command
+        env:
+          IN_COMMAND: ${{ inputs.command }}
+          IN_LIMIT: ${{ inputs.limit }}
+          # Injected from Actions secrets rather than read off the box. Two things follow: an
+          # ad-hoc run works on a box that has never been given the key (scripts/harvest.sh prefers
+          # an ambient key over the stored one), and `install-key` can place it for the systemd
+          # timer — which fires outside GitHub and so cannot be handed a secret at run time. That
+          # is what makes the whole harvest operable from a phone, with no SSH.
+          MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
+        run: |
+          set -euo pipefail
+          case "$IN_COMMAND" in
+            status|install-key|install-units|sweep|prefilter|auto|daily|run|charts) ;;
+            *) echo "unknown command: $IN_COMMAND" >&2; exit 1 ;;
+          esac
+          case "$IN_LIMIT" in
+            ''|*[!0-9]*) echo "limit must be a whole number: $IN_LIMIT" >&2; exit 1 ;;
+          esac
+
+          args=("$IN_COMMAND")
+          case "$IN_COMMAND" in
+            sweep|auto|daily|run|charts) args+=(--limit "$IN_LIMIT") ;;
+          esac
+          # The CHECKED-OUT copy, not the box's deployed one: dispatching a ref should run that
+          # ref's wrapper. It also means the two bootstrap commands work before this lands on main
+          # and is deployed — which is the whole point of them, since the alternative is SSH.
+          # (The nightly timer independently runs the deployed copy, as it should.)
+          "$GITHUB_WORKSPACE/scripts/harvest.sh" "${args[@]}"
+
+      - name: Free memory on the box after the run
+        if: always()
+        run: free -m

@@ -11,6 +11,7 @@ import asyncio
 import signal
 import time
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 
 from .canary import build_canary
 from .capture import CaptureService
@@ -22,6 +23,7 @@ from .dashboard import (
     build_stats,
     build_status,
     charts_path,
+    harvest_progress,
     read_json,
     upsert_index_date,
     write_json,
@@ -110,6 +112,7 @@ class Application:
             on_eod_bars=self._on_eod_bars,
             on_eod_report=self._on_eod_report,
             on_eod_backfill=self._on_eod_backfill,
+            on_portfolio_refresh=self._on_portfolio_refresh,
         )
 
     async def run(self) -> None:
@@ -275,6 +278,9 @@ class Application:
                 deployed_commit=self.settings.deployed_commit or None,
                 scan_ticks_total=int(metric_value("scs_scan_ticks_total")),
                 jobs=[(j.id, j.next_run_time) for j in self.scheduler.get_jobs()],
+                # The overnight harvest lives in its own store and its own container, so the tick
+                # is the only thing that reports on it (#450). Reads one small JSON file.
+                harvest=harvest_progress(self.settings, now=now.astimezone(UTC)),
             )
             t0 = time.perf_counter()
             payload = build_status(self.store, inputs)
@@ -379,6 +385,26 @@ class Application:
         except Exception:  # noqa: BLE001 — never let this take down the EOD path
             log.warning("fundamentals.backfill_failed", date=trading_date.isoformat())
 
+    async def _on_portfolio_refresh(self) -> None:
+        """Rebuild the paper book so the overnight harvest is on the page before the open (#458).
+
+        The harvest hard-stops at 03:00 ET and the EOD rebuild is at 16:30, so until this existed a
+        night's reconstructed days were invisible for the whole trading day they were harvested for
+        — including the morning the operator actually reads them.
+
+        No ``force_dates``: at 03:15 "today" has no bars, so the EOD's re-extract-today would be a
+        no-op at best. The work here is the reconstructed days the harvest just landed, which are
+        uncached by definition and picked up without being named.
+
+        Best-effort, like the EOD's own call — a failed refresh costs a day of visibility, never
+        data, and must not take the tracker's morning with it.
+        """
+        log.info("portfolio.refresh_start")
+        await asyncio.to_thread(
+            partial(self._export_portfolio, now_et().astimezone(UTC), force_today=False)
+        )
+        log.info("portfolio.refresh_done")
+
     async def _on_eod_backfill(self) -> None:
         """Morning catch-up: fill bars for any recent day whose opportunities are missing them.
 
@@ -425,8 +451,15 @@ class Application:
         log.info("report.eod_done", **report.aggregates)
         self.capture.reset()
 
-    def _export_portfolio(self, now_utc: datetime) -> None:
-        """Rebuild the virtual-portfolio book (#230) once at EOD. Best-effort — never breaks EOD."""
+    def _export_portfolio(self, now_utc: datetime, *, force_today: bool = True) -> None:
+        """Rebuild the virtual-portfolio book (#230). Best-effort — never breaks the caller.
+
+        Called twice a day (#458): at the 16:30 EOD, and again at 03:15 so the overnight harvest is
+        on the page before the open. ``force_today`` separates them — the EOD re-extracts today
+        because its bars have just finished landing, while at 03:15 today has no bars at all and
+        forcing it would re-extract an empty day. Whatever the harvest landed is picked up either
+        way: reconstructed days are uncached by definition, so they need no naming.
+        """
         if not self.settings.dashboard_enabled:
             return
         try:
@@ -437,9 +470,7 @@ class Application:
                 self.settings,
                 now_utc,
                 cache_dir=portfolio_candidate_cache_dir(self.settings),
-                force_dates={now_et().date()},
-                # Whatever the harvest (#430/#431) landed overnight joins the book here, so each
-                # morning's page carries one more slice of reconstructed history than the last.
+                force_dates={now_et().date()} if force_today else set(),
                 recon_store=open_recon_store(self.settings),
                 recon_cache_dir=portfolio_candidate_cache_dir(self.settings, "recon"),
             )

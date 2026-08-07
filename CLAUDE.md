@@ -40,6 +40,11 @@ research record. This file documents **how we work** — follow it on every task
 
 ## CI / quality gates (run locally before pushing)
 Toolchain lives in `.venv`. CI runs ruff + mypy + pytest on every PR.
+- **`ci` is the only check a PR gets.** `lint-typecheck-test` is the single required context; nothing
+  else runs on `pull_request`. CodeQL default setup (GitHub-side, no workflow file) and
+  `build-image`'s PR trigger were both removed — a one-person repo gained nothing from two extra
+  non-required jobs except more red Xs to interpret, and a GitHub Actions outage that fails them
+  makes a healthy PR look broken. Don't re-add a PR-triggered job unless it is worth making required.
 ```bash
 .venv/bin/ruff check .          # lint
 .venv/bin/ruff format --check . # format
@@ -48,6 +53,10 @@ Toolchain lives in `.venv`. CI runs ruff + mypy + pytest on every PR.
 ```
 - Python **3.11**. mypy is `--strict` and only checks `src/small_cap_stack` (so `spikes/` is exempt).
 - Trading logic (gates, sizing, stats) must be exhaustively unit-tested — it is the product.
+- **Coverage is gated on `main`, not on PRs (#494/#495).** The PR run is the merge gate and passes
+  `--no-cov`; the push-to-main run is the covered one and enforces `--cov-fail-under=80`. Locally
+  `make check` always runs with coverage, so a PR that would drop `main` below 80% is visible
+  before you push — the split is about CI cost, not about relaxing the bar.
 
 ## Throughput & estimation (calibration for "how long will this take")
 Use these as **estimation anchors**, not targets — they're what one focused agent day actually
@@ -105,9 +114,13 @@ hours, not authoring speed (see the remote-work limits above).
   the standing reports. `research/archive/` holds one-off reports that already did their job (the
   2026-06-29 `arch-*` set) — kept as the record, not as live docs.
 - ⚠️ **`docs/` is NOT documentation** — it is the **GitHub Pages dashboard frontend** (HTML/CSS/JS;
-  `cockpit.css` + `docs/js/` modules). The name is forced: Pages is on `build_type: legacy`, whose
-  source path may only be `/` or `/docs`, so renaming it takes the live dashboard offline. Docs live
-  in `research/`; only root keeps `README`/`CLAUDE`/`CONTRIBUTING`/`DISCLAIMER` (#300).
+  `cockpit.css` + `docs/js/` modules). Pages is published by our own
+  **`.github/workflows/pages.yml`** (`build_type: workflow`, #486) — the legacy build's managed
+  workflow aborted the deployment after 10 minutes, which GitHub's publish step started routinely
+  overrunning. Renaming `docs/` is therefore no longer forbidden by Pages (the workflow uploads
+  whatever path it is given), but it *is* still a rename of the `path:` in that workflow and of
+  every reference below — don't do it casually. Docs live in `research/`; only root keeps
+  `README`/`CLAUDE`/`CONTRIBUTING`/`DISCLAIMER` (#300).
   `docs/reports/` is the one exception that *is* prose: published reports (see below).
   - ⚠️ **Dashboard pages carry numbers, statuses and instructional text — never commentary
     (#414).** A label, a unit, a legend, a tooltip that says what a metric *is*, a line that says
@@ -117,6 +130,8 @@ hours, not authoring speed (see the remote-work limits above).
     that is how the pre-#414 Plan page and Projection view went stale. If a panel can't be
     rendered from the published data, ask whether it belongs on a page at all.
   - **`docs/plan.html` / `plan.js` is the plan board (#410, rebuilt #414)** — the phase spine, the
+    live collection countdown, the historical harvest's progress (#454, from `status.json.harvest`
+    — sessions rebuilt, universe pass, history covered, hours since the checkpoint last moved), the
     Phase-1 checks and the Phase-2 gate ladder. Every value is computed at render time from
     `index.json` / `portfolio.json` / `status.json`; each gate's status is **derived from GitHub
     issue state** (`docs/js/gh.js`, unauthenticated REST, cached 30 min in sessionStorage, falling
@@ -129,6 +144,21 @@ hours, not authoring speed (see the remote-work limits above).
   on purpose: nothing that reads `data/` can return vendor rows by accident — only
   `build_portfolio_payload(recon_store=…)` opts in, publishing them as `books_all` alongside the
   untouched live `books`. Every trade carries `source: "live" | "recon"`.
+  Its **producer** is `src/small_cap_stack/harvest/` (#431) — `python -m small_cap_stack.harvest`,
+  run nightly on the box by `scs-harvest.timer` (RUNBOOK §13). It streams one session at a time,
+  **refuses to start outside 12:30–03:00 ET**, recesses at 16:10 so it is never inside a session
+  during the 16:20/16:30 EOD jobs (#455), hard-stops at 03:00 clear of the 03:45
+  `eod_backfill`, runs in its own `--memory=1g` container (never `docker exec` into the app — that
+  spends the tracker's cgroup), and checkpoints per session so a kill costs at most one session.
+  Phase 1 (`harvest daily`, grouped-daily + previous closes) must run before phase 2 (`harvest
+  run`): #428 measured the previous close as a *required* input, not a nicety.
+  Its **dashboard side** is `dashboard_recon.py` (#488): each completed session publishes
+  `dashboard/charts/recon/<date>.json` + `recon_index.json` — a **separate namespace**, never a flag
+  on the live `index.json`, so no existing reader can start serving vendor rows by accident. Bounded
+  at `recon_charts_max_dates` (30) because `publish-dashboard` force-pushes the whole tree every
+  15 min — but evicting by **publish order, not by date**: the harvest walks backwards, so a
+  newest-date window would make everything after night ~2 permanently invisible. `harvest charts`
+  fills the window; `harvest charts --dates <d>` brings an evicted session back.
 - `scripts/` — repo helpers (e.g. `board.sh`).
 - `deploy/` — host runbook + systemd units.
 
@@ -146,10 +176,13 @@ boards, so any writing that explains, justifies or concludes belongs here rather
   (newest first) and then fetches the markdown on click (`?r=<slug>` deep-links a report).
 - **Run `make reports` after adding or editing one** — a report missing from `index.json` is
   invisible to the page. `tests/test_reports.py` fails when the committed index is stale.
-- ⚠️ **`docs/.nojekyll` must stay.** Pages' legacy build otherwise runs Jekyll over `docs/`, which
-  turns each front-matter-carrying `docs/reports/*.md` into `reports/<slug>.html` and serves **no**
-  raw `.md` — so `reports.js`, which fetches the markdown itself, 404s on every report while the
-  list still loads (`index.json` is a static asset). `tests/test_reports.py` fails if it's deleted.
+- ⚠️ **`docs/.nojekyll` must stay.** A Jekyll pass over `docs/` turns each front-matter-carrying
+  `docs/reports/*.md` into `reports/<slug>.html` and serves **no** raw `.md` — so `reports.js`,
+  which fetches the markdown itself, 404s on every report while the list still loads (`index.json`
+  is a static asset). The workflow-based deploy (#486) uploads the directory as-is and never runs
+  Jekyll, so this is belt-and-braces now rather than the only thing standing between the Reports
+  tab and a blank page — but it costs nothing and it is what makes the directory safe to serve from
+  anywhere. `tests/test_reports.py` fails if it's deleted.
 - ⚠️ **Reports live in the repo, never on the box.** `publish-dashboard` force-pushes a fresh single
   commit to `dashboard-data` every 15 min, so anything hand-written on that branch is destroyed on
   the next cycle. `docs/` is already the Pages source: a merged report is a served report.
@@ -180,14 +213,23 @@ When running on the **Mac** (the primary working dir, not a cloud/web session), 
   job is a deploy, it can leave the app container **stopped** (compose has torn the old one down but
   not brought the new one up). Check `docker ps` and re-run `deploy.yml` before walking away.
 
-## How work gets done (no CI agents — #377)
+## How work gets done (#377, #489)
 Work happens by **you driving Claude Code** (desktop or mobile) against this repo: one issue per
-unit of work, one PR per issue, `make check` before every push. There is no `@claude` bot, no
-`/spec` gate, no auto-triage, no agent that opens issues or PRs on its own — the 2026-07-17
-automation layer was rolled back on 2026-07-19 because it added protocol without earning its keep
-(it opened zero issues and fired almost never). Nothing gates you: ask for any change on any
-issue, whatever its labels, and it gets built.
-- The workflows that remain are the **hands-off, human-triggered** ones: `ci` (on every PR),
+unit of work, one PR per issue, `make check` before every push. There is no `/spec` gate, no
+auto-triage, no watchdog, no agent that opens issues on its own — the 2026-07-17 automation layer
+was rolled back on 2026-07-19 because it added protocol without earning its keep (it opened zero
+issues and fired almost never). Nothing gates you: ask for any change on any issue, whatever its
+labels, and it gets built.
+- **Delegation (#489) is the one agent piece that came back.** Labelling an issue `agent` dispatches
+  `claude.yml` — a Claude agent on a **hosted** runner (never the VPS) builds it and opens a PR;
+  `@claude …` on that PR revises it; a human reviews and squash-merges. **Delegate only when all
+  four hold:** `make check` is a sufficient verdict (the runner has no `.env`, IBKR, box or `/data`)
+  · the brief is closed-form, because the agent can't ask a question mid-flight · XS/S tier · it
+  isn't what you're actively iterating on. Engine/strategy work qualifies when the brief names the
+  exact rule and test. Spikes, reports, review investigations and anything box- or data-touching
+  stay in-house. Procedure — including the six-heading brief template — is the **`delegate-issue`**
+  skill. Before adding a *second* agent workflow, read `research/archive/github-automation.md`.
+- The other workflows are the **hands-off, human-triggered** ones: `ci` (on every PR),
   `deploy`, `build-image`, `publish-dashboard` (scheduled), `backfill-dashboard`,
   `deploy-backfill-publish`, `data-export`. Trigger them with `gh workflow run <name>.yml`.
 - **Liveness monitoring** is the app's own Healthchecks.io dead-man's switch (`monitoring.py`,

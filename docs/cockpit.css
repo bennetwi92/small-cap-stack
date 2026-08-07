@@ -26,6 +26,12 @@
   --win:    #3ec07e;
   --loss:   #f06673;
 
+  /* grid row states — the cyan tints (7% / 16% / 20%) already flattened against
+     --bg, so a row state never has to be translucent to look right (#491) */
+  --row-hover:     #111b22;
+  --row-sel:       #172e36;
+  --row-sel-hover: #19373f;
+
   /* session accent: gold pre-market, cyan from the open (js/session.js
      stamps data-session on <html>; chrome accents follow it) */
   --acc: var(--cyan);
@@ -507,6 +513,50 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
   color:var(--dim);
 }
 
+/* --- trade inspector (#480): swaps in for the left region while a row is selected ---
+   Single column, never the two rails `.pf-left` splits into on a wide monitor: it holds
+   one chart, and half of it standing empty would be worse than the scroll it saved. Takes
+   the same 40% basis so the trade log beside it doesn't jump when the region swaps. */
+.pf-inspect{
+  flex:0 0 40%;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  min-width:0;
+  min-height:0;
+}
+.pf-inspect[hidden]{ display:none; }
+.pf-inspect > .panel{ flex:0 0 auto; }
+.pf-insp-head .panel-h{ display:flex; align-items:center; gap:8px; }
+.pf-insp-actions{ display:flex; gap:4px; margin-left:auto; flex:0 0 auto; text-transform:none; }
+.pf-insp-actions .rv-btn.on{ color:var(--acc); border-color:var(--acc); }
+/* the readout rides in the chart panel's own heading — it IS that panel's subtitle */
+.pf-insp-readout{ text-transform:none; letter-spacing:0; font-weight:400; }
+.pf-insp-chart-panel{
+  flex:1 1 auto;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+}
+.pf-insp-chart{ flex:1 1 auto; min-height:180px; position:relative; }
+/* a reconstructed session has no bars to draw — the panel says so instead of standing empty */
+.pf-insp-chart-panel.pf-insp-blank .pf-insp-chart{ display:none; }
+.pf-insp-side-panel{
+  flex:0 1 auto;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+  max-height:34vh;
+}
+.pf-insp-side-panel[hidden]{ display:none; }
+.pf-insp-side-panel > .rv-engine-detail{ flex:1 1 auto; min-height:0; }
+/* a row you can open reads as one */
+#pf-trades tr[data-key], #pf-skipped tr[data-key]{ cursor:pointer; }
+#pf-trades tr.pf-sel td, #pf-skipped tr.pf-sel td{
+  background:rgba(79,227,239,.14);
+  box-shadow:inset 0 1px 0 var(--acc), inset 0 -1px 0 var(--acc);
+}
+
 /* --- forward projection: a SECOND `.pf` region, swapped in by the VIEW control ---
    It reuses every layout rule above, which is the point: the book view is already
    sized to fill exactly one screen, so a projection appended INSIDE it would have to
@@ -514,6 +564,11 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
    `.pf` sets display:flex, and a class selector outranks the UA's [hidden] rule at
    equal specificity — so the hidden region needs saying again, louder. */
 .pf[hidden]{ display:none; }
+/* Stands in for the whole projection region when there is no projection to draw (#464). It sits
+   OUTSIDE `.pf` — writing the reason into `#pj-view` deleted every element the drawn branch fills
+   — so it carries by hand the gutter that region gets from its own padding. No `[hidden]` override
+   needed here: `.panel` sets no display, so the UA rule wins unaided. */
+#pj-none{ margin:8px 10px; }
 .pj-verdict{ flex:0 0 auto; }
 /* the derived answer, next to the panel title: colour carries the state */
 .pj-verdict .panel-h .pill{ margin-left:6px; font-size:9px; vertical-align:middle; }
@@ -615,6 +670,10 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
 @media (max-width:860px){
   .pf{ flex-direction:column; height:auto; }
   .pf-left{ flex:0 0 auto; overflow:visible; }
+  /* stacked, the inspector sits above the log rather than beside it; the chart
+     still needs a real height, which `flex:1` no longer supplies here */
+  .pf-inspect{ flex:0 0 auto; }
+  .pf-insp-chart{ height:260px; flex:0 0 auto; }
   /* .pf-trades-panel normally uses flex:1 1 0 to fill the leftover height of
      a definite-height row layout; once .pf turns into a column with
      height:auto there's no definite height to fill, and flex:1 1 0 +
@@ -931,6 +990,87 @@ body.review{
 .rv-eng-gates tr.no td{ color:var(--loss); }
 .rv-eng-gates tr.ok td:last-child{ color:var(--win); }
 
+/* ---------- results: grid + docked chart (#479) ----------
+   Clicking a row used to be a full page navigation to the review workbench,
+   which threw away the sort, the filter and your place in the list. The chart
+   docks along the BOTTOM instead: the grid carries ~40 columns under
+   "+ Engine", so a side pane would halve it, and a wide chart suits candles.
+   One flex column owns exactly the space between the chrome bars — the grid
+   pane takes what the dock leaves, so the body never scrolls. */
+.rs-split{
+  display:flex;
+  flex-direction:column;
+  height:calc(100vh - var(--chrome-v));
+  min-height:0;
+}
+.rs-grid-pane{ flex:1 1 auto; min-height:0; overflow:hidden; }
+.rs-dock{
+  flex:0 0 auto;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+  background:var(--bg);
+}
+.rs-dock[hidden]{ display:none; }
+/* resize grip: a hairline strip that lights up on hover, dragged to re-split */
+.rs-dock-handle{
+  flex:0 0 auto;
+  height:5px;
+  cursor:row-resize;
+  background:var(--line);
+  touch-action:none;                     /* the pointer loop owns vertical drags */
+}
+.rs-dock-handle:hover, .rs-dock-handle.dragging{ background:var(--acc); }
+.rs-dock-head{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:3px 8px;
+  border-bottom:1px solid var(--line);
+  white-space:nowrap;
+  overflow:hidden;
+}
+.rs-dock-title{ font-size:12px; letter-spacing:.03em; flex:0 0 auto; }
+/* the readout is the same strip the review page carries, minus the wrapping:
+   a dock head is one line, and the actions must stay reachable at any width */
+.rs-dock-readout{ flex-wrap:nowrap; overflow-x:auto; }
+.rs-dock-readout::-webkit-scrollbar{ height:0; }
+.rs-dock-actions{ display:flex; gap:4px; flex:0 0 auto; margin-left:auto; }
+.rs-dock-actions .rv-btn.on{ color:var(--acc); border-color:var(--acc); }
+.rs-dock-body{ flex:1 1 auto; min-height:0; display:flex; }
+.rs-chart{ flex:1 1 auto; min-width:0; min-height:0; position:relative; }
+.rs-side{
+  flex:0 0 300px;
+  min-height:0;
+  overflow-y:auto;
+  border-left:1px solid var(--line);
+  padding:4px 8px;
+}
+.rs-side[hidden]{ display:none; }
+.rs-hint{ margin:auto; color:var(--dim); font-size:11px; padding:12px; text-align:center; }
+/* The selected row is the chart's source, so it has to read louder than :hover.
+   Applied by the grid's rowFormatter (Tabulator recycles row elements as you
+   scroll, so a hand-applied class drifts onto whatever row inherits the div).
+   Opaque, not a translucent tint (#491): a tint replaces the row's own opaque
+   background rather than layering over it, so whatever Tabulator paints the
+   table body shows through — and the vendor paints it white, which swallowed
+   the near-white cell text on exactly the row you had just selected. */
+.tabulator .tabulator-row.rs-sel{ background:var(--row-sel); box-shadow:inset 2px 0 0 var(--acc); }
+.tabulator .tabulator-row.rs-sel:hover{ background:var(--row-sel-hover); }
+.tabulator .tabulator-row.rs-sel .tabulator-cell.tabulator-frozen{ background:#16303a; }
+/* narrow window: the side panel would leave the chart a sliver — drop it and let
+   the two buttons that open it hide with it (results.js keeps them in sync) */
+@media (max-width:860px){
+  .rs-side{ flex-basis:0; display:none; }
+}
+
+/* the trader's saved review, read-only in a dock (#481) */
+.rv-note-read{ white-space:pre-wrap; margin:6px 0 0; font-size:11px; line-height:1.5; }
+/* a dock button whose panel actually has something behind it — an opportunity
+   that has been reviewed has to be distinguishable from one that hasn't */
+.rv-btn.has{ color:var(--gold); border-color:var(--gold); }
+
 /* ---------- Tabulator (compact terminal theme) ---------- */
 .tabulator{
   background:var(--bg);
@@ -955,12 +1095,21 @@ body.review{
   letter-spacing:.05em;
   text-transform:uppercase;
 }
+/* The vendor stylesheet paints the table body white with #333 text. Every row
+   below is opaque so it normally never shows — but anything that goes even
+   slightly translucent (a row state, a gap under the last row) turns into a
+   white flash under near-white text (#491). Kill it at the source: the cockpit
+   is dark, and nothing here should ever be able to bleed white. */
+.tabulator .tabulator-tableholder .tabulator-table{
+  background-color:transparent;
+  color:var(--ink);
+}
 .tabulator .tabulator-row{
   background:var(--bg);
   border-bottom:1px solid rgba(255,255,255,.04);
   min-height:0;
 }
-.tabulator .tabulator-row:hover{ background:rgba(79,227,239,.07); }
+.tabulator .tabulator-row:hover{ background:var(--row-hover); }
 .tabulator .tabulator-cell{
   height:22px;
   padding:0 7px;
@@ -1359,6 +1508,16 @@ body.review{
 .plan-cap{ margin:5px 0 0; font-size:10px; line-height:1.5; }
 .plan-key{ display:inline-flex; align-items:center; gap:2px; vertical-align:middle; }
 .plan-key i{ display:inline-block; margin:0 1px; }
+
+/* --- column 1: the harvest, under the live collection it runs beside ---
+   Three fixed rows, so the panel takes only the height it needs and the ring
+   and the session grid above it keep the column's spare space. Rows borrow the
+   `.plan-check` vocabulary; this list is not a flex column, so they sit at
+   their natural height instead of stretching to fill. */
+.plan-col > .panel.plan-harvest-panel{ flex:0 0 auto; }
+.plan-harvest{ list-style:none; margin:4px 0 0; padding:0; }
+/* a date range is two numbers in one value — it reads at the sub-value size */
+.plan-hv-span{ font-size:13px; }
 
 /* --- column 2: the Phase-1 checks --- */
 .plan-checks-panel,

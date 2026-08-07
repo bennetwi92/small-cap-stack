@@ -1,0 +1,95 @@
+name: claude
+
+# The delegation loop (#489): hand a small, fully-specified issue to a Claude agent on a
+# GitHub-hosted runner so it builds while the Mac session works on something harder.
+#
+#   Dispatch  — add the `agent` label to an issue. The brief in the issue body IS the whole
+#               contract: the agent sees the issue text and CLAUDE.md, nothing else.
+#   Revise    — comment `@claude <what to change>` on the resulting PR; it amends that branch.
+#   Land      — a human reads the diff and squash-merges. Nothing auto-merges.
+#
+# This is the ONE piece rebuilt from the layer rolled back in #377. Deliberately absent, and to
+# stay absent unless it earns its way back: the /spec gate, auto-triage, the slash-command control
+# plane, the watchdogs, the overnight analyst, the auto-merge risk policy. Read
+# `research/archive/github-automation.md` before adding to this file.
+#
+# Security posture (#343/#348, non-negotiable):
+# - HOSTED runner only — never the VPS. A public repo plus a self-hosted runner means any fork PR
+#   could execute on the trading box. No `pull_request_target` anywhere in this repo.
+# - Comment triggers are gated on author_association ∈ {OWNER, MEMBER, COLLABORATOR}: anyone can
+#   comment on a public repo, but only trusted authors can summon an agent that reads that text.
+#   The label trigger needs no such gate — GitHub only lets write-access users label an issue.
+# - The action is SHA-pinned; explicit least-privilege permissions block; a wall-clock timeout.
+# - Auth is the Max-subscription OAuth token ONLY. NEVER add ANTHROPIC_API_KEY alongside it — the
+#   API key would take precedence and bill the API instead of the subscription.
+#
+# ⚠️ Quota: these runs draw on the SAME Max subscription as the local Claude Code session. This
+# buys wall-clock parallelism, not extra quota.
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions: {} # job-level below; nothing by default (#348 least-privilege)
+
+concurrency:
+  # One agent per issue/PR at a time, so a `@claude revise` never races the build it is revising.
+  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    name: claude delegation loop
+    if: >-
+      github.repository == 'bennetwi92/small-cap-stack' &&
+      (
+        (github.event_name == 'issues' && github.event.label.name == 'agent') ||
+        (github.event_name != 'issues' &&
+          contains(github.event.comment.body, '@claude') &&
+          contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+                    github.event.comment.author_association))
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # create branches/commits for the PR
+      pull-requests: write # open/update the PR, comment
+      issues: write # comment on the driving issue
+      actions: read # let the agent read CI results on its PR
+      # Not optional: the action exchanges an OIDC token for its GitHub token before it does
+      # anything, so without this every dispatch dies in setupGitHubToken having done no work
+      # (#499 — the same gap as #370, lost when the rollback took the automation layer out).
+      id-token: write
+    steps:
+      # Secrets aren't readable in a job-level `if`, so gate here: without the token every
+      # dispatch is an inert warning, not a red X on the issue.
+      - name: Gate on the Max-subscription token
+        id: gate
+        env:
+          TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "$TOKEN" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLAUDE_CODE_OAUTH_TOKEN is not set — delegation is inert. Owner: run 'claude setup-token' locally and save the result as a repo secret."
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.ok == 'true'
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        if: steps.gate.outputs.ok == 'true'
+        uses: anthropics/claude-code-action@c038e4dcdedfbbca18dfb17df35a17e40ded4ddc # v1 (#348 SHA-pinned)
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          label_trigger: agent
+          track_progress: true
+          claude_args: "--model claude-sonnet-5" # delegated work is Sonnet work

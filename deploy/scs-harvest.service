@@ -1,0 +1,29 @@
+[Unit]
+Description=small-cap-stack pre-market harvest (#431)
+Documentation=https://github.com/bennetwi92/small-cap-stack/blob/main/deploy/RUNBOOK.md
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/small-cap-stack
+# The resource envelope lives in scs-harvest.slice, NOT here (#452). Limits set on this unit bound
+# only the wrapper: `docker run` hands container creation to the daemon, which puts it in Docker's
+# own scope under system.slice — so the MemoryMax/Nice/IOSchedulingClass that used to sit here
+# applied to a ~15 MB docker client blocked on a socket, and nothing at all to the harvest.
+# `scripts/harvest.sh` passes --cgroup-parent to put the container in the slice; this puts the
+# wrapper in it too, so the pair is accounted and capped together.
+Slice=scs-harvest.slice
+# The job checkpoints after every completed session, so a kill is at worst one session of lost API
+# budget. Give it a moment to finish the parquet write it may be inside.
+TimeoutStopSec=120
+KillSignal=SIGTERM
+# `auto`, not `run`: `run` alone does nothing at all on a box where phase 1 has never happened —
+# it skips every session with "no universe", spends nothing, and exits 0. The nightly job has to
+# advance whichever phase is actually outstanding.
+ExecStart=/opt/small-cap-stack/scripts/harvest.sh auto
+# Deliberately no Restart=: a failed night is not an emergency (the next one resumes from the
+# checkpoint), and a restart loop against a rate-limited vendor is how the API key gets blocked.
+
+[Install]
+WantedBy=multi-user.target

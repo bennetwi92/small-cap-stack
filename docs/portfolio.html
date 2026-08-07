@@ -19,6 +19,15 @@
     <header id="appbar" class="appbar"></header>
     <div id="optbar"></div>
     <p id="pf-error" class="error" hidden></p>
+    <!-- Stands in for the whole projection region when there is no projection to draw (a payload
+         built before it existed, or the combined book, which carries none by construction). A
+         SIBLING of `#pj-view` rather than a message written into it: rendering the reason over
+         `#pj-view.innerHTML` deleted every `pj-*` element the available branch writes into, and
+         a scope round-trip then threw on the first null (#464). -->
+    <section class="panel" id="pj-none" hidden>
+      <h2 class="panel-h">Projection</h2>
+      <p id="pj-none-reason" class="muted"></p>
+    </section>
 
     <div class="pf" id="pf-view">
       <!-- Left region: the book's state — stats, forward knobs, curves, payouts.
@@ -27,7 +36,7 @@
            into one column on a laptop and on a phone. DOM order is the reading
            order once stacked: stats → next session → equity → target → risk →
            payouts. -->
-      <div class="pf-left">
+      <div class="pf-left" id="pf-book-left">
         <div class="pf-rail">
           <section class="panel">
             <h2 class="panel-h">Book stats</h2>
@@ -70,6 +79,42 @@
         </div>
       </div>
 
+      <!-- Trade inspector (#480): takes over the LEFT region while a row is
+           selected, so the log on the right stays put and you can keep working
+           down it. A region swap rather than extra panels — the same idiom the
+           Projection view uses, which is what keeps this page at "one screen,
+           nothing scrolls" by construction. Every value is the selected row's
+           own, so a *reconstructed* session (harvested into `data/recon`, never
+           captured live, therefore absent from the chart payload) still reads in
+           full; only the chart itself is replaced by the reason it can't draw. -->
+      <div class="pf-inspect" id="pf-inspect" hidden>
+        <section class="panel pf-insp-head">
+          <h2 class="panel-h">
+            <span id="pf-insp-title">—</span>
+            <span class="pf-insp-actions">
+              <button id="pf-insp-news" class="rv-btn" type="button" title="News headlines captured at scanner trigger" disabled>News 0</button>
+              <button id="pf-insp-note" class="rv-btn" type="button" title="The trader's saved review — note, verdict and drawn levels">Note</button>
+              <button id="pf-insp-gates" class="rv-btn" type="button" title="The detector's gates and score">Gates</button>
+              <button id="pf-insp-engine" class="rv-engine-toggle armed" type="button" aria-pressed="true" title="Show/hide the engine's read (pole/consolidation, tokens, cycles)">Engine</button>
+              <a id="pf-insp-open" class="rv-btn" href="review.html" title="Open in the review workbench to annotate">Review ↗</a>
+              <button id="pf-insp-close" class="rv-btn" type="button" title="Back to the book (Esc)">✕</button>
+            </span>
+          </h2>
+          <div id="pf-insp-tiles" class="tiles"></div>
+        </section>
+        <section class="panel pf-insp-chart-panel" id="pf-insp-chart-panel">
+          <h2 class="panel-h">
+            Chart <span id="pf-insp-readout" class="rv-readout pf-insp-readout"></span>
+          </h2>
+          <div id="pf-insp-chart" class="pf-insp-chart"></div>
+          <p id="pf-insp-nochart" class="muted pf-note" hidden></p>
+        </section>
+        <section class="panel pf-insp-side-panel" id="pf-insp-side-panel" hidden>
+          <h2 class="panel-h" id="pf-insp-side-title">Gates</h2>
+          <div id="pf-insp-side" class="rv-engine-detail"></div>
+        </section>
+      </div>
+
       <!-- Right: the trades themselves; the log fills the column and scrolls
            inside its panel, never the body. -->
       <div class="pf-right">
@@ -102,7 +147,9 @@
             </table>
           </div>
         </section>
-        <!-- Setups the 2/day cap dropped, or that couldn't be sized at all. -->
+        <!-- Setups that passed strategy but the book didn't trade: dropped by the 2/day cap,
+             declined by the risk throttle, or impossible to size to a single share. Every
+             qualifying setup is either in the trade log or here (#465). -->
         <section class="panel pf-skipped-panel">
           <h2 class="panel-h">Skipped — passed strategy, not taken</h2>
           <p id="pf-skipped-note" class="muted pf-note"></p>
@@ -224,6 +271,9 @@
       </div>
     </div>
 
+    <!-- lightweight-charts is a classic script (sets window.LightweightCharts) and must execute
+         before the module below; module scripts are deferred, so this ordering holds. -->
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
     <script type="module" src="portfolio.js"></script>
   </body>
 </html>

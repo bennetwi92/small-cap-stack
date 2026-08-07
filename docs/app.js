@@ -96,6 +96,54 @@ function renderStatus(s) {
   el("opps-symbols").innerHTML =
     (opp.symbols || []).map((x) => `<strong>${esc(x)}</strong>`).join(" · ") ||
     '<span class="muted">none</span>';
+
+  renderHarvest(s && s.harvest);
+}
+
+// The overnight harvest (#450). Absent until the job has run once — an unharvested box shows no
+// panel at all, rather than a row of zeroes implying something is stuck.
+//
+// `hours_since_progress` is the load-bearing value, not the counts: the harvest is deliberately NOT
+// wired to the tracker's dead-man's switch (a stalled harvest must never page as a tracker outage),
+// its unit has no `Restart=`, and a failed night looks identical to a finished one. A count that
+// has stopped moving is the only signal there is. The job runs nightly, so >36h without progress
+// means a night was missed.
+function renderHarvest(h) {
+  const panel = el("harvest-panel");
+  if (!panel) return;
+  if (!h) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+
+  const done = h.sessions_done ?? 0;
+  const total = h.sessions_in_window ?? 0;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const hrs = h.hours_since_progress;
+  const stale = hrs != null && hrs > 36;
+  const span =
+    h.oldest && h.newest ? `${esc(h.oldest)} → ${esc(h.newest)}` : "nothing harvested yet";
+
+  el("harvest").innerHTML =
+    `<div class="tiles">` +
+    `<div class="tile"><div class="tile-l">sessions</div>` +
+    `<div class="tile-v">${done}</div>` +
+    `<div class="tile-s">of ${total} in window</div></div>` +
+    `<div class="tile"><div class="tile-l">universe</div>` +
+    `<div class="tile-v">${h.daily_done ?? 0}</div>` +
+    `<div class="tile-s">phase 1 days</div></div>` +
+    `<div class="tile"><div class="tile-l">api calls</div>` +
+    `<div class="tile-v">${h.calls_spent ?? 0}</div>` +
+    `<div class="tile-s">spent</div></div>` +
+    `</div>` +
+    `<p class="dash-agg muted">${pct}% · ${span}` +
+    (h.entitlement_floor ? ` · vendor history starts ${esc(h.entitlement_floor)}` : "") +
+    `</p>` +
+    `<p class="dash-agg ${stale ? "warn" : "muted"}">last progress ` +
+    (hrs == null ? "never" : `${esc(hrs)}h ago`) +
+    (stale ? " — a night was missed" : "") +
+    `</p>`;
 }
 
 /* ---------- last completed session ---------- */

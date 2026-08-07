@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -663,3 +664,80 @@ def test_write_json_if_changed_ignores_generated_utc_across_real_payloads(tmp_pa
     assert write_json_if_changed(out, payload) is True
     later = build_charts(store, _settings(), _DAY, datetime(2026, 6, 29, 21, 0, tzinfo=UTC))
     assert write_json_if_changed(out, later) is False
+
+
+# ================================================================================================
+# Harvest progress (#450): the overnight job's only surface in the web app
+# ================================================================================================
+
+
+def _harvest_settings(tmp_path: Path) -> Settings:
+    return Settings(
+        _env_file=None,  # type: ignore[call-arg]
+        data_dir=tmp_path / "data",
+        recon_subdir="recon",
+        harvest_lookback_days=14,
+    )
+
+
+def test_harvest_progress_is_absent_until_the_job_has_run_once(tmp_path: Path) -> None:
+    """A box that has never harvested must publish exactly what it published before — the panel is
+    hidden on None, and a row of zeroes would imply something is stuck rather than unstarted."""
+    from small_cap_stack.dashboard import harvest_progress
+
+    assert harvest_progress(_harvest_settings(tmp_path), now=_NOW) is None
+
+
+def test_harvest_progress_reports_the_checkpoint_and_how_stale_it_is(tmp_path: Path) -> None:
+    """`hours_since_progress` is the load-bearing value. The harvest is deliberately not wired to
+    the tracker's dead-man's switch, its unit has no `Restart=`, and a failed night looks exactly
+    like a finished one — a count that stopped moving is the only signal there is."""
+    from small_cap_stack.dashboard import harvest_progress
+    from small_cap_stack.harvest import Checkpoint
+    from small_cap_stack.harvest.runner import checkpoint_path
+
+    s = _harvest_settings(tmp_path)
+    cp = Checkpoint.load(checkpoint_path(s))
+    cp.mark_daily(date(2026, 6, 24), calls=1)
+    cp.mark_session(date(2026, 6, 25), calls=218)
+    cp.mark_session(date(2026, 6, 26), calls=218)
+    cp.updated_at = _NOW - timedelta(hours=40)
+    cp.save()
+    # `save()` stamps updated_at itself, so rewrite the file to pin a known staleness.
+    raw = json.loads(checkpoint_path(s).read_text())
+    raw["updated_at"] = (_NOW - timedelta(hours=40)).isoformat()
+    checkpoint_path(s).write_text(json.dumps(raw))
+
+    got = harvest_progress(s, now=_NOW)
+
+    assert got is not None
+    assert got["sessions_done"] == 2
+    assert got["daily_done"] == 1
+    assert got["calls_spent"] == 437
+    assert got["oldest"] == "2026-06-25" and got["newest"] == "2026-06-26"
+    assert got["hours_since_progress"] == 40.0  # > 36 -> the page flags a missed night
+    assert 0 < got["sessions_in_window"] <= 14  # calendar-derived, weekends excluded
+
+
+def test_harvest_progress_survives_an_unreadable_checkpoint(tmp_path: Path) -> None:
+    """`Checkpoint.load` refuses an unknown version by design — deliberately, because the file is
+    the record of weeks of API budget. That must never take the 60s status tick down with it."""
+    from small_cap_stack.dashboard import harvest_progress
+    from small_cap_stack.harvest.runner import checkpoint_path
+
+    s = _harvest_settings(tmp_path)
+    path = checkpoint_path(s)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"version": 999, "done": []}))
+
+    assert harvest_progress(s, now=_NOW) is None
+
+
+def test_build_status_carries_the_harvest_block_through(tmp_path: Path) -> None:
+    """The block is injected rather than read inside `build_status`, because the harvest writes a
+    DIFFERENT store and #430's provenance split depends on not blurring the two."""
+    store = Store(tmp_path / "live")
+    payload = build_status(store, replace(_inputs(), harvest={"sessions_done": 7}))
+    assert payload["harvest"] == {"sessions_done": 7}
+    # ...and stays null on a box that has never harvested, rather than being absent.
+    assert build_status(store, _inputs())["harvest"] is None

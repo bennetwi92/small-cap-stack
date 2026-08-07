@@ -108,6 +108,9 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
   docker compose -f /opt/small-cap-stack/docker-compose.yml create   # makes the volume
   docker run --rm -v small-cap-stack_scs-data:/d -v /restore:/r alpine sh -c 'cp -a /r/_data/. /d/'
   ```
+- The reconstructed-history store `/data/recon` (#430/#431) lives in the same volume and is backed
+  up with it. It is re-purchasable rather than collected, so a restore that loses it costs API
+  budget, not the Phase-1 record — see §13.
 - **Monitoring:** the backup pings a dedicated Healthchecks check (`HEALTHCHECKS_BACKUP_URL`) on
   start/success and `/fail` on error — so a silently-failing backup alerts you. Grafana's node
   metrics also show disk usage on the box.
@@ -231,3 +234,191 @@ is fine — but if you use the pull-based image path, build **`linux/arm64`** an
 match. Caveats: free A1 capacity is heavily contended ("Out of host capacity" — upgrading to
 **Pay-As-You-Go**, still $0 within limits, plus a smaller shape / cycling Availability Domains usually
 clears it), and Oracle reclaims idle free VMs (add a weekly keep-alive cron).
+
+## 13. Overnight pre-market harvest (#431)
+Rebuilds pre-market sessions the tracker never saw from purchased vendor minute bars, into the
+**second** store `/data/recon` (#430). The paper book publishes them as `books_all` beside the
+untouched live `books`; nothing that reads the live store can return vendor rows by accident.
+
+Ingest is #430's decision — the vendor's **free tier**, no purchase — so the job is priced by a
+**5 calls/min** limit: ~218 calls a session, ~18 sessions across the 12:30-03:00 ET day (#455),
+~27 days for two years. It runs newest-first and lands whole sessions as it goes, so the deliverable is a deeper
+sample every morning rather than a backtest in six weeks. **Stopping it early is always safe.**
+
+### The vendor key — set up from a phone, no SSH
+
+The key ends up in **the box's `.env`**, because the nightly timer fires outside GitHub and cannot
+be handed a secret at run time. But you never have to put it there by hand:
+
+1. **[YOU, once]** Add `MASSIVE_API_KEY` as a **repository Actions secret** — github.com → the repo
+   → Settings → Secrets and variables → Actions → New repository secret. That page is ordinary
+   responsive web, so a phone browser does it. This is the only step that must be you: nothing in
+   this repo, and no Claude session, should ever handle the key (a cloud session has no secret
+   store — env vars are plaintext).
+2. Run the **`harvest`** workflow with `command: install-key`. It executes on the box's self-hosted
+   runner and writes the secret into `/opt/small-cap-stack/.env`, replacing any previous line, and
+   `chmod 600`s the file. It prints the key's *length and last four characters* — never the key.
+3. From then on the systemd timer works. Deploys don't disturb it: `deploy-app` only rewrites the
+   `IMAGE_TAG=` line.
+
+Ad-hoc runs work even *before* step 2: the workflow injects the secret into the run, and
+`scripts/harvest.sh` prefers an ambient key over the stored one. So `install-key` is specifically
+about the unattended nightly job.
+
+(`spike-massive.yml` from #428 uses the same secret name. It runs on `ubuntu-latest`, has no
+`/data`, and is unrelated — if you already added the secret for it, step 1 is done.)
+
+**Rotating the key** is the same two steps: update the repo secret, re-run `install-key`. It
+replaces rather than appends, so the old key cannot linger and silently win.
+
+Then run the **`harvest`** workflow once with `command: install-units`. It installs
+`scs-harvest.{service,timer}` from the dispatched ref and enables the timer, on the box's own
+runner — so the whole setup, key included, is three dispatches and no SSH. Re-run it after any
+change to the units; it is idempotent, and that is the upgrade path.
+
+The equivalent by hand, if you happen to be on the box anyway:
+
+```bash
+cp deploy/scs-harvest.{service,timer} /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now scs-harvest.timer
+```
+
+> ⚠️ Both bootstrap commands run the **checked-out** wrapper, not the box's deployed copy, so they
+> work on a ref that has not been deployed yet. Everything else (`status`, `daily`, `run`) starts a
+> container from the **deployed image**, so those need the change merged, built and deployed first —
+> otherwise the image has no `small_cap_stack.harvest` module in it.
+
+**Order of operations — phase 1 first, and it is not optional.** #428 established the previous
+daily close as a *required* input: without it the appearance reconstruction fires a median 18 min
+early, so every session harvested before phase 1 has run is wrong rather than merely incomplete.
+
+⚠️ **`sweep` also comes AFTER `daily`, not before it.** It measures the floor against phase 1's
+*stored* rows, so on a box that has never run `daily` it reports `dates: 0` and empty tables — a
+pre-flight that looks like it ran and measured nothing. The timer's `auto` sequences the phases
+itself; only a hand-run needs to care.
+
+`status`, `sweep` and `prefilter` touch no vendor, spend nothing and take no lock, so they run at
+**any** hour — checking on the harvest must not itself require waiting until 17:00. `charts` is not
+window-gated either, but it *does* take the lock (it mutates the same dashboard files the nightly
+hook writes), so it refuses while a harvest is in flight. `daily` and `run` are the two that cost
+API budget and wall clock, and both refuse outside the window.
+
+```bash
+cd /opt/small-cap-stack
+./scripts/harvest.sh status                    # any hour: what is done, what is left
+./scripts/harvest.sh daily                     # phase 1 FIRST: ~500 calls, under 2h
+./scripts/harvest.sh sweep                     # ...THEN sweep — it reads phase 1's stored rows
+./scripts/harvest.sh run --limit 1             # phase 2 smoke test: ONE session, watch free -m
+./scripts/harvest.sh auto                      # what the timer runs: phase 1 if needed, then 2
+./scripts/harvest.sh charts                    # any hour: publish harvested days to the dashboard
+```
+
+- ⚠️ **Both vendor-spending commands (`daily` and `run`) refuse to start outside 12:30–03:00 ET**
+  and stop themselves at 03:00, clear of the 03:45 `eod_backfill` and the 04:00 scan window.
+  Overriding takes two flags (`--ignore-window --force`) — don't, during market hours. Being
+  *launched* at the right time and *refusing* the wrong one are different guarantees; only the
+  second survives a late timer.
+- **Why the window starts at 12:30 and the timer fires twice (#455).** At the free tier the
+  harvest's calendar is set purely by hours-per-day, and 12:00–16:20 ET is the one block of the
+  box's day nothing is scheduled in — worth ~4.5 hours, taking ~40 nights to ~27. But it puts
+  `eod_bars_fetch` (16:20) and `eod_report` (16:30) **inside** the window, and `HostGuard` cannot
+  protect them: it is checked once per *session*, and a session is ~47 min, so a 12:30 start puts
+  boundaries at 15:38 and 16:25 — the harvest sits *inside* a session, holding 1 GB with no swap,
+  across both EOD jobs while `build_portfolio_payload` (~1.5 GB, growing, #273) runs. So the
+  afternoon run carries its own **16:10 recess** (`HARVEST_EOD_RECESS_ET`), enforced as a deadline
+  — which, unlike the guard, bounds where the container may still be *running*. The timer then
+  fires at **12:30, 17:15, 20:00 and 23:00**: 17:15 does the evening, and the later two recover a
+  run the guard ended at an arbitrary boundary. Re-fires while a run is in flight cost nothing —
+  systemd merges the duplicate start job, so nothing appears in the journal at all.
+- ⚠️ **Memory.** The container gets a hard `--memory=1g` with **no swap**, one CPU, and
+  `--oom-score-adj=800` so the kernel prefers it over everything else on the box. It is a separate
+  `docker run`, **not** `docker exec` into the app — sharing the tracker's cgroup would spend the
+  tracker's headroom and OOM the tracker instead of the harvest (#264/#273). The job also checks
+  host headroom between sessions and stops cleanly when the box gets tight.
+- ⚠️ **The limits live on `scs-harvest.slice`, not on the service (#452).** `docker run` hands
+  container creation to the daemon, so the container lands in Docker's own scope under
+  `system.slice` — measured: `/system.slice/docker-….scope` by default, versus
+  `/scs.slice/scs-harvest.slice/docker-….scope` with `--cgroup-parent`. Before #452 the service's
+  `MemoryMax`/`Nice`/`IOSchedulingClass` bounded a ~15 MB docker client and nothing else, and the
+  wrapper's `nice`/`ionice` prefix deprioritised a process that spends its life blocked on a
+  socket. The slice's `MemoryMax=1200M` is now the real backstop — it binds even a container given
+  no `--memory` of its own, so a mis-set `HARVEST_MEM_LIMIT` in `.env` can no longer exceed it.
+  Check it with `systemctl show scs-harvest.slice -p MemoryMax` and
+  `systemd-cgls /scs.slice/scs-harvest.slice` while a harvest runs. Re-run the `harvest` workflow
+  with `command: install-units` after changing any of the three units.
+- ⚠️ **The vendor's window is shorter than the one you plan (#440).** `HARVEST_LOOKBACK_DAYS` (730)
+  says how far back to *ask*; the free tier's ~2-year entitlement says how far back you *get*. Phase
+  1 walks ascending and pays one extra call for the session **before** the oldest planned one, to
+  seed its previous close — so a lookback set at the entitlement edge reaches one session past it.
+  On 2026-08-04 that 403 killed the first night outright, and would have killed every night after.
+  Now an entitlement 403 (matched on the vendor's message, so a revoked key still stops the night)
+  records an **entitlement floor** on the checkpoint, and the plan trims itself to what is
+  purchasable. `harvest status` reports `entitlement_floor` beside `lookback_days`: `null` means the
+  lookback has never been refused, a date means the real window is shorter than configured. Nothing
+  needs setting — but a floor that appears where you didn't expect one means the plan changed.
+- **Seeing it.** The book is rebuilt at **03:15 ET** (`portfolio_refresh`, #458) as well as at the
+  16:30 EOD, so a night's reconstructed days are on the Portfolio page **before the open** rather
+  than after the close of the day they were harvested for. `publish-dashboard` runs every 15 min,
+  so the page is live by ~03:30 ET. The slot is the only free one: the harvest hard-stops at 03:00,
+  `eod_backfill` is at 03:45, the scan window opens at 04:00. Look for `portfolio.refresh_done` in
+  the app log; a failure is logged and skipped, never fatal — it costs a day of visibility, not
+  data. ⚠️ This runs `build_portfolio_payload`, the #273 memory driver — the same build the EOD
+  already does daily, now also in the quiet pre-dawn window. Watch `coverage.recon` and
+  `capped_days_dropped` in `portfolio.json` as the harvest deepens (#448).
+- **Reviewing a harvested day (#488).** `run`/`auto` publish each completed session's chart payload
+  as it lands — `/data/dashboard/charts/recon/<date>.json` plus `recon_index.json`, a namespace of
+  their own so nothing reading the live `index.json` can serve vendor rows by accident.
+  `publish-dashboard` copies the whole dashboard dir, so no workflow change is needed and the day
+  is on the **Results** page (DATA → `+ History`) and in the Portfolio trade inspector within ~15
+  min. At most `RECON_CHARTS_MAX_DATES` (30) sessions are resident, because that push is a full
+  re-upload of the tree every quarter hour and a payload is 1.5–3 MB. **Eviction is by publish
+  order, not by date** — the harvest walks backwards, so a newest-date window would have gone stale
+  after ~2 nights and hidden the rest of the run; this way the page carries whatever last night
+  rebuilt, and the index's `capped_dates_dropped` says how many are not resident.
+  `./scripts/harvest.sh charts` fills the window on a box that harvested before this existed, and
+  `./scripts/harvest.sh charts --dates 2026-05-04` brings a specific evicted session back (it moves
+  to the front of the window). Idempotent — re-running it with everything published does nothing.
+  A publish failure never costs the night: it is logged and the session stays checkpointed.
+  ⚠️ `charts` **takes the `scs-harvest` lock**, so it refuses while a harvest is running: it and the
+  per-session hook both read-modify-write `recon_index.json`, and interleaved they would orphan a
+  payload. Run it in a gap, or let the nightly hook do it. ⚠️ The cap bounds the date *count*, not
+  bytes — measure `du -sh /data/dashboard` and the publish job's duration once the first window has
+  landed rather than trusting the 1.5–3 MB figure.
+- **Resuming.** A checkpoint at `/data/recon/harvest-checkpoint.json` records completed sessions;
+  every run resumes from it. A session is written as **one parquet file per dataset at the end**, so
+  a kill leaves the date with no files and the checkpoint never claims it; the next run discards any
+  leftovers for an unmarked date before redoing it. Never hand-edit the checkpoint — it is the
+  record of up to 45 nights of API budget, and `Checkpoint.load` refuses a version it doesn't know
+  rather than silently starting over.
+- ⚠️ **A refused session is never marked done (#446).** `Store.append` writes no file for empty
+  records, so a day the vendor refused and a day nothing traded are byte-identical on disk. The
+  session loop counts *failures* — distinct from symbols that simply produced nothing — and
+  abandons the date, writing nothing and leaving it pending, when every symbol failed, when 5 fail
+  consecutively (the circuit breaker: a failing symbol costs 5 calls and ~95 s on the retry
+  ladder), or when more than 20% of a ≥10-candidate session failed. Look for
+  `harvest.session_abandoned` in `journalctl`; `failed=` is on every per-session line.
+- **Watching it.** `journalctl -u scs-harvest -f` shows a per-session line with candidate count,
+  opportunities, calls, **failures** and **peak RSS** — that last number is the early-warning signal for a memory
+  regression. It is deliberately NOT wired to the tracker's Healthchecks dead-man's switch: a
+  stalled harvest must never page as a tracker outage.
+- **The universe is filtered to match the live scan (#443).** Phase 1 fetches the ETF/ETN/ETV
+  ticker set from the vendor's reference endpoint once (~10-20 calls, both active *and* delisted —
+  a two-year window covers dates on which now-dead ETNs were trading) and caches it at
+  `/data/recon/excluded-symbols.json`, refreshed every 30 days. Without it the harvest's universe
+  is a different population from the tracker's: leveraged single-stock ETNs are the market's most
+  reliable producers of "+10%, $1-50, >100k shares" days, and the paper book takes the first two
+  triggers of a day, so each one admitted displaces a real candidate. A fetch failure degrades to
+  the cached set and logs `harvest.exclusions_fetch_failed` rather than losing the night — if you
+  see that in `journalctl`, the universe for those sessions was filtered with a stale list.
+- **Disk.** ~36M rows of 1-min bars over the full harvest. `harvest.sh status` and `df -h` are the
+  check; `HARVEST_STORE_MINUTE_BARS=false` in `.env` drops the raw minute series (the 5-min bars the
+  engine reads are written either way) at the cost of a full re-fetch if the reconstruction rules
+  ever change.
+
+### 13.1 Before the first full night: sweep the day-volume floor
+The harvest's whole calendar comes from one number — ~217 candidates a session — and that comes
+from a **day volume > 100k** prefilter that is airtight but ~12× looser than the loosest of the 25
+committed review cases. `./scripts/harvest.sh sweep` re-runs the filter at several floors against
+already-stored phase-1 rows, costing **no API calls**, and reports candidates/day and sessions/night
+at each. If a tighter floor halves the candidate set, ~27 days becomes ~14. Change it by setting
+`HARVEST_MIN_DAY_VOLUME` in `.env` — and record the measurement on the issue before you do.

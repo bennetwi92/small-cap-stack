@@ -3,12 +3,31 @@
 // logic (select → size → simulate-exit) lives in the tested Python package;
 // this page just picks a book from the published portfolio.json and renders
 // its equity curve / stats / trade log.
+//
+// Since #480 a row in either table opens the trade *inspector* — its own numbers
+// plus the full-day chart, drawn by the shared component (js/inspector.js) — in
+// place of the left region, so the log stays put beside it. Clicking a symbol
+// used to navigate to the review page and lose the book entirely.
 
 import "./js/nav.js";
 import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
 import { esc, etClockIso, fmtPct, fmtShares, rRampClass } from "./js/fmt.js";
+import {
+  chartsFor,
+  clearChartCache,
+  createChartView,
+  engineDetailHtml,
+  findChart,
+  hasReview,
+  newsCount,
+  newsHtml,
+  optionLabel,
+  readoutHtml,
+  reviewFor,
+  reviewHtml,
+} from "./js/inspector.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -95,7 +114,10 @@ function buildOptbar() {
     ],
     extra: [{ type: "note", id: "pf-meta", value: "loading…" }],
     onChange: (id, value) => {
-      if (id === "pf-refresh") return load();
+      if (id === "pf-refresh") {
+        clearChartCache(); // Refresh means the branch, not the memo
+        return load();
+      }
       if (id === "pf-viewsel") VIEW = value;
       if (id === "pf-book") BOOK = value;
       if (id === "pf-scope") SCOPE = value;
@@ -213,6 +235,22 @@ function stepSvg(points, o, box) {
   const base = y(lo).toFixed(1);
   const area = `${line} L${x1(points.length - 1).toFixed(1)},${base} L${x0(0).toFixed(1)},${base} Z`;
 
+  // Days the series is only *nominally* at its value — for the target chart, the ones where the
+  // re-fit didn't run and the fallback stood in (#463). Overdrawn dashed and dimmed so a flat
+  // stretch cannot be misread as a fit that kept choosing the same rung. Optional: a series with
+  // no `dim` points draws nothing here.
+  const dimmed = points
+    .map((p, i) =>
+      p.dim
+        ? `M${x0(i).toFixed(1)},${y(p.value).toFixed(1)} L${x1(i).toFixed(1)},${y(p.value).toFixed(1)}`
+        : ""
+    )
+    .filter(Boolean)
+    .join(" ");
+  const dimPath = dimmed
+    ? `<path d="${dimmed}" fill="none" stroke="${MK.flat}" stroke-width="2" stroke-dasharray="4 3"/>`
+    : "";
+
   // Recessive rules at each rung of the ladder, labelled in the axis gutter.
   const rules = grid
     .map((g) => {
@@ -231,7 +269,7 @@ function stepSvg(points, o, box) {
     .map(
       (p, i) =>
         `<rect x="${x0(i).toFixed(1)}" y="${PAD}" width="${w.toFixed(1)}" height="${(H - BOT - PAD).toFixed(1)}" ` +
-        `fill="transparent"><title>${esc(p.date)} · ${esc(o.fmt(p.value))}</title></rect>`
+        `fill="transparent"><title>${esc(p.date)} · ${esc(o.fmt(p.value))}${p.note ? " · " + esc(p.note) : ""}</title></rect>`
     )
     .join("");
 
@@ -244,6 +282,7 @@ function stepSvg(points, o, box) {
     rules +
     `<path d="${area}" fill="${o.color}" opacity="0.10"/>` +
     `<path d="${line}" fill="none" stroke="${o.color}" stroke-width="2"/>` +
+    dimPath +
     `<circle cx="${lastX}" cy="${lastY}" r="3.5" fill="${o.color}"/>` +
     `<text x="${lastX}" y="${(+lastY - 8).toFixed(1)}" text-anchor="end" class="pf-axis">${esc(o.fmt(last.value))}</text>` +
     `<text x="${PAD}" y="${axisY}" class="pf-axis">${esc(points[0].date)}</text>` +
@@ -254,11 +293,18 @@ function stepSvg(points, o, box) {
 }
 
 // The R multiple the book exits at, re-fit daily from the trailing window. Rules mark the
-// candidate grid, so a flat stretch reads as "the fit kept choosing the same rung".
+// candidate grid. Days the re-fit did NOT run are overdrawn dashed and dimmed (#463) — a flat
+// stretch would otherwise read as "the fit kept choosing the same rung" when it can equally mean
+// the fit never ran for want of samples, which is exactly what the live book did for 28 days.
 function targetSvg(book, box) {
   const pts = (book.daily_targets || [])
     .filter((d) => d.target != null)
-    .map((d) => ({ date: d.date, value: d.target }));
+    .map((d) => ({
+      date: d.date,
+      value: d.target,
+      dim: d.fitted === false,
+      note: d.fitted == null ? "" : `${d.fitted ? "fitted" : "fallback"} (${d.n} trades)`,
+    }));
   const grid = PAYLOAD.config.target_grid || [...new Set(pts.map((p) => p.value))].sort((a, b) => a - b);
   return stepSvg(
     pts,
@@ -669,22 +715,29 @@ function inputRows(pj, cfg) {
     .join("");
 }
 
+// Shows whichever of the two projection regions applies: `#pj-view` when there is a projection to
+// draw, the standalone `#pj-none` panel when there isn't.
+//
+// The reason goes in its own element rather than over `#pj-view.innerHTML` (#464). `#pj-view` holds
+// every `pj-*` element the branch below writes into, so writing the reason over it deleted them all
+// — permanently, since nothing rebuilds them. That was harmless while the branch was terminal for
+// the session, but #430's combined book carries no projection by construction, so DATA `+ History`
+// → back to `Live` now reaches the available branch with the elements gone: `el("pj-tiles")` is
+// null, `render()` throws mid-way, and the view stays broken until a reload.
 function renderProjection(book) {
   const pj = book.projection;
-  const wrap = el("pj-view");
-  if (!pj || !pj.available) {
+  const available = !!(pj && pj.available);
+  el("pj-view").hidden = !available;
+  el("pj-none").hidden = available;
+  if (!available) {
     // A combined book carries no projection by construction (#430): the forward view resamples the
     // returns the tracker actually observed, so it is built for the live scope only. Say that,
     // rather than falling through to "not built yet", which would be wrong here.
-    const reason =
+    el("pj-none-reason").textContent =
       SCOPE === "all" && hasRecon()
         ? "The projection is built from live days only. Switch DATA to Live to see it."
         : (pj && pj.reason) ||
           "No projection in this payload yet — it is built at the end-of-day report.";
-    wrap.innerHTML =
-      `<section class="panel"><h2 class="panel-h">Projection</h2><p class="muted">` +
-      esc(reason) +
-      `</p></section>`;
     return;
   }
   const cfg = PAYLOAD.config;
@@ -773,6 +826,11 @@ function statTiles(book, start) {
 function streakNote(st) {
   const need = st.step_days - Math.abs(st.streak);
   const dayWord = (n) => `${n} ${n === 1 ? "day" : "days"}`;
+  // With the ladder off (#474) the streak still accrues in the state but moves nothing — saying
+  // "N days in a row steps risk a rung" would promise machinery that has been switched out.
+  if (throttleOff(st)) {
+    return `Risk is flat at ${pct(st.risk_fraction)} per trade — the kill-switch is off.`;
+  }
   if (st.streak === 0) {
     return `No run either way — ${dayWord(st.step_days)} in a row moves risk a rung.`;
   }
@@ -786,16 +844,62 @@ function streakNote(st) {
   return `${dayWord(Math.abs(st.streak))} of ${dir} results${tail}`;
 }
 
-// Note: `n_rungs - 1` because rung 0 is the 0% floor — a 3-rung ladder has 2 steps above sitting out.
+// The sample the fit draws on: a trailing window, or all history when there is no window (#476).
+// `adaptive_window_days` is null in that case, which must not render as "null-day window".
+const fitScope = (c) =>
+  c.adaptive_window_days == null ? "all history" : `the trailing ${c.adaptive_window_days} days`;
+
+// Whether the target on the tile is the optimiser's pick or the fallback (#463), and the sample
+// behind it. Three states, not two (#476): a fallback for want of samples ("thin") and one where
+// the pick failed the margin gate ("margin") mean different things — no evidence yet, versus
+// evidence too weak to act on. `target_fitted` post-dates these payloads, so against a
+// portfolio.json published before it existed the tag drops out rather than asserting either way.
+function fitTag(st, c) {
+  if (st.target_fitted == null) return "";
+  const n = st.target_trailing_n;
+  if (st.target_status === "margin") {
+    return `<span class="muted">(held · ${st.target_considered_r}R not proven)</span>`;
+  }
+  return st.target_fitted
+    ? `<span class="muted">(fitted · ${n} trades)</span>`
+    : `<span class="muted">(fallback · ${n}/${c.adaptive_min_samples})</span>`;
+}
+
+function fitTitle(st, c) {
+  const base = "The R multiple the next setup exits at";
+  if (st.target_fitted == null) return `${base} — re-fit daily from the trailing window`;
+  if (st.target_status === "margin") {
+    const z = st.target_edge_z == null ? "—" : Number(st.target_edge_z).toFixed(2);
+    return (
+      `${base}. The re-fit preferred ${st.target_considered_r}R over ${st.target_fallback_r ?? c.target_fallback_r}R, ` +
+      `but its edge across ${st.target_trailing_n} trades is only ${z} standard errors ` +
+      `(${c.target_switch_z} required), so the fallback stands. Not enough evidence to change the exit rule.`
+    );
+  }
+  return st.target_fitted
+    ? `${base}, chosen by the daily re-fit over ${st.target_trailing_n} trades from ${fitScope(c)}.`
+    : `${base}. The re-fit did NOT run: ${fitScope(c)} holds ` +
+        `${st.target_trailing_n} trades and needs ${c.adaptive_min_samples}, so this is the ` +
+        `${c.target_fallback_r}R fallback, not an adaptive choice.`;
+}
+
+// A one-rung ladder is the throttle switched OFF (#474): there is no rung to be on, so "rung 0/0"
+// and a ladder tooltip would both describe machinery that cannot move. Note: `n_rungs - 1` because
+// rung 0 is the 0% floor — a 3-rung ladder has 2 steps above sitting out.
+const throttleOff = (st) => st.n_rungs <= 1;
+
 function todayTiles(st, c) {
   const parked = st.risk_fraction === 0;
   return (
-    tile("Target", `${st.target_r}R`, "", "The R multiple the next setup exits at — re-fit daily from the trailing window") +
+    tile("Target", `${st.target_r}R ${fitTag(st, c)}`, "", fitTitle(st, c)) +
     tile(
       "Risk / trade",
-      pct(st.risk_fraction) + ` <span class="muted">(rung ${st.rung}/${st.n_rungs - 1})</span>`,
+      pct(st.risk_fraction) +
+        (throttleOff(st) ? "" : ` <span class="muted">(rung ${st.rung}/${st.n_rungs - 1})</span>`),
       parked ? "pf-neg" : "",
-      `The kill-switch rung in force. Ladder: ${(c.risk_ladder || []).map(pct).join(" / ")}`
+      throttleOff(st)
+        ? "Flat risk per trade — the kill-switch ladder is switched off, so this does not vary with recent results."
+        : `The kill-switch rung in force. Ladder: ${(c.risk_ladder || []).map(pct).join(" / ")}`
     ) +
     tile(
       "Risk budget",
@@ -812,8 +916,16 @@ function todayTiles(st, c) {
   );
 }
 
+// Deliberately reads the LIVE book whatever the DATA scope says (#466). Every other panel on this
+// page is a *record*, where showing the combined version is the whole point of the toggle. This one
+// is a *forecast of the live account* — the rung, the target and the dollar budget the tracker will
+// size its next setup with. The combined book re-walks that state over a spliced history, so under
+// `+ History` it produced a budget nothing would ever trade ($11.20 against the live book's $15.55)
+// under a heading promising it applied to the next session. The scope belongs to the history, not
+// to what happens tomorrow.
 function renderToday(book) {
-  const st = book.next_session;
+  const live = PAYLOAD.books[BOOK] || book;
+  const st = live.next_session;
   const wrap = el("pf-today-wrap");
   // Only the adaptive book throttles risk or re-fits a target, so only it has a "next session".
   if (!st) {
@@ -826,11 +938,18 @@ function renderToday(book) {
   const sitting = parked
     ? ` The book is <strong>sitting out</strong> — it still watches the tape and re-arms once setups work again.`
     : "";
+  // Say which book these came from only when it isn't the one on screen — on the Live scope the
+  // qualifier would name a distinction the reader has no reason to think exists.
+  const scoped =
+    SCOPE === "all" && hasRecon()
+      ? ` Read from the <strong>Live</strong> book — the one that trades; reconstructed days set no risk for tomorrow.`
+      : "";
   setNote(
     "pf-today-note",
     `Applies to the next session the book sizes (data through ${esc(prevDay(st.as_of))}). ` +
       streakNote(st) +
-      sitting
+      sitting +
+      scoped
   );
 }
 
@@ -953,6 +1072,23 @@ function dateCell(t) {
   return `<td>${esc(t.date)}${tag}</td>`;
 }
 
+// The symbol cell. Plain text since #480: the whole row opens the inspector, which draws the
+// chart in place and carries the link out to the review workbench itself. A link here would
+// navigate away from the book — the thing the inspector exists to stop.
+function symCell(t) {
+  return `<td><strong>${esc(t.symbol)}</strong></td>`;
+}
+
+// Rows the inspector can open, keyed by the `data-key` stamped on each <tr>. Rebuilt on every
+// render, because switching book or scope replaces both tables wholesale.
+const ROWS = new Map();
+
+function rowKey(kind, t) {
+  const key = `${kind}:${ROWS.size}`;
+  ROWS.set(key, { kind, t });
+  return ` data-key="${key}"`;
+}
+
 function tradeRows(book) {
   if (!book.trades.length) return '<tr><td colspan="15" class="muted">No qualifying pre-market trades yet.</td></tr>';
   return book.trades
@@ -960,11 +1096,10 @@ function tradeRows(book) {
     .reverse() // newest first
     .map((t) => {
       const nCls = t.net_pnl > 0 ? "pf-pos" : t.net_pnl < 0 ? "pf-neg" : "muted";
-      const rev = `review.html?date=${encodeURIComponent(t.date)}&sym=${encodeURIComponent(t.symbol)}`;
       return (
-        "<tr>" +
+        `<tr${rowKey("trade", t)}>` +
         dateCell(t) +
-        `<td><a href="${rev}"><strong>${esc(t.symbol)}</strong></a></td>` +
+        symCell(t) +
         floatCell(t) +
         `<td>${etClockIso(t.trigger_at)}</td>` +
         `<td class="r">${fmtUsd(t.entry)}</td>` +
@@ -990,6 +1125,9 @@ function tradeRows(book) {
 const SKIP_LBL = {
   cap: '<span class="muted">daily cap</span>',
   unaffordable: '<span class="pf-neg">unaffordable</span>',
+  // Gold, the kill-switch's colour on the risk chart, not the loss red: the throttle declining a
+  // setup is the ladder working, not a failure.
+  throttled: '<span class="warn">risk throttle</span>',
 };
 
 // Setups selected but impossible to size to even one share (#251). Kept apart from the cap
@@ -1004,14 +1142,31 @@ function unaffordableNote(book) {
   );
 }
 
+// Setups the adaptive kill-switch declined (#465) — a rung-0 day takes nothing at all, and a
+// throttled rung can size a wide-stop setup to zero shares. Deliberately not folded into the cap
+// sentence: the cap and the throttle are different constraints with different fixes, and the R
+// total above is cap-only by design. Their R is stated all the same — on a book that spent days
+// parked, what the throttle declined is the number the reader came for.
+function throttledNote(book) {
+  const rows = (book.skipped || []).filter((t) => t.skip_reason === "throttled");
+  if (!rows.length) return "";
+  const totR = rows.reduce((a, t) => a + (t.realized_r || 0), 0);
+  const cls = totR > 0 ? "pf-pos" : totR < 0 ? "pf-neg" : "muted";
+  return (
+    ` ${rows.length} more ${rows.length === 1 ? "was" : "were"} declined by the ` +
+    `<strong>risk throttle</strong> — the kill-switch was parked or its budget wouldn't size a ` +
+    `share. They'd have returned <span class="${cls}">${fmtR(totR)}</span> in total (unsized).`
+  );
+}
+
 function skippedNote(book) {
   const s = book.stats;
   const n = s.skipped_count || 0;
   if (!n) {
-    // "No setups were dropped" would contradict the table below whenever unaffordable rows exist,
-    // since skipped_count is cap-only. Speak only for the cap here.
+    // "No setups were dropped" would contradict the table below whenever unaffordable or throttled
+    // rows exist, since skipped_count is cap-only. Speak only for the cap here.
     const capNote = `The ${PAYLOAD.config.max_trades_per_day}/day cap was never the binding constraint — it dropped nothing.`;
-    return capNote + unaffordableNote(book);
+    return capNote + throttledNote(book) + unaffordableNote(book);
   }
   const totR = s.skipped_total_r;
   const cls = totR > 0 ? "pf-pos" : totR < 0 ? "pf-neg" : "muted";
@@ -1020,6 +1175,7 @@ function skippedNote(book) {
     `${PAYLOAD.config.max_trades_per_day}/day cap was already full. At this book's target they'd ` +
     `have returned <span class="${cls}">${fmtR(totR)}</span> in total (unsized — R only, since a ` +
     `third concurrent position wouldn't fit the settled-cash limit).` +
+    throttledNote(book) +
     unaffordableNote(book)
   );
 }
@@ -1031,11 +1187,10 @@ function skippedRows(book) {
     .slice()
     .reverse() // newest first, matching the trade log
     .map((t) => {
-      const rev = `review.html?date=${encodeURIComponent(t.date)}&sym=${encodeURIComponent(t.symbol)}`;
       return (
-        "<tr>" +
+        `<tr${rowKey("skipped", t)}>` +
         dateCell(t) +
-        `<td><a href="${rev}"><strong>${esc(t.symbol)}</strong></a></td>` +
+        symCell(t) +
         floatCell(t) +
         `<td>${SKIP_LBL[t.skip_reason] || SKIP_LBL.cap}</td>` +
         `<td>${etClockIso(t.trigger_at)}</td>` +
@@ -1065,10 +1220,35 @@ function targetNote(book) {
   const uniq = [...new Set(targets.map((d) => d.target))].sort((a, b) => a - b);
   const fallback = c.target_fallback_r != null ? `the ${c.target_fallback_r}R fallback` : "the configured fallback";
   return (
-    `Target re-fits daily from the trailing ${c.adaptive_window_days}-day window (needs ≥ ` +
-    `${c.adaptive_min_samples} prior trades, else ${fallback}). Latest chosen target: ` +
-    `<strong>${last.target}R</strong> · targets used: ${uniq.map((t) => t + "R").join(", ")}.`
+    `Target re-fits daily over ${fitScope(c)} (needs ≥ ` +
+    `${c.adaptive_min_samples} prior trades, else ${fallback}; a pick other than the fallback must ` +
+    `also clear ${c.target_switch_z ?? 0} standard errors). Latest chosen target: ` +
+    `<strong>${last.target}R</strong> · targets used: ${uniq.map((t) => t + "R").join(", ")}. ` +
+    fitCoverage(targets, c)
   );
+}
+
+// How much of the plotted line is the optimiser and how much is the fallback (#463). A flat target
+// chart is ambiguous on its face — "the fit kept picking the same rung" and "the fit never ran"
+// draw an identical line — and for the live book's first 28 days it was always the second.
+function fitCoverage(targets, c) {
+  const known = targets.filter((d) => d.fitted != null);
+  if (!known.length) return ""; // payload predates the flag — say nothing rather than guess
+  const fitted = known.filter((d) => d.fitted).length;
+  // Days the fit ran and preferred something else, but the margin gate held the fallback (#476).
+  // Counted separately from thin days: "not enough trades yet" and "not a big enough edge" are
+  // different diagnoses and point at different fixes.
+  const held = known.filter((d) => d.status === "margin").length;
+  const heldNote = held ? ` ${held} day${held === 1 ? "" : "s"} preferred another target but did not clear the margin.` : "";
+  if (fitted === known.length) return `All ${known.length} days were re-fitted.${heldNote}`;
+  if (fitted === 0) {
+    const last = known[known.length - 1];
+    return (
+      `<strong>The re-fit has never run</strong> — all ${known.length} days fell back. The sample ` +
+      `holds ${last.n} trades and needs ${c.adaptive_min_samples}.${heldNote}`
+    );
+  }
+  return `Re-fitted on ${fitted} of ${known.length} days; the rest fell back.${heldNote}`;
 }
 
 function riskNote(book) {
@@ -1077,6 +1257,15 @@ function riskNote(book) {
   const ladder = (c.risk_ladder || []).map(pct).join(" / ");
   const d = c.risk_step_days || 1;
   const days = d === 1 ? "day" : `${d} days`;
+  // One rung = the throttle is off (#474). The flat line below is then the CONFIGURED risk, not a
+  // ladder that happened to stay put, and the difference matters to anyone reading the chart.
+  if ((c.risk_rungs || 1) <= 1) {
+    return (
+      `Risk per trade is flat at ${pct(c.risk_fraction)} — the kill-switch ladder is switched off. ` +
+      `That ceiling still caps the risk, not the size: a tight stop can leave the ` +
+      `${pct(c.position_fraction)} position cap binding first, so the risk actually taken lands below it.`
+    );
+  }
   // Deliberately no "Latest risk: N%" here (#286): the forward-looking number
   // lives in the Next session panel.
   return (
@@ -1120,9 +1309,24 @@ function coverageLine() {
   if (!cov) return "";
   const span = (c) => (c && c.days ? `${isoDay(c.from)}→${isoDay(c.to)} (${c.days}d)` : "none");
   const recon = cov.recon || {};
-  const reconPart = recon.days
-    ? ` · reconstructed ${span(recon)}${SCOPE === "all" ? "" : " — not in this book"}`
-    : "";
+  // Harvested days this payload does NOT carry (#467). `capped` is the candidate budget biting,
+  // `overlap` a day the tracker also watched live, where live wins. Both are published precisely so
+  // the page can say so: without them a span that is really the payload's ceiling reads as the
+  // whole extent of the harvest. Absent from payloads published before the counts existed, which
+  // `? :` handles by saying nothing rather than claiming zero.
+  const dropped = [
+    recon.capped_days_dropped ? `${recon.capped_days_dropped}d over the candidate budget` : "",
+    recon.overlap_days_dropped ? `${recon.overlap_days_dropped}d also collected live` : "",
+  ].filter(Boolean);
+  const droppedPart = dropped.length ? ` (dropped: ${dropped.join(", ")})` : "";
+  // A dropped count outlives a recon span of "none": a harvest whose every day overlapped the live
+  // record shows no span at all, and that is exactly when the reader most needs the reason — an
+  // empty `reconstructed` clause would otherwise read as an unharvested box.
+  const reconPart =
+    recon.days || dropped.length
+      ? ` · reconstructed ${span(recon)}${droppedPart}` +
+        (SCOPE === "all" ? "" : " — not in this book")
+      : "";
   return ` · Data: live ${span(cov.live)}${reconPart}`;
 }
 
@@ -1211,11 +1415,247 @@ const redraw = new ResizeObserver(() => {
 });
 document.querySelectorAll(".pf-left").forEach((n) => redraw.observe(n));
 
+/* ---------- trade inspector (#480) ----------
+   A row in either table swaps the left region for that trade: its own figures as
+   tiles, then the full-day chart drawn by the shared inspector component. The log
+   on the right never moves, so you can keep working down it. */
+
+let inspView; // undefined = not built, null = charting library missing
+let inspKey = null; // the `data-key` of the open row, or null
+let inspSide = null; // null | "gates" | "news" | "note"
+let inspReview = null; // the saved review for the drawn opportunity, once it has loaded
+let inspEngineOn = true;
+let inspToken = 0; // guards a payload fetch that lands after another selection
+
+function inspEnsureView() {
+  if (inspView !== undefined) return inspView;
+  inspView = createChartView(el("pf-insp-chart"));
+  if (inspView) inspView.setEngineOn(inspEngineOn);
+  return inspView;
+}
+
+// The trade's own numbers. Everything here comes off the row, so a reconstructed
+// session — which has no published chart — still reads in full.
+function inspTiles(kind, t) {
+  const rCls = (v) => (v == null ? "" : rRampClass(v));
+  const common =
+    tile("Date", esc(t.date) + (t.source === "recon" ? ' <span class="pf-src">recon</span>' : "")) +
+    tile("Trigger", etClockIso(t.trigger_at)) +
+    tile("Float", fmtShares(t.float_shares)) +
+    tile("Entry", fmtUsd(t.entry)) +
+    tile("Stop", fmtUsd(t.stop)) +
+    tile("Target", `${Number(t.target_r).toFixed(1)}R`) +
+    tile(
+      "Exit",
+      `<span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtUsd(t.exit_price)}`,
+    ) +
+    tile("R", fmtR(t.realized_r), rCls(t.realized_r)) +
+    tile("Max R", fmtR(t.max_r), rCls(t.max_r), "Peak favourable excursion — the best this setup ever offered") +
+    tile("Max %", t.max_pct == null ? "—" : fmtPct(t.max_pct));
+  if (kind === "skipped")
+    return (
+      tile("Not taken", SKIP_LBL[t.skip_reason] || SKIP_LBL.cap, "", "Why the book didn't take this qualifying setup") +
+      common
+    );
+  return (
+    common +
+    tile("Qty", fmtInt(t.qty)) +
+    tile("Risk", `${fmtUsd(t.risk_usd)} <span class="muted">${t.risk_pct == null ? "" : pct(t.risk_pct)}</span>`) +
+    tile("Net", fmtUsd(t.net_pnl), t.net_pnl > 0 ? "pf-pos" : t.net_pnl < 0 ? "pf-neg" : "muted") +
+    tile("Balance", fmtUsd(t.equity_after))
+  );
+}
+
+function inspSetChartMessage(msg) {
+  const panel = el("pf-insp-chart-panel");
+  const note = el("pf-insp-nochart");
+  panel.classList.toggle("pf-insp-blank", !!msg);
+  note.hidden = !msg;
+  note.textContent = msg || "";
+  if (msg) el("pf-insp-readout").innerHTML = "";
+}
+
+const INSP_SIDE_TITLE = { news: "News", gates: "Gates", note: "Saved review" };
+
+function inspUpdateSide(c) {
+  const panel = el("pf-insp-side-panel");
+  panel.hidden = !inspSide;
+  for (const [mode, id] of [["gates", "pf-insp-gates"], ["news", "pf-insp-news"], ["note", "pf-insp-note"]])
+    el(id).classList.toggle("on", inspSide === mode);
+  if (!inspSide) return;
+  el("pf-insp-side-title").textContent = INSP_SIDE_TITLE[inspSide];
+  el("pf-insp-side").innerHTML =
+    inspSide === "news" ? newsHtml(c) : inspSide === "note" ? reviewHtml(inspReview) : engineDetailHtml(c);
+}
+
+function inspPaintSelection() {
+  for (const tr of document.querySelectorAll("#pf-trades tr, #pf-skipped tr"))
+    tr.classList.toggle("pf-sel", tr.dataset.key === inspKey);
+}
+
+function openInspector(key) {
+  const row = ROWS.get(key);
+  if (!row) return;
+  const { kind, t } = row;
+  inspKey = key;
+  inspPaintSelection();
+  el("pf-book-left").hidden = true;
+  el("pf-inspect").hidden = false;
+  el("pf-insp-title").textContent = `${t.symbol}${t.run > 1 ? ` #${t.run}` : ""} · ${t.date}`;
+  el("pf-insp-tiles").innerHTML = inspTiles(kind, t);
+  // The workbench link is set by drawInspector, which is the one place that knows whether this
+  // trade has a live opportunity behind it to annotate (#488).
+  drawInspector(t);
+}
+
+async function drawInspector(t) {
+  const token = ++inspToken;
+  const news = el("pf-insp-news");
+  news.textContent = "News 0";
+  news.disabled = true;
+  inspReview = null;
+  el("pf-insp-note").classList.remove("has");
+  if (!t.seg_id) {
+    // Nothing to address a chart with — a trade row that predates the seg_id field.
+    el("pf-insp-open").classList.add("hidden");
+    inspSetChartMessage("No opportunity id on this trade — nothing to chart.");
+    inspUpdateSide(null);
+    return;
+  }
+  // A reconstructed day was rebuilt from vendor minute bars into `data/recon`. Since #488 those
+  // days publish their own chart payloads under `charts/recon/`, so they draw like any other — but
+  // from a different store, which is why the source has to be passed through rather than inferred.
+  // The review workbench is still live-only (it annotates captured opportunities), so its link goes.
+  const recon = t.source === "recon";
+  el("pf-insp-open").classList.toggle("hidden", recon);
+  if (!recon) {
+    el("pf-insp-open").href =
+      `review.html?date=${encodeURIComponent(t.date)}&oid=${encodeURIComponent(t.seg_id)}`;
+  }
+  const v = inspEnsureView();
+  if (!v) {
+    inspSetChartMessage("Chart library failed to load.");
+    return;
+  }
+  inspSetChartMessage("");
+  el("pf-insp-readout").innerHTML = '<span class="muted">loading…</span>';
+  const payload = await chartsFor(t.date, recon ? "recon" : "live");
+  if (token !== inspToken) return; // a later row won the race
+  const c = findChart(payload, t.seg_id);
+  if (!c) {
+    v.clear();
+    inspSetChartMessage(
+      recon
+        ? "Reconstructed session — rebuilt from vendor minute bars. Its chart payload isn't " +
+            "published: only the most recent reconstructed sessions are. The figures above are " +
+            "the trade itself."
+        : "No chart published for this opportunity.",
+    );
+    inspUpdateSide(null);
+    return;
+  }
+  v.draw(c);
+  el("pf-insp-title").innerHTML =
+    esc(`${optionLabel(c)} · ${t.date}`) +
+    (recon
+      ? ' <span class="pf-src" title="Reconstructed from vendor minute bars, not captured live">recon</span>'
+      : "");
+  el("pf-insp-readout").innerHTML = readoutHtml(c, { engineOn: inspEngineOn });
+  const n = newsCount(c);
+  el("pf-insp-news").textContent = `News ${n}`;
+  el("pf-insp-news").disabled = n === 0;
+  if (inspSide === "news" && n === 0) inspSide = "gates";
+  inspUpdateSide(c);
+  // The workbench writes reviews for live opportunities only, so a reconstructed day has none.
+  if (!recon) inspLoadReview(t.seg_id, token);
+}
+
+// The trader's own read of this trade (#481), drawn over the engine's and readable behind the Note
+// button. Loaded after the chart so the draw is never held up by it, and token-guarded the same way.
+async function inspLoadReview(oid, token) {
+  const r = await reviewFor(oid);
+  if (token !== inspToken) return;
+  inspReview = r;
+  const marked = hasReview(r);
+  el("pf-insp-note").classList.toggle("has", marked);
+  if (inspView && marked && !r.no_trigger) inspView.setAnnotations(r.annotations);
+  if (inspSide === "note") inspUpdateSide(inspView ? inspView.current() : null);
+}
+
+function closeInspector() {
+  inspKey = null;
+  inspToken++; // abandon any in-flight draw
+  inspPaintSelection();
+  el("pf-inspect").hidden = true;
+  el("pf-book-left").hidden = false;
+}
+
+// Step to the previous/next openable row of the SAME table, in the order shown.
+function stepInspector(delta) {
+  if (!inspKey) return;
+  const tbody = document.querySelector(`#pf-trades tr[data-key="${inspKey}"], #pf-skipped tr[data-key="${inspKey}"]`);
+  if (!tbody) return;
+  const rows = [...tbody.parentElement.querySelectorAll("tr[data-key]")];
+  const i = rows.findIndex((r) => r.dataset.key === inspKey);
+  if (i < 0) return;
+  const next = rows[(i + delta + rows.length) % rows.length];
+  openInspector(next.dataset.key);
+  next.scrollIntoView({ block: "nearest" });
+}
+
+document.addEventListener("click", (e) => {
+  const tr = e.target.closest("#pf-trades tr[data-key], #pf-skipped tr[data-key]");
+  if (tr) openInspector(tr.dataset.key);
+});
+el("pf-insp-close").addEventListener("click", closeInspector);
+el("pf-insp-note").addEventListener("click", () => {
+  inspSide = inspSide === "note" ? null : "note";
+  inspUpdateSide(inspView ? inspView.current() : null);
+});
+el("pf-insp-gates").addEventListener("click", () => {
+  inspSide = inspSide === "gates" ? null : "gates";
+  inspUpdateSide(inspView ? inspView.current() : null);
+});
+el("pf-insp-news").addEventListener("click", () => {
+  inspSide = inspSide === "news" ? null : "news";
+  inspUpdateSide(inspView ? inspView.current() : null);
+});
+el("pf-insp-engine").addEventListener("click", () => {
+  inspEngineOn = !inspEngineOn;
+  if (inspView) inspView.setEngineOn(inspEngineOn);
+  const btn = el("pf-insp-engine");
+  btn.classList.toggle("armed", inspEngineOn);
+  btn.setAttribute("aria-pressed", inspEngineOn ? "true" : "false");
+  const c = inspView ? inspView.current() : null;
+  if (c) el("pf-insp-readout").innerHTML = readoutHtml(c, { engineOn: inspEngineOn });
+});
+document.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "Escape") return closeInspector();
+  if (el("pf-inspect").hidden) return; // arrows belong to the page until a row is open
+  if (e.key === "ArrowDown" || e.key === "j") {
+    e.preventDefault();
+    stepInspector(1);
+  } else if (e.key === "ArrowUp" || e.key === "k") {
+    e.preventDefault();
+    stepInspector(-1);
+  }
+});
+
 function render() {
   const book = booksFor()[BOOK];
+  // The open row belongs to the table about to be replaced — switching book, scope
+  // or view rebuilds both, so the selection can't survive it.
+  closeInspector();
+  ROWS.clear();
   el("pf-meta").innerHTML = metaLine(book);
   el("pf-view").hidden = VIEW !== "book";
-  el("pj-view").hidden = VIEW !== "projection";
+  // Both projection regions belong to the projection view; `renderProjection` picks which of the
+  // two to reveal once it is the active one.
+  el("pj-view").hidden = true;
+  el("pj-none").hidden = true;
   if (VIEW === "projection") {
     renderProjection(book);
     drawCharts(book);

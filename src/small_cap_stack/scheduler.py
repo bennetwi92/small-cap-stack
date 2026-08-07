@@ -38,6 +38,7 @@ def build_scheduler(
     on_eod_bars: Job,
     on_eod_report: Job,
     on_eod_backfill: Job,
+    on_portfolio_refresh: Job,
 ) -> AsyncIOScheduler:
     """Build a scheduler with the periodic tick + daily boundary jobs (not yet started).
 
@@ -67,6 +68,15 @@ def build_scheduler(
     # Morning catch-up: back-fill bars for any recent day the EOD batch missed (#100).
     scheduler.add_job(
         on_eod_backfill, cron(settings.eod_backfill), id="eod_backfill", misfire_grace_time=grace
+    )
+    # Publish the overnight harvest before the open (#458). Deliberately BEFORE `eod_backfill`
+    # rather than after: the two are the only things awake between 03:00 and 04:00, and this one
+    # is what the operator reads at breakfast. A missed refresh costs a day's visibility, not data.
+    scheduler.add_job(
+        on_portfolio_refresh,
+        cron(settings.portfolio_refresh_et),
+        id="portfolio_refresh",
+        misfire_grace_time=grace,
     )
     scheduler.add_listener(record_missed_job, EVENT_JOB_MISSED)
     return scheduler

@@ -123,6 +123,7 @@ from .projection import (
 from .sim import (
     AdaptiveBook,
     AdaptiveState,
+    TargetFit,
     _select_day,
     _take_day,
     simulate_portfolio,
@@ -140,6 +141,7 @@ __all__ = [
     "PortfolioResult",
     "SizedPosition",
     "SkippedTrade",
+    "TargetFit",
     "TargetStat",
     "TradeCosts",
     "best_target",

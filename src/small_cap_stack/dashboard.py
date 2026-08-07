@@ -11,14 +11,16 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import polars as pl
 
 from .charts import build_opportunity_chart
+from .clock import ET
 from .config import Settings
+from .logging import get_logger
 from .report import (
     EodReport,
     analysis_records,
@@ -29,6 +31,8 @@ from .report import (
     symbol_runs,
 )
 from .storage import Store
+
+log = get_logger(__name__)
 
 # (dataset, distinct-subset used for a meaningful count | None = raw rows are all distinct events)
 _DATASET_COUNTS: tuple[tuple[str, list[str] | None], ...] = (
@@ -52,6 +56,11 @@ class StatusInputs:
     deployed_commit: str | None
     scan_ticks_total: int
     jobs: list[tuple[str, datetime | None]]  # (job_id, next_run_utc)
+    #: The overnight harvest's progress (#450), or None when it has never run. Injected rather than
+    #: read here because it lives in a *different store* — the harvest writes `data/recon` and this
+    #: module is handed the live one, and #430's whole provenance split depends on not blurring
+    #: those two.
+    harvest: dict[str, Any] | None = None
 
 
 def _iso(dt: datetime | None) -> str | None:
@@ -163,6 +172,62 @@ def build_status(store: Store, s: StatusInputs) -> dict[str, Any]:
         },
         "opportunities": _open_opportunities(store, s.trading_date),
         "data": data,
+        "harvest": s.harvest,
+    }
+
+
+def harvest_progress(settings: Settings, *, now: datetime) -> dict[str, Any] | None:
+    """The overnight harvest's progress, for `status.json` (#450). None when it has never run.
+
+    Until this existed the harvest was invisible in the web app: the only trace anywhere in the
+    frontend is `books_all`, which does not appear until a harvested day has survived extraction
+    *and* an EOD payload rebuild. For a ~45-night job that meant the answers to "did it run last
+    night?" and "how far has it got?" lived only in `journalctl` or an SSH session — on a system
+    whose stated operating model is phone-operable without SSH.
+
+    Cheap by construction, because this runs on the 60-second status tick: it reads one small JSON
+    file and does calendar arithmetic. No store reads, and in particular no unscoped one — read
+    cost on these stores tracks file count (#318/#319/#321), and a per-tick regression there is
+    exactly the class of bug that has bitten this repo three times.
+
+    ``hours_since_progress`` is the number that actually matters. A count that has stopped moving
+    is the failure signal for a job that is deliberately NOT wired to the tracker's dead-man's
+    switch (a stalled harvest must never page as a tracker outage), has no ``Restart=``, and whose
+    unit failing looks identical to its having nothing left to do.
+    """
+    from .harvest.checkpoint import Checkpoint
+    from .harvest.runner import checkpoint_path, trading_sessions
+
+    try:
+        path = checkpoint_path(settings)
+        if not path.exists():
+            return None
+        cp = Checkpoint.load(path)
+    except Exception:  # noqa: BLE001 — a status tick must never die over a progress read
+        log.warning("dashboard.harvest_progress_failed")
+        return None
+
+    today = now.astimezone(ET).date()
+    start = today - timedelta(days=settings.harvest_lookback_days)
+    # Sessions in the harvest's window, from the calendar alone. Deliberately NOT reduced by the
+    # dates the tracker already collected live: that would need an unscoped read of the live store
+    # on every tick, and the overcount is ~25 days against ~500 — visible as a denominator that
+    # never quite reaches its numerator, which is why the field is named for the window and not
+    # for the work.
+    in_window = len(trading_sessions(start, today - timedelta(days=1), settings))
+    updated = cp.updated_at
+    return {
+        "sessions_done": len(cp.done),
+        "daily_done": len(cp.daily_done),
+        "sessions_in_window": in_window,
+        "calls_spent": cp.calls,
+        "entitlement_floor": cp.entitlement_floor.isoformat() if cp.entitlement_floor else None,
+        "oldest": cp.oldest.isoformat() if cp.oldest else None,
+        "newest": cp.newest.isoformat() if cp.newest else None,
+        "updated_utc": _iso(updated),
+        "hours_since_progress": (
+            round((now - updated).total_seconds() / 3600.0, 1) if updated else None
+        ),
     }
 
 
@@ -245,12 +310,27 @@ def _index_opportunities(charts_payload: dict[str, Any]) -> list[dict[str, Any]]
     ]
 
 
-def index_entry(trading_date: date, charts_payload: dict[str, Any]) -> dict[str, Any]:
+def index_entry(
+    trading_date: date, charts_payload: dict[str, Any], *, source: str | None = None
+) -> dict[str, Any]:
     """One index row for a date — the *only* part of a charts payload the index needs.
 
     Exposed so the archive backfill can reduce each date to its row and drop the payload, instead
-    of holding every date's full charts (all bars for all opportunities) in memory (#261)."""
-    return {"date": trading_date.isoformat(), "opportunities": _index_opportunities(charts_payload)}
+    of holding every date's full charts (all bars for all opportunities) in memory (#261).
+
+    ``source`` stamps provenance on the row (#488). Omitted entirely when None, which is what the
+    live index passes: an absent field is what every published index has always carried, and adding
+    ``"source": "live"`` to it would be a shape change for no reader. The reconstructed index passes
+    ``"recon"`` so a row can never be read as a captured one even if the two indexes are ever merged
+    by a future consumer.
+    """
+    entry: dict[str, Any] = {
+        "date": trading_date.isoformat(),
+        "opportunities": _index_opportunities(charts_payload),
+    }
+    if source is not None:
+        entry["source"] = source
+    return entry
 
 
 def index_from_entries(entries: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
@@ -296,11 +376,22 @@ def read_json(path: Path) -> dict[str, Any] | None:
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Serialise atomically (tmp file + os.replace) so a consumer never sees a partial write."""
+    """Serialise atomically (tmp file + os.replace) so a consumer never sees a partial write.
+
+    The temp name carries the writer's pid. A *fixed* ``<name>.tmp`` is only atomic against
+    readers, not against a second writer: two processes writing the same target — the app's EOD and
+    a hand-run backfill, or the harvest's per-session publish and a ``harvest charts`` — would open,
+    truncate and write the same scratch path, and the interleave can `os.replace` a file holding a
+    mix of both payloads under the final, globbed name. That lands as invalid JSON in a dashboard
+    artifact the frontend parses on load."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(payload, default=_json_default, indent=2))
-    os.replace(tmp, path)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, default=_json_default, indent=2))
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # never strand a scratch file next to the artifact
+        raise
 
 
 def _content_key(payload: dict[str, Any]) -> str:

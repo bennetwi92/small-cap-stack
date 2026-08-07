@@ -53,12 +53,8 @@ import argparse
 import json
 import os
 import sys
-import time
-import urllib.error
 import urllib.parse
-import urllib.request
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -70,185 +66,42 @@ from scanner_reconstruct import reconstruct_hit  # noqa: E402
 from small_cap_stack.capture import Bar  # noqa: E402
 from small_cap_stack.clock import ET  # noqa: E402
 from small_cap_stack.config import Settings  # noqa: E402
+from small_cap_stack.harvest.reconstruct import aggregate, bucket_start, to_bars  # noqa: E402
+from small_cap_stack.harvest.source import (  # noqa: E402
+    API_KEY_ENV,
+    DEFAULT_BASE_URL,
+    HarvestError,
+    MassiveSource,
+)
 from small_cap_stack.rmetrics import compute_r_metrics  # noqa: E402
 
-# Massive is Polygon.io renamed; the REST surface is unchanged, so the host stays overridable rather
-# than hard-coded — the day the domain moves, this is a one-flag change, not a rewrite.
-DEFAULT_BASE_URL = os.environ.get("MASSIVE_BASE_URL", "https://api.polygon.io")
-API_KEY_ENV = "MASSIVE_API_KEY"
-
 # Free tier is 5 calls/min. Sleep between calls rather than absorb 429s: a spike that hammers a
-# vendor's free tier gets the key blocked, and the paid harvest inherits the same code path.
+# vendor's free tier gets the key blocked, and the harvest inherits the same code path.
 DEFAULT_RATE_SLEEP_SEC = float(os.environ.get("MASSIVE_RATE_SLEEP_SEC", "13"))
 
-
-class MassiveError(RuntimeError):
-    pass
+__all__ = ["API_KEY_ENV", "DEFAULT_BASE_URL", "MassiveClient", "MassiveError", "aggregate"]
 
 
 # ------------------------------------------------------------------------------------------------
-# REST client
+# REST client + bar grid — promoted to the package (#431)
 # ------------------------------------------------------------------------------------------------
+# The client and the grid arithmetic used to live here. They now live in
+# `small_cap_stack.harvest.source` / `.reconstruct`, because #431 turned them into the overnight
+# harvest's transport and its bar adapter — code that writes 500 sessions into the paper book's
+# store, and therefore code that is typed and tested rather than spike-exempt. `MassiveClient` stays
+# as a thin alias so this harness's subcommands keep working unchanged.
+
+MassiveClient = MassiveSource
+MassiveError = HarvestError
+_bucket_start = bucket_start
 
 
-@dataclass
-class MassiveClient:
-    """Minimal REST client over the aggregates + reference endpoints (stdlib only, no new deps)."""
-
-    api_key: str
-    base_url: str = DEFAULT_BASE_URL
-    rate_sleep_sec: float = DEFAULT_RATE_SLEEP_SEC
-    timeout_sec: float = 60.0
-    max_retries: int = 4
-    calls: int = 0
-
-    @classmethod
-    def from_env(cls, **kw: Any) -> MassiveClient:
-        key = os.environ.get(API_KEY_ENV, "").strip()
-        if not key:
-            raise MassiveError(
-                f"{API_KEY_ENV} is not set. It belongs in GitHub Actions secrets — run this via "
-                ".github/workflows/spike-massive.yml, not in a cloud session."
-            )
-        return cls(api_key=key, **kw)
-
-    def get(self, path: str, **params: Any) -> dict[str, Any]:
-        """One GET, with the key injected and 429/5xx retried on an exponential backoff."""
-        query = {k: v for k, v in params.items() if v is not None}
-        query["apiKey"] = self.api_key
-        url = f"{self.base_url}{path}?{urllib.parse.urlencode(query)}"
-        return self._get_url(url)
-
-    def _get_url(self, url: str) -> dict[str, Any]:
-        if "apiKey=" not in url:  # next_url comes back unsigned
-            url = f"{url}{'&' if '?' in url else '?'}apiKey={urllib.parse.quote(self.api_key)}"
-        delay = 2.0
-        for attempt in range(self.max_retries + 1):
-            if self.calls and self.rate_sleep_sec:
-                time.sleep(self.rate_sleep_sec)
-            self.calls += 1
-            try:
-                with urllib.request.urlopen(url, timeout=self.timeout_sec) as resp:  # noqa: S310
-                    payload: dict[str, Any] = json.loads(resp.read().decode())
-                return payload
-            except urllib.error.HTTPError as exc:
-                if exc.code in (429, 500, 502, 503, 504) and attempt < self.max_retries:
-                    time.sleep(delay)
-                    delay *= 2
-                    continue
-                body = exc.read().decode(errors="replace")[:400]
-                # Never echo the URL back: it carries the key.
-                raise MassiveError(f"HTTP {exc.code} on {url.split('?')[0]}: {body}") from exc
-            except urllib.error.URLError as exc:
-                if attempt < self.max_retries:
-                    time.sleep(delay)
-                    delay *= 2
-                    continue
-                raise MassiveError(f"network error on {url.split('?')[0]}: {exc}") from exc
-        raise MassiveError("unreachable")
-
-    def aggregates(
-        self,
-        symbol: str,
-        *,
-        start: date,
-        end: date,
-        multiplier: int = 1,
-        timespan: str = "minute",
-        adjusted: bool = False,
-        limit: int = 50_000,
-    ) -> list[dict[str, Any]]:
-        """Raw aggregate bars, following ``next_url`` pagination to exhaustion.
-
-        ``adjusted=False`` is the default *on purpose*: the strategy's price gate is $1–50 on the
-        price as traded that day. A split-adjusted series would move a 2019 $30 stock to $3 today
-        and quietly change which symbol-days are even in the universe.
-        """
-        path = (
-            f"/v2/aggs/ticker/{urllib.parse.quote(symbol)}/range/{multiplier}/{timespan}/"
-            f"{start.isoformat()}/{end.isoformat()}"
-        )
-        page = self.get(path, adjusted=str(adjusted).lower(), sort="asc", limit=limit)
-        rows: list[dict[str, Any]] = list(page.get("results") or [])
-        while page.get("next_url"):
-            page = self._get_url(str(page["next_url"]))
-            rows.extend(page.get("results") or [])
-        return rows
-
-    def grouped_daily(
-        self, day: date, *, adjusted: bool = False, include_otc: bool = False
-    ) -> list[dict[str, Any]]:
-        """Every US equity's daily OHLCV for one session — one request for the whole market."""
-        path = f"/v2/aggs/grouped/locale/us/market/stocks/{day.isoformat()}"
-        page = self.get(path, adjusted=str(adjusted).lower(), include_otc=str(include_otc).lower())
-        return list(page.get("results") or [])
-
-    def ticker_details(self, symbol: str) -> dict[str, Any]:
-        page = self.get(f"/v3/reference/tickers/{urllib.parse.quote(symbol)}")
-        return dict(page.get("results") or {})
-
-
-# ------------------------------------------------------------------------------------------------
-# Bar adapter + grid alignment
-# ------------------------------------------------------------------------------------------------
-
-
-def to_bars(rows: Iterable[dict[str, Any]]) -> list[Bar]:
-    """Vendor aggregate rows → :class:`Bar`. ``t`` is epoch milliseconds, UTC."""
-    bars = [
-        Bar(
-            start=datetime.fromtimestamp(int(r["t"]) / 1000, tz=UTC),
-            open=float(r["o"]),
-            high=float(r["h"]),
-            low=float(r["l"]),
-            close=float(r["c"]),
-            volume=float(r.get("v") or 0.0),
-        )
-        for r in rows
-    ]
-    return sorted(bars, key=lambda b: b.start)
-
-
-def _bucket_start(moment: datetime, minutes: int) -> datetime:
-    """Floor to the ``minutes`` grid anchored on the ET hour (see the module doc, "Bar grid")."""
-    et = moment.astimezone(ET)
-    floored = et.replace(minute=(et.minute // minutes) * minutes, second=0, microsecond=0)
-    return floored.astimezone(UTC)
-
-
-def aggregate(bars: Sequence[Bar], minutes: int = 5) -> list[Bar]:
-    """Resample finer bars onto the ``minutes`` grid: first open, max high, min low, last close.
-
-    Empty buckets are **not** filled. IBKR's historical bars omit periods with no trades, so
-    synthesising flat bars would hand the detector candles that never existed — and the engine
-    reads consecutive bars as consecutive price action.
+def ticker_details(client: MassiveClient, symbol: str) -> dict[str, Any]:
+    """Reference data for one ticker. Stays here: the harvest never asks for it (the vendor sells
+    no share float, and float is context rather than a gate), so it has no business in the package.
     """
-    if not bars:
-        return []
-    out: list[Bar] = []
-    bucket: list[Bar] = []
-    current = _bucket_start(bars[0].start, minutes)
-    for bar in bars:
-        start = _bucket_start(bar.start, minutes)
-        if start != current and bucket:
-            out.append(_fold(bucket, current))
-            bucket = []
-        current = start
-        bucket.append(bar)
-    if bucket:
-        out.append(_fold(bucket, current))
-    return out
-
-
-def _fold(bucket: Sequence[Bar], start: datetime) -> Bar:
-    return Bar(
-        start=start,
-        open=bucket[0].open,
-        high=max(b.high for b in bucket),
-        low=min(b.low for b in bucket),
-        close=bucket[-1].close,
-        volume=sum(b.volume for b in bucket),
-    )
+    page = client.get(f"/v3/reference/tickers/{urllib.parse.quote(symbol)}")
+    return dict(page.get("results") or {})
 
 
 def in_session(bars: Sequence[Bar], settings: Settings, trading_date: date) -> list[Bar]:
@@ -402,7 +255,7 @@ def probe(client: MassiveClient, settings: Settings, *, symbol: str, day: date) 
     }
 
     try:
-        details = client.ticker_details(symbol)
+        details = ticker_details(client, symbol)
         checks["ticker_reference"] = {
             "claim": "reference data resolves (delisted tickers included)",
             "name": details.get("name"),

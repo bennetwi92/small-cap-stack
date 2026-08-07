@@ -6,6 +6,7 @@ The decision code real shadow/paper mode will use. Split out of the old single-f
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -69,9 +70,14 @@ def _take_day(
     Returns the taken trades *and* the qualifying setups the book didn't take, in trigger order,
     each with the outcome it would have had at the same (target, breakeven) plus a ``skip_reason``
     (#251): ``"cap"`` for everything past the first N by trigger time — the "what did the cap cost
-    me" log (#230) — and ``"unaffordable"`` for a selected setup that couldn't be sized to a single
-    share at full risk. Callers wanting only the cap population must filter; ``_finalize`` and
-    ``_book_json`` do.
+    me" log (#230) — ``"unaffordable"`` for a selected setup that couldn't be sized to a single
+    share at full risk, and ``"throttled"`` when the kill-switch is what stopped it (#465). Callers
+    wanting only the cap population must filter; ``_finalize`` and ``_book_json`` do.
+
+    Every candidate the day was handed now leaves through exactly one of those four doors — taken,
+    cap, unaffordable, throttled — so ``len(trades) + len(skipped) == len(cands)`` holds on any
+    day. That is the invariant #465 restored: a rung-0 day used to return neither, which is how
+    three live setups vanished from the combined book with nothing on the page to explain it.
 
     ``risk_fraction`` defaults to the configured value; the adaptive kill-switch passes the day's
     throttled fraction, and a 0 fraction sizes every position to 0 (the day takes no trades)."""
@@ -91,8 +97,12 @@ def _take_day(
     dropped = sorted((c for c in cands if id(c) not in taken_ids), key=lambda c: c.trigger_at)
     # On a rung-0 day nothing is taken at all, so the cap was never the binding constraint — the
     # throttle was. Logging these as "the cap cost me this" would inflate the page's headline with
-    # kill-switch days.
-    skipped = [_skipped(c, s, target_r, breakeven_r, "cap") for c in dropped] if rf > 0 else []
+    # kill-switch days; logging them as NOTHING, which is what this did, deleted them from the page
+    # altogether (#465). They get their own reason, which keeps `skipped_total_r` cap-only while
+    # still putting every qualifying setup somewhere a reader can find it.
+    skipped = [
+        _skipped(c, s, target_r, breakeven_r, "cap" if rf > 0 else "throttled") for c in dropped
+    ]
     out: list[PaperTrade] = []
     for c in taken:
         sized = size_position(
@@ -104,14 +114,16 @@ def _take_day(
         )
         qty = sized.qty
         if qty < 1:
-            # Too small to afford a share — record it rather than dropping it on the floor (#251),
-            # but ONLY when sizing at full configured risk. Any throttled rung can produce qty=0 on
-            # a wide stop (rung 1's rf=0.025 is a $12.50 risk budget at $500 equity, so a
-            # $15/share-risk setup sizes to 0 while the book is perfectly healthy). Calling that
-            # "unaffordable" would tell the trader their equity was the constraint when the
-            # kill-switch was. Throttled sizing — rung 0 included — is the ladder doing its job.
-            if rf >= s.portfolio_risk_fraction:
-                skipped.append(_skipped(c, s, target_r, breakeven_r, "unaffordable"))
+            # Too small to afford a share — record it rather than dropping it on the floor (#251).
+            # WHICH constraint bit decides the label. At full configured risk it is the equity:
+            # "unaffordable". At a throttled rung it is the kill-switch — rung 1's rf=0.025 is a
+            # $12.50 risk budget at $500 equity, so a $15/share-risk setup sizes to 0 while the book
+            # is perfectly healthy, and rung 0 sizes everything to 0 by design. Calling that
+            # "unaffordable" would tell the trader their equity was the constraint when the ladder
+            # was. Recording it under its own reason instead of not at all (#465) keeps the
+            # attribution honest without making the setup disappear.
+            reason = "unaffordable" if rf >= s.portfolio_risk_fraction else "throttled"
+            skipped.append(_skipped(c, s, target_r, breakeven_r, reason))
             continue
         outcome = c.exit_under(s, target_r, breakeven_r)
         gross = round(qty * (outcome.exit_price - c.entry_price), 4)
@@ -297,16 +309,96 @@ def simulate_portfolio(
     return _run_book(days, s, lambda i, day: tr, be)
 
 
+@dataclass(frozen=True)
+class TargetFit:
+    """A day's target, *why* it is that target, and the evidence behind it (#463, #476).
+
+    A bare float cannot tell the cases apart, and they mean different things. ``fitted`` is the
+    adaptive layer's own answer; the two fallback cases are not. Publishing only the number is how
+    the live book ran 28 straight days on the fallback while the page called it a re-fitted
+    target — the failure was invisible because nothing carried ``trailing_n``.
+
+    ``status`` distinguishes three outcomes:
+
+    * ``"fitted"`` — the optimiser ran and its pick is in force.
+    * ``"thin"``   — fewer than ``portfolio_adaptive_min_samples`` trailing trades; it never ran.
+    * ``"margin"`` — it ran and preferred another target, but the edge did not clear
+      ``portfolio_target_switch_z`` standard errors, so the fallback stands. This is a *different*
+      state from "thin" and the page must not blur them: one means no evidence yet, the other means
+      evidence that is not strong enough to act on.
+    """
+
+    target_r: float
+    trailing_n: int  # candidates the fit saw; below `portfolio_adaptive_min_samples` → fallback
+    fitted: bool
+    status: str = "fitted"
+    # The margin test, when one was run (``status`` in {"fitted", "margin"} and the pick differed
+    # from the fallback). Paired per-trade edge over the fallback, its standard error, and their
+    # ratio. None when no comparison was needed — the pick WAS the fallback, or the fit never ran.
+    edge_r: float | None = None
+    edge_se: float | None = None
+    edge_z: float | None = None
+    considered_r: float | None = None  # the pick the margin gate rejected (``status == "margin"``)
+
+
+def _paired_edge(
+    trailing: Sequence[CandidateTrade], s: Settings, target_r: float, breakeven_r: float
+) -> tuple[float, float | None]:
+    """Mean and standard error of ``target_r``'s per-trade edge over the configured fallback.
+
+    **Paired on purpose.** The two targets are scored on the *same* trades — only the exit rule
+    differs — so the per-trade difference cancels almost all of the trade-to-trade variance that
+    dominates each target's own mean. Comparing two independent means here would be the wrong test
+    and wildly less powerful: on the first 13 trades the unpaired per-trade SD is 1.48R, while the
+    paired SE of 2.0R vs 1.5R is 0.070 (z=-4.38 — decisive on a sample that the unpaired test calls
+    hopeless). Returns ``(mean, None)`` when fewer than two trades make an SE undefined."""
+    diffs = [
+        c.exit_under(s, target_r, breakeven_r).realized_r
+        - c.exit_under(s, s.portfolio_target_r, breakeven_r).realized_r
+        for c in trailing
+    ]
+    n = len(diffs)
+    if n == 0:
+        return 0.0, None
+    m = sum(diffs) / n
+    if n < 2:
+        return round(m, 6), None
+    var = sum((d - m) ** 2 for d in diffs) / (n - 1)  # sample variance
+    return round(m, 6), round((var / n) ** 0.5, 6)
+
+
 def _fit_target(
     trailing: Sequence[CandidateTrade], s: Settings, grid: Sequence[float], breakeven_r: float
-) -> float:
+) -> TargetFit:
     """The highest-expectancy grid target over ``trailing``, or the configured fallback below
     ``portfolio_adaptive_min_samples``. Shared by the day-walk and the next-session state (#286) so
     the number the page promises for tomorrow is fit by the same code that will apply it."""
-    if len(trailing) < s.portfolio_adaptive_min_samples:
-        return s.portfolio_target_r
+    n = len(trailing)
+    fallback = s.portfolio_target_r
+    if n < s.portfolio_adaptive_min_samples:
+        return TargetFit(fallback, n, False, "thin")
     pick = best_target(expectancy_curve(trailing, s, target_grid=grid, breakeven_r=breakeven_r))
-    return s.portfolio_target_r if pick is None else pick.target_r
+    if pick is None:  # every grid target scored undefined — no expectancy to maximise
+        return TargetFit(fallback, n, False, "thin")
+    if pick.target_r == fallback:  # the optimiser ran and agreed with the incumbent
+        return TargetFit(pick.target_r, n, True, "fitted")
+    # The pick differs from the fallback, so it has to earn the switch (#476). Argmax over four
+    # noisy means is a coin flip dressed as a decision when the means sit within a standard error
+    # of each other, which is exactly where this book is.
+    edge, se = _paired_edge(trailing, s, pick.target_r, breakeven_r)
+    if se is None:  # fewer than two trades — no standard error can be formed
+        z = None
+    elif se == 0.0:
+        # Every trade moved by exactly the same amount. That is not "no evidence", it is the
+        # strongest evidence available: the edge is deterministic on this sample, so treat it as
+        # infinitely many standard errors. Reading a zero SE as an unmeasurable one would block
+        # precisely the switches that are most clearly justified.
+        z = math.inf if edge > 0 else (-math.inf if edge < 0 else 0.0)
+    else:
+        z = round(edge / se, 4)
+    if z is None or z < s.portfolio_target_switch_z:
+        return TargetFit(fallback, n, False, "margin", edge, se, z, pick.target_r)
+    return TargetFit(pick.target_r, n, True, "fitted", edge, se, z)
 
 
 @dataclass(frozen=True)
@@ -321,6 +413,17 @@ class AdaptiveState:
 
     as_of: date  # the session these apply to: the first one after the last collected day
     target_r: float
+    # Whether `target_r` is the optimiser's pick or the fallback, and the sample it had to work
+    # with (#463). Without these the page cannot distinguish "the fit chose 2R" from "the fit never
+    # ran"; the live book did the latter for its entire history and nothing said so.
+    target_fitted: bool
+    target_trailing_n: int
+    # Why it is that target, and the evidence (#476). `target_status` is "fitted" | "thin" |
+    # "margin"; the edge fields describe the paired comparison against the fallback when one ran.
+    target_status: str
+    target_edge_r: float | None
+    target_edge_z: float | None
+    target_considered_r: float | None  # the pick the margin gate rejected, if it did
     risk_fraction: float
     rung: int  # index into risk_ladder(s)
     n_rungs: int
@@ -339,7 +442,7 @@ class AdaptiveBook:
     """
 
     result: PortfolioResult
-    daily_targets: list[tuple[date, float]]
+    daily_targets: list[tuple[date, TargetFit]]
     daily_risk: list[tuple[date, float]]
     state: AdaptiveState | None  # None only for an empty book — no days, nothing to carry forward
 
@@ -353,10 +456,12 @@ def simulate_portfolio_adaptive(
     """Walk days chronologically, re-fitting BOTH the R target and the risk fraction each day.
 
     **Target** — each day's target = the highest-expectancy grid target over the candidates from the
-    prior ``portfolio_adaptive_window_days`` days (strictly before today — no look-ahead). Until at
-    least ``portfolio_adaptive_min_samples`` trailing candidates exist the target falls back to the
-    configured ``portfolio_target_r``. Overfit is real at low N — the window + a plateau-preferring
-    :func:`best_target` are the guards, not a cure.
+    prior ``portfolio_adaptive_window_days`` days, or over **every** prior day when that is ``None``
+    (the default, #476), always strictly before today — no look-ahead. Until at least
+    ``portfolio_adaptive_min_samples`` trailing candidates exist the target falls back to the
+    configured ``portfolio_target_r``. Overfit is real at low N; the guards are all-history samples,
+    a plateau-preferring :func:`best_target`, and the ``portfolio_target_switch_z`` margin gate that
+    makes a non-fallback pick prove a paired edge before the book acts on it. None is a cure.
 
     **Risk (kill-switch)** — the per-trade risk fraction walks the :func:`risk_ladder` (0 →
     ``portfolio_risk_fraction`` over ``portfolio_risk_rungs`` rungs). It starts at full risk (top
@@ -367,29 +472,32 @@ def simulate_portfolio_adaptive(
     book throttled to the 0 rung (which takes no trades) still re-arms once setups start working.
     Applying today's rung, then stepping from today's result, keeps it causal (no look-ahead).
 
-    Returns the book plus the per-day ``(date, chosen_target)`` and ``(date, risk_fraction)`` lists
-    so the page can show how each knob drifted, and an :class:`AdaptiveState` for the next session
-    (#286) — the same fit and the same ladder state, applied one day past the last collected one."""
+    Returns the book plus the per-day ``(date, TargetFit)`` and ``(date, risk_fraction)`` lists so
+    the page can show how each knob drifted — and, from ``TargetFit``, whether the optimiser was
+    running at all on a given day (#463) — and an :class:`AdaptiveState` for the next session
+    (#286): the same fit and the same ladder state, applied one day past the last collected one."""
     be = s.portfolio_breakeven_r if breakeven_r is None else breakeven_r
     grid = list(s.portfolio_target_grid)
     ladder = risk_ladder(s)
     rung = len(ladder) - 1  # start at full risk — the kill-switch cuts DOWN from the top
     streak = 0  # signed run of consecutive decisive days (see step_risk_rung)
     days = sorted(candidates_by_day, key=lambda dc: dc[0])
-    chosen: list[tuple[date, float]] = []
+    chosen: list[tuple[date, TargetFit]] = []
     daily_risk: list[tuple[date, float]] = []
     rung_state = [rung]  # mutable so the risk closure can step it each day
     streak_state = [streak]  # signed run of decisive days, carried across the closure
 
     def trailing_for(i: int, day: date) -> list[CandidateTrade]:
         """The candidates the re-fit for ``day`` sees: the trailing window, strictly-prior days."""
+        if s.portfolio_adaptive_window_days is None:  # all history (#476) — no window at all
+            return [c for _d, cs in days[:i] for c in cs]
         window_start = day - timedelta(days=s.portfolio_adaptive_window_days)
         return [c for d, cs in days[:i] if d >= window_start for c in cs]
 
     def target_for_day(i: int, day: date) -> float:
-        target = _fit_target(trailing_for(i, day), s, grid, be)
-        chosen.append((day, target))
-        return target
+        fit = _fit_target(trailing_for(i, day), s, grid, be)
+        chosen.append((day, fit))
+        return fit.target_r
 
     def risk_for_day(i: int, day: date, cands: Sequence[CandidateTrade], target: float) -> float:
         # Apply today's rung, then step the ladder for TOMORROW from today's setups
@@ -413,9 +521,16 @@ def simulate_portfolio_adaptive(
         next_day = days[-1][0] + timedelta(days=1)
         rung = rung_state[0]
         rf = ladder[rung]
+        fit = _fit_target(trailing_for(len(days), next_day), s, grid, be)
         state = AdaptiveState(
             as_of=next_day,
-            target_r=_fit_target(trailing_for(len(days), next_day), s, grid, be),
+            target_r=fit.target_r,
+            target_fitted=fit.fitted,
+            target_trailing_n=fit.trailing_n,
+            target_status=fit.status,
+            target_edge_r=fit.edge_r,
+            target_edge_z=fit.edge_z,
+            target_considered_r=fit.considered_r,
             risk_fraction=rf,
             rung=rung,
             n_rungs=len(ladder),

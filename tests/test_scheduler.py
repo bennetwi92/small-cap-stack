@@ -21,6 +21,7 @@ def _job_grace() -> dict[str, int | None]:
             on_eod_bars=_noop,
             on_eod_report=_noop,
             on_eod_backfill=_noop,
+            on_portfolio_refresh=_noop,
         )
         sch.start(paused=True)  # applies pending jobs so misfire_grace_time is readable
         try:
@@ -66,9 +67,60 @@ def test_missed_job_listener_counts_and_is_registered() -> None:
             on_eod_bars=_noop,
             on_eod_report=_noop,
             on_eod_backfill=_noop,
+            on_portfolio_refresh=_noop,
         )
         return any(
             cb is record_missed_job and mask & EVENT_JOB_MISSED for cb, mask in sch._listeners
         )
 
     assert asyncio.run(check()) is True
+
+
+def test_the_morning_refresh_lands_in_the_one_free_slot_before_the_open() -> None:
+    """The whole value of #458 is the slot, so it is asserted against the box's own schedule
+    rather than pinned to a literal.
+
+    The harvest hard-stops at `harvest_stop_et`, `eod_backfill` runs at 03:45 and the scan window
+    opens at 04:00. The refresh has to sit strictly between the first two, or it is either racing
+    a harvest still holding 1 GB or competing with the tracker's morning — and it must finish well
+    before the open, since being visible *before* the market is the point.
+    """
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.harvest_stop_et < s.portfolio_refresh_et < s.eod_backfill, (
+        "the morning rebuild must run after the harvest stops and before eod_backfill"
+    )
+    assert s.portfolio_refresh_et < s.scan_start, "it must be done before the scan window opens"
+
+
+def test_the_morning_refresh_is_scheduled_at_that_time() -> None:
+    """A setting nothing reads is a comment. Pin the job to the configured hour."""
+    from apscheduler.triggers.cron import CronTrigger
+
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    async def check() -> None:
+        sch = build_scheduler(
+            s,
+            on_tick=_noop,
+            on_scan_start=_noop,
+            on_scan_end=_noop,
+            on_eod_bars=_noop,
+            on_eod_report=_noop,
+            on_eod_backfill=_noop,
+            on_portfolio_refresh=_noop,
+        )
+        sch.start(paused=True)  # applies pending jobs so the trigger is readable
+        try:
+            job = sch.get_job("portfolio_refresh")
+            assert job is not None
+            assert isinstance(job.trigger, CronTrigger)
+            fields = {f.name: str(f) for f in job.trigger.fields}
+            assert fields["hour"] == str(s.portfolio_refresh_et.hour)
+            assert fields["minute"] == str(s.portfolio_refresh_et.minute)
+            # A missed refresh costs a day of visibility, so it gets the same generous grace as the
+            # other daily boundary jobs rather than APScheduler's 1-second default.
+            assert job.misfire_grace_time == s.cron_misfire_grace_sec
+        finally:
+            sch.shutdown(wait=False)
+
+    asyncio.run(check())

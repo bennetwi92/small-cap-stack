@@ -18,12 +18,15 @@ import polars as pl
 from ..capture import Bar
 from ..clock import ET
 from ..config import Settings
+from ..logging import get_logger
 from ..storage import Store
 from .adaptive import risk_ladder
 from .extract import extract_day_trades
 from .models import CandidateTrade, PaperTrade, PortfolioResult, SkippedTrade
 from .projection import build_projection, day_rate_net_annual_gbp
-from .sim import AdaptiveState, simulate_portfolio, simulate_portfolio_adaptive
+from .sim import AdaptiveState, TargetFit, simulate_portfolio, simulate_portfolio_adaptive
+
+log = get_logger(__name__)
 
 
 def collected_dates(store: Store) -> list[date]:
@@ -99,6 +102,14 @@ def _state_json(st: AdaptiveState) -> dict[str, object]:
     return {
         "as_of": st.as_of.isoformat(),
         "target_r": st.target_r,
+        # Is that target the optimiser's answer or the fallback standing in? (#463) And if the
+        # fallback, was it for want of samples or because the pick failed the margin gate? (#476)
+        "target_fitted": st.target_fitted,
+        "target_trailing_n": st.target_trailing_n,
+        "target_status": st.target_status,
+        "target_edge_r": st.target_edge_r,
+        "target_edge_z": st.target_edge_z,
+        "target_considered_r": st.target_considered_r,
         "risk_fraction": st.risk_fraction,
         "rung": st.rung,
         "n_rungs": st.n_rungs,
@@ -139,7 +150,7 @@ def _by_source_json(res: PortfolioResult) -> dict[str, object]:
 def _book_json(
     res: PortfolioResult,
     s: Settings,
-    daily_targets: list[tuple[date, float]] | None,
+    daily_targets: list[tuple[date, TargetFit]] | None,
     daily_risk: list[tuple[date, float]] | None = None,
     state: AdaptiveState | None = None,
     *,
@@ -182,6 +193,10 @@ def _book_json(
             "skipped_count": sum(1 for sk in res.skipped if sk.skip_reason == "cap"),
             "skipped_total_r": res.skipped_total_r,
             "unaffordable_count": sum(1 for sk in res.skipped if sk.skip_reason == "unaffordable"),
+            # Setups the kill-switch stopped (#465). Its own count for the same reason the two
+            # above have theirs: the page attributes each population to the constraint that caused
+            # it, and a throttled day is neither a cap day nor a capital problem.
+            "throttled_count": sum(1 for sk in res.skipped if sk.skip_reason == "throttled"),
             # Live vs reconstructed, kept apart so a combined book can never be read as if every
             # trade were equally well evidenced (#430). All-live books carry a zeroed "recon" half.
             "by_source": _by_source_json(res),
@@ -201,13 +216,30 @@ def _book_json(
         # Deliberately live-only (#430). The projection answers "what will *my account* do", so it
         # has to resample the return distribution the tracker actually observed; bootstrapping it
         # from a history dominated by reconstructed days would forecast an account that trades a
-        # universe we know differs from the live one (the 50-row rank cap, #428/#432). Skipping it
+        # universe we know differs from the live one — through appearance TIMING (#433), not the
+        # 50-row rank cap once blamed for it, which has never actually bound (#460). Skipping it
         # on the combined books also keeps the EOD build off a second 500-path × 252-day Monte Carlo
         # per target on a 2-vCPU box.
         "projection": build_projection(res, s) if with_projection else None,
     }
     if daily_targets is not None:
-        book["daily_targets"] = [{"date": d.isoformat(), "target": t} for d, t in daily_targets]
+        # `fitted` / `n` per day (#463) so the chart can separate the days the optimiser ran from
+        # the days it fell back. Without them a flat line reads as "the fit kept choosing the same
+        # rung" when it can equally mean the fit never ran — which is what it did mean.
+        book["daily_targets"] = [
+            {
+                "date": d.isoformat(),
+                "target": f.target_r,
+                "fitted": f.fitted,
+                "n": f.trailing_n,
+                # "fitted" | "thin" | "margin" (#476) — a fallback day for want of samples and one
+                # where the pick failed the margin gate look identical on the chart otherwise.
+                "status": f.status,
+                "considered": f.considered_r,
+                "z": f.edge_z,
+            }
+            for d, f in daily_targets
+        ]
     if daily_risk is not None:
         book["daily_risk"] = [{"date": d.isoformat(), "risk": r} for d, r in daily_risk]
     if state is not None:
@@ -403,6 +435,64 @@ def _extract_day_trades_cached(
     return cands
 
 
+def _recon_days_within_budget(
+    recon_store: Store,
+    s: Settings,
+    recon_all: Sequence[date],
+    live_dates: set[date],
+    recon_cache_dir: Path | None,
+    settings_fp: str,
+) -> tuple[list[tuple[date, list[CandidateTrade]]], int]:
+    """Reconstructed days, newest-first, up to a candidate budget. Returns (days, days_dropped).
+
+    This function is the bound on #273's failure mode, applied where it can still be applied.
+    ``build_portfolio_payload`` retains every day's ``CandidateTrade``, and each one carries its
+    ``bars`` tuple — the whole 04:00–16:00 chart window — because ``_books_json`` re-simulates the
+    same ``by_day`` list once per selectable target. Peak memory is therefore linear in
+    *days × candidates*, and that is precisely what OOM-killed the box in #264 with ~25 live days.
+    A completed harvest makes it ~500, and a recon day can surface candidates the live scanner
+    never showed — through appearance timing (#433), not the 50-row scanner cap once assumed, which
+    #460 measured as never binding (pre-market peaks at 11 of 50).
+
+    Budgeting on **candidates rather than days** is the point. Days are a proxy; candidates are the
+    thing that costs memory, and the density of a reconstructed day is exactly the number nobody
+    has measured yet (the harvest has produced none). A candidate budget self-adjusts: dense days
+    buy fewer of them, sparse days buy more, and the ceiling holds either way.
+
+    The walk is newest-first and stops **before** extracting a day it cannot afford, so the days it
+    drops cost nothing to skip — the alternative, extracting everything and slicing afterwards, has
+    already spent the memory by the time it decides. Newest-first also matches the harvest's own
+    ordering, so what survives the cap is the segment contiguous with the live record.
+    """
+    budget = s.portfolio_recon_max_candidates
+    kept: list[tuple[date, list[CandidateTrade]]] = []
+    spent = 0
+    dropped = 0
+    for d in sorted(recon_all, reverse=True):
+        if d in live_dates:
+            continue  # live wins on an overlap; not a cap decision, and not counted as dropped
+        trades = _extract_day_trades_cached(
+            recon_store, s, d, recon_cache_dir, settings_fp, force=False, source="recon"
+        )
+        # Always take the first day, whatever it costs: a budget that can yield nothing at all would
+        # turn one unusually busy session into an empty `books_all` with no explanation.
+        if budget > 0 and kept and spent + len(trades) > budget:
+            # `<=`, not `<`: `d` is the day being refused, so it is the newest of the dropped set.
+            dropped = sum(1 for x in recon_all if x <= d and x not in live_dates)
+            log.warning(
+                "portfolio.recon_capped",
+                budget=budget,
+                kept_days=len(kept),
+                dropped_days=dropped,
+                oldest_kept=d.isoformat(),
+            )
+            break
+        kept.append((d, trades))
+        spent += len(trades)
+    kept.reverse()  # callers splice ascending
+    return kept, dropped
+
+
 def _coverage_json(by_day: Sequence[tuple[date, list[CandidateTrade]]]) -> dict[str, object]:
     """Span + volume of one provenance's contribution, for the page's coverage line."""
     days = [d for d, _ in by_day]
@@ -492,19 +582,12 @@ def build_portfolio_payload(
     # truth the reconstruction is *calibrated against*; preferring it keeps the combined book from
     # double-counting a day, and from quietly substituting vendor bars for observed ones.
     recon_all = collected_dates(recon_store) if recon_store is not None else []
-    recon_by_day = (
-        [
-            (
-                d,
-                _extract_day_trades_cached(
-                    recon_store, s, d, recon_cache_dir, settings_fp, force=False, source="recon"
-                ),
-            )
-            for d in recon_all
-            if d not in live_dates
-        ]
+    recon_by_day, recon_capped = (
+        _recon_days_within_budget(
+            recon_store, s, recon_all, live_dates, recon_cache_dir, settings_fp
+        )
         if recon_store is not None
-        else []
+        else ([], 0)
     )
     # Selectable fixed targets: the adaptive grid widened with a couple of extremes for exploration.
     targets = sorted(set(s.portfolio_target_grid) | {1.0, 4.0, 5.0})
@@ -529,8 +612,10 @@ def build_portfolio_payload(
             "market_data_usd_per_month": s.portfolio_market_data_usd_per_month,
             "market_data_waiver_usd": s.portfolio_market_data_waiver_usd,
             "exit_slippage_ticks": s.portfolio_exit_slippage_ticks,
+            # null = the fit uses ALL history rather than a trailing window (#476).
             "adaptive_window_days": s.portfolio_adaptive_window_days,
             "adaptive_min_samples": s.portfolio_adaptive_min_samples,
+            "target_switch_z": s.portfolio_target_switch_z,
             # The grid the daily re-fit picks from, plus the target it falls back to before the
             # window has samples. `targets` (below) is the *selectable book* list — the grid
             # widened with extremes — so it can't stand in as the ladder for the target chart.
@@ -570,6 +655,10 @@ def build_portfolio_payload(
         # this to `recon_by_day` instead would make a fully-overlapping harvest look like an
         # unharvested box, which is the one case where the reader most needs to know why.
         recon_cov["overlap_days_dropped"] = len([d for d in recon_all if d in live_dates])
+        # Never a silent truncation: a capped payload must say so, or "coverage from 2025-02-11"
+        # reads as "that is all the harvest has" rather than "that is all the payload can hold".
+        recon_cov["capped_days_dropped"] = recon_capped
+        recon_cov["candidate_budget"] = s.portfolio_recon_max_candidates
     payload["coverage"] = {"live": _coverage_json(by_day), "recon": recon_cov}
     if recon_by_day:
         combined = sorted([*recon_by_day, *by_day], key=lambda item: item[0])

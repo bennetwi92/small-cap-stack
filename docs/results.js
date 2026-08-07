@@ -7,6 +7,17 @@
 // in every engine-v2 feature the detector gated and scored on (charts.py
 // `engine.features`), grouped by feature area, so sorting one column against Max
 // R / Max % is enough to see whether that feature separates runners from duds.
+//
+// Since #479 the chart comes to the grid rather than the other way round: a row
+// click (or ↑/↓) draws that opportunity in a dock along the bottom, using the
+// shared inspector (js/inspector.js). Clicking used to navigate to the review
+// workbench, which threw away the sort, the filter and your place in the list.
+//
+// DATA `+ History` (#488) folds in the reconstructed sessions the overnight
+// harvest rebuilt from vendor minute bars, mirroring the Portfolio page's scope
+// control. Those rows come from a separate index and a separate chart namespace,
+// carry a `recon` tag on the date, and are fetched only when the scope is
+// switched on — 30 extra days of full-day bars is not a cost to pay by default.
 
 import "./js/nav.js";
 import { createOptionsBar } from "./js/options-bar.js";
@@ -24,10 +35,73 @@ import {
   etClockSec,
   etMinutesSec,
 } from "./js/fmt.js";
+import {
+  chartsFor,
+  chartsUrl,
+  clearChartCache,
+  createChartView,
+  engineDetailHtml,
+  findChart,
+  hasReview,
+  newsCount,
+  newsHtml,
+  optionLabel,
+  readoutHtml,
+  reviewFor,
+  reviewHtml,
+} from "./js/inspector.js";
 import { MARKET_OPEN_MIN } from "./js/session.js";
 import { TabulatorFull as Tabulator } from "https://cdn.jsdelivr.net/npm/tabulator-tables@6.5.2/dist/js/tabulator_esm.min.js";
 
 const el = (id) => document.getElementById(id);
+
+/* ---------- dock state ----------
+   Declared up here because the options bar (built below, at module evaluation)
+   reads `dockOn()` for the CHART segment's initial value. */
+const DOCK_ON_KEY = "rs_dock_on";
+const DOCK_H_KEY = "rs_dock_h";
+const DOCK_H_DEFAULT = 320;
+const DOCK_H_MIN = 140;
+const DRAW_DEBOUNCE_MS = 80; // holding ↓ must not queue one full redraw per row
+
+let selectedOid = null;
+let view; // undefined = not built, null = charting library missing
+let sideMode = null; // null | "gates" | "news" | "note"
+let sideReview = null; // the saved review for the drawn opportunity, once it has loaded
+let engineOn = true;
+let drawTimer = null;
+let drawToken = 0; // guards an async payload fetch that lands after another selection
+
+function dockOn() {
+  return localStorage.getItem(DOCK_ON_KEY) !== "off";
+}
+
+/* ---------- provenance scope (#488) ----------
+   `recon_index.json` is the reconstructed history's own index — written by
+   dashboard_recon.py, never merged into `index.json`, so a page that doesn't ask
+   for it can't get vendor-derived days by accident. It's small (nav rows only),
+   so it's fetched every load to decide whether the DATA control exists at all;
+   the multi-megabyte chart payloads behind it are fetched only on first switch. */
+
+let SCOPE = "live"; // "live" (captured only) | "all" (+ reconstructed history)
+let reconIndex = null; // the parsed recon_index.json, or null when nothing is harvested
+let reconRows = null; // lazily-loaded rows for the reconstructed dates
+let reconLoading = null; // in-flight load, so a double-click doesn't fetch twice
+let reconToken = 0; // invalidates an in-flight history load that a Refresh superseded
+
+// The dates an index offers, dropping days that published no opportunity at all.
+// Declared up here because `hasRecon` is what decides whether the DATA control is
+// built, and that question is asked at module evaluation.
+const indexDates = (index) =>
+  ((index && index.dates) || [])
+    .filter((d) => Array.isArray(d.opportunities) && d.opportunities.length > 0)
+    .map((d) => d.date);
+
+// Keyed on the dates that would actually yield ROWS, not on the index's length: a
+// quiet harvested session with no detected opportunity is still an index entry,
+// and gating on that alone would offer a "+ History" control that fetches
+// nothing and adds nothing.
+const hasRecon = () => indexDates(reconIndex).length > 0;
 
 /* ---------- row model (unchanged from the pre-cockpit page) ---------- */
 
@@ -53,7 +127,7 @@ function engineVerdict(c) {
 // it (rather than reached through `engine.features` per cell) so Tabulator can
 // sort/filter each feature natively. A chart that predates a field — or one where
 // no setup formed — simply carries `undefined`, which every formatter renders "—".
-function toRow(date, c) {
+function toRow(date, c, source = "live") {
   const first = c.markers ? c.markers.first_hit : null;
   const mins = etMinutesSec(first);
   const floats = (c.floats || []).filter((f) => f.float != null);
@@ -65,6 +139,9 @@ function toRow(date, c) {
   const fill = lv.entry_fill ?? null;
   return {
     date,
+    // Which store the day came from (#488). Decides the chart namespace the dock
+    // reads, the `recon` tag on the date, and whether the workbench link applies.
+    source,
     oid: c.opportunity_id,
     label: c.run_count > 1 ? `${c.symbol}#${c.run}` : c.symbol,
     symbol: c.symbol,
@@ -126,63 +203,121 @@ function toRow(date, c) {
 /* ---------- options bar: the filters that used to float over the table ---------- */
 
 let want = { session: "all", engine: "all" };
+let cols = "core"; // survives an options-bar rebuild, which reconstructs every control
 
-createOptionsBar("optbar", {
-  primary: [
-    {
-      type: "seg", id: "rs-session", label: "SESSION", value: "all",
-      options: [
-        { value: "all", label: "All" },
-        { value: "premarket", label: "Pre" },
-        { value: "market", label: "Open" },
-      ],
+const SCOPE_NOTE =
+  "DATA “+ History” folds in sessions the overnight harvest rebuilt from purchased vendor minute " +
+  "bars, tagged “recon” on the date. Those days were never watched live, so three columns are " +
+  "ABSENT rather than zero: FLOAT (the vendor sells no share count), News (no headlines were " +
+  "captured), and the saved review (the workbench annotates live days only). TIME is a " +
+  "reconstructed appearance — the same gates replayed over the minute tape, not an observed " +
+  "scanner hit.";
+
+// Rebuilt rather than built once: the DATA control only exists when the harvest
+// has landed reconstructed days, which isn't known until `recon_index.json` has
+// been fetched. createOptionsBar clears its mount, so re-calling it with the
+// current values in hand is the whole mechanism.
+function buildOptbar() {
+  createOptionsBar("optbar", {
+    primary: [
+      {
+        type: "seg", id: "rs-session", label: "SESSION", value: want.session,
+        options: [
+          { value: "all", label: "All" },
+          { value: "premarket", label: "Pre" },
+          { value: "market", label: "Open" },
+        ],
+      },
+      {
+        type: "seg", id: "rs-engine", label: "ENGINE", value: want.engine,
+        options: [
+          { value: "all", label: "All" },
+          { value: "pass", label: "Pass" },
+          { value: "reject", label: "Reject" },
+        ],
+      },
+      {
+        type: "seg", id: "rs-cols", label: "COLUMNS", value: cols,
+        options: [
+          { value: "core", label: "Core" },
+          { value: "features", label: "+ Engine" },
+        ],
+      },
+      // Provenance scope (#488), mirroring the Portfolio page's. Only offered once the harvest has
+      // published reconstructed days, so a box that has harvested nothing looks exactly as before.
+      ...(hasRecon()
+        ? [
+            {
+              type: "seg", id: "rs-scope", label: "DATA", value: SCOPE,
+              options: [
+                { value: "live", label: "Live", title: "Days the tracker captured in real time" },
+                { value: "all", label: "+ History", title: "Live days plus reconstructed history" },
+              ],
+            },
+          ]
+        : []),
+      {
+        type: "seg", id: "rs-dock-toggle", label: "CHART", value: dockOn() ? "on" : "off",
+        options: [
+          { value: "on", label: "On" },
+          { value: "off", label: "Off" },
+        ],
+      },
+      { type: "readout", id: "rs-count", value: "loading…" },
+      { type: "btn", id: "rs-refresh", label: "Refresh", title: "Refresh now" },
+    ],
+    extra: [
+      {
+        type: "note",
+        value:
+          "Session: Pre < 09:30 ET · Open ≥ 09:30 ET (first scanner appearance; unknowns only under All). " +
+          "Engine Reject folds in no-setup rows. Pred Max R is the engine's measured Max R (3-tick fill, " +
+          "stop-first); Max % is that same peak as a plain move off the fill, so a wide stop can't hide a " +
+          "big run. Time is the first scanner appearance (sorts by time of day, across dates). " +
+          "“+ Engine” adds every feature the detector gated and scored on, by area — sort one against " +
+          "Max R to see whether it separates anything. Score contributions are omitted: each is just " +
+          "weight × the feature beside it. Reads the same published data as the review workbench. " +
+          "Chart: click a row (or press ↑/↓) to draw it below; Enter opens the review workbench, Esc " +
+          "closes the dock, and the divider drags to re-split. " +
+          (hasRecon() ? SCOPE_NOTE + " " : "") +
+          "Times in ET. Phase-1 = tracking only, no orders.",
+      },
+    ],
+    onChange: (id, value) => {
+      if (id === "rs-refresh") {
+        clearChartCache(); // Refresh means the branch, not the memo
+        // ...and the lazily-loaded history, which is a memo of its own. The token retires any
+        // load still in flight: a history fetch is tens of MB over tens of seconds, so a Refresh
+        // landing mid-load would otherwise let the OLDER chain assign `reconRows` last and render
+        // pre-Refresh rows as the refreshed result.
+        reconToken++;
+        reconRows = null;
+        reconLoading = null;
+        return load();
+      }
+      if (id === "rs-cols") {
+        cols = value;
+        return grid.setColumns(columnDefs(value === "features"));
+      }
+      if (id === "rs-dock-toggle") return setDock(value === "on");
+      if (id === "rs-scope") return setScope(value);
+      if (id === "rs-session") want.session = value;
+      if (id === "rs-engine") want.engine = value;
+      grid.refreshFilter();
     },
-    {
-      type: "seg", id: "rs-engine", label: "ENGINE", value: "all",
-      options: [
-        { value: "all", label: "All" },
-        { value: "pass", label: "Pass" },
-        { value: "reject", label: "Reject" },
-      ],
-    },
-    {
-      type: "seg", id: "rs-cols", label: "COLUMNS", value: "core",
-      options: [
-        { value: "core", label: "Core" },
-        { value: "features", label: "+ Engine" },
-      ],
-    },
-    { type: "readout", id: "rs-count", value: "loading…" },
-    { type: "btn", id: "rs-refresh", label: "Refresh", title: "Refresh now" },
-  ],
-  extra: [
-    {
-      type: "note",
-      value:
-        "Session: Pre < 09:30 ET · Open ≥ 09:30 ET (first scanner appearance; unknowns only under All). " +
-        "Engine Reject folds in no-setup rows. Pred Max R is the engine's measured Max R (3-tick fill, " +
-        "stop-first); Max % is that same peak as a plain move off the fill, so a wide stop can't hide a " +
-        "big run. Time is the first scanner appearance (sorts by time of day, across dates). " +
-        "“+ Engine” adds every feature the detector gated and scored on, by area — sort one against " +
-        "Max R to see whether it separates anything. Score contributions are omitted: each is just " +
-        "weight × the feature beside it. Reads the same published data as the review workbench. " +
-        "Times in ET. Phase-1 = tracking only, no orders.",
-    },
-  ],
-  onChange: (id, value) => {
-    if (id === "rs-refresh") return load();
-    if (id === "rs-cols") return grid.setColumns(columnDefs(value === "features"));
-    if (id === "rs-session") want.session = value;
-    if (id === "rs-engine") want.engine = value;
-    grid.refreshFilter();
-  },
-});
+  });
+}
+
+buildOptbar();
 
 /* ---------- grid ---------- */
 
 // Same compose(AND) semantics as the old page: "Reject" folds in no-setup rows;
 // unknown-session rows surface only under "All".
 function rowVisible(row) {
+  // Reconstructed rows are loaded once and then filtered, not refetched: the payloads are the
+  // expensive part and toggling the scope back and forth must not re-download them.
+  if (SCOPE !== "all" && row.source === "recon") return false;
   if (want.session !== "all" && row.session !== want.session) return false;
   if (want.engine === "pass" && row.verdict !== "pass") return false;
   if (want.engine === "reject" && row.verdict === "pass") return false;
@@ -237,13 +372,33 @@ const rFmt = (cell) => {
 };
 const priceFmt = (cell) => fmtPrice(cell.getValue());
 const floatFmt = (cell) => fmtShares(cell.getValue());
+// The dock draws the chart in place now (#479), so this column is the escape hatch to the
+// annotate-and-save workbench rather than the way to see a chart at all.
+const reviewUrl = (d) =>
+  `review.html?date=${encodeURIComponent(d.date)}&oid=${encodeURIComponent(d.oid)}`;
+// The workbench reads the LIVE chart namespace and writes annotations keyed by opportunity id, so
+// it has nothing to open for a reconstructed day (#488). Say so in the cell rather than linking to
+// a page that would load empty.
+const isRecon = (d) => d && d.source === "recon";
 const chartFmt = (cell) => {
   const d = cell.getRow().getData();
-  const link = `review.html?date=${encodeURIComponent(d.date)}&oid=${encodeURIComponent(d.oid)}`;
+  if (isRecon(d))
+    return '<span class="muted" title="Reconstructed session — the review workbench annotates live days only">–</span>';
   return (
-    `<a href="${link}" title="Open this opportunity in the review chart">` +
+    `<a href="${reviewUrl(d)}" title="Open in the review workbench to annotate">` +
     `<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" style="vertical-align:-2px">` +
     `<polyline points="1,11 5,7 8,9 14,3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></a>`
+  );
+};
+// The date, tagged when the row came from reconstructed history — the same `.pf-src` chip the
+// Portfolio trade table uses, so one row is never mistaken for a captured one on either page.
+const dateFmt = (cell) => {
+  const d = cell.getRow().getData();
+  return (
+    esc(cell.getValue()) +
+    (isRecon(d)
+      ? ' <span class="pf-src" title="Reconstructed from vendor minute bars, not captured live">recon</span>'
+      : "")
   );
 };
 
@@ -291,7 +446,7 @@ const flag = (title, field, tip, w = 62) => ({
 // Always on: identity, when it was seen, the verdict, and the outcome it produced.
 const CORE = [
   { title: "SYMBOL", field: "symbol", frozen: true, width: 90, formatter: symFmt },
-  { title: "DATE", field: "date", width: 106, sorter: dateSorter },
+  { title: "DATE", field: "date", width: 132, sorter: dateSorter, formatter: dateFmt },
   {
     title: "TIME", field: "firstMin", width: 74, hozAlign: R, formatter: timeFmt,
     sorter: numNullsLast,
@@ -411,49 +566,444 @@ const columnDefs = (withFeatures) =>
 const grid = new Tabulator("#rs-grid", {
   data: [],
   layout: "fitData",
-  height: "calc(100vh - 76px)", // fill between the bars; a fixed height turns on virtual scrolling
+  // Fills the split's grid pane, which owns whatever height the dock leaves; a
+  // resolved height is what turns on virtual scrolling.
+  height: "100%",
+  index: "oid", // lets the dock address a row by opportunity id
   placeholder: "Loading…",
   initialSort: [{ column: "date", dir: "desc" }],
   columns: columnDefs(false),
+  // The selected row is the chart's source. Painted here rather than by toggling
+  // a class directly, because Tabulator recycles row elements while scrolling —
+  // a hand-applied class would drift onto whatever row inherits the element.
+  rowFormatter: (row) => {
+    row.getElement().classList.toggle("rs-sel", row.getData().oid === selectedOid);
+  },
 });
 
 grid.on("dataFiltered", (filters, rows) => {
   el("rs-count").textContent = `${rows.length} of ${grid.getData().length} shown`;
 });
 
+grid.on("rowClick", (e, row) => {
+  // The chart-icon column is a real link out to the workbench — let it navigate.
+  if (e.target && e.target.closest("a")) return;
+  select(row.getData().oid);
+});
+
 /* ---------- load ---------- */
+
+// Pull every date's chart file in parallel; a missing/failed day degrades to no
+// rows for that day rather than failing the whole table.
+//
+// Deliberately NOT `chartsFor` (which memoises): these payloads are 1.5–3 MB of
+// full-day bars each, and holding all ~30 days alive for the whole session to
+// service a dock that shows one at a time is a lot of resident memory for
+// nothing. The rows keep what the grid needs; the dock re-reads the one date it
+// is drawing, which the inspector then caches.
+async function rowsForDates(dates, source) {
+  const perDate = await Promise.all(
+    dates.map(async (date) => {
+      const payload = await fetchJson(chartsUrl(date, source));
+      const charts = (payload && payload.charts) || [];
+      return charts.map((c) => toRow(date, c, source));
+    }),
+  );
+  return perDate.flat();
+}
+
+let liveRows = [];
+let optbarOffersScope = false; // whether the bar currently carries the DATA control
+let firstLoad = true; // only the first load reads a scope out of the URL hash
 
 async function load() {
   el("rs-error").hidden = true;
   el("rs-count").textContent = "loading…";
   try {
-    const index = await fetchJson("index.json");
-    const dates = ((index && index.dates) || [])
-      .filter((d) => Array.isArray(d.opportunities) && d.opportunities.length > 0)
-      .map((d) => d.date);
-    // Pull every date's chart file in parallel; a missing/failed day degrades to
-    // no rows for that day rather than failing the whole table.
-    const perDate = await Promise.all(
-      dates.map(async (date) => {
-        const payload = await fetchJson(`charts/${date}.json`);
-        const charts = (payload && payload.charts) || [];
-        return charts.map((c) => toRow(date, c));
-      }),
-    );
-    const rows = perDate.flat();
-    if (!rows.length) {
+    // Both indexes, in parallel — the reconstructed one is nav rows only (tens of KB), and
+    // fetching it up front is what decides whether the DATA control exists at all. Its multi-MB
+    // chart payloads stay untouched until the scope is actually switched.
+    const [index, recon] = await Promise.all([fetchJson("index.json"), fetchJson("recon_index.json")]);
+    reconIndex = recon;
+    const dates = indexDates(index);
+    liveRows = await rowsForDates(dates, "live");
+    if (!liveRows.length) {
       grid.setPlaceholder("No review data published yet.");
     }
-    grid.setData(rows);
-    grid.setFilter(rowVisible);
-    const now = new Intl.DateTimeFormat("en-US", {
-      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-    }).format(new Date());
-    setStatusPage(`${rows.length} opps · ${dates.length} days · fetched ${esc(now)}`);
+    if (!hasRecon()) SCOPE = "live";
+    // A deep link into a reconstructed day has to bring its own scope with it, or the row it
+    // points at simply isn't in the grid and the restore silently does nothing. First load only:
+    // afterwards the hash tracks the selection rather than driving it, and re-deriving the scope
+    // from it on every Refresh would override a scope the reader had since changed by hand.
+    if (firstLoad && hashIsRecon()) SCOPE = "all";
+    firstLoad = false;
+    // Rebuilt only when the control set actually changes — createOptionsBar wipes its mount, and
+    // the `···` extras row (which is where the whole "+ History" explanation lives) reopens
+    // collapsed. Refresh must not close it out from under someone mid-read.
+    if (hasRecon() !== optbarOffersScope) {
+      optbarOffersScope = hasRecon();
+      buildOptbar();
+    }
+    if (SCOPE === "all" && hasRecon()) {
+      await ensureReconRows();
+    } else {
+      applyRows();
+    }
+    restoreSelection();
   } catch (e) {
     el("rs-error").hidden = false;
     el("rs-error").textContent = `Failed to load results: ${e && e.message ? e.message : e}`;
   }
 }
 
-grid.on("tableBuilt", load);
+// Does the URL hash point at an opportunity on a reconstructed date? Opportunity ids are
+// "<date>:<SYMBOL>" and the two namespaces are date-disjoint by construction (the publisher never
+// republishes a live-collected date), so the date prefix alone settles it — no change to the link
+// format, and links shared before this existed still resolve.
+function hashIsRecon() {
+  const m = /^#oid=(.*)$/.exec(location.hash || "");
+  if (!m || !hasRecon()) return false;
+  const date = decodeURIComponent(m[1]).split(":")[0];
+  return indexDates(reconIndex).includes(date);
+}
+
+// Put whatever is loaded into the grid and restate the footer. Split out because the scope switch
+// re-runs it without touching the network.
+function applyRows() {
+  const rows = SCOPE === "all" && reconRows ? [...liveRows, ...reconRows] : liveRows;
+  grid.setData(rows);
+  grid.setFilter(rowVisible);
+  // A selection that just left the grid (scoping back to Live with a recon row docked) has to go
+  // with it: a dock still drawing vendor-derived candles under a bar that says "Live" is exactly
+  // the provenance confusion #430 keeps two stores to avoid.
+  if (selectedOid && !grid.getRow(selectedOid)) clearSelection();
+  const days = new Set(rows.map((r) => r.date)).size;
+  const now = new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).format(new Date());
+  setStatusPage(`${rows.length} opps · ${days} days${reconSpan()} · fetched ${esc(now)}`);
+}
+
+// What the reconstruction contributes, and what the publisher's budget refused — the numbers
+// `recon_index.json` carries for exactly this (dashboard_recon.py), rather than a sentence that
+// can only stay true by saying nothing.
+function reconSpan() {
+  if (SCOPE !== "all" || !reconRows) return "";
+  const dropped = (reconIndex && reconIndex.capped_dates_dropped) || 0;
+  const cap = dropped ? ` (+${dropped} older not published)` : "";
+  return ` · ${reconRows.length} reconstructed over ${indexDates(reconIndex).length}d${cap}`;
+}
+
+// Fetch the reconstructed days once, on first switch. `reconLoading` de-dupes a second switch
+// arriving while the first is still in flight; `reconToken` retires a load that a Refresh
+// superseded, so a slow pre-Refresh fetch can't land its stale rows after the fresh ones.
+function ensureReconRows() {
+  if (reconRows) {
+    applyRows();
+    return Promise.resolve();
+  }
+  if (!reconLoading) {
+    const token = reconToken;
+    el("rs-count").textContent = "loading history…";
+    reconLoading = rowsForDates(indexDates(reconIndex), "recon")
+      .catch(() => []) // a failed history load must not wedge the page on the live rows
+      .then((rows) => {
+        if (token === reconToken) reconRows = rows;
+      });
+  }
+  return reconLoading.then(applyRows);
+}
+
+function setScope(value) {
+  SCOPE = value;
+  if (value === "all" && hasRecon()) return ensureReconRows();
+  applyRows();
+  return Promise.resolve();
+}
+
+/* ---------- the chart dock (#479) ----------
+   Master/detail: the grid selects, the dock draws. Everything below is host
+   chrome — the chart, the readout, the engine detail and the news list all come
+   from js/inspector.js, the same component the review workbench mounts. */
+
+// Leave room for the grid: a dock taller than the window minus a few rows is a
+// dock that has eaten the table it exists to serve.
+function clampH(px) {
+  const max = Math.max(DOCK_H_MIN, window.innerHeight - 220);
+  return Math.min(max, Math.max(DOCK_H_MIN, px));
+}
+
+function dockHeight() {
+  const saved = parseInt(localStorage.getItem(DOCK_H_KEY) || "", 10);
+  return clampH(isFinite(saved) ? saved : DOCK_H_DEFAULT);
+}
+
+function applyDockHeight(px) {
+  el("rs-dock").style.height = `${px}px`;
+  grid.redraw(); // the grid pane just changed size; re-measure the virtual window
+}
+
+function setDock(on) {
+  localStorage.setItem(DOCK_ON_KEY, on ? "on" : "off");
+  el("rs-dock").hidden = !on;
+  if (on) {
+    applyDockHeight(dockHeight());
+    if (selectedOid) drawNow(selectedOid);
+  } else {
+    grid.redraw();
+  }
+}
+
+function ensureView() {
+  if (view !== undefined) return view;
+  view = createChartView(el("rs-chart"));
+  if (view) view.setEngineOn(engineOn);
+  return view;
+}
+
+function dockMessage(msg) {
+  el("rs-dock-readout").innerHTML = `<span class="muted">${esc(msg)}</span>`;
+}
+
+// Drop the selection and everything downstream of it — called when the selected row leaves the
+// grid (scoping back to Live with a reconstructed row docked). Bumping `drawToken` abandons any
+// in-flight draw, so a payload landing afterwards can't repaint the dock it just emptied.
+function clearSelection() {
+  selectedOid = null;
+  drawToken++;
+  clearTimeout(drawTimer);
+  sideReview = null;
+  if (view) view.clear();
+  el("rs-dock-title").textContent = "—";
+  el("rs-dock-note").classList.remove("has");
+  el("rs-dock-open").classList.add("hidden");
+  dockMessage("click a row — or press ↓ — to chart it");
+  updateSide(null);
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
+// Select a row: paint it, park it in the URL, and schedule the draw. The paint is
+// immediate and the draw is debounced, so holding ↓ scrubs the selection at full
+// speed and only settles the chart when you stop.
+function select(oid) {
+  const prev = selectedOid;
+  selectedOid = oid;
+  for (const id of [prev, oid]) {
+    if (!id) continue;
+    const row = grid.getRow(id);
+    if (row) row.reformat();
+  }
+  if (oid) {
+    const d = grid.getRow(oid) ? grid.getRow(oid).getData() : null;
+    // A reconstructed day has no workbench to open (#488) — hide the escape hatch rather than
+    // point it at a page that would load empty.
+    const open = el("rs-dock-open");
+    open.classList.toggle("hidden", isRecon(d));
+    if (d && !isRecon(d)) open.href = reviewUrl(d);
+    // A shareable/reload-safe pointer at what you were looking at.
+    history.replaceState(null, "", `#oid=${encodeURIComponent(oid)}`);
+  }
+  if (!dockOn() || !oid) return;
+  el("rs-dock-title").textContent = oid;
+  clearTimeout(drawTimer);
+  drawTimer = setTimeout(() => drawNow(oid), DRAW_DEBOUNCE_MS);
+}
+
+// The provenance tag the dock header carries, so a chart drawn from vendor bars
+// is never read as one the tracker watched.
+const dockTitle = (text, recon) =>
+  esc(text) +
+  (recon
+    ? ' <span class="pf-src" title="Reconstructed from vendor minute bars, not captured live">recon</span>'
+    : "");
+
+async function drawNow(oid) {
+  if (!dockOn()) return;
+  const v = ensureView();
+  if (!v) {
+    dockMessage("Chart library failed to load.");
+    return;
+  }
+  const token = ++drawToken;
+  const row = grid.getRow(oid) ? grid.getRow(oid).getData() : null;
+  const recon = isRecon(row);
+  const source = recon ? "recon" : "live";
+  const date = String(oid).split(":")[0];
+  sideReview = null;
+  el("rs-dock-note").classList.remove("has");
+  dockMessage("loading…");
+  const payload = await chartsFor(date, source);
+  if (token !== drawToken) return; // a later selection won the race
+  const c = findChart(payload, oid);
+  if (!c) {
+    v.clear();
+    el("rs-dock-title").innerHTML = dockTitle(oid, recon);
+    dockMessage("No chart published for this opportunity.");
+    updateSide(null);
+    return;
+  }
+  v.draw(c);
+  el("rs-dock-title").innerHTML = dockTitle(optionLabel(c), recon);
+  el("rs-dock-readout").innerHTML = readoutHtml(c, { engineOn });
+  const n = newsCount(c);
+  const news = el("rs-dock-news");
+  news.textContent = `News ${n}`;
+  news.disabled = n === 0;
+  if (sideMode === "news" && n === 0) sideMode = "gates";
+  updateSide(c);
+  // The workbench writes reviews for live opportunities only, so a reconstructed day has none to
+  // fetch — skip the request rather than spend a round trip guaranteed to 404.
+  if (!recon) loadSavedReview(oid, token);
+}
+
+// The trader's own read of this opportunity (#481), drawn over the engine's: the pole/consolidation
+// bands and entry/stop they placed by hand, plus the note behind the Note button. Loaded after the
+// chart so the draw is never held up by it, and token-guarded like the chart itself.
+async function loadSavedReview(oid, token) {
+  const r = await reviewFor(oid);
+  if (token !== drawToken) return;
+  sideReview = r;
+  const marked = hasReview(r);
+  el("rs-dock-note").classList.toggle("has", marked);
+  if (view && marked && !r.no_trigger) view.setAnnotations(r.annotations);
+  if (sideMode === "note") updateSide(current());
+}
+
+function updateSide(c) {
+  const side = el("rs-side");
+  side.hidden = !sideMode;
+  for (const [mode, id] of [["gates", "rs-dock-gates"], ["news", "rs-dock-news"], ["note", "rs-dock-note"]])
+    el(id).classList.toggle("on", sideMode === mode);
+  if (!sideMode) return;
+  side.innerHTML =
+    sideMode === "news" ? newsHtml(c) : sideMode === "note" ? reviewHtml(sideReview) : engineDetailHtml(c);
+}
+
+function toggleSide(mode) {
+  sideMode = sideMode === mode ? null : mode;
+  updateSide(current()); // the chart auto-sizes to the width the panel leaves
+}
+
+// The chart object currently drawn, straight from the view — the dock keeps no
+// second copy of it.
+const current = () => (view ? view.current() : null);
+
+// Step the selection through the grid's CURRENT order — `getRows("active")` is
+// post-sort, post-filter, which is what the eye is following.
+function step(delta) {
+  const rows = grid.getRows("active");
+  if (!rows.length) return;
+  let i = rows.findIndex((r) => r.getData().oid === selectedOid);
+  i = i < 0 ? (delta > 0 ? 0 : rows.length - 1) : (i + delta + rows.length) % rows.length;
+  const row = rows[i];
+  select(row.getData().oid);
+  row.scrollTo("nearest", false).catch(() => {});
+}
+
+// Reopen on whatever the URL hash points at, once the rows exist. Scroll to it as well as select
+// it: under the default date-desc sort a deep-linked row is usually far outside the rendered
+// window, and a selection you can't see reads as no selection at all.
+function restoreSelection() {
+  const m = /^#oid=(.*)$/.exec(location.hash || "");
+  if (!m) return;
+  const oid = decodeURIComponent(m[1]);
+  if (!grid.getRow(oid)) return;
+  select(oid);
+  grid.scrollToRow(oid, "nearest", false).catch(() => {});
+}
+
+/* ---------- dock wiring ---------- */
+
+// ✕ and Esc go through the CHART segment rather than calling setDock directly:
+// the options bar owns that control's state, and setting it behind its back
+// leaves the segment thinking it is still "on" — after which clicking On does
+// nothing, because the value hasn't changed as far as it knows.
+function closeDock() {
+  const off = el("rs-dock-toggle").querySelector('.opt-seg-btn[data-value="off"]');
+  if (off) off.click();
+}
+el("rs-dock-close").addEventListener("click", closeDock);
+el("rs-dock-note").addEventListener("click", () => toggleSide("note"));
+el("rs-dock-gates").addEventListener("click", () => toggleSide("gates"));
+el("rs-dock-news").addEventListener("click", () => toggleSide("news"));
+el("rs-dock-engine").addEventListener("click", () => {
+  engineOn = !engineOn;
+  if (view) view.setEngineOn(engineOn);
+  const btn = el("rs-dock-engine");
+  btn.classList.toggle("armed", engineOn);
+  btn.setAttribute("aria-pressed", engineOn ? "true" : "false");
+  const c = current();
+  if (c) el("rs-dock-readout").innerHTML = readoutHtml(c, { engineOn });
+});
+// The readout's float chip toggles its all-sources breakdown, as on the review page.
+el("rs-dock-readout").addEventListener("click", (e) => {
+  const chip = e.target.closest(".rv-float-toggle");
+  if (!chip) return;
+  const all = chip.parentElement.querySelector(".rv-float-all");
+  if (all) all.classList.toggle("hidden");
+});
+
+// Drag the divider to re-split. Our own pointer loop rather than CSS `resize`,
+// so the grid can be redrawn as it moves instead of only on release.
+(() => {
+  const handle = el("rs-dock-handle");
+  let start = null;
+  handle.addEventListener("pointerdown", (e) => {
+    start = { y: e.clientY, h: el("rs-dock").getBoundingClientRect().height };
+    handle.classList.add("dragging");
+    handle.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (!start) return;
+    applyDockHeight(clampH(start.h + (start.y - e.clientY)));
+  });
+  const end = (e) => {
+    if (!start) return;
+    start = null;
+    handle.classList.remove("dragging");
+    if (e && e.pointerId != null) {
+      try {
+        handle.releasePointerCapture(e.pointerId);
+      } catch (_) {
+        /* already released */
+      }
+    }
+    localStorage.setItem(DOCK_H_KEY, String(Math.round(el("rs-dock").getBoundingClientRect().height)));
+  };
+  handle.addEventListener("pointerup", end);
+  handle.addEventListener("pointercancel", end);
+})();
+
+// Keyboard: the grid is a list you walk, so ↑/↓ (and j/k) step it with the chart
+// following. Enter hands off to the workbench, Esc puts the dock away.
+document.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "ArrowDown" || e.key === "j") {
+    e.preventDefault();
+    step(1);
+  } else if (e.key === "ArrowUp" || e.key === "k") {
+    e.preventDefault();
+    step(-1);
+  } else if (e.key === "Enter" && selectedOid) {
+    const row = grid.getRow(selectedOid);
+    // Reconstructed rows have no workbench page (#488) — Enter is a no-op rather than a dead end.
+    if (row && !isRecon(row.getData())) location.href = reviewUrl(row.getData());
+  } else if (e.key === "Escape") {
+    closeDock();
+  }
+});
+
+// A window resize can push a saved height past the clamp.
+window.addEventListener("resize", () => {
+  if (dockOn()) applyDockHeight(clampH(el("rs-dock").getBoundingClientRect().height));
+});
+
+grid.on("tableBuilt", () => {
+  el("rs-dock").hidden = !dockOn();
+  if (dockOn()) applyDockHeight(dockHeight());
+  dockMessage("click a row — or press ↓ — to chart it");
+  load();
+});

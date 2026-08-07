@@ -37,6 +37,100 @@ class Settings(BaseSettings):
     # Empty string disables the feature; a missing directory reads as empty, so an unharvested box
     # behaves exactly as it did before.
     recon_subdir: str = "recon"
+    # Ceiling on how many reconstructed CANDIDATE-TRADES splice into `books_all` (#448), walked
+    # newest-first. This bounds the #273 failure mode where it can still be bounded:
+    # `build_portfolio_payload` retains every day's bars because it re-simulates the same day list
+    # once per selectable target, so peak memory is linear in days x candidates — which is what
+    # OOM-killed the box at ~25 live days (#264). A finished harvest makes it ~500 days, and recon
+    # days may run denser than live ones — though NOT for the rank-cap reason once assumed (#460:
+    # the cap has never bound; pre-market peaks at 11 of 50).
+    # Budgeted on candidates, not days: days are a proxy, candidates are the cost, and the density
+    # of a reconstructed day is the one number nobody has measured yet. 15k x ~27 KB ~= 400 MB
+    # retained, against the app container's 2 GB cap. 0 disables the cap.
+    portfolio_recon_max_candidates: int = 15_000
+    # How many reconstructed sessions have a PUBLISHED chart payload at once (#488). Bounded by the
+    # *publish pipe*, not by memory, unlike `portfolio_recon_max_candidates` above:
+    # `publish-dashboard` force-pushes a fresh single commit of the whole `data/dashboard` tree
+    # every 15 minutes, and a date's payload is 1.5-3 MB of full-day bars; a finished harvest is
+    # ~500 of them, which would put ~1 GB through that push every quarter of an hour and the same
+    # again down every browser that opens Results with `+ History` on.
+    # ⚠️ This caps the date COUNT, not the bytes — `harvest_max_candidates` is 0 (uncapped), so one
+    # unusually busy reconstructed session can be several times the 1.5-3 MB a live day costs, and
+    # the ~500x figure above is arithmetic rather than measurement. Check `du -sh /data/dashboard`
+    # and the publish job's duration once the first window has landed (RUNBOOK §13).
+    # ⚠️ Eviction is by PUBLISH ORDER, not by date — see `dashboard_recon._keep_window` before
+    # changing this. A newest-date window looks reasonable and makes all but the first ~2 nights of
+    # the harvest permanently invisible, because the harvest walks backwards. 0 disables the cap.
+    recon_charts_max_dates: int = 30
+
+    # --- Overnight pre-market harvest (#431) — the producer that fills the recon store above. ---
+    # Ingest is #430's decision: the vendor's FREE tier, REST, no purchase. That makes a 5 calls/min
+    # rate limit — not lookback, not bytes — the thing that prices the whole job, so every knob here
+    # is really a knob on "how many trading days does a night buy".
+    harvest_lookback_days: int = 730  # ~2 years: the free tier's measured lookback (#428)
+    # Sleep between vendor calls. 13s ≈ 4.6/min, inside the free tier's 5/min with headroom. Raise
+    # it to be politer; lowering it below ~12 earns 429s, and a blocked key has no second copy.
+    harvest_rate_sleep_sec: float = 13.0
+    # The harvest-only day-volume floor on the candidate prefilter (see harvest/prefilter.py). It is
+    # a loose proxy for the real trailing-5-min gate, which a daily bar cannot evaluate — airtight
+    # (a name clearing a 100k 5-min sum must trade >=100k on the day) but ~12x looser than the
+    # loosest of the 25 committed review cases. It sets the ~217 candidates/day that prices the
+    # harvest at ~45 nights. UNCHANGED on this issue: what a tighter floor *cuts* is unmeasured, and
+    # `python -m small_cap_stack.harvest sweep` is the measurement to run before touching it.
+    harvest_min_day_volume: float = 100_000.0
+    harvest_max_candidates: int = 0  # per session; 0 = no cap (a smoke-test lever, not a filter)
+    # Failure accounting (#446). A day the vendor refused and a day nothing traded both write zero
+    # rows, so without these a truncated API key marked ~11 dates a night as harvested, forever.
+    # The breaker is about SPEED — a failing symbol costs 5 calls and ~95s on the retry ladder, so
+    # discovering an outage 218 times costs the night. The ratio is about DATA: scattered failures
+    # never trip the breaker but still leave a session sampled from a fraction of its universe.
+    harvest_max_consecutive_failures: int = 5
+    harvest_max_failure_ratio: float = 0.2
+    # Vendor ticker types dropped from the harvested universe (#443) — the reconstruction's
+    # equivalent of the live scan's `scan_exclude_stock_types` ("ETF", "ETN") applied via IBKR's
+    # `stkTypes exc:` filter. Kept as a SEPARATE setting rather than reusing that one because these
+    # are two vendors' taxonomies that merely happen to share two code names: Polygon splits
+    # exchange-traded products finer than IBKR does, so "ETV" (exchange-traded vehicle) has to be
+    # named here to catch what IBKR files under ETF. Closed-end funds ("FUND") are deliberately
+    # absent — they trade like stocks and IBKR's STK.US.MAJOR scan includes them.
+    harvest_exclude_ticker_types: tuple[str, ...] = ("ETF", "ETN", "ETV")
+    # How long the cached exclusion set may go unrefreshed. It is reference data and the harvest
+    # walks backwards in time, so newly-listed products matter less the longer it runs; 0 disables
+    # refreshing entirely.
+    harvest_exclusions_max_age_days: int = 30
+    # Keep the raw 1-min pre-market bars the appearance was reconstructed from (~330 rows per
+    # symbol-day, ~36M rows over the harvest). Store-raw/compute-on-read has a price tag here:
+    # without them a change to the reconstruction rules costs another 45 nights of API budget
+    # rather than a re-read.
+    # Turn off only if disk gets tight — the 5-min `bars` the engine reads are written either way.
+    harvest_store_minute_bars: bool = True
+    # The window the job may run in, ET. The box's day is booked: eod_backfill 03:45, scan
+    # 04:00-11:59, eod_bars_fetch 16:20, eod_report 16:30. The hard stop at 03:00 leaves 45 minutes
+    # of clearance. The job REFUSES to start outside this — being launched at the right time and
+    # refusing the wrong one are different guarantees, and only the second survives a late timer.
+    #
+    # Widened from 17:00 to 12:30 (#455): 12:00-16:20 ET is the one block of the box's day nothing
+    # is scheduled in, and at the free tier's 5 calls/min the harvest's calendar is set purely by
+    # hours-per-day. 12:30 leaves half an hour after the 11:59 scan close. The window therefore
+    # spans the two EOD jobs, and `harvest_eod_recess_et` below — not the host guard — is what
+    # keeps the harvest out of them.
+    harvest_start_et: time = time(12, 30)
+    harvest_stop_et: time = time(3, 0)
+    # The afternoon run's OWN stop, 10 minutes before `eod_bars_fetch` (#455). This is what makes
+    # the widened window safe, and it replaces an argument that did not survive review: the claim
+    # was that `HostGuard` would stop the harvest if the EOD jobs made the box tight. It cannot.
+    # The guard runs once per SESSION, and a session is ~217 candidates x 13 s = 47 minutes — so
+    # with a 12:30 start the boundaries land at 15:38 and 16:25, and the harvest sits inside a
+    # session, holding 1 GB with MemorySwapMax=0, straight through `build_portfolio_payload` at
+    # 16:30 — the ~1.5 GB, still-growing (#273) job that OOM-killed this box in #264.
+    # A deadline is enforced BETWEEN symbols and by the "don't start what you cannot finish"
+    # pre-check, so unlike the guard it genuinely bounds where the container can still be running.
+    harvest_eod_recess_et: time = time(16, 10)
+    # Host floors checked between sessions. The in-process half of the memory story; the enforced
+    # half is MemoryMax=1G on the systemd scope (deploy/scs-harvest.service). #264 is why both
+    # exist: a promise is not a limit, and a limit alone kills instead of checkpointing.
+    harvest_min_mem_available_mb: float = 800.0
+    harvest_min_disk_free_mb: float = 2000.0
 
     # Monitoring (issue #5)
     healthchecks_ping_url: str = ""
@@ -69,6 +163,13 @@ class Settings(BaseSettings):
     eod_bars_fetch: time = time(16, 20)  # batch-fetch the day's 5-min bars (before the report)
     eod_report: time = time(16, 30)
     eod_backfill: time = time(3, 45)  # morning catch-up: back-fill bars a missed EOD batch dropped
+    # Rebuild the paper book each morning, so the overnight harvest is visible BEFORE the open
+    # (#458). Until this existed `_export_portfolio` ran only at the 16:30 EOD, so a night's
+    # reconstructed days sat unpublished for 13.5 hours — through the whole trading day they were
+    # harvested for. 03:15 is the one slot that clears everything: the harvest hard-stops at 03:00,
+    # `eod_backfill` is at 03:45, and the scan window opens at 04:00. `publish-dashboard` runs
+    # every 15 min, so the page is live by ~03:30.
+    portfolio_refresh_et: time = time(3, 15)
     # EOD batch resilience (#100): retry a disconnect / transient failure instead of skipping.
     eod_retry_attempts: int = 3
     eod_retry_delay_sec: float = 60.0
@@ -236,8 +337,30 @@ class Settings(BaseSettings):
     # Adaptive target: each day re-fits the target to the highest-expectancy grid value over the
     # trailing window of prior candidates. Small-N overfit is guarded by the window + plateau bias.
     portfolio_target_grid: tuple[float, ...] = (1.5, 2.0, 2.5, 3.0)
-    portfolio_adaptive_window_days: int = 20  # trailing lookback for the expectancy re-fit
+    # Trailing lookback for the expectancy re-fit, in CALENDAR days — or **None for all history**,
+    # which is the shipped default (2026-08-06, #476).
+    #
+    # A trailing window is itself a regime bet: if the trade distribution were stationary you would
+    # use every trade you have. Window length trades **estimation error** (longer is better) against
+    # **regime staleness** (shorter is better), and at n=13 we are overwhelmingly in the
+    # estimation-error-dominated half — discarding trades to stay current buys nothing when the
+    # current estimate is mostly noise. History: 20 days (#239) never let the optimiser fire at all
+    # because the window held at most 7 trades against `min_samples` of 8; #463 widened it to 40 as
+    # a fix for that, which was a repair, not a considered choice of horizon. Shorten this again
+    # only once N is large enough that regime drift is something we can *measure* rather than
+    # assume. `min_samples` deliberately has not moved — firing sooner on 5 trades buys a number,
+    # not evidence.
+    portfolio_adaptive_window_days: int | None = None  # None = fit on every prior trade
     portfolio_adaptive_min_samples: int = 8  # need this many trailing trades before re-fitting
+    # Margin the re-fit's pick must clear, in standard errors, before the book switches OFF the
+    # `portfolio_target_r` fallback (#476). The comparison is **paired** — the same trades scored
+    # under both exit rules, so per-trade variance largely cancels and only the difference carries
+    # noise — which is both the correct test and far tighter than comparing two independent means.
+    # Measured on the first 13 trades against the 2.0R fallback: 1.5R is decisively worse
+    # (z=-4.38) while 2.5R (z=-0.89) and 3.0R (z=-0.84) are simply undecided. 1.0 = "the edge is at
+    # least one standard error"; 1.96 is the strict two-sided 95% bar, which this sample cannot yet
+    # satisfy for any target. 0 disables the gate (pure argmax, the pre-#476 behaviour).
+    portfolio_target_switch_z: float = 1.0
     # Adaptive risk throttle / kill-switch (#239): the per-trade `risk_fraction` itself walks a
     # small ladder from 0 up to `portfolio_risk_fraction`, driven by recent daily results. The
     # adaptive book starts at full risk (top rung) and steps ONE rung only after `risk_step_days`
@@ -248,7 +371,19 @@ class Settings(BaseSettings):
     # scored (the signal is size-independent by design) so the switch re-arms when the tape turns.
     # Few rungs = a fast wind-up to full risk. `risk_rungs=1` disables the throttle. Only the
     # adaptive book throttles; fixed-target books stay at full `risk_fraction` as a baseline.
-    portfolio_risk_rungs: int = 3  # rungs incl. the 0 floor → (0, 2.5%, 5%)
+    #
+    # ⚠️ DISABLED 2026-08-06 (#474), reversing #239. The ladder is a bet on serial correlation of
+    # daily results and there is none to be found: lag-1 autocorrelation +0.31 over 12 active days
+    # (permutation p=0.27), and conditioning on TWO up days is worse than one — the wrong shape for
+    # a momentum story. Worse, it is not neutral when that bet is absent. Over 500
+    # calendar-preserving shuffles (day order permuted, trade population preserved, so serial
+    # correlation is zero by construction) the ladder cost a mean $22.35, losing on 291 shuffles and
+    # winning on 72. The mechanism is mechanical: fixed-fractional sizing ALREADY de-risks after a
+    # loss — 5% of a smaller balance is fewer dollars — and the ladder cuts a second time on the
+    # same information. On the live path it cost $32.84 (5.3% of the book) for 0.01pp of drawdown.
+    # Nothing is deleted: `risk_ladder` / `step_risk_rung` / `_day_signal_r` stay tested, so this is
+    # a one-line re-enable once the sample can detect the effect (~85 active days; we have 12).
+    portfolio_risk_rungs: int = 1  # 1 = throttle OFF (always full risk). 3 → (0, 2.5%, 5%).
     portfolio_risk_step_days: int = 2  # consecutive same-direction days to move a rung (1 = eager)
     # Costs, netted out of every trade so the equity curve is honest at ~$250 notional. Full IBKR
     # TIERED US-stock schedule per research/broker-costs.md (#232) — tiered UNBUNDLES the exchange /
