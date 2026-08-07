@@ -13,14 +13,19 @@ dependencies = [
     "ib-async>=2.0.1",
     "pydantic>=2.10",
     "pydantic-settings>=2.6",
+    # Not imported here — pydantic-settings requires it unconditionally. Declared anyway because
+    # `config.py` uses `env_file=".env"`, which is the feature that needs it: if pydantic-settings
+    # ever made it optional, `Settings()` would start raising at import with no other warning.
     "python-dotenv>=1.0",
-    "pytz>=2024.2",
-    "pandas>=2.2",
     "APScheduler>=3.10,<4",
     "structlog>=24.1",
     "duckdb>=1.1",
     "exchange-calendars>=4.10",
     "polars>=1.0",
+    # ⚠️ KEEP, despite no `import pyarrow` anywhere. `storage.py` bridges DuckDB to polars with
+    # `.pl()`, which goes through Arrow and hard-requires it — and NOTHING pulls it in for us:
+    # duckdb declares it only under `extra == "all"`, polars only under `extra == "pyarrow"`.
+    # Dropping it as "unused" breaks every store read (#521).
     "pyarrow>=17",
     "yfinance>=0.2.40",
     "prometheus-client>=0.20",
@@ -35,8 +40,6 @@ dev = [
     "mypy>=1.13",
     "pytest>=8.3",
     "pytest-cov>=6.0",
-    "pandas-stubs",
-    "types-pytz",
 ]
 
 [tool.hatch.build.targets.wheel]

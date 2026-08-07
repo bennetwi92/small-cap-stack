@@ -516,3 +516,70 @@ def test_every_box_job_step_has_a_checkout_in_its_job() -> None:
                 f"{wf}:{name} runs scripts/box-job.sh but never checks the repo out — on the "
                 f"shared self-hosted workspace that file is absent or stale."
             )
+
+
+def test_pyarrow_stays_declared_despite_having_no_import() -> None:
+    """The trap this test exists for: `pyarrow` looks unused and is load-bearing (#521).
+
+    There is no `import pyarrow` anywhere in the repo, so every "find unused dependencies" pass
+    flags it — this repo's own audit did. But `storage.py` bridges DuckDB to polars with `.pl()`,
+    which goes through Arrow and hard-requires it, and **nothing pulls it in for us**: duckdb
+    declares it only under `extra == "all"`, polars only under `extra == "pyarrow"`. Dropping it
+    breaks every store read, at import time, on a fresh install only.
+    """
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        deps = tomllib.load(fh)["project"]["dependencies"]
+    assert any(d.startswith("pyarrow") for d in deps), (
+        "pyarrow must stay declared: storage.py's DuckDB->polars `.pl()` needs it and no other "
+        "dependency requires it outside an extra. It has no import; that is not evidence."
+    )
+    # The thing that makes it necessary, so deleting the bridge is what retires the dependency.
+    assert ".pl()" in (ROOT / "src" / "small_cap_stack" / "storage.py").read_text()
+
+
+def test_runtime_deps_are_imported_or_explained() -> None:
+    """Every declared runtime dep is imported somewhere, or carries a comment saying why not.
+
+    Two legitimately are not — `pyarrow` (above) and `python-dotenv` (pydantic-settings needs it
+    for the `env_file=` this project uses). Both are commented in `pyproject.toml`. A new
+    unexplained one is either dead weight or the next `pyarrow`, and both want a human to look.
+    """
+    text = (ROOT / "pyproject.toml").read_text()
+    block = text.split("dependencies = [", 1)[1].split("]", 1)[0]
+    explained: set[str] = set()
+    prev_comment = False
+    for raw in block.splitlines():
+        line = raw.strip()
+        if line.startswith("#"):
+            prev_comment = True
+            continue
+        if line.startswith('"') and prev_comment:
+            explained.add(line.strip('", ').split(">")[0].split("=")[0].split("<")[0].lower())
+        prev_comment = False
+
+    sources = "\n".join(
+        p.read_text() for p in [*(ROOT / "src").rglob("*.py"), *(ROOT / "tests").rglob("*.py")]
+    )
+    module_of = {
+        "python-dotenv": "dotenv",
+        "prometheus-client": "prometheus_client",
+        "ib-async": "ib_async",
+        "exchange-calendars": "exchange_calendars",
+        "pydantic-settings": "pydantic_settings",
+    }
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        deps = tomllib.load(fh)["project"]["dependencies"]
+
+    unexplained = []
+    for dep in deps:
+        name = dep.split(">")[0].split("=")[0].split("<")[0].strip()
+        mod = module_of.get(name.lower(), name.lower().replace("-", "_"))
+        if re.search(rf"^\s*(?:import|from)\s+{re.escape(mod)}\b", sources, re.M | re.I):
+            continue
+        if name.lower() in explained:
+            continue
+        unexplained.append(name)
+    assert not unexplained, (
+        f"declared but never imported and unexplained: {unexplained}. Either drop it, or add a "
+        f"comment above it saying what needs it — `pyarrow` looked droppable and was not."
+    )
