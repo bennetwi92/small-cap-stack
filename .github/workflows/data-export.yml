@@ -11,9 +11,8 @@ name: data-export
 # and commits the result to the `data-export` branch. The session then reads that file back over
 # GitHub — no SSH, no inbound port, no credential in the cloud. Drive it from the `box-data` skill.
 #
-# PREREQUISITE (blocked on #6, same as deploy.yml): the VM must exist with the [self-hosted, vps]
-# runner registered. Until then this workflow only ever runs on manual dispatch — it will not queue
-# or fail on its own.
+# The runner has been live since #6 closed on 2026-06-29 (see deploy.yml's header). This ran as
+# "blocked on #6 … will not queue or fail on its own" long after both halves stopped being true.
 
 on:
   workflow_dispatch:
