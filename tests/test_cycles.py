@@ -248,3 +248,30 @@ def test_prior_count_first_prior_must_abut_the_pole() -> None:
     bars = [_bar(i) for i in range(20)]
     sig = [_cyc(2, 3, 4), _cyc(5, 6, 7)]  # cons_end 7, pole base at 10 -> gap 3 -> breaks
     assert prior_cycle_count(bars, sig, pole_base_idx=10) == 0
+
+
+def test_a_cycle_whose_pole_span_is_empty_is_dropped_not_crashed() -> None:
+    """`significant_cycles` slices the pole as `bars[pole_start + 1 : peak + 1]`, so a cycle whose
+    peak sits *at* its own base yields an empty span (#533).
+
+    ⚠️ **The `if not span: continue` guard is redundant, and this test says so rather than
+    pretending otherwise.** My first version claimed it prevented a `max()` over an empty sequence;
+    it doesn't — `any(...) and max(...)` short-circuits on the False, so an empty span is dropped
+    with or without the guard. Removing the guard leaves this test green, which I checked by
+    removing it.
+
+    What the test *is* worth: pinning that a degenerate cycle is **dropped rather than kept**, by
+    whichever mechanism. `segment_cycles` can't produce one today (it sets `peak = i + 1` only on
+    an `H`), but this function is public and takes a `Cycle` list from any caller, and a cycle with
+    no pole in it silently counting toward exhaustion would change which setups the engine calls
+    tired.
+    """
+    bars = [_bar(i) for i in range(4)]
+    degenerate = Cycle(pole_start=1, peak=1, cons_start=None, cons_end=2, breakout=None)
+    real = Cycle(pole_start=0, peak=1, cons_start=2, cons_end=2, breakout=None)
+
+    assert significant_cycles(bars, [degenerate], min_volume=1.0) == []
+    # The same call keeps a well-formed cycle, so the empty-span guard isn't rejecting everything.
+    assert significant_cycles(bars, [real], min_volume=1.0) == [real]
+    # And a mixed list drops only the degenerate one.
+    assert significant_cycles(bars, [degenerate, real], min_volume=1.0) == [real]

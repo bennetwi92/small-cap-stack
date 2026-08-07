@@ -367,3 +367,20 @@ def test_a_normal_consolidation_is_unflagged_and_still_takeable() -> None:
     assert d.cons_has_range is True
     assert d.untraded_cons_bars == 0 and d.halted_consolidation is False
     assert d.takeable is True
+
+
+def test_a_cycle_refine_pole_rejects_is_skipped_not_crashed() -> None:
+    """`detect_day` drops a cycle whose peak `refine_pole` can't build a pole for (#533).
+
+    ⚠️ **This arm is defensive, and provably unreachable through `segment_cycles`.** That walk sets
+    `peak = i + 1` only on an `H` token, so `tokens[peak - 1]` is always `"H"` and `peak` is always
+    ≥ 1 — exactly the two conditions `refine_pole` returns None on. There is no bar shape that
+    reaches it; only a `max_pole < 1` caller can, which is what this uses. Written down so the next
+    reader doesn't spend an afternoon hunting for a real case, and kept because "skip the cycle"
+    and "raise" are very different behaviours for a detector that runs unattended on every tick.
+
+    The clean-pass fixture is deliberately reused: it *does* produce a cycle, so the assertion is
+    "the cycle was found and then dropped", not "nothing was found".
+    """
+    assert detect_day(_PASS) is not None  # the same bars pass at the shipped cap
+    assert detect_day(_PASS, max_pole=0) is None  # every candidate refuses to refine → no setup

@@ -310,3 +310,50 @@ def test_engine_block_maps_onto_full_day_bars() -> None:
     assert eng["segment"]["peak_t"] == _ts(1)
     assert eng["segment"]["cons_end_t"] == _ts(2)
     assert eng["trigger_t"] == _ts(3)
+
+
+# --- appearance marker across a pre-market gap (#533) ---------------------------------------
+# `_bar_containing` has two exits and only one was covered. The uncovered one is the gap path:
+# pre-market bars are sparse for a thin name, so a scanner appearance can land in a *hole* — a
+# minute no bar covers. Getting it wrong draws the "seen" dot on the wrong candle, which is the
+# class of bug #407 was, and it is invisible without data that has a hole in it.
+
+
+def test_appearance_in_a_premarket_gap_marks_the_next_bar() -> None:
+    """A `first_hit` no bar contains marks the first bar *after* it, not None and not the one
+    before. The dot means "we knew about it by here", so the bar that carries it must be one the
+    trader could have acted on."""
+    from small_cap_stack.charts import _bar_containing
+
+    # A hole where i=2 would be. Three real 5-min steps and one 10-min jump, so the *modal*
+    # spacing stays 5 — `bar_interval` takes the mode precisely so a hole can't inflate it, and a
+    # two-bar fixture would have made the gap itself the interval and silently covered the hole.
+    bars = [
+        _bar(0, 5.0, 5.8, 4.6, 5.7),
+        _bar(1, 5.7, 6.5, 5.6, 6.4),
+        _bar(3, 6.4, 6.1, 5.6, 5.7),  # i=2 is missing: nothing covers 14:10–14:15
+        _bar(4, 5.7, 6.0, 5.5, 5.9),
+    ]
+    in_the_gap = _T0 + timedelta(minutes=12)  # inside the hole, after bar 1 closes
+    assert _bar_containing(bars, in_the_gap) == 2  # the bar at i=3 — the next one, not the last
+
+
+def test_appearance_inside_a_bar_marks_that_bar_not_the_next() -> None:
+    """The covered path, pinned beside the gap one so the pair reads as a contrast — a `t` a bar
+    genuinely contains marks *that* bar (#122: the earlier rule drew it a bar late)."""
+    from small_cap_stack.charts import _bar_containing
+
+    bars = [_bar(0, 5.0, 5.8, 4.6, 5.7), _bar(1, 5.7, 6.5, 5.6, 6.4)]
+    assert _bar_containing(bars, _T0 + timedelta(minutes=3)) == 0  # mid-bar-0
+    assert _bar_containing(bars, _T0) == 0  # exactly on the open
+    assert _bar_containing(bars, _T0 + timedelta(minutes=5)) == 1  # exactly on bar 1's open
+
+
+def test_appearance_after_the_last_bar_marks_nothing() -> None:
+    """The third exit: `t` past the close of the last bar has no bar to mark, and must return
+    None rather than the final index — a dot on the last candle would assert we saw the name in a
+    window we have no data for."""
+    from small_cap_stack.charts import _bar_containing
+
+    bars = [_bar(0, 5.0, 5.8, 4.6, 5.7)]
+    assert _bar_containing(bars, _T0 + timedelta(minutes=20)) is None
