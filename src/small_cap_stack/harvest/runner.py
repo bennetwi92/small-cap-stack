@@ -78,7 +78,7 @@ from ..capture import bar_record, opportunity_id, opportunity_record, scanner_hi
 from ..clock import ET
 from ..config import Settings
 from ..logging import get_logger
-from ..market_calendar import is_trading_day
+from ..market_calendar import is_trading_day, previous_session
 from ..scanner import Candidate
 from ..storage import Store
 from .checkpoint import Checkpoint
@@ -360,7 +360,7 @@ def harvest_daily(
     for day in ordered:
         if deadline is not None and now_fn() >= deadline:
             break
-        prior = _prior_session(day, s)
+        prior = previous_session(day, extra_closed=s.calendar_closed_dates)
         # Two ways a session is unreachable, and only one of them moves the floor (#440). A date on
         # or before the floor is not for sale. A date whose *prior* is not for sale is for sale but
         # ungateable — #428 makes the previous close a required input — so it is skipped as a
@@ -441,16 +441,6 @@ def _note_floor(
     if checkpoint is not None:
         checkpoint.note_entitlement_floor(refused)
     return refused if floor is None else max(floor, refused)
-
-
-def _prior_session(day: date, s: Settings) -> date | None:
-    """The trading session immediately before ``day`` (searching back at most a fortnight)."""
-    probe = day - timedelta(days=1)
-    for _ in range(14):
-        if is_trading_day(probe, extra_closed=s.calendar_closed_dates):
-            return probe
-        probe -= timedelta(days=1)
-    return None
 
 
 def _close_map(grouped: Sequence[dict[str, Any]]) -> dict[str, float]:

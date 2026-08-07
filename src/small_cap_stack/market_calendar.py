@@ -16,7 +16,7 @@ guessing.
 from __future__ import annotations
 
 from collections.abc import Collection
-from datetime import date, time
+from datetime import date, time, timedelta
 from functools import lru_cache
 
 import exchange_calendars as xcals
@@ -40,6 +40,29 @@ def is_trading_day(d: date, *, extra_closed: Collection[date] = ()) -> bool:
     if d in extra_closed:
         return False
     return bool(_xnys().is_session(d.isoformat()))
+
+
+#: How far back :func:`previous_session` will look. The longest XNYS closure on record is four
+#: consecutive sessions (2001-09-11), so a fortnight is generous even with several manual
+#: ``extra_closed`` overrides stacked on a holiday week.
+_PREVIOUS_SESSION_LOOKBACK = 14
+
+
+def previous_session(d: date, *, extra_closed: Collection[date] = ()) -> date | None:
+    """The trading session immediately before ``d``, or None if none within a fortnight.
+
+    Two copies of this used to exist and only one was right (#514): ``harvest`` asked the
+    calendar, while the EOD report walked back over ``weekday() >= 5`` and conceded in its own
+    docstring that it ignored holidays. That made the report's news-recency window start on a
+    closed day after every holiday — Thanksgiving Friday looking back to a shut Thursday rather
+    than to Wednesday's session.
+    """
+    probe = d - timedelta(days=1)
+    for _ in range(_PREVIOUS_SESSION_LOOKBACK):
+        if is_trading_day(probe, extra_closed=extra_closed):
+            return probe
+        probe -= timedelta(days=1)
+    return None
 
 
 def early_close_et(d: date, *, extra_closed: Collection[date] = ()) -> time | None:
