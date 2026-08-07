@@ -212,6 +212,13 @@ python spikes/scanner_reconstruct.py --fixtures --json data/spikes/recon-fixture
 python spikes/scanner_reconstruct.py --store /data --date 2026-07-02   # box/Mac only
 ```
 
+Four ground-truth sources build the same `Case` (symbol, trading date, appearance, bars), so the
+calibration is indifferent to where the truth came from: `load_fixture_cases` (the 25 committed
+review cases — the regression baseline), `load_store_cases` (a live `Store`, box/Mac only),
+`load_export_cases` (a `data-export` Parquet slice) and `load_dashboard_cases` (the published
+dashboard payload). Only the last carries a `hit_quantum_sec`, because only it floors the
+appearance to a bar; the loaders are covered by `tests/test_scanner_reconstruct_cases.py`.
+
 ### `massive_replay.py` — issue #428
 
 The vendor half: Massive (ex-Polygon) REST → 1-min bars → the IBKR-aligned :00/:05 5-min grid →
@@ -288,6 +295,70 @@ MASSIVE_API_KEY=… python spikes/massive_calibration.py --fetch --cache data/sp
 python spikes/massive_calibration.py --cache data/spikes/massive --json out.json
 python spikes/massive_calibration.py --cache data/spikes/massive --regular-hours   # contrast
 ```
+
+#### Out-of-sample validation (#428, 2026-08-04)
+
+The result above rests on 8 symbol-days from a single week, so `--cases` adds ground-truth sources
+beyond the 25 fixtures, and the fixture path stays the regression baseline.
+
+**It held, and by a wider margin than the in-sample run.** 31 symbol-days over 2026-07-30 (the
+busiest field collected — 100 opportunities) and 2026-08-03, 33 vendor calls:
+
+| | in-sample (8 cases) | out-of-sample (31 cases) |
+|---|---|---|
+| median appearance Δ | −0.34 min | **−0.97 min** (range −4.5 … +1.5) |
+| within 5 min | 6/7 | **30/31**, 0 outside, 1 undecidable |
+| same trade | 6/8 | **31/31** |
+| same takeable | 8/8 | **31/31** |
+| Massive/IBKR volume | median 1.10×, max 2.29× | median **1.18×**, max **3.37×** |
+| close agreement | median $0.005, max $0.033 | median **$0.002**, max **$0.11** |
+| prev-close intervals | 6/8 | **24/27 (89%)** |
+| divergences >5 min | 2 (rank cap, change reference) | **0** |
+
+ΣMax R 32.478 live vs 32.472 reconstructed, 3 takeable either way.
+
+**Read the zero narrowly.** `--live-window-only` scopes the harvest to symbol-days the live scanner
+*did* surface pre-market, so the rank-cap population — a symbol whose gates passed at 05:00 that
+IBKR only surfaced at 10:30 — was never fetched. Zero unexplained is therefore conditional on *the
+scanner surfaced it*, and says nothing about the false-positive side where #432 lives. Both dates
+also sit within five weeks of the in-sample week, because collection only began 2026-07-01: this is
+a different-week test, not a different-regime one.
+
+**The minute series is doing the work.** Reconstructing off our own 5-min bars over the same 31
+cases lands a median +2.5 min out and as much as +77.5 (19/25 within 5), against −0.97 off Massive's
+minute bars — the empirical case for buying minute data rather than 5-min aggregates, now on a
+sample 4× the original.
+
+**#433 corroborated out of sample.** All three prev-close interval misses run the same direction —
+the true close sits *above* the predicted bound, i.e. IBKR surfaced the symbol when a consolidated
+reference says it had not yet cleared 10%. Required discounts: APLD 0.30% (comparable to #433's
+measured ≥0.39%), PUSA 5.3%, NEXR 11.3%. The last two are far larger than #433 measured and are not
+explained by that offset alone.
+
+```bash
+# the box's own Parquet, via the `box-data` skill's data-export slice
+python spikes/massive_calibration.py --cache … --cases export --export-dir data/spikes/export
+# ...or the published dashboard payload, when a session's proxy blocks the Actions API
+python spikes/massive_calibration.py --cache … --cases dashboard \
+  --charts-dir data/spikes/dashboard/charts --stats data/spikes/dashboard/stats.json \
+  --dates 2026-07-30,2026-08-03 --live-window-only
+```
+
+Two traps the dashboard path handles explicitly, both of which quietly corrupt the result otherwise:
+
+- **The published appearance marker is floored to its 5-min bar** (`charts.py::_bar_containing`),
+  so treating it as exact reads ~3 min late. `Case.hit_quantum_sec` carries the floor, the delta
+  becomes a bounded interval, and `within_5min` returns `None` rather than guess when the quantum
+  alone would decide the verdict.
+- **The R-metrics must be gated mid-bar, never on the marker itself.** `detect_day` gates entry on
+  `bar.start >= first_hit` and bar starts sit on the same 5-min grid, so every instant strictly
+  inside the marker bar yields the identical trade — while the bar start lets a bar the live engine
+  could not have taken count as takeable. On 2026-08-03, where the raw microsecond appearance is
+  also published, mid-bar reproduces the true trade on **61/61** and the bar start is wrong on
+  **19/61**.
+
+`--live-window-only` restricts the harvest to cases the summary actually scores, trading the
+`vendor_hits_without_live_premarket_hit` count for a ~13× smaller call budget.
 
 ---
 
