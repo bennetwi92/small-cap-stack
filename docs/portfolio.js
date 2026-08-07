@@ -14,7 +14,16 @@ import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
 import { el, setBanner, showError } from "./js/dom.js";
-import { esc, etClockIso, fmtPct, fmtPctPlain, fmtShares, rRampClass } from "./js/fmt.js";
+import {
+  esc,
+  etClockIso,
+  fmtPct,
+  fmtPctPlain,
+  fmtPrice,
+  fmtRSigned,
+  fmtShares,
+  rRampClass,
+} from "./js/fmt.js";
 import {
   chartsFor,
   clearChartCache,
@@ -48,11 +57,40 @@ document.addEventListener("click", (e) => {
 });
 // Cockpit tokens (cockpit.css): win/loss green+red stay reserved for P&L, so the two
 // state charts wear the neutral accents — neither a target nor a risk rung is a win.
-const MK = { up: "#3ec07e", down: "#f06673", flat: "#9aa0b5", line: "#4fe3ef", gold: "#e3b452" };
+//
+// READ FROM THE STYLESHEET (#527). These five used to be hex literals that matched cockpit.css's
+// `:root` character-for-character, so a theme change desynced every inline SVG on this page while
+// the CSS-driven parts moved — the worst kind of drift, because the page still renders.
+//
+// Named `PF_MK`, not `MK`: `js/inspector.js` exports an `MK` too, and it is a *different* palette
+// (the chart-candle one, `up: "#1a7f37"`). The old local `const MK` couldn't have imported it even
+// if it wanted to — the declaration would have been a redeclaration — so the shadowing hid the
+// choice rather than making it.
+//
+// Falls back to the current values if a token is missing: a page that renders in today's colours
+// beats one that renders SVG strokes of `""`.
+const cssToken = (name, fallback) => {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+};
+const PF_MK = {
+  up: cssToken("--win", "#3ec07e"),
+  down: cssToken("--loss", "#f06673"),
+  flat: cssToken("--dim", "#9aa0b5"),
+  line: cssToken("--cyan", "#4fe3ef"),
+  gold: cssToken("--gold", "#e3b452"),
+};
 
-const fmtUsd = (x) => (x == null || !isFinite(x) ? "—" : "$" + Number(x).toFixed(2));
+// `fmtPrice` and `fmtRSigned` now come from js/fmt.js (#527). The local copies were byte-identical
+// to them — and the local `fmtR` was the worse half: `fmt.js` exports an UNSIGNED `fmtR` that
+// results.js uses, so one identifier rendered `0.50R` there and `+0.50R` here.
+//
+// `fmtGbp`, `fmtInt` and `pct` stay local: no shared helper renders what they do. `pct` in
+// particular is NOT `fmtPctPlain` — it strips trailing zeros (0.025 -> "2.5%", where
+// `fmtPctPlain(x, 2)` gives "2.50%" and `fmtPctPlain(x, 0)` gives "3%"). `money()` further down
+// is a third money format for a reason too: locale grouping and adaptive decimals for
+// Monte-Carlo sums, where cents are the noise floor.
 const fmtGbp = (x) => (x == null || !isFinite(x) ? "—" : "£" + Number(x).toFixed(2));
-const fmtR = (x) => (x == null || !isFinite(x) ? "—" : (x >= 0 ? "+" : "") + Number(x).toFixed(2) + "R");
 const fmtInt = (x) => (x == null || !isFinite(x) ? "—" : String(x));
 const pct = (r) => (r * 100).toFixed(2).replace(/\.?0+$/, "") + "%"; // 0.025 -> "2.5%"
 
@@ -188,7 +226,7 @@ function equitySvg(curve, start, cashFlows, box) {
   const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.equity).toFixed(1)}`).join(" ");
   const area = `${line} L${x(pts.length - 1).toFixed(1)},${y(yMin).toFixed(1)} L${x(0).toFixed(1)},${y(yMin).toFixed(1)} Z`;
   const end = pts[pts.length - 1].equity;
-  const stroke = end >= start ? MK.up : MK.down;
+  const stroke = end >= start ? PF_MK.up : PF_MK.down;
   const baseY = y(start).toFixed(1);
   // Mark each quarterly withdrawal on the curve so its step-down reads as a payout, not a loss.
   const idxByDate = new Map(curve.map((p, i) => [p.date, i + 1])); // +1 for the start anchor
@@ -197,22 +235,22 @@ function equitySvg(curve, start, cashFlows, box) {
     .map((c) => {
       const mx = x(idxByDate.get(c.date)).toFixed(1);
       return (
-        `<line x1="${mx}" x2="${mx}" y1="${PAD}" y2="${H - PAD}" stroke="${MK.line}" stroke-dasharray="2 3" stroke-width="1" opacity="0.55"/>` +
+        `<line x1="${mx}" x2="${mx}" y1="${PAD}" y2="${H - PAD}" stroke="${PF_MK.line}" stroke-dasharray="2 3" stroke-width="1" opacity="0.55"/>` +
         `<text x="${mx}" y="${(PAD - 4).toFixed(1)}" text-anchor="middle" class="pf-axis">↓£${Number(c.gbp).toFixed(0)}</text>`
       );
     })
     .join("");
   return (
     `<svg viewBox="0 0 ${W} ${H}" class="pf-chart" role="img" aria-label="Equity curve">` +
-    `<line x1="${PAD}" x2="${W - PAD}" y1="${baseY}" y2="${baseY}" stroke="${MK.flat}" stroke-dasharray="3 3" stroke-width="1"/>` +
+    `<line x1="${PAD}" x2="${W - PAD}" y1="${baseY}" y2="${baseY}" stroke="${PF_MK.flat}" stroke-dasharray="3 3" stroke-width="1"/>` +
     // Left-anchored: the end-of-curve label sits at the right, and a book that finishes
     // near its opening balance would otherwise print the two on top of each other.
-    `<text x="${PAD}" y="${(+baseY - 4).toFixed(1)}" class="pf-axis">start ${fmtUsd(start)}</text>` +
+    `<text x="${PAD}" y="${(+baseY - 4).toFixed(1)}" class="pf-axis">start ${fmtPrice(start)}</text>` +
     marks +
     `<path d="${area}" fill="${stroke}" opacity="0.10"/>` +
     `<path d="${line}" fill="none" stroke="${stroke}" stroke-width="2"/>` +
     `<circle cx="${x(pts.length - 1).toFixed(1)}" cy="${y(end).toFixed(1)}" r="3.5" fill="${stroke}"/>` +
-    `<text x="${(x(pts.length - 1) - 6).toFixed(1)}" y="${(y(end) - 8).toFixed(1)}" text-anchor="end" class="pf-axis">${fmtUsd(end)}</text>` +
+    `<text x="${(x(pts.length - 1) - 6).toFixed(1)}" y="${(y(end) - 8).toFixed(1)}" text-anchor="end" class="pf-axis">${fmtPrice(end)}</text>` +
     `</svg>`
   );
 }
@@ -266,7 +304,7 @@ function stepSvg(points, o, box) {
     .filter(Boolean)
     .join(" ");
   const dimPath = dimmed
-    ? `<path d="${dimmed}" fill="none" stroke="${MK.flat}" stroke-width="2" stroke-dasharray="4 3"/>`
+    ? `<path d="${dimmed}" fill="none" stroke="${PF_MK.flat}" stroke-width="2" stroke-dasharray="4 3"/>`
     : "";
 
   // Recessive rules at each rung of the ladder, labelled in the axis gutter.
@@ -274,7 +312,7 @@ function stepSvg(points, o, box) {
     .map((g) => {
       const gy = y(g.v).toFixed(1);
       return (
-        `<line x1="${PAD}" x2="${W - PAD}" y1="${gy}" y2="${gy}" stroke="${MK.flat}" ` +
+        `<line x1="${PAD}" x2="${W - PAD}" y1="${gy}" y2="${gy}" stroke="${PF_MK.flat}" ` +
         `stroke-dasharray="3 3" stroke-width="1" opacity="0.3"/>` +
         `<text x="${PAD - 5}" y="${(+gy + 3.5).toFixed(1)}" text-anchor="end" class="pf-axis">${esc(g.label)}</text>`
       );
@@ -327,7 +365,7 @@ function targetSvg(book, box) {
   return stepSvg(
     pts,
     {
-      color: MK.line,
+      color: PF_MK.line,
       label: "Daily exit target, in R",
       fmt: (v) => Number(v).toFixed(1) + "R",
       grid: grid.map((v) => ({ v, label: Number(v).toFixed(1) + "R" })),
@@ -344,7 +382,7 @@ function riskSvg(book, box) {
   return stepSvg(
     pts,
     {
-      color: MK.gold,
+      color: PF_MK.gold,
       label: "Daily risk per trade, as a share of equity",
       fmt: pct,
       grid: ladder.map((v) => ({ v, label: pct(v) })),
@@ -471,7 +509,7 @@ function fanSvg(pj, box) {
     .map((v) => {
       const gy = y(v).toFixed(1);
       return (
-        `<line x1="${PAD}" x2="${W - RGT}" y1="${gy}" y2="${gy}" stroke="${MK.flat}" ` +
+        `<line x1="${PAD}" x2="${W - RGT}" y1="${gy}" y2="${gy}" stroke="${PF_MK.flat}" ` +
         `stroke-width="1" opacity="0.18"/>` +
         `<text x="${PAD - 5}" y="${(+gy + 3.5).toFixed(1)}" text-anchor="end" class="pf-axis">${compactMoney("$", v)}</text>`
       );
@@ -493,12 +531,12 @@ function fanSvg(pj, box) {
   return (
     `<svg viewBox="0 0 ${W} ${H}" class="pf-chart" role="img" aria-label="Projected balance on a log scale, median with 25-75 and 5-95 percentile bands">` +
     grid +
-    `<path d="${band(b.p5, b.p95)}" fill="${MK.line}" opacity="0.12"/>` +
-    `<path d="${band(b.p25, b.p75)}" fill="${MK.line}" opacity="0.22"/>` +
-    `<line x1="${PAD}" x2="${W - RGT}" y1="${startY}" y2="${startY}" stroke="${MK.gold}" stroke-dasharray="3 3" stroke-width="1"/>` +
+    `<path d="${band(b.p5, b.p95)}" fill="${PF_MK.line}" opacity="0.12"/>` +
+    `<path d="${band(b.p25, b.p75)}" fill="${PF_MK.line}" opacity="0.22"/>` +
+    `<line x1="${PAD}" x2="${W - RGT}" y1="${startY}" y2="${startY}" stroke="${PF_MK.gold}" stroke-dasharray="3 3" stroke-width="1"/>` +
     `<text x="${PAD + 4}" y="${(+startY - 5).toFixed(1)}" class="pf-axis">today ${compactMoney("$", pj.start_equity)}</text>` +
-    `<path d="${mid}" fill="none" stroke="${MK.line}" stroke-width="2"/>` +
-    `<circle cx="${x(days.length - 1).toFixed(1)}" cy="${y(endV).toFixed(1)}" r="3.5" fill="${MK.line}"/>` +
+    `<path d="${mid}" fill="none" stroke="${PF_MK.line}" stroke-width="2"/>` +
+    `<circle cx="${x(days.length - 1).toFixed(1)}" cy="${y(endV).toFixed(1)}" r="3.5" fill="${PF_MK.line}"/>` +
     `<text x="${(x(days.length - 1) - 5).toFixed(1)}" y="${(y(endV) - 8).toFixed(1)}" text-anchor="end" class="pf-axis">${compactMoney("$", endV)}</text>` +
     `<text x="${PAD}" y="${(H - BOT + 15).toFixed(1)}" class="pf-axis">${esc(days[0])}</text>` +
     `<text x="${W - RGT}" y="${(H - BOT + 15).toFixed(1)}" text-anchor="end" class="pf-axis">${esc(days[days.length - 1])}</text>` +
@@ -530,7 +568,7 @@ function rampSvg(ramp, box) {
     vals.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
   const line = (key, width, op) =>
     series[key]
-      ? `<path d="${path(series[key])}" fill="none" stroke="${MK.line}" stroke-width="${width}" ` +
+      ? `<path d="${path(series[key])}" fill="none" stroke="${PF_MK.line}" stroke-width="${width}" ` +
         `opacity="${op}" clip-path="url(#pj-ramp-clip)"/>`
       : "";
   const tY = y(target).toFixed(1);
@@ -551,9 +589,9 @@ function rampSvg(ramp, box) {
       const f = (target - mid[i - 1]) / (mid[i] - mid[i - 1] || 1);
       const cx = (x(i - 1) + (x(i) - x(i - 1)) * f).toFixed(1);
       cross =
-        `<line x1="${cx}" x2="${cx}" y1="${PAD}" y2="${H - BOT}" stroke="${MK.gold}" ` +
+        `<line x1="${cx}" x2="${cx}" y1="${PAD}" y2="${H - BOT}" stroke="${PF_MK.gold}" ` +
         `stroke-dasharray="2 3" stroke-width="1" opacity="0.7"/>` +
-        `<circle cx="${cx}" cy="${tY}" r="4" fill="${MK.gold}"/>` +
+        `<circle cx="${cx}" cy="${tY}" r="4" fill="${PF_MK.gold}"/>` +
         `<text x="${cx}" y="${(PAD - 6).toFixed(1)}" text-anchor="middle" class="pf-axis">` +
         `${(yrs[i - 1] + f).toFixed(1)} yr</text>`;
       break;
@@ -587,7 +625,7 @@ function rampSvg(ramp, box) {
   return (
     `<svg viewBox="0 0 ${W} ${H}" class="pf-chart" role="img" aria-label="Sustainable annual take-home by year, against the day rate">` +
     `<defs><clipPath id="pj-ramp-clip"><rect x="${PAD}" y="${PAD - 8}" width="${(W - PAD - RGT).toFixed(1)}" height="${(H - BOT - PAD + 8).toFixed(1)}"/></clipPath></defs>` +
-    `<line x1="${PAD}" x2="${W - RGT}" y1="${tY}" y2="${tY}" stroke="${MK.gold}" stroke-dasharray="4 3" stroke-width="1.5"/>` +
+    `<line x1="${PAD}" x2="${W - RGT}" y1="${tY}" y2="${tY}" stroke="${PF_MK.gold}" stroke-dasharray="4 3" stroke-width="1.5"/>` +
     `<text x="${PAD - 5}" y="${(+tY + 3.5).toFixed(1)}" text-anchor="end" class="pf-axis">${compactMoney("£", target)}</text>` +
     `<text x="${PAD + 4}" y="${(+tY - 6).toFixed(1)}" class="pf-axis">day rate, after tax</text>` +
     line("p25", 1, 0.5) +
@@ -820,22 +858,22 @@ function costTile(s, start) {
   if (s.total_costs_usd == null) return "";
   const pctOf = start ? ` <span class="muted">(${((s.total_costs_usd / start) * 100).toFixed(1)}%)</span>` : "";
   const breakdown =
-    `IBKR commission ${fmtUsd(s.commission_usd)} · ` +
-    `exchange/clearing/TAF/SEC ${fmtUsd(s.fees_usd)} · ` +
-    `market data ${fmtUsd(s.data_fees_usd)}`;
-  return tile("Costs", fmtUsd(s.total_costs_usd) + pctOf, "pf-neg", breakdown);
+    `IBKR commission ${fmtPrice(s.commission_usd)} · ` +
+    `exchange/clearing/TAF/SEC ${fmtPrice(s.fees_usd)} · ` +
+    `market data ${fmtPrice(s.data_fees_usd)}`;
+  return tile("Costs", fmtPrice(s.total_costs_usd) + pctOf, "pf-neg", breakdown);
 }
 
 function statTiles(book, start) {
   const s = book.stats;
   const grew = s.end_equity >= start;
   return (
-    tile("Balance", fmtUsd(s.end_equity), grew ? "pf-pos" : "pf-neg") +
+    tile("Balance", fmtPrice(s.end_equity), grew ? "pf-pos" : "pf-neg") +
     tile("Return", fmtPct(s.return_pct), grew ? "pf-pos" : "pf-neg") +
     tile("Win rate", s.win_rate == null ? "—" : (s.win_rate * 100).toFixed(0) + "%") +
     tile("Trades", `${fmtInt(s.n_trades)} <span class="muted">${s.wins}W/${s.losses}L</span>`) +
-    tile("Avg R", fmtR(s.avg_r)) +
-    tile("Expectancy", `${fmtUsd(s.expectancy_usd)}<span class="muted">/trade</span>`) +
+    tile("Avg R", fmtRSigned(s.avg_r)) +
+    tile("Expectancy", `${fmtPrice(s.expectancy_usd)}<span class="muted">/trade</span>`) +
     tile("Max DD", s.max_drawdown_pct == null ? "—" : "-" + (s.max_drawdown_pct * 100).toFixed(1) + "%", "pf-neg") +
     costTile(s, start)
   );
@@ -925,13 +963,13 @@ function todayTiles(st, c) {
     ) +
     tile(
       "Risk budget",
-      parked ? "—" : fmtUsd(st.risk_budget_usd),
+      parked ? "—" : fmtPrice(st.risk_budget_usd),
       parked ? "pf-neg" : "",
       "Dollars the next setup may risk = balance × risk/trade. A setup is sized so entry−stop × qty lands here, unless the position cap binds first."
     ) +
     tile(
       "Max position",
-      fmtUsd(st.max_position_usd),
+      fmtPrice(st.max_position_usd),
       "",
       `Notional ceiling per position = balance × ${pct(c.position_fraction)}. On a tight stop this — not the risk budget — sets the size.`
     )
@@ -999,7 +1037,7 @@ function payoutTiles(book) {
 function cashFlowRows(book, cfg) {
   const flows = book.cash_flows || [];
   if (!flows.length) {
-    const floor = cfg && cfg.withdraw_floor_usd != null ? fmtUsd(cfg.withdraw_floor_usd) : "the floor";
+    const floor = cfg && cfg.withdraw_floor_usd != null ? fmtPrice(cfg.withdraw_floor_usd) : "the floor";
     return (
       `<p class="muted pf-note">No payouts yet — withdrawals stay dormant until the balance clears ` +
       `${floor} (profit above a high-water mark is paid out ` +
@@ -1017,7 +1055,7 @@ function cashFlowRows(book, cfg) {
         `<td>${esc(c.date)}</td>` +
         `<td><span class="pf-reason pf-reason-${c.kind === "withdrawal" ? "target" : "stop"}">${CF_LBL[c.kind] || c.kind}</span></td>` +
         `<td class="r ${cls}">${fmtGbp(c.gbp)}</td>` +
-        `<td class="r muted">${fmtUsd(c.usd)}</td>` +
+        `<td class="r muted">${fmtPrice(c.usd)}</td>` +
         "</tr>"
       );
     })
@@ -1040,7 +1078,7 @@ function riskCell(t) {
   if (t.risk_pct == null) return '<td class="r muted" title="Not recorded for this trade">—</td>';
   const capped = t.sized_by === "cap";
   const tip =
-    `${fmtUsd(t.risk_usd)} at risk` +
+    `${fmtPrice(t.risk_usd)} at risk` +
     (capped
       ? ` — the ${pct(PAYLOAD.config.position_fraction)} position cap held this under the ` +
         `${pct(t.risk_fraction)} risk target (stop is tight relative to entry)`
@@ -1059,7 +1097,7 @@ function stopPctCell(t) {
   const ok = isFinite(t.entry) && isFinite(t.stop) && t.entry > 0;
   const d = ok ? (t.entry - t.stop) / t.entry : null;
   const tip = ok
-    ? `${fmtUsd(t.entry - t.stop)} per share below the ${fmtUsd(t.entry)} entry`
+    ? `${fmtPrice(t.entry - t.stop)} per share below the ${fmtPrice(t.entry)} entry`
     : "Not recorded for this trade";
   return `<td class="r ${d == null ? "muted" : ""}" title="${esc(tip)}">${fmtPctPlain(d, 1)}</td>`;
 }
@@ -1067,7 +1105,7 @@ function stopPctCell(t) {
 // R cells wear the shared diverging ramp (0R anchor, stop at −1R) so the
 // column reads as a distribution; Net keeps simple win/loss colouring.
 const rRampCell = (v) =>
-  `<td class="r ${v == null ? "muted" : rRampClass(v)}">${fmtR(v)}</td>`;
+  `<td class="r ${v == null ? "muted" : rRampClass(v)}">${fmtRSigned(v)}</td>`;
 
 // Float at flag time — context for the name, never a filter here (the float gate ran upstream).
 // Absent from books published before #390, and genuinely null when no source returned one.
@@ -1086,13 +1124,13 @@ function maxRCell(t, realized) {
   const tip = !offered
     ? `never traded above entry — nothing was on the table`
     : left > 0.005
-      ? `${fmtR(left)} left on the table — the exit took ${fmtR(realized)} of a ${fmtR(t.max_r)} peak`
-      : `caught the whole move — the setup never went beyond ${fmtR(t.max_r)}`;
+      ? `${fmtRSigned(left)} left on the table — the exit took ${fmtRSigned(realized)} of a ${fmtRSigned(t.max_r)} peak`
+      : `caught the whole move — the setup never went beyond ${fmtRSigned(t.max_r)}`;
   // Half an R+ unclaimed is worth flagging — in GOLD, the Max R marker colour the review chart
   // already uses. Not the loss colour: "you didn't capture all of it" is not "you lost money", and
   // painting it red next to a green Net would read as a contradiction on every winning runner.
   const cls = offered && left > 0.5 ? "warn" : "muted";
-  return `<td class="r" title="${esc(tip)}"><span class="${cls}">${fmtR(t.max_r)}</span></td>`;
+  return `<td class="r" title="${esc(tip)}"><span class="${cls}">${fmtRSigned(t.max_r)}</span></td>`;
 }
 
 // The same peak as a plain move off entry (payload stores a fraction, like every other _pct field).
@@ -1139,18 +1177,18 @@ function tradeRows(book) {
         symCell(t) +
         floatCell(t) +
         `<td>${etClockIso(t.trigger_at)}</td>` +
-        `<td class="r">${fmtUsd(t.entry)}</td>` +
-        `<td class="r">${fmtUsd(t.stop)}</td>` +
+        `<td class="r">${fmtPrice(t.entry)}</td>` +
+        `<td class="r">${fmtPrice(t.stop)}</td>` +
         stopPctCell(t) +
         `<td class="r">${fmtInt(t.qty)}</td>` +
         riskCell(t) +
         `<td class="r">${Number(t.target_r).toFixed(1)}R</td>` +
-        `<td><span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtUsd(t.exit_price)}</td>` +
+        `<td><span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtPrice(t.exit_price)}</td>` +
         rRampCell(t.realized_r) +
         maxRCell(t, t.realized_r) +
         maxPctCell(t) +
-        `<td class="r ${nCls}">${fmtUsd(t.net_pnl)}</td>` +
-        `<td class="r">${fmtUsd(t.equity_after)}</td>` +
+        `<td class="r ${nCls}">${fmtPrice(t.net_pnl)}</td>` +
+        `<td class="r">${fmtPrice(t.equity_after)}</td>` +
         "</tr>"
       );
     })
@@ -1193,7 +1231,7 @@ function throttledNote(book) {
   return (
     ` ${rows.length} more ${rows.length === 1 ? "was" : "were"} declined by the ` +
     `<strong>risk throttle</strong> — the kill-switch was parked or its budget wouldn't size a ` +
-    `share. They'd have returned <span class="${cls}">${fmtR(totR)}</span> in total (unsized).`
+    `share. They'd have returned <span class="${cls}">${fmtRSigned(totR)}</span> in total (unsized).`
   );
 }
 
@@ -1211,7 +1249,7 @@ function skippedNote(book) {
   return (
     `${n} qualifying setup${n === 1 ? "" : "s"} passed strategy but weren't taken because the ` +
     `${PAYLOAD.config.max_trades_per_day}/day cap was already full. At this book's target they'd ` +
-    `have returned <span class="${cls}">${fmtR(totR)}</span> in total (unsized — R only, since a ` +
+    `have returned <span class="${cls}">${fmtRSigned(totR)}</span> in total (unsized — R only, since a ` +
     `third concurrent position wouldn't fit the settled-cash limit).` +
     throttledNote(book) +
     unaffordableNote(book)
@@ -1232,11 +1270,11 @@ function skippedRows(book) {
         floatCell(t) +
         `<td>${SKIP_LBL[t.skip_reason] || SKIP_LBL.cap}</td>` +
         `<td>${etClockIso(t.trigger_at)}</td>` +
-        `<td class="r">${fmtUsd(t.entry)}</td>` +
-        `<td class="r">${fmtUsd(t.stop)}</td>` +
+        `<td class="r">${fmtPrice(t.entry)}</td>` +
+        `<td class="r">${fmtPrice(t.stop)}</td>` +
         stopPctCell(t) +
         `<td class="r">${Number(t.target_r).toFixed(1)}R</td>` +
-        `<td><span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtUsd(t.exit_price)}</td>` +
+        `<td><span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtPrice(t.exit_price)}</td>` +
         rRampCell(t.realized_r) +
         maxRCell(t, t.realized_r) +
         maxPctCell(t) +
@@ -1375,7 +1413,7 @@ function sourceSplit(book) {
   const bs = (book.stats || {}).by_source;
   if (!bs || !bs.recon || !bs.recon.n_trades) return "";
   const one = (k, l) =>
-    `${l} ${fmtInt(bs[k].n_trades)} trades / ${fmtR(bs[k].total_r)}` +
+    `${l} ${fmtInt(bs[k].n_trades)} trades / ${fmtRSigned(bs[k].total_r)}` +
     (bs[k].win_rate == null ? "" : ` / ${(bs[k].win_rate * 100).toFixed(0)}% win`);
   return ` · <strong>Split:</strong> ${one("live", "live")} · ${one("recon", "reconstructed")}`;
 }
@@ -1385,11 +1423,11 @@ function metaLine(book) {
   const c = PAYLOAD.config;
   return (
     `Pre-shadow paper book — the trades I'd take, over the data already collected. ` +
-    `Start ${fmtUsd(PAYLOAD.start_equity)} · ${riskMeta(book, c)} · ` +
+    `Start ${fmtPrice(PAYLOAD.start_equity)} · ${riskMeta(book, c)} · ` +
     `max ${c.max_trades_per_day}/day · pre-market fills only (${esc(premarketWindow(c))} ET) · ` +
     `entry $${c.entry_price_min}–${c.entry_price_max} · ` +
     `IBKR tiered costs + $${c.market_data_usd_per_month}/mo data (#232) · ` +
-    `withdraw ${(c.withdraw_fraction * 100).toFixed(0)}% of profit &gt; ${fmtUsd(c.withdraw_floor_usd)} every ` +
+    `withdraw ${(c.withdraw_fraction * 100).toFixed(0)}% of profit &gt; ${fmtPrice(c.withdraw_floor_usd)} every ` +
     `${c.withdraw_cadence_months}mo · ${(c.cgt_rate * 100).toFixed(0)}% CGT &gt; £${c.cgt_annual_exempt_gbp} · ` +
     `£/$ ${Number(PAYLOAD.gbpusd_rate).toFixed(2)} · ` +
     `Not advice, not real orders — computed on-read from the tracker's own data. ` +
@@ -1481,15 +1519,15 @@ function inspTiles(kind, t) {
     tile("Date", esc(t.date) + (t.source === "recon" ? ' <span class="pf-src">recon</span>' : "")) +
     tile("Trigger", etClockIso(t.trigger_at)) +
     tile("Float", fmtShares(t.float_shares)) +
-    tile("Entry", fmtUsd(t.entry)) +
-    tile("Stop", fmtUsd(t.stop)) +
+    tile("Entry", fmtPrice(t.entry)) +
+    tile("Stop", fmtPrice(t.stop)) +
     tile("Target", `${Number(t.target_r).toFixed(1)}R`) +
     tile(
       "Exit",
-      `<span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtUsd(t.exit_price)}`,
+      `<span class="pf-reason pf-reason-${t.reason}">${REASON_LBL[t.reason] || t.reason}</span> ${fmtPrice(t.exit_price)}`,
     ) +
-    tile("R", fmtR(t.realized_r), rCls(t.realized_r)) +
-    tile("Max R", fmtR(t.max_r), rCls(t.max_r), "Peak favourable excursion — the best this setup ever offered") +
+    tile("R", fmtRSigned(t.realized_r), rCls(t.realized_r)) +
+    tile("Max R", fmtRSigned(t.max_r), rCls(t.max_r), "Peak favourable excursion — the best this setup ever offered") +
     tile("Max %", t.max_pct == null ? "—" : fmtPct(t.max_pct));
   if (kind === "skipped")
     return (
@@ -1499,9 +1537,9 @@ function inspTiles(kind, t) {
   return (
     common +
     tile("Qty", fmtInt(t.qty)) +
-    tile("Risk", `${fmtUsd(t.risk_usd)} <span class="muted">${t.risk_pct == null ? "" : pct(t.risk_pct)}</span>`) +
-    tile("Net", fmtUsd(t.net_pnl), t.net_pnl > 0 ? "pf-pos" : t.net_pnl < 0 ? "pf-neg" : "muted") +
-    tile("Balance", fmtUsd(t.equity_after))
+    tile("Risk", `${fmtPrice(t.risk_usd)} <span class="muted">${t.risk_pct == null ? "" : pct(t.risk_pct)}</span>`) +
+    tile("Net", fmtPrice(t.net_pnl), t.net_pnl > 0 ? "pf-pos" : t.net_pnl < 0 ? "pf-neg" : "muted") +
+    tile("Balance", fmtPrice(t.equity_after))
   );
 }
 
