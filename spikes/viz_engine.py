@@ -23,8 +23,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from small_cap_stack.bullflag import (
+    DaySetup,
     Segment,
-    Setup,
     evaluate,
     extract,
     score,
@@ -79,7 +79,7 @@ def token_eps(settings: Settings) -> float:
 
 def _params(settings: Settings) -> dict[str, object]:
     # entry_offset isn't read here — pick_setup always uses the validated +1 tick directly.
-    return {**_V2, "eps": token_eps(settings), "gate_window": False}
+    return {**_V2, "eps": token_eps(settings)}
 
 
 def _refine_pole(
@@ -120,7 +120,7 @@ def pick_setup(
     *,
     first_hit: datetime | None,
     params: dict[str, object],
-) -> tuple[Setup | None, int | None, int | None]:
+) -> tuple[DaySetup | None, int | None, int | None]:
     """The setup the trader would take, per the entry rule: (setup, cons_end_idx, trigger_idx).
 
     Peak/consolidation/breakout boundaries come from the GREEDY H/E/L cycle walk (segment_cycles) —
@@ -203,7 +203,11 @@ def pick_setup(
     sc, contrib = score(fv, max_pole=max_pole)
     last_high = day_bars[cons_end].high
     stop = min(b.low for b in day_bars[peak + 1 : cons_end + 1])
-    setup = Setup(
+    # `Setup` was the end-anchored detector's result type and went with it in #518. `DaySetup` is
+    # a strict superset — the same ten fields, then the full-day extras. This spike is the
+    # prototype `day.py` was ported from, so it still tracks the trigger and cycle standing itself
+    # and returns them alongside; the extras are filled with what it knows at this point.
+    setup = DaySetup(
         seg,
         fv,
         round(last_high + tick, 4),  # entry_trigger: +1 tick (mechanical, validated)
@@ -214,6 +218,13 @@ def pick_setup(
         gates_passed(gates),
         sc,
         contrib,
+        trigger_idx=trig,
+        # Placeholders: this spike computes cycle standing in its CALLER, from a separate looser
+        # `significant_cycles` pass (see `main`), and renders it from there — nothing reads these
+        # off the setup. `day.py` folded them into the result when it was ported from here.
+        cycle_num=1,
+        total_significant_cycles=1,
+        exhausted=False,
     )
 
     # Staleness (#130): a break too long after appearance reads as faded. (The "closed before
@@ -242,7 +253,7 @@ def _et(b: Bar) -> str:
 def _svg(
     bars: list[Bar],
     tokens: list[str],
-    setup: Setup | None,
+    setup: DaySetup | None,
     detect_idx: int | None,
     trig_idx: int | None,
     first_hit: datetime | None,
@@ -422,7 +433,7 @@ def _panel(
     seg_id: str,
     d: date,
     n: int,
-    setup: Setup | None,
+    setup: DaySetup | None,
     trig_idx: int | None,
     cycle_num: int | None,
     exhausted: bool,
@@ -492,7 +503,7 @@ def render(
     d: date,
     bars: list[Bar],
     tokens: list[str],
-    setup: Setup | None,
+    setup: DaySetup | None,
     detect_idx: int | None,
     trig_idx: int | None,
     first_hit: datetime | None,

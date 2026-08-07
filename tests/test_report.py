@@ -7,8 +7,6 @@ from pathlib import Path
 
 import polars as pl
 
-from small_cap_stack.bullflag import detect_setup_with_settings
-from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from small_cap_stack.report import (
     OpportunityAnalysis,
@@ -386,22 +384,13 @@ def test_bull_flag_true_when_setup_forms_then_breaks_out_midwindow(tmp_path: Pat
     rows = _flag(oid, "MID", 0)  # pole / flag / trigger / run-up — ends on a green breakout candle
     store.append("bars", rows, partition_date=_DAY)
 
-    # A naive end-of-window detect misses the setup (the window ends mid-run, not on a flag)...
-    obars = [
-        Bar(
-            start=r["bar_start_utc"],
-            open=r["open"],
-            high=r["high"],
-            low=r["low"],
-            close=r["close"],
-            volume=r["volume"],
-        )
-        for r in rows
-    ]
-    # (end-anchored v2 yields no *takeable* setup: either no shape at all, or one that fails a gate)
-    end_anchored = detect_setup_with_settings(obars, _settings())
-    assert end_anchored is None or not end_anchored.passed
-    # ...but bull_flag is still True because the setup formed and triggered earlier in the window.
+    # The window ends mid-run, not on a flag — yet bull_flag is True, because the setup formed and
+    # triggered EARLIER in the window and the full-day detector is compute-on-read over all of it.
+    #
+    # This used to assert the contrast directly: the end-anchored `detect_setup` on the same bars
+    # returned no takeable setup, which is the whole argument for `detect_day`. That detector was
+    # deleted in #518 (no `src/` caller — it existed only to be tested), so the contrast is recorded
+    # here rather than executed. What is asserted is the half that matters and always did.
     mid = build_eod_report(store, _settings(), _DAY).analyses[0]
     assert mid.bull_flag is True and mid.triggered is True
 

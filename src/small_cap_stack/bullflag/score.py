@@ -72,7 +72,7 @@ def score(
 ) -> tuple[float, dict[str, float]]:
     """0–1 quality score + per-feature contributions (which sum to the score).
 
-    ``max_pole`` must match the cap the shape was detected under (``detect_setup`` threads it
+    ``max_pole`` must match the cap the shape was detected under (``detect_day`` threads it
     through): the ``pole_short`` term normalises against it, so a mismatched cap would mis-rank
     poles longer than ``max_pole`` (they clamp to the worst score).
     """

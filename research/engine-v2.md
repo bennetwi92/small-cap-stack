@@ -151,6 +151,11 @@ def tokenize(bars: Sequence[Bar], *, eps: float) -> list[Token]:
 
 ## 5. Stage 2 — segmenter (`segment.py`)
 
+⚠️ **`segment_at_end` was deleted in #518** along with `detect_setup`, its only caller. The
+signature below is the historical record of the end-anchored design; the live path is
+`day.py::detect_day`'s cycle walk plus `segment.py::refine_pole`, which is the extension rule the
+two shared. §13 describes what actually runs.
+
 ```python
 def segment_at_end(bars: Sequence[Bar], tokens: Sequence[Token], *,
                    max_pole: int, max_cons: int) -> Segment | None:
@@ -231,14 +236,15 @@ Regenerate this table from `gates.evaluate` if it is ever in doubt — it drifte
 | `pole_height` | `pole_height_pct` | `≥ min_pole_pct` (**2%**) |
 | `cons_retracement` | `retracement` | `≤ 0.50` |
 | `cons_holds_base` | `holds_base` | `cons_low > pole_base` |
-| `loc_in_window` | `trigger_in_window` | **opt-in only** — see below |
 
 There is no `shape_valid` gate: a shape that doesn't segment produces no `Segment`, so there is
 nothing to gate. `peak_green` (§13) is a real gate and was missing from this table.
 
-`loc_in_window` is **off by default** (`gate_window=False`, and `detect_day` never passes `True`).
-The window check lives in the selection tier instead, so gating it here too would double-gate the
-same rule.
+There is **no `loc_in_window` gate**. The window check lives in the selection tier
+(`day.py`'s `in_window` / `select_window_start`, #567), so gating it here too would double-gate the
+same rule. `evaluate` carried an off-by-default `gate_window=` flag for it until #518, which deleted
+the flag along with the end-anchored detector that was its only other reader. `trigger_in_window`
+remains a scored *feature*.
 
 `min_pole_pct` = **2%** (`bull-flag.md §3.4`) — a loose meaningful-move floor; the "abnormal" signal
 lives in the `pole_extension_atr` score (trailing 14-bar true-range ATR), not this gate. This *is* a
