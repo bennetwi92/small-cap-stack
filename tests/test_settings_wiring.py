@@ -192,12 +192,19 @@ def test_legacy_entry_offset_is_gone() -> None:
 _RETIRED_SETTINGS_NAMES = {
     "entry_offset_ticks": "legacy detector's entry; superseded by the trigger/fill split (#182)",
     "bull_flag_max_flag": "renamed to bull_flag_max_cons in #302, no alias kept",
-    "bull_flag_eps_ticks": "never existed — derived in bullflag/tokens.py::token_eps (#534)",
+    "bull_flag_eps_ticks": (
+        "never a Settings field — the live value is derived in bullflag/tokens.py::token_eps, but "
+        "the name IS still getattr-referenced by setup.py's end-anchored wrapper (#513)"
+    ),
     "bull_flag_score_weights": "never existed — bullflag/score.py::DEFAULT_WEIGHTS (#534)",
 }
 
 _RESEARCH = Path(__file__).resolve().parents[1] / "research"
-_SETTINGS_NAME_RE = re.compile(r"`~{0,2}(?:Settings\.)?(bull_flag_\w+|entry_offset_ticks)~{0,2}`")
+
+# Match the name ANYWHERE inside a backticked span, not just flush against the backtick. The
+# tighter form missed ~30% of real mentions — `≤ bull_flag_max_pole`, `bull_flag_max_pole = 4`,
+# a name wrapped onto its own line — so a phantom knob written as `≤ bull_flag_foo` sailed past.
+_SETTINGS_NAME_RE = re.compile(r"`[^`\n]*?\b(bull_flag_\w+|entry_offset_ticks)\b")
 
 
 def test_the_specs_only_name_settings_fields_that_exist() -> None:
@@ -237,6 +244,18 @@ def _documented_gate_names() -> set[str]:
     return {m.group(1) for row in rows if (m := re.match(r"\|\s*`(\w+)`", row))}
 
 
+def _bull_flag_md_gate_names() -> set[str]:
+    """The gate names in bull-flag.md §5's bullet — the list `gates.py`'s own module docstring
+    points readers at, and which drifted the same way §7's table did (#534)."""
+    text = (_RESEARCH / "bull-flag.md").read_text()
+    bullet = re.search(r"^- \*\*Gates\*\*.*?(?=\n- \*\*Score)", text, re.MULTILINE | re.DOTALL)
+    assert bullet is not None, "bull-flag.md §5's gate bullet is gone — restore it or drop this"
+    # Only bare-identifier spans, optionally carrying a comparison: `` `pole_len ≤ cap` `` counts,
+    # `` `engine-v2.md §7` `` and `` `gate_window=False` `` do not. Commentary is deliberately kept
+    # outside this bullet so the list itself stays machine-readable.
+    return set(re.findall(r"`(\w+)(?: [≤≥] [^`]+)?`", bullet.group(0)))
+
+
 def _implemented_gate_names() -> set[str]:
     """Every ``GateResult("name", …)`` constructed in ``gates.evaluate``, read from the AST.
 
@@ -266,6 +285,15 @@ def test_the_engine_v2_gate_table_matches_the_gates() -> None:
     with the gates is worse than no table: it reads as authoritative."""
     assert _documented_gate_names() == _implemented_gate_names(), (
         f"engine-v2.md §7 documents {sorted(_documented_gate_names())} but gates.evaluate "
+        f"produces {sorted(_implemented_gate_names())}."
+    )
+
+
+def test_the_bull_flag_gate_list_matches_the_gates() -> None:
+    """The same list appears twice, in two specs, and `gates.py`'s docstring cites the *other* one
+    — so guarding only engine-v2.md would have left the cited copy free to drift (#534)."""
+    assert _bull_flag_md_gate_names() == _implemented_gate_names(), (
+        f"bull-flag.md §5 lists {sorted(_bull_flag_md_gate_names())} but gates.evaluate "
         f"produces {sorted(_implemented_gate_names())}."
     )
 

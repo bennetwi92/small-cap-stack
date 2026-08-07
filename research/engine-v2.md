@@ -15,10 +15,11 @@
 >
 > ⚠️ **Corrected 2026-08-07 (#534).** This block used to say the §10 settings flip "never landed"
 > and that the caps were `detect_day` defaults. That contradicted §9 of this same file, and the
-> code agrees with §9: `day.py` reads `max_pole` / `max_cons` and every other rule from `Settings`
-> (#302), and `tests/test_settings_wiring.py` fails if one is added without being wired. A reader
-> going top-down stopped at that line and concluded `config.py` was fiction — in the file
-> `CLAUDE.md` names for the *how*.
+> code agrees with §9: `day.py` reads `max_pole` / `max_cons` and every *gate* from `Settings`
+> (#302), and `tests/test_settings_wiring.py` fails if one is added without being wired. (The
+> score `weights` are the exception, and always were — see §7/§9.) It mattered because `CLAUDE.md`
+> names this file as the spec for the *how*, so a reader going top-down stopped at that line and
+> concluded `config.py` was fiction.
 
 ---
 
@@ -140,7 +141,10 @@ def tokenize(bars: Sequence[Bar], *, eps: float) -> list[Token]:
     """One token per bar after the first, comparing high[i] to high[i-1] within eps."""
 ```
 
-- `eps` = flatness tolerance = `tick_size` (1 tick) by default; passed down from settings.
+- `eps` = flatness tolerance. ⚠️ **Half** a tick on the live path — `tokens.py::token_eps` returns
+  `settings.tick_size / 2`, *derived* from `tick_size` rather than passed down as a setting of its
+  own (see §14). This paragraph said "1 tick, passed down from settings" until #534; #196 reversed
+  the value and there has never been a knob.
 - `H` if `high[i] > high[i-1] + eps`; `L` if `high[i] < high[i-1] - eps`; else `E`.
 - Length invariant: `len(tokenize(bars)) == max(0, len(bars) - 1)`.
 
@@ -247,8 +251,10 @@ shapes it removes; if it's surprising we revisit the floor before flipping setti
 def score(fv: FeatureVector, *, weights: Mapping[str, float]) -> tuple[float, dict[str, float]]: ...
 ```
 
-Weights hand-set in `Settings` (a small frozen mapping) with a documented rationale; the point of
-returning `contributions` is that ranking is auditable on the review page now and fittable later.
+Weights are hand-set with a documented rationale in `bullflag/score.py::DEFAULT_WEIGHTS` — a
+module-level mapping passed to the scorer as an argument, **not** a `Settings` field (this line said
+`Settings` until #534). The point of returning `contributions` is that ranking is auditable on the
+review page now and fittable later.
 
 ## 8. Public API & backward compatibility (`compat.py`, `__init__.py`)
 
@@ -352,7 +358,7 @@ To make either configurable, add the `Settings` field *and* wire it through
   intended v2 divergences from legacy, not parity violations: (1) an equal-high step re-anchors
   differently than legacy's raw `>` comparison; (2) a red or doji-like pole bar (#182/#190) has no
   legacy equivalent — legacy's strict-ascending walk doesn't check color/body at all; (3) a step
-  within `eps` (1 tick) is `E` in v2 but still a legacy `H`/`L`. Fixtures use clearly separated
+  within `eps` (half a tick) is `E` in v2 but still a legacy `H`/`L`. Fixtures use clearly separated
   highs and green, thrust-bodied pole bars so none of the three trip.
 - Reuse the named real cases already in `test_bullflag.py` (AHMA/VRXA/SNDQ/ETHT/NBIZ/CLRO/CYH/DJT).
 

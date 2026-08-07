@@ -79,7 +79,10 @@ drifting the base onto a bar above the peak (#181: ITRG/IVF).
 > high *is* directional and must extend the pole; only a truly flat top (Δhigh = 0) is `E`. The
 > live value is `bullflag/tokens.py::token_eps` → `settings.tick_size / 2` — derived from
 > `tick_size`, and **not** a `Settings` knob of its own. The end-anchored `detect_setup` keeps its
-> own `eps` argument.
+> own `eps` argument — and note that its settings wrapper, `detect_setup_with_settings`, still
+> resolves that argument to a **full** tick through a `getattr` on the name that was never added
+> (`setup.py`, tracked as **#513**). So the two detectors really do disagree on `eps` in code
+> today; the live one is the half-tick.
 
 ### 2.2 Segmentation (stage 2)
 
@@ -140,9 +143,15 @@ highs; first H in consolidation is entry; longest-first; longer patterns are wor
 
 **Decision (locked 2026-07-10, via per-opportunity visual review, #182/#190) — a bar can only
 belong to the pole if it's a genuine green thrust candle.** Validated against 8 real opportunities:
-- **No red candle in the pole, including the peak.** A red "peak" (a new high that reverses and
-  closes weak within the same bar — a shooting-star top, e.g. IRE) isn't a genuine thrust; that
-  candidate peak is disqualified entirely and the search continues for a later green peak.
+- **No red candle in the pole.** A red "peak" (a new high that reverses and closes weak within the
+  same bar — a shooting-star top, e.g. IRE) isn't a genuine thrust.
+  ⚠️ **Revised 2026-07-11 (#196) — the peak is handled by a gate, not by the walk.** This bullet
+  used to end "that candidate peak is disqualified entirely and the search continues for a later
+  green peak", which is not what the live path does: `segment.refine_pole` *keeps* a red- or
+  flat-closing peak so the trader is shown the setup they'd read on the chart, and the
+  **`peak_green` gate** then rejects it with a reason. Reject-and-explain, not skip-and-vanish.
+  Every *other* pole bar is still verified green (and thrust-bodied) by the walk. The end-anchored
+  `segment_at_end` is the one path that still pre-rejects a red peak during segmentation.
 - **A technically-higher-high bar that's doji-like (small body relative to range) doesn't extend
   the pole**, even though its high still ticks up (e.g. MUZ, CRCG, CONL — a quiet 1–2 bar pause
   sitting between two real thrusts). The walk stops at the first such bar going backward from the
@@ -283,11 +292,18 @@ alongside the score so a low-ranked setup is explainable on the review page, not
 
 Gates (reject) vs. score (rank), starting point:
 
-- **Gates:** `SHAPE_valid`, `SHAPE_pole_len ≤ cap`, `SHAPE_cons_len ≤ cap`, `VOL_peak_gt_cons`,
-  `WICK_peak_upper`, `POLE_height_pct ≥ min`, `CONS_retracement ≤ 0.50`, `CONS_holds_base`,
-  `LOC_in_window`.
+- **Gates** — as shipped, one name per entry:
+  `pole_len ≤ cap`, `cons_len ≤ cap`, `vol_peak_gt_cons`, `wick_peak`, `peak_green`,
+  `pole_height ≥ min`, `cons_retracement ≤ 0.50`, `cons_holds_base`, `loc_in_window`.
 - **Score:** everything else, plus the graded sides of `SHAPE_pole_len` / `CONS_retracement` /
   `POLE_height_pct`.
+
+That list drifted and was corrected in #534; it is now checked against `bullflag/gates.py`'s
+`evaluate` on every run, as is the fuller table in `engine-v2.md §7`. Two notes about it, kept
+*out* of the bullet so the bullet stays machine-readable. There is no
+`shape_valid` gate — a shape that doesn't segment yields no `Segment`, so there is nothing to gate;
+it was listed here until #534. And `loc_in_window` is **opt-in** (`gate_window=False` by default):
+the live detector never enables it, because the window is applied in the selection tier instead.
 
 ---
 
@@ -296,9 +312,10 @@ Gates (reject) vs. score (rank), starting point:
 **Locked 2026-07-10:**
 
 1. **Max pole / consolidation length = 4 / 4** (hard gate; refinable, no data deleted).
-2. **`E` (equal-high) token** — allowed only in the consolidation (not the pole). ⚠️ `eps` is
-   **half** a tick, not one (superseded 2026-07-11 by #196 — see §2.1); it is derived in
-   `bullflag/tokens.py::token_eps`, not a `Settings` field.
+2. **`E` (equal-high) token** — allowed only in the consolidation (not the pole). ⚠️ On the live
+   path `eps` is **half** a tick, not one (superseded 2026-07-11 by #196 — see §2.1); it is derived
+   in `bullflag/tokens.py::token_eps`, not a `Settings` field. The end-anchored
+   `detect_setup_with_settings` still runs at a full tick (#513).
 3. **`POLE_height_pct` floor = 2%** (`min_pole_pct`); "abnormal" carried by `POLE_extension_atr`
    (trailing 14-bar true-range ATR, ≥ 2× = abnormal).
 4. **Volume gate = peak-bar** (not max-bar-in-pole) — reaffirms #127 (§3.2).
