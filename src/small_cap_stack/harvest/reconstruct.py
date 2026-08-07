@@ -333,7 +333,9 @@ def _gate_trace(
                 price_ok=settings.scan_min_price <= bar.close <= settings.scan_max_price,
                 change_ok=None if change is None else change > settings.scan_change_pct,
                 volume_ok=vols[i] > settings.scan_min_5m_volume,
-                # The window is tested at the appearance instant, matching `trading_window_gate`.
+                # The window is tested at the appearance instant, matching the live scanner's
+                # own window (`scan_start`/`scan_end`). The `trading_window_gate` this once
+                # pointed at was unused scaffolding, deleted in #517.
                 window_ok=within_window(end.astimezone(ET), settings.scan_start, settings.scan_end),
             )
         )
