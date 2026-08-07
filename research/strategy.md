@@ -99,6 +99,7 @@ between §1 and §2.
 | Tick size | $0.01 | `tick_size` |
 | ATR window | 14 bars (score only, gates nothing) | `bull_flag_atr_window` |
 | **Selection** — price band | $1.00 ≤ `entry_fill` ≤ $50.00 | `select_price_min / select_price_max` |
+| **Selection** — consolidation range | the flag must trade through some range (`breakout` > `stop`) | — structural; rejects a halted flag, whose stop is unusable |
 | **Selection** — trigger window | 04:00 ET ≤ trigger open < 09:15 ET | `select_window_start / select_window_end` |
 
 ### 3. The book — what actually gets traded

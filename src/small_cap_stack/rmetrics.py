@@ -59,6 +59,12 @@ class RMetrics:
     # about the ENTRY being fictional, not about the ORDER of entry and stop. 31 of the 91 same-bar
     # cases in the recon record carry it, so the review page must be able to tell them apart.
     fill_above_entry_bar_high: bool = False
+    # Data quality of the traded setup (#604), carried so a suspect trade is visible rather than
+    # silently averaged into a win rate. `halted_consolidation` says a consolidation bar recorded
+    # zero trades while a neighbour cleared the volume floor — the published entry/stop are then
+    # prices the tape was halted through. See `DaySetup`.
+    untraded_cons_bars: int = 0
+    halted_consolidation: bool = False
     bars_to_max_r: int | None = None
     flag_len: int | None = None  # consolidation count of the traded setup
     retracement: float | None = None  # flag's retracement into the pole, fraction
@@ -167,6 +173,8 @@ def compute_r_metrics(
         "passed": setup.passed,
         "failing_gates": tuple(g.name for g in setup.gates if not g.passed),
         "score": round(setup.score, 4),
+        "untraded_cons_bars": setup.untraded_cons_bars,
+        "halted_consolidation": setup.halted_consolidation,
     }
     planned_risk = round(setup.entry_fill - setup.stop, 6)
     if setup.trigger_idx is None or planned_risk <= 0:

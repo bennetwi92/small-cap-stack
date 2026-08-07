@@ -57,6 +57,16 @@ class DaySetup:
     # doesn't configure a band or a window (a unit test, a spike) selects on shape alone.
     in_price_band: bool = True  # entry_fill within [select_price_min, select_price_max]
     in_window: bool = True  # trigger bar opens within [select_window_start, select_window_end)
+    # Data quality (#604). A consolidation that traded through NO range at all has no stop: the
+    # "risk" is then exactly the fill offset, an artifact of the measurement convention rather than
+    # a level anything defended. AHMA 2026-06-09's whole consolidation is one zero-volume bar, so
+    # breakout == stop == 3.25 and planned risk reads 0.91% of entry — while the tape was halted
+    # through both prices and reopened at 3.58.
+    cons_has_range: bool = True  # breakout_level > stop
+    # Flags, NOT gates — a halted bar is a well-formed candle by shape, so `passed` cannot absorb
+    # it without changing what `passed` means, and the 25 fixtures are written against shape.
+    untraded_cons_bars: int = 0  # consolidation bars with zero volume and zero range
+    halted_consolidation: bool = False  # one of those, flanked by a bar that actually traded
 
     @property
     def takeable(self) -> bool:
@@ -72,6 +82,7 @@ class DaySetup:
             and not self.exhausted
             and self.in_price_band
             and self.in_window
+            and self.cons_has_range
         )
 
 
@@ -86,6 +97,7 @@ def detect_day(
     max_cons: int = 4,
     max_retracement: float = 0.50,
     min_vol_ratio: float = 1.0,
+    halt_neighbour_volume: float = 0.0,
     max_peak_wick: float = 0.50,
     min_pole_pct: float = 0.02,
     trigger_offset: float = 0.01,
@@ -207,7 +219,30 @@ def detect_day(
     )
 
     breakout = bars[cons_end].high
-    stop = min(b.low for b in bars[peak + 1 : cons_end + 1])
+    cons_bars = bars[peak + 1 : cons_end + 1]
+    stop = min(b.low for b in cons_bars)
+
+    # Data quality (#604). An "untraded" bar is the filler both IBKR and `harvest.reconstruct`
+    # emit for a bucket in which nothing printed — zero volume AND zero range. It is a faithful
+    # record of a halt, not a vendor defect; the defect is reading it as a consolidation.
+    untraded = [
+        i
+        for i, b in enumerate(cons_bars, start=peak + 1)
+        if b.volume == 0 and b.open == b.high == b.low == b.close
+    ]
+    # A pause, as opposed to a genuinely dead tape: nothing traded HERE while a neighbouring bar
+    # cleared a real volume floor. `halt_neighbour_volume = 0.0` disables the test (every bar
+    # trivially clears it, so the flag would fire on any untraded bar) — callers that care pass
+    # the configured floor. Both neighbours are considered: a halt is flanked on resumption.
+    halted = False
+    if halt_neighbour_volume > 0:
+        halted = any(
+            any(
+                0 <= j < len(bars) and bars[j].volume >= halt_neighbour_volume
+                for j in (i - 1, i + 1)
+            )
+            for i in untraded
+        )
 
     # Staleness (#130): a break too long after the appearance reads as faded (the "closed before
     # appearance" half is already covered — every bar after a visible peak is itself visible).
@@ -260,6 +295,9 @@ def detect_day(
         exhausted=cycle_num > exhaustion_cap,
         in_price_band=in_price_band,
         in_window=in_window,
+        cons_has_range=round(breakout, 4) > round(stop, 4),
+        untraded_cons_bars=len(untraded),
+        halted_consolidation=halted,
     )
 
 
@@ -285,6 +323,7 @@ def detect_day_with_settings(
         min_pole_pct=settings.bull_flag_min_pole_pct,
         max_retracement=settings.bull_flag_max_retracement,
         min_vol_ratio=settings.bull_flag_min_vol_ratio,
+        halt_neighbour_volume=settings.data_quality_halt_neighbour_volume,
         max_peak_wick=settings.bull_flag_max_peak_wick,
         trigger_offset=settings.bull_flag_trigger_offset_ticks * tick,
         fill_offset=settings.bull_flag_fill_offset_ticks * tick,
