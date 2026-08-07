@@ -164,7 +164,10 @@ if [ -f "$ENV_FILE" ]; then
       MASSIVE_API_KEY)
         [ -n "$AMBIENT_KEY" ] || PASSTHROUGH+=(-e "$key=$value")
         ;;
-      RECON_SUBDIR | CALENDAR_CLOSED_DATES | LOG_LEVEL | JSON_LOGS | TZ)
+      # RECON_* rather than RECON_SUBDIR alone: `charts` (#488) also reads RECON_CHARTS_MAX_DATES,
+      # and a box that tuned the publish budget in .env must not have the container silently fall
+      # back to the default and publish a different window than the operator asked for.
+      RECON_* | CALENDAR_CLOSED_DATES | LOG_LEVEL | JSON_LOGS | TZ)
         PASSTHROUGH+=(-e "$key=$value")
         ;;
       HARVEST_* | SCAN_*) PASSTHROUGH+=(-e "$key=$value") ;;
@@ -211,9 +214,14 @@ MEM_LIMIT="${MEM_LIMIT:-1g}"
 # `harvest.sh --limit 1 run` is a valid full phase-2 run. Keying the lock on $1 alone would let
 # exactly that invocation spend vendor budget with no lock, no name and no stale sweep, racing the
 # timer's own harvest on the checkpoint.
+# `charts` (#488) spends no vendor budget and touches no checkpoint, but it read-modify-writes
+# /data/dashboard/recon_index.json — and so does the per-session publish hook inside a running
+# `run`/`auto`. Interleave the two and one of them writes an index built from a stale snapshot,
+# dropping a row and orphaning its payload. This name IS the only cross-process mutex on the box,
+# so `charts` takes it too: the lock guards the checkpoint and the dashboard artifacts alike.
 SPENDING=""
 for arg in "$@"; do
-  case "$arg" in auto | daily | run) SPENDING=1 ;; esac
+  case "$arg" in auto | daily | run | charts) SPENDING=1 ;; esac
 done
 
 declare -a NAME=()
@@ -246,6 +254,11 @@ fi
 # — but the slice's MemoryMax is only 200 MB above the harvest's own limit and has MemorySwapMax=0,
 # so joining it would mean a `sweep` during a 900 MB harvest could push the slice over and have the
 # kernel OOM-kill the night it was only meant to look at.
+#
+# `charts` is deliberately NOT in that set. It holds the lock (see above) so it can never run beside
+# a harvest, and unlike the other three it does real work — DuckDB + polars + the detector over a
+# day's bars, per date. 512 MB with no slice, during market hours, on a 4 GB box already carrying
+# the app (2 GB) and the Gateway, is the shape of #264. It gets the harvest's own envelope instead.
 declare -a CGROUP=(--cgroup-parent=scs-harvest.slice)
 RO_MEM_LIMIT="512m"
 if [ -z "$SPENDING" ]; then

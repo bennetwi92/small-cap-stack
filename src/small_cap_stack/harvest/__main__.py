@@ -3,6 +3,7 @@
     auto     what the nightly timer runs: fill phase 1 if needed, then spend the night on 2
     daily    phase 1 — grouped-daily universe + previous closes for the window (~500 calls)
     run      phase 2 — minute bars per candidate, newest-first, until the night runs out
+    charts   publish reconstructed sessions to the dashboard's chart namespace (#488), no calls
     sweep    the pre-flight measurement: candidates retained at each day-volume floor
     status   what is harvested, what is left, and what the next night would do
 
@@ -19,11 +20,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import date, datetime, timedelta
 
 from ..clock import ET, now_et
 from ..config import Settings, get_settings
+from ..dashboard_recon import publish_recon_charts
 from ..logging import configure_logging
 from ..portfolio import collected_dates
 from ..storage import Store
@@ -31,6 +33,7 @@ from .checkpoint import Checkpoint
 from .guard import RunWindow
 from .prefilter import candidates, sweep_floors
 from .runner import (
+    SessionResult,
     checkpoint_path,
     effective_deadline,
     harvest_daily,
@@ -104,6 +107,33 @@ def _eod_gap_hours(s: Settings) -> float:
 
 def _print(payload: object) -> None:
     print(json.dumps(payload, indent=2, default=str))
+
+
+def _session_reporter(s: Settings) -> Callable[[SessionResult], None]:
+    """Report each finished session — and publish its chart payload as it lands (#488).
+
+    Per-session rather than per-night on purpose. A session is ~47 minutes of rate-limited waiting
+    and building one date's charts is seconds of compute, so the work disappears into a budget that
+    is already dominated by ``time.sleep``; batching it to the end of the night would instead put an
+    archive-shaped job right where the run is trying to stop clear of the 03:45 ``eod_backfill`` or
+    the 16:20 EOD batch. It also means a night killed mid-run has published everything it harvested,
+    which is the same contract the checkpoint gives.
+
+    Failures are swallowed by :func:`publish_recon_charts` itself; this wrapper catches the rest
+    (an unwritable dashboard dir, say) for the same reason — a dashboard artifact must never be able
+    to cost a night of vendor budget.
+    """
+
+    def report(r: SessionResult) -> None:
+        print(r.line(), file=sys.stderr)
+        if not r.complete:
+            return  # an abandoned session wrote nothing; there is no day to chart
+        try:
+            publish_recon_charts(s, dates=[r.trading_date])
+        except Exception as exc:  # noqa: BLE001 — never let the dashboard stop the harvest
+            print(f"warning: publishing charts for {r.trading_date} failed: {exc}", file=sys.stderr)
+
+    return report
 
 
 def cmd_status(s: Settings, args: argparse.Namespace) -> int:
@@ -224,7 +254,7 @@ def cmd_run(s: Settings, args: argparse.Namespace) -> int:
         ignore_window=args.ignore_window,
         max_sessions=args.limit,
         now_fn=lambda: _now(s),
-        on_session=lambda r: print(r.line(), file=sys.stderr),
+        on_session=_session_reporter(s),
     )
     _print(
         {
@@ -284,7 +314,7 @@ def cmd_auto(s: Settings, args: argparse.Namespace) -> int:
         ignore_window=args.ignore_window,
         max_sessions=args.limit,
         now_fn=lambda: _now(s),
-        on_session=lambda r: print(r.line(), file=sys.stderr),
+        on_session=_session_reporter(s),
     )
     _print(
         {
@@ -354,6 +384,30 @@ def cmd_sweep(s: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_charts(s: Settings, args: argparse.Namespace) -> int:
+    """Publish reconstructed sessions to the dashboard's chart namespace (#488) — no API calls.
+
+    The catch-up path. ``run``/``auto`` publish each session as they harvest it, so this exists for
+    the backlog a box accumulated before that hook landed, for a date whose payload was lost, and
+    for re-pruning after ``recon_charts_max_dates`` changes. With no ``--dates`` it fills the window
+    with the newest harvested sessions that have no payload, and is idempotent — a date that already
+    has a payload and an index row is not rebuilt, so the ordinary call does nothing. With
+    ``--dates`` it republishes exactly those, which is how an evicted session is brought back (doing
+    so moves it to the front of the eviction window).
+
+    It spends no vendor budget and touches no checkpoint, but it **does** take the ``scs-harvest``
+    lock: it read-modify-writes ``recon_index.json``, and so does the per-session publish hook
+    inside a running ``run``/``auto``. Interleaved, one of them writes an index built from a stale
+    snapshot — a dropped row and an orphaned payload. It also does real work (DuckDB + polars + the
+    detector, per date), so it runs inside the harvest's memory slice rather than the smaller,
+    slice-less envelope ``status``/``sweep``/``prefilter`` get. ``--limit`` bounds one call.
+    """
+    dates = [date.fromisoformat(d) for d in args.dates] if args.dates else None
+    res = publish_recon_charts(s, dates=dates, limit=args.limit)
+    _print({"phase": "charts", **res.summary()})
+    return 0
+
+
 def cmd_prefilter(s: Settings, args: argparse.Namespace) -> int:
     """The candidate list a session would fetch — the cheap way to see what a night will do."""
     store = harvest_store(s)
@@ -381,10 +435,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("command", choices=["status", "auto", "daily", "run", "sweep", "prefilter"])
-    p.add_argument("--limit", type=int, default=0, help="cap sessions (daily/run) or rows (sweep)")
+    p.add_argument(
+        "command",
+        choices=["status", "auto", "daily", "run", "charts", "sweep", "prefilter"],
+    )
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="cap sessions (daily/run), dates (charts) or rows (sweep)",
+    )
     p.add_argument("--today", type=date.fromisoformat, help="override 'today' (testing/backdating)")
-    p.add_argument("--dates", nargs="*", help="explicit dates for sweep")
+    p.add_argument("--dates", nargs="*", help="explicit dates for sweep/charts")
     p.add_argument(
         "--floors",
         default="100000,250000,500000,1000000,2000000",
@@ -405,6 +467,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "auto": cmd_auto,
         "daily": cmd_daily,
         "run": cmd_run,
+        "charts": cmd_charts,
         "sweep": cmd_sweep,
         "prefilter": cmd_prefilter,
     }

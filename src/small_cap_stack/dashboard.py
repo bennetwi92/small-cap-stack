@@ -310,12 +310,27 @@ def _index_opportunities(charts_payload: dict[str, Any]) -> list[dict[str, Any]]
     ]
 
 
-def index_entry(trading_date: date, charts_payload: dict[str, Any]) -> dict[str, Any]:
+def index_entry(
+    trading_date: date, charts_payload: dict[str, Any], *, source: str | None = None
+) -> dict[str, Any]:
     """One index row for a date — the *only* part of a charts payload the index needs.
 
     Exposed so the archive backfill can reduce each date to its row and drop the payload, instead
-    of holding every date's full charts (all bars for all opportunities) in memory (#261)."""
-    return {"date": trading_date.isoformat(), "opportunities": _index_opportunities(charts_payload)}
+    of holding every date's full charts (all bars for all opportunities) in memory (#261).
+
+    ``source`` stamps provenance on the row (#488). Omitted entirely when None, which is what the
+    live index passes: an absent field is what every published index has always carried, and adding
+    ``"source": "live"`` to it would be a shape change for no reader. The reconstructed index passes
+    ``"recon"`` so a row can never be read as a captured one even if the two indexes are ever merged
+    by a future consumer.
+    """
+    entry: dict[str, Any] = {
+        "date": trading_date.isoformat(),
+        "opportunities": _index_opportunities(charts_payload),
+    }
+    if source is not None:
+        entry["source"] = source
+    return entry
 
 
 def index_from_entries(entries: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
@@ -361,11 +376,22 @@ def read_json(path: Path) -> dict[str, Any] | None:
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Serialise atomically (tmp file + os.replace) so a consumer never sees a partial write."""
+    """Serialise atomically (tmp file + os.replace) so a consumer never sees a partial write.
+
+    The temp name carries the writer's pid. A *fixed* ``<name>.tmp`` is only atomic against
+    readers, not against a second writer: two processes writing the same target — the app's EOD and
+    a hand-run backfill, or the harvest's per-session publish and a ``harvest charts`` — would open,
+    truncate and write the same scratch path, and the interleave can `os.replace` a file holding a
+    mix of both payloads under the final, globbed name. That lands as invalid JSON in a dashboard
+    artifact the frontend parses on load."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(payload, default=_json_default, indent=2))
-    os.replace(tmp, path)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, default=_json_default, indent=2))
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # never strand a scratch file next to the artifact
+        raise
 
 
 def _content_key(payload: dict[str, Any]) -> str:

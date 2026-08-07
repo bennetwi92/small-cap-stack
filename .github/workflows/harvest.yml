@@ -36,8 +36,9 @@ on:
           - prefilter # what one session would fetch, from stored rows
           - daily # phase 1: grouped-daily universe + previous closes (REQUIRED before `run`)
           - run # phase 2: minute bars, newest-first — capped by `limit` here
+          - charts # publish reconstructed sessions to the dashboard (#488) — no API calls
       limit:
-        description: "Sessions (daily/run) or dates (sweep). Keep small — this holds the CI runner."
+        description: "Sessions (daily/run) or dates (sweep/charts). Keep small — this holds the CI runner."
         required: false
         default: "1"
       ref:
@@ -82,7 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$IN_COMMAND" in
-            status|install-key|install-units|sweep|prefilter|auto|daily|run) ;;
+            status|install-key|install-units|sweep|prefilter|auto|daily|run|charts) ;;
             *) echo "unknown command: $IN_COMMAND" >&2; exit 1 ;;
           esac
           case "$IN_LIMIT" in
@@ -91,7 +92,7 @@ jobs:
 
           args=("$IN_COMMAND")
           case "$IN_COMMAND" in
-            sweep|auto|daily|run) args+=(--limit "$IN_LIMIT") ;;
+            sweep|auto|daily|run|charts) args+=(--limit "$IN_LIMIT") ;;
           esac
           # The CHECKED-OUT copy, not the box's deployed one: dispatching a ref should run that
           # ref's wrapper. It also means the two bootstrap commands work before this lands on main
