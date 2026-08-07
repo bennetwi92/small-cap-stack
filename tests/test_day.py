@@ -83,6 +83,24 @@ def test_staleness_nulls_the_trigger_but_keeps_the_shape() -> None:
     assert d.takeable is False  # no entry -> not takeable
 
 
+def test_staleness_bound_is_inclusive_at_the_cutoff() -> None:
+    """A break at EXACTLY ``staleness_min`` is fresh; one minute of slack later it is faded (#586).
+
+    Staleness is a duration ("the break came within N minutes of the scan"), not a deadline, so the
+    Nth minute counts — unlike the selection window's strict ``< window_end`` cutoff. The breakout
+    bar of ``_PASS`` opens +15 min after bar 0, which is the boundary under ``staleness_min=15``.
+    """
+    on_the_bound = detect_day(_PASS, first_hit=_PASS[0].start, staleness_min=15)
+    assert on_the_bound is not None
+    assert on_the_bound.trigger_idx == 3  # exactly +15 min -> still fresh
+    assert on_the_bound.takeable is True
+
+    just_past = detect_day(_PASS, first_hit=_PASS[0].start, staleness_min=14)
+    assert just_past is not None
+    assert just_past.trigger_idx is None  # +15 min against a 14-min bound -> faded
+    assert just_past.takeable is False
+
+
 # three back-to-back green-thrust pumps; appearance forces the target onto the 3rd -> exhausted
 _EXH = [
     _b(0, 9.90, 10.00, 9.90, 9.95, 50_000),
