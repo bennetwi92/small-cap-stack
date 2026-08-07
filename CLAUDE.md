@@ -28,7 +28,7 @@ it on every task.
     flagged; neither the shape gates nor the selection rules read them, and `gates.py::float_gate` /
     `news_gate` feed EOD *counts* only. So the book really does take high-float names — it holds
     CLSK (246M) and XRX (119M). If that should change, the gate goes in the engine's selection tier;
-    `tests/test_portfolio.py` pins it today, and the float test's own failure message says to delete
+    `tests/test_portfolio_extract.py` pins it today, and the float test's own failure message says to delete
     it if you meant it. Evidence: `docs/reports/2026-07-31-float-vs-max-r.md`.
   - **Entry splits in two (#182/#190):** a mechanical trigger above the last consolidation candle's
     high decides *when* the setup fires; R is measured against a separate, deliberately

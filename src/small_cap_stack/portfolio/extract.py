@@ -123,7 +123,7 @@ def extract_day_trades(
     # (price band, trigger window) or the book's sizing reads it. `gates.py::float_gate` exists, but
     # its only consumer is the EOD report's `float_ok` count. So the book does take names over
     # `float_max_shares` — put the gate in the engine's selection tier if that should change; don't
-    # assume it happened somewhere else. `tests/test_portfolio.py` pins this.
+    # assume it happened somewhere else. `tests/test_portfolio_extract.py` pins this.
     # Read through the same `_funds_for` seam the EOD report uses so the book quotes the same
     # source-merged number the results/review pages do (fmp first), rather than a second opinion.
     # NOTE: adding this read means `payload._EXTRACT_DATASETS` must list `fundamentals` too, or the

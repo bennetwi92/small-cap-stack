@@ -37,7 +37,7 @@ def test_triggers_and_measures_max_r() -> None:
     # The shared bar epoch sits at 10:00 ET, outside the 05:30–09:15 SELECTION window (#567), so
     # the default settings would report this well-formed setup as not takeable. This test is about
     # R measurement, not selection, so it widens the window to the scan's — selection has its own
-    # tests in test_day.py.
+    # tests in test_bullflag_day.py.
     m = compute_r_metrics(bars, _settings(select_window_end=time(11, 59)))
     assert m.setup_found and m.triggered and m.takeable
     assert m.entry_trigger == 6.11

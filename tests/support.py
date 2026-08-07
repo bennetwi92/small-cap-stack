@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from small_cap_stack.capture import (
     Bar,
@@ -18,6 +19,8 @@ from small_cap_stack.capture import (
     scanner_hit_record,
 )
 from small_cap_stack.config import Settings
+from small_cap_stack.portfolio import CandidateTrade
+from small_cap_stack.storage import Store
 
 #: The canonical bar-series anchor: 2026-06-29 14:00 UTC = **10:00 ET**, on a Monday session.
 #:
@@ -121,3 +124,144 @@ def news_row(
         symbol,
         NewsItem(time=time, provider=provider, headline=headline, article_id=article_id),
     )
+
+
+# --- portfolio-test helpers, shared by the four `test_portfolio_*.py` modules (#529) ------
+
+ET = ZoneInfo("America/New_York")
+ET_UTC = UTC  # seeds store timestamps in UTC (the store's native tz), like test_report
+
+
+def portfolio_settings(**overrides: object) -> Settings:
+    # The forward projection (`portfolio.projection`) is a 500-path × 252-session Monte-Carlo run
+    # for EVERY book in the payload, so leaving it at production settings turned this file from
+    # 4.5s into 57s — an order of magnitude of CI, spent re-running a simulation none of these
+    # tests assert anything about. It has its own module (`test_projection.py`) with its own
+    # settings; here it is dialled down to the cheapest run that still produces a real block.
+    # An explicit override still wins, so a test that *does* want the full thing can ask.
+    defaults: dict[str, object] = {"portfolio_projection_paths": 8}
+    defaults.update(overrides)
+    return settings(**defaults)
+
+
+def et_bar(o: float, h: float, low: float, c: float, *, minute: int = 0, hour: int = 8) -> Bar:
+    # ET-aware; hour defaults to 08:00 (pre-market) so trigger-time checks pass unless overridden.
+    start = datetime(2026, 7, 14, hour, minute, tzinfo=ET)
+    return Bar(start=start, open=o, high=h, low=low, close=c, volume=1000.0)
+
+
+def candidate(
+    sym: str,
+    minute: int,
+    entry: float,
+    stop: float,
+    bars: list[Bar],
+    *,
+    float_shares: int | None = None,
+    max_r: float | None = None,
+    max_gain_pct: float | None = None,
+) -> CandidateTrade:
+    return CandidateTrade(
+        trading_date=date(2026, 7, 14),
+        symbol=sym,
+        seg_id=f"2026-07-14:{sym}",
+        run=1,
+        trigger_at=datetime(2026, 7, 14, 8, minute, tzinfo=ET),
+        entry_price=entry,
+        entry_fill=entry,
+        stop=stop,
+        risk=entry - stop,
+        entry_index=0,
+        bars=tuple(bars),
+        float_shares=float_shares,
+        max_r=max_r,
+        max_gain_pct=max_gain_pct,
+    )
+
+
+def seed_premarket(
+    store: object,
+    *,
+    oid_time_utc: datetime,
+    symbol: str = "AZI",
+    price_scale: float = 1.0,
+    float_shares: int | None = 8_000_000,
+) -> None:
+    """Seed a clean pre-market bull flag (AZI, triggers to ~2.8R) + a no-setup name (DUD).
+
+    ``oid_time_utc`` is the first bar / first_hit; 12:00 UTC = 08:00 ET (EDT) → strictly pre-market;
+    16:00 UTC = 12:00 ET → in-session, which the pre-market filter must reject.
+
+    ``symbol`` seeds the identical setup under another ticker, so a caller can create candidates
+    that trigger on the *same bar* — the tie the #381 ordering test needs.
+
+    ``price_scale`` multiplies every price, keeping the setup's *shape* (all gates are percentage-
+    based) while moving it in the price band — used to seed a sub-$2 name for the #386 floor.
+
+    ``float_shares`` seeds the fundamentals row the candidate's float is read from (#390); pass
+    None to seed no fundamentals at all, which is the 'source returned nothing' case."""
+
+    assert isinstance(store, Store)
+    day = oid_time_utc.date()
+    t0 = oid_time_utc
+
+    def bar_row(
+        oid: str, sym: str, i: int, o: float, h: float, low: float, c: float, v: float = 1000.0
+    ):  # type: ignore[no-untyped-def]
+        return {
+            "opportunity_id": oid,
+            "symbol": sym,
+            "bar_start_utc": t0 + timedelta(minutes=5 * i),
+            "open": round(o * price_scale, 2),
+            "high": round(h * price_scale, 2),
+            "low": round(low * price_scale, 2),
+            "close": round(c * price_scale, 2),
+            "volume": v,
+        }
+
+    oid = f"{day.isoformat()}:{symbol}"
+    store.append(
+        "opportunities",
+        [
+            opportunity_row(
+                oid,
+                symbol,
+                trading_date=day,
+                first_seen=t0,
+                con_id=1,
+                rank=0,
+            ),
+        ],
+        partition_date=day,
+    )
+    store.append(
+        "bars",
+        [
+            bar_row(oid, symbol, 0, 5.0, 5.8, 4.6, 5.7),  # launch (green)
+            bar_row(oid, symbol, 1, 5.7, 6.5, 5.6, 6.4, 2000),  # higher-high pole
+            bar_row(oid, symbol, 2, 6.4, 6.1, 5.6, 5.7),  # flag (red)
+            bar_row(oid, symbol, 3, 5.7, 7.64, 5.7, 7.5),  # trigger + Max R ~2.8
+        ],
+        partition_date=day,
+    )
+    store.append(
+        "scanner_hits",
+        [{"opportunity_id": oid, "symbol": symbol, "ts_utc": t0, "rank": 0}],
+        partition_date=day,
+    )
+    if float_shares is not None:
+        store.append(
+            "fundamentals",
+            [
+                {
+                    "opportunity_id": oid,
+                    "symbol": symbol,
+                    "ts_utc": t0,
+                    "float_shares": float_shares,
+                    "shares_outstanding": float_shares * 2,
+                    "short_percent": 0.1,
+                    "source": "fmp",
+                }
+            ],
+            partition_date=day,
+        )

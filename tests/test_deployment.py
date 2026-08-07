@@ -1239,3 +1239,51 @@ def test_every_composite_action_step_declares_its_shell() -> None:
                 f"{path.parent.name}/action.yml step at line {start + 1} has `run:` without "
                 "`shell:` — it will fail at runtime, on the box, and no linter here will say so"
             )
+
+
+# --- test-file naming (#529) ---------------------------------------------------------------------
+
+TESTS = ROOT / "tests"
+BULLFLAG = ROOT / "src" / "small_cap_stack" / "bullflag"
+
+
+def test_every_bullflag_module_has_a_matching_test_file() -> None:
+    """`tests/test_bullflag_<name>.py` for `bullflag/<name>.py`, one to one, no exceptions.
+
+    #529's complaint was that the prefix convention existed for exactly *one* module: `gates.py`
+    and `score.py` got `test_bullflag_*`, while `day`, `features`, `cycles`, `segment` and `tokens`
+    got unprefixed names — so `tests/test_gates.py` (the root `gates.py`) and
+    `tests/test_bullflag_gates.py` sat next to each other and the reader had to know which was
+    which. A half-applied convention is worse than none: it reads as meaning something.
+
+    Measured before writing this: after the renames it holds with **zero** exceptions, which is why
+    it is a flat assertion rather than a guard carrying a list of excuses. Keep it that way — a new
+    `bullflag/` module gets its test file named to match, and a test file that outlives its module
+    gets deleted (`test_setup.py` and `test_segment.py` went with #518).
+    """
+    modules = {p.stem for p in BULLFLAG.glob("*.py") if not p.stem.startswith("__")}
+    tested = {p.stem[len("test_bullflag_") :] for p in TESTS.glob("test_bullflag_*.py")}
+    assert modules, "no bullflag modules found — has the package moved?"
+    assert not modules - tested, (
+        f"{sorted(modules - tested)} are bullflag modules with no tests/test_bullflag_<name>.py"
+    )
+    assert not tested - modules, (
+        f"{sorted(tested - modules)} are test_bullflag_* files naming no bullflag module — "
+        "rename them, or delete them if the module is gone"
+    )
+
+
+def test_no_test_file_is_a_one_character_typo_of_another() -> None:
+    """`test_report.py` (533-line `report.py`) and `test_reports.py` (278-line `reports.py`) sat one
+    character apart, and #529 found them by reading. The first is now `test_eod_report.py` — that
+    is the side with no inbound references, so nothing published had to be rewritten to fix it.
+
+    Plural-vs-singular is the specific collision worth pinning; a general edit-distance check would
+    flag legitimate neighbours like `test_bullflag_score` / `test_bullflag_gates`.
+    """
+    names = {p.stem for p in TESTS.glob("test_*.py")}
+    collisions = sorted(n for n in names if n.endswith("s") and n[:-1] in names)
+    assert not collisions, (
+        f"{collisions} differ from another test module by a trailing 's', which is how "
+        "test_report.py and test_reports.py were confused for each other"
+    )
