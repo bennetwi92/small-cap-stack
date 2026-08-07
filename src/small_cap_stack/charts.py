@@ -56,6 +56,13 @@ class ChartData:
     # can rank by size-of-move as well as by R.
     max_gain_pct: float | None
     mae_r: float | None
+    # Measurement caveats on the two numbers above (#581). `same_bar_stop` says the entry and the
+    # stop landed on one bar, so `max_r`/`mae_r` are the conservative *assumption* about intrabar
+    # order rather than a measurement — wrong 38% of the time where 1-min bars can check it.
+    # `fill_above_entry_bar_high` says the fill sat above that bar's high, i.e. a price that never
+    # printed. They are separate defects and the page must not blur them into one badge.
+    same_bar_stop: bool
+    fill_above_entry_bar_high: bool
     engine: dict[str, Any]  # engine-v2 detector's read of the drawn series (overlay #216)
 
 
@@ -288,5 +295,7 @@ def build_opportunity_chart(
         max_r=rm.max_r,
         max_gain_pct=rm.max_gain_pct,
         mae_r=rm.mae_r,
+        same_bar_stop=rm.same_bar_stop,
+        fill_above_entry_bar_high=rm.fill_above_entry_bar_high,
         engine=_engine_block(render_bars, settings, first_hit),
     )

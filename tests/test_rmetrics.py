@@ -143,6 +143,77 @@ def test_same_bar_trigger_and_stop_counts_as_stopped() -> None:
     assert m.max_r == 0.0  # no favourable excursion credited
     assert m.mae_r is not None and m.mae_r >= 1.0  # adverse excursion reaches >= 1R
     assert m.entry_index == 3 and m.stop_index == 3  # same-bar trigger+stop share the bar (#113)
+    assert m.same_bar_stop is True  # ...and the flag says that R is an assumption (#581)
+
+
+# --- #581: the two measurement caveats, which are different defects wearing the same costume ----
+
+
+def test_same_bar_stop_is_false_when_the_stop_comes_on_a_later_bar() -> None:
+    bars = [
+        *_SETUP,
+        _bar(3, 5.7, 6.2, 5.7, 6.0),  # triggers
+        _bar(4, 6.0, 6.1, 5.5, 5.5),  # stopped the bar AFTER entry -> order is not in doubt
+    ]
+    m = compute_r_metrics(bars, _settings())
+    assert m.stopped_out is True and m.entry_index == 3 and m.stop_index == 4
+    assert m.same_bar_stop is False
+
+
+def test_same_bar_stop_is_false_when_the_trade_never_stops() -> None:
+    bars = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9), _bar(4, 6.9, 7.64, 6.8, 7.5)]
+    m = compute_r_metrics(bars, _settings(select_window_end=time(11, 59)))
+    assert m.stopped_out is False and m.stop_index is None
+    assert m.same_bar_stop is False
+
+
+def test_same_bar_stop_is_false_when_nothing_ever_triggered() -> None:
+    """Both indices are None on a setup that formed but never fired — the flag must not fire.
+
+    Reached via the staleness path: `detect_day` returns None outright when no cycle has a usable
+    entry, so a shape that is found-but-not-triggered is exactly the faded case (#130).
+    """
+    bars = [
+        *_SETUP,
+        _bar(3, 5.7, 5.9, 5.6, 5.8),
+        _bar(4, 5.8, 5.9, 5.6, 5.7),
+        _bar(5, 5.7, 5.9, 5.6, 5.8),
+        _bar(6, 5.8, 5.9, 5.6, 5.7),
+        _bar(7, 5.7, 5.9, 5.6, 5.8),
+        _bar(8, 5.8, 7.0, 5.8, 6.9),  # +40 min: breaks, but past the 30-min staleness bound
+    ]
+    m = compute_r_metrics(bars, _settings(), first_hit=_T0)
+    assert m.setup_found and not m.triggered
+    assert m.entry_index is None and m.stop_index is None
+    assert m.same_bar_stop is False
+
+
+def test_fill_above_entry_bar_high_when_the_fill_price_never_printed() -> None:
+    """The 1-tick trigger fires but the 3-tick fill sits above the bar's whole range (#555).
+
+    Entry trigger 6.11, fill 6.13: a bar topping out at 6.12 fires the setup, yet R is measured
+    against a price that never traded. Deliberate (a worse fill only understates the edge) — but
+    it must be *recorded*, not merely inferable.
+    """
+    bars = [*_SETUP, _bar(3, 5.7, 6.12, 5.7, 6.0), _bar(4, 6.0, 6.5, 5.95, 6.4)]
+    m = compute_r_metrics(bars, _settings(select_window_end=time(11, 59)))
+    assert m.triggered and m.entry_index == 3
+    assert m.entry_price == 6.13  # above the entry bar's high of 6.12
+    assert m.fill_above_entry_bar_high is True
+    assert m.same_bar_stop is False  # the two flags are independent
+
+
+def test_fill_above_entry_bar_high_is_false_on_an_ordinary_fill() -> None:
+    bars = [*_SETUP, _bar(3, 5.7, 7.0, 5.7, 6.9), _bar(4, 6.9, 7.64, 6.8, 7.5)]
+    m = compute_r_metrics(bars, _settings(select_window_end=time(11, 59)))
+    assert m.entry_price == 6.13 and m.fill_above_entry_bar_high is False
+
+
+def test_measurement_flags_default_false_when_no_setup_forms() -> None:
+    bars = [_bar(0, 6.0, 6.1, 5.9, 5.95), _bar(1, 5.95, 6.0, 5.8, 5.85)]
+    m = compute_r_metrics(bars, _settings())
+    assert not m.setup_found
+    assert m.same_bar_stop is False and m.fill_above_entry_bar_high is False
 
 
 def test_appearance_inside_the_breakout_bar_is_not_takeable() -> None:
