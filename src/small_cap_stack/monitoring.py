@@ -108,4 +108,4 @@ class Heartbeat:
             async with asyncio.timeout(self.timeout_sec):
                 await asyncio.to_thread(self._fetch, url)
         except Exception:  # noqa: BLE001 — heartbeat is best-effort, never break the loop
-            log.warning("heartbeat.failed", url=url)
+            log.warning("heartbeat.failed", url=url, exc_info=True)

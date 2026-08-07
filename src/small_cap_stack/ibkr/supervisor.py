@@ -82,7 +82,13 @@ class ConnectionSupervisor:
             except Exception as exc:  # noqa: BLE001 — any connect failure should retry
                 attempt += 1
                 delay = self._retry.delay(attempt)
-                log.warning("ibkr.connect_failed", attempt=attempt, delay=delay, error=str(exc))
+                log.warning(
+                    "ibkr.connect_failed",
+                    attempt=attempt,
+                    delay=delay,
+                    error=str(exc),
+                    exc_info=True,
+                )
                 await self._sleep(delay)
                 continue
 
@@ -93,7 +99,13 @@ class ConnectionSupervisor:
             except Exception as exc:  # noqa: BLE001 — a resync failure must not kill the supervisor
                 attempt += 1
                 delay = self._retry.delay(attempt)
-                log.warning("ibkr.on_connect_failed", attempt=attempt, delay=delay, error=str(exc))
+                log.warning(
+                    "ibkr.on_connect_failed",
+                    attempt=attempt,
+                    delay=delay,
+                    error=str(exc),
+                    exc_info=True,
+                )
                 self._t.disconnect()
                 await self._sleep(delay)
                 continue

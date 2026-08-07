@@ -177,7 +177,9 @@ def refresh_exclusions(source: HarvestSource, path: Path, s: Settings) -> frozen
             for active in (True, False):
                 symbols.update(source.tickers_of_type(ticker_type, active=active))
     except Exception as exc:  # noqa: BLE001 — see the docstring: degrade, don't lose the night
-        log.warning("harvest.exclusions_fetch_failed", error=str(exc), cached=len(cached))
+        log.warning(
+            "harvest.exclusions_fetch_failed", error=str(exc), cached=len(cached), exc_info=True
+        )
         return cached
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -606,7 +608,9 @@ def _accumulate_symbol(
         # indistinguishable from a genuinely quiet day and would never be revisited (#440).
         raise
     except Exception:  # noqa: BLE001 — one symbol's failure must never stall a night's session
-        log.warning("harvest.symbol_failed", symbol=row.symbol, date=trading_date.isoformat())
+        log.warning(
+            "harvest.symbol_failed", symbol=row.symbol, date=trading_date.isoformat(), exc_info=True
+        )
         return False
     if not raw:
         return True
