@@ -10,6 +10,7 @@ import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
 import { el, setBanner, showError } from "./js/dom.js";
 import { esc, fmtShares, rRampClass } from "./js/fmt.js";
+import { HARVEST_STALE_H } from "./js/thresholds.js";
 
 const POLL_MS = 60_000;
 
@@ -121,7 +122,7 @@ function renderHarvest(h) {
   const total = h.sessions_in_window ?? 0;
   const pct = total ? Math.round((done / total) * 100) : 0;
   const hrs = h.hours_since_progress;
-  const stale = hrs != null && hrs > 36;
+  const stale = hrs != null && hrs > HARVEST_STALE_H;
   const span =
     h.oldest && h.newest ? `${esc(h.oldest)} → ${esc(h.newest)}` : "nothing harvested yet";
 

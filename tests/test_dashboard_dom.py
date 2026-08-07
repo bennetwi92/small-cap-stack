@@ -304,3 +304,61 @@ def test_the_optbar_rebuild_is_memoised(page: str, memo: str) -> None:
         f"{page}: `{memo}` is never compared, so the rebuild cannot be conditional on it — "
         f"Refresh would collapse the `···` extras row."
     )
+
+
+# ------------------------------------------------ one staleness threshold, one place (#516)
+
+#: The single module allowed to define a staleness threshold.
+THRESHOLDS = "js/thresholds.js"
+#: Names that must resolve to exactly one definition across the whole frontend.
+SHARED_THRESHOLDS = ("STALE_PUBLISH_MS", "HARVEST_STALE_H")
+
+
+def _js_sources() -> dict[str, str]:
+    """Every frontend module, keyed by its path relative to docs/."""
+    return {
+        str(p.relative_to(DOCS)): p.read_text(encoding="utf-8") for p in sorted(DOCS.rglob("*.js"))
+    }
+
+
+@pytest.mark.parametrize("name", SHARED_THRESHOLDS)
+def test_a_staleness_threshold_is_defined_exactly_once(name: str) -> None:
+    """Both pages render on Plan, so two values meant it contradicted itself (#516).
+
+    The status bar warned at 30 minutes while the Plan page's "Data freshness" check called the
+    same `status.json.generated_utc` fresh until 60 — a FRESH row above an amber bar reporting
+    the same timestamp, with no way for a reader to tell which was right.
+    """
+    definers = [
+        path
+        for path, src in _js_sources().items()
+        if re.search(rf"^\s*(?:export\s+)?(?:const|let|var)\s+{name}\s*=", src, re.M)
+    ]
+    assert definers == [THRESHOLDS], (
+        f"{name} must be defined only in {THRESHOLDS}, and imported everywhere else — "
+        f"found: {definers}"
+    )
+
+
+def test_no_page_hardcodes_a_staleness_literal() -> None:
+    """A re-inlined literal is how the two values drifted apart in the first place.
+
+    Targeted at *staleness* comparisons rather than any numeric comparison, so an ordinary
+    `if (n > 0)` isn't swept up. Both real shapes are covered: an arithmetic duration
+    (`ageMs > 60 * 60_000`) and a bare count (`hrs > 36`) — my first version matched only the
+    former, so `app.js` going back to `hrs > 36` passed a guard written to prevent exactly that.
+    """
+    offenders = [
+        f"{path}:{i}: {ln.strip()}"
+        for path, src in _js_sources().items()
+        if path != THRESHOLDS
+        for i, ln in enumerate(src.splitlines(), 1)
+        # Comments excluded, so the prose explaining all this cannot trip its own check.
+        if not ln.strip().startswith("//")
+        and "stale" in ln.lower()
+        and re.search(r"[<>]=?\s*\d[\d_]*(\s*\*\s*\d[\d_]*)*\s*[;,)&|?]", ln)
+    ]
+    assert not offenders, (
+        "staleness compared against an inline literal; import it from "
+        f"{THRESHOLDS} instead:\n" + "\n".join(offenders)
+    )
