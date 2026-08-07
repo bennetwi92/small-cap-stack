@@ -619,7 +619,11 @@ grid.on("rowClick", (e, row) => {
 async function rowsForDates(dates, source) {
   const perDate = await Promise.all(
     dates.map(async (date) => {
-      const payload = await fetchJson(chartsUrl(date, source));
+      // Per-date catch, or the comment above is a lie (#509). `fetchJson` answers null for a
+      // missing or unparsable file, but a transport failure REJECTS — and a bare Promise.all turns
+      // one dropped request into a failed table, which is the opposite of "degrades to no rows for
+      // that day".
+      const payload = await fetchJson(chartsUrl(date, source)).catch(() => null);
       const charts = (payload && payload.charts) || [];
       return charts.map((c) => toRow(date, c, source));
     }),
