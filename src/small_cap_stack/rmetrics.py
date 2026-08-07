@@ -73,6 +73,11 @@ def _measure(
 ) -> dict[str, object]:
     """Track a filled trade from its entry bar: Max R, MAE, stop-out (stop-first, gap-through)."""
     bar = bars[entry_j]
+    # NOTE (#555): `bar.high` is deliberately NOT checked against `entry_level`. The trigger fires
+    # on a 1-tick break while `entry_level` is the 3-tick fill, so when the bar's high lands between
+    # the two this books a fill above the bar's whole range — a price that never printed. Kept: a
+    # higher entry means wider risk, a smaller position and a worse R, so it can only understate the
+    # edge, which is the point of the conservative fill. Documented in research/strategy.md.
     entry = max(entry_level, bar.open)  # gap-through: fill no better than the open
     risk = round(entry - stop, 6)
     min_low = bar.low
@@ -149,7 +154,11 @@ def compute_r_metrics(
     return RMetrics(
         setup_found=True,
         triggered=True,
-        takeable=setup.passed and not setup.exhausted,
+        # One definition of takeable, not two (#555). This branch already implies a trigger, so the
+        # old inline `passed and not exhausted` agreed with `DaySetup.takeable` in every case that
+        # reaches here — but it was a second copy of the system's most important boolean, and
+        # `charts.py` published the other one. They diverged when `entry_fill - stop <= 0`.
+        takeable=setup.takeable,
         **shape,  # type: ignore[arg-type]
         **m,  # type: ignore[arg-type]
     )

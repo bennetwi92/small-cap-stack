@@ -60,7 +60,6 @@ def detect_day(
     bars: Sequence[Bar],
     *,
     first_hit: datetime | None = None,
-    tick: float = 0.01,
     eps: float = 0.005,
     max_pole: int = 4,
     max_cons: int = 4,
@@ -98,8 +97,18 @@ def detect_day(
         refined = refine_pole(bars, tokens, c.peak, max_pole=max_pole)
         if refined is None:
             continue  # no higher-high step into this peak
+        # The break that fires the setup must clear the prior bar's high by `trigger_offset` — the
+        # SAME offset that prices `entry_trigger` below (#555). Before that it was a hardcoded
+        # `tick`, so raising `bull_flag_trigger_offset_ticks` moved the published trigger price
+        # without moving the bar that fires it: a bar whose high only reached breakout+1 tick would
+        # be recorded as triggering at breakout+2, with R measured off a price it never touched.
+        # Identical behaviour at the shipped 1-tick offset, which `test_locked_v2_defaults` pins.
         trig = next(
-            (j for j in range(c.peak + 1, len(bars)) if bars[j].high >= bars[j - 1].high + tick),
+            (
+                j
+                for j in range(c.peak + 1, len(bars))
+                if bars[j].high >= bars[j - 1].high + trigger_offset
+            ),
             None,
         )
         if trig is None or trig <= c.peak + 1:
@@ -189,7 +198,6 @@ def detect_day_with_settings(
     return detect_day(
         bars,
         first_hit=first_hit,
-        tick=tick,
         eps=token_eps(settings),
         max_pole=settings.bull_flag_max_pole,
         max_cons=settings.bull_flag_max_cons,
