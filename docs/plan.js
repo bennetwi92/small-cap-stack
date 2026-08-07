@@ -16,7 +16,7 @@ import "./js/nav.js";
 import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
-import { el } from "./js/dom.js";
+import { el, setBanner, showError } from "./js/dom.js";
 import { issueStates, issueUrl } from "./js/gh.js";
 import { esc, etDateOf, fmtPct, fmtPctPlain, fmtRSigned } from "./js/fmt.js";
 import { HARVEST_STALE_H, STALE_PUBLISH_MS } from "./js/thresholds.js";
@@ -109,9 +109,13 @@ function sessionsBetween(from, to) {
 const SESSIONS = sessionsBetween(COLLECT_START, COLLECT_END);
 const SESSION_SET = new Set(SESSIONS);
 
-const tile = (label, value, sub) =>
+// Same contract as `checkRow` below: the middle slot is raw HTML — callers pass
+// `<span class="muted"> / total</span>` to grey out a denominator — while the label and sub-line
+// are escaped here. Named `valueHtml` so the asymmetry reads as deliberate rather than missed
+// (#515).
+const tile = (label, valueHtml, sub) =>
   `<div class="tile"><div class="tile-l">${esc(label)}</div>` +
-  `<div class="tile-v">${value}</div>` +
+  `<div class="tile-v">${valueHtml}</div>` +
   (sub ? `<div class="tile-s">${esc(sub)}</div>` : "") +
   `</div>`;
 
@@ -417,7 +421,7 @@ function renderHarvest(hv) {
   if (!hv.live) {
     el("pl-harvest").innerHTML = checkRow({
       label: "Sessions rebuilt",
-      value: "—",
+      valueHtml: "—",
       sub: "no checkpoint published yet",
       status: "NOT STARTED",
       title:
@@ -436,7 +440,7 @@ function renderHarvest(hv) {
   el("pl-harvest").innerHTML = [
     checkRow({
       label: "Sessions rebuilt",
-      value: `${hv.done}<span class="muted"> / ${hv.total}</span>`,
+      valueHtml: `${hv.done}<span class="muted"> / ${hv.total}</span>`,
       sub: hv.newest
         ? `${hv.left} still to go · newest-first from ${hv.newest}`
         : `${hv.left} still to go · minute bars not started`,
@@ -450,7 +454,7 @@ function renderHarvest(hv) {
     }),
     checkRow({
       label: "Universe pass",
-      value: `${hv.daily}<span class="muted"> / ${hv.total}</span>`,
+      valueHtml: `${hv.daily}<span class="muted"> / ${hv.total}</span>`,
       sub: "grouped-daily bars + previous closes",
       status: hv.dailyDone ? "DONE" : "RUNNING",
       tone: hv.dailyDone ? "ok" : "run",
@@ -461,7 +465,7 @@ function renderHarvest(hv) {
     }),
     checkRow({
       label: "History covered",
-      value: `<span class="plan-hv-span">${span}</span>`,
+      valueHtml: `<span class="plan-hv-span">${span}</span>`,
       sub: hv.floor
         ? `${hv.done} sessions deep · vendor history starts ${hv.floor}`
         : `${hv.done} sessions deep`,
@@ -488,7 +492,17 @@ function renderHarvest(hv) {
 
 // One row: a label, the number, a one-line sub-value, and a status pill. `bar` draws a
 // progress line under the row. Everything passed in is computed; nothing is hard-coded.
-function checkRow({ label, value, sub, status, tone, bar, title }) {
+//
+// `valueHtml` is the one field interpolated raw, and the name now says so (#515). Four callers
+// pass `<span class="muted"> / total</span>` to grey out a denominator and a fifth passes an
+// already-escaped `<span class="plan-hv-span">`, so escaping here would render markup as text —
+// which is why this stayed raw and every caller escapes its own text instead. Across the 13 call
+// sites nothing unescaped reaches it: literals, `fmtPctPlain`/`fmtRSigned` output (both guarded
+// by `isFinite` then `toFixed`), `String(...)` of computed integers, and `esc(...)` on the two
+// date-derived values. The harvest counters are bare `status.json` passthroughs, produced by our
+// own Python. So this was never an injection path — but a raw slot indistinguishable from five
+// escaped ones is a trap, and naming it is cheaper than re-auditing it every year.
+function checkRow({ label, valueHtml, sub, status, tone, bar, title }) {
   const t = title ? ` title="${esc(title)}"` : "";
   return (
     `<li class="plan-check plan-check-${esc(tone || "none")}"${t}>` +
@@ -496,7 +510,7 @@ function checkRow({ label, value, sub, status, tone, bar, title }) {
     `<span class="plan-check-l">${esc(label)}</span>` +
     (status ? `<span class="pill plan-check-pill">${esc(status)}</span>` : "") +
     `</div>` +
-    `<div class="plan-check-v">${value}</div>` +
+    `<div class="plan-check-v">${valueHtml}</div>` +
     (sub ? `<div class="plan-check-s muted">${esc(sub)}</div>` : "") +
     (bar != null
       ? `<div class="plan-bar plan-check-bar"><span class="plan-bar-fill" ` +
@@ -525,7 +539,7 @@ function targetFitRow(next, cfg) {
   const z = next.target_edge_z == null ? null : Number(next.target_edge_z);
   return checkRow({
     label: "Adaptive target",
-    value: `${Number(next.target_r).toFixed(1)}R`,
+    valueHtml: `${Number(next.target_r).toFixed(1)}R`,
     sub: held
       ? `held — ${next.target_considered_r}R preferred but only ${z == null ? "—" : z.toFixed(2)}σ of edge over ${n} trades (${cfg.target_switch_z}σ needed)`
       : fitted
@@ -559,7 +573,7 @@ function renderChecks(c, book, status) {
   const rows = [
     checkRow({
       label: "Sessions collected",
-      value: `${c.done}<span class="muted"> / ${c.total}</span>`,
+      valueHtml: `${c.done}<span class="muted"> / ${c.total}</span>`,
       sub: `${c.done} of ${c.due} sessions due so far`,
       status: gap ? `${gap} MISSING` : "NO GAPS",
       tone: gap ? "bad" : "ok",
@@ -568,25 +582,25 @@ function renderChecks(c, book, status) {
     }),
     checkRow({
       label: "Sessions left",
-      value: String(c.left),
+      valueHtml: String(c.left),
       sub: `window ends ${COLLECT_END}`,
       status: c.left > 0 ? "RUNNING" : "WINDOW CLOSED",
       tone: c.left > 0 ? "run" : "ok",
     }),
     checkRow({
       label: "Opportunities flagged",
-      value: String(c.opps),
+      valueHtml: String(c.opps),
       sub: `${perSession.toFixed(1)} per collected session`,
     }),
     checkRow({
       label: "Trigger rate",
-      value: fmtPctPlain(trigRate, 0),
+      valueHtml: fmtPctPlain(trigRate, 0),
       sub: `${c.triggered} of ${c.opps} setups fired their entry`,
       title: "Share of flagged opportunities where price crossed the 1-tick trigger above the consolidation high.",
     }),
     checkRow({
       label: "Sample for a verdict",
-      value: `${n}<span class="muted"> / ${VERDICT_TRADES}</span>`,
+      valueHtml: `${n}<span class="muted"> / ${VERDICT_TRADES}</span>`,
       sub: n >= VERDICT_TRADES ? "sample target met" : `${VERDICT_TRADES - n} trades short`,
       status: n >= VERDICT_TRADES ? "READY" : "THIN",
       tone: n >= VERDICT_TRADES ? "ok" : "warn",
@@ -598,7 +612,7 @@ function renderChecks(c, book, status) {
     // "FULL" would imply a ladder that could be somewhere else.
     checkRow({
       label: "Risk in force",
-      value: next ? fmtPctPlain(next.risk_fraction, 1) : "—",
+      valueHtml: next ? fmtPctPlain(next.risk_fraction, 1) : "—",
       sub: !next
         ? "no next-session state"
         : (throttleOff
@@ -630,7 +644,7 @@ function renderChecks(c, book, status) {
     targetFitRow(next, cfg),
     checkRow({
       label: "Cost drag",
-      value: s ? `$${(s.total_costs_usd || 0).toFixed(2)}` : "—",
+      valueHtml: s ? `$${(s.total_costs_usd || 0).toFixed(2)}` : "—",
       sub:
         s && s.end_equity
           ? `${fmtPctPlain((s.total_costs_usd || 0) / s.end_equity, 1)} of balance · ` +
@@ -640,7 +654,7 @@ function renderChecks(c, book, status) {
     }),
     checkRow({
       label: "Data freshness",
-      value: c.lastDate ? esc(c.lastDate) : "—",
+      valueHtml: c.lastDate ? esc(c.lastDate) : "—",
       sub: `last session collected · published ${ago(published)}`,
       status: stale ? "STALE" : "FRESH",
       tone: stale ? "warn" : "ok",
@@ -721,15 +735,19 @@ async function refresh() {
     renderChecks(collection, book, status);
     renderGates(gates);
 
-    el("pl-error").hidden = true;
+    setBanner("pl-error", "");
     setStatusPage(
       `plan · ${collection.done}/${collection.total} sessions · ` +
         (harvest.live ? `harvest ${harvest.done}/${harvest.total} · ` : "") +
         `${gates.done}/${gates.total} gates`,
     );
   } catch (e) {
-    el("pl-error").hidden = false;
-    el("pl-error").textContent = "Failed to load plan data: " + e.message;
+    // Not `el("pl-error")`: `el` THROWS, and the failure being reported here may itself be a
+    // MissingElementError — in which case the banner lookup would re-throw over the top of the
+    // original error and the user would see nothing at all. `showError` resolves the banner with
+    // a bare lookup and keeps the stale-asset wording, which this page is the likeliest to need:
+    // it renders more markup from `status.json` than any other (#515).
+    showError("pl-error", "Failed to load plan data", e);
     setStatusPage("update failed");
   }
 }

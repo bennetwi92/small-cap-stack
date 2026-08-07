@@ -802,11 +802,15 @@ function renderProjection(book) {
 
 /* ---------- Stat tiles ---------- */
 
-function tile(label, value, cls = "", title = "") {
+// Same contract as `plan.js`'s `tile` and `checkRow`: the middle slot is raw HTML — callers pass
+// things like `esc(t.date) + ' <span class="pf-src">recon</span>'` — while label and title are
+// escaped here. Named `valueHtml` so one raw slot among escaped siblings reads as deliberate
+// rather than missed, and so the two same-named helpers agree (#515).
+function tile(label, valueHtml, cls = "", title = "") {
   const t = title ? ` title="${esc(title)}"` : "";
   return (
     `<div class="tile"${t}><div class="tile-l">${esc(label)}</div>` +
-    `<div class="tile-v ${cls}">${value}</div></div>`
+    `<div class="tile-v ${cls}">${valueHtml}</div></div>`
   );
 }
 

@@ -186,6 +186,156 @@ def test_pages_share_one_dom_helper() -> None:
     assert not forked, f"{forked} define a local `el`; import it from js/dom.js instead"
 
 
+#: `catch (e) {`, and `catch {` — the optional-binding form, which this frontend uses six times.
+#: Requiring the parameter list left 38% of the corpus unscanned by the first version of this.
+_CATCH = re.compile(r"\}\s*catch\s*(?:\([^)]*\))?\s*\{")
+
+
+def _blank_literals(src: str) -> str:
+    """`src` with the *contents* of strings, template literals, comments and regexes replaced by
+    spaces — same length, same line numbers, no syntax inside them.
+
+    Scanning raw text is what makes a hand-rolled matcher lie. A `}` inside a string truncates a
+    brace-matched body; stripping `//…` blindly eats the rest of a line from inside a URL. Both
+    are silent *false negatives* in a guard, which is the worst kind: it reports success.
+    """
+    out = list(src)
+    i, n = 0, len(src)
+    while i < n:
+        ch = src[i]
+        if ch in "\"'`":
+            quote, j = ch, i + 1
+            while j < n:
+                if src[j] == "\\":
+                    j += 2
+                    continue
+                if src[j] == quote:
+                    break
+                if src[j] != "\n":
+                    out[j] = " "
+                j += 1
+            i = j + 1
+        elif src.startswith("//", i):
+            j = src.find("\n", i)
+            j = n if j == -1 else j
+            out[i:j] = " " * (j - i)
+            i = j
+        elif src.startswith("/*", i):
+            j = src.find("*/", i + 2)
+            j = n if j == -1 else j + 2
+            for k in range(i, j):
+                if src[k] != "\n":
+                    out[k] = " "
+            i = j
+        else:
+            i += 1
+    return "".join(out)
+
+
+def _catch_bodies(src: str) -> list[tuple[int, str]]:
+    """`(line, body)` for every catch block, brace-matched over literal-blanked source.
+
+    The body returned is the *blanked* text: line numbers still line up, but nothing inside a
+    string or comment can be mistaken for code by the caller either.
+    """
+    masked = _blank_literals(src)
+    out: list[tuple[int, str]] = []
+    for match in _CATCH.finditer(masked):
+        depth, start = 0, match.end() - 1
+        for i in range(start, len(masked)):
+            if masked[i] == "{":
+                depth += 1
+            elif masked[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    out.append((masked.count("\n", 0, match.start()) + 1, masked[start : i + 1]))
+                    break
+    return out
+
+
+def test_no_error_handler_can_throw_over_the_error_it_reports() -> None:
+    """`el()` throws by design, so calling it inside a `catch` can re-throw over the failure being
+    handled — and the failure most likely to reach a `catch` on these pages is exactly the one
+    `el` raises: a stale-asset `MissingElementError` (#515).
+
+    When that happens the user sees **nothing**: no banner, no message, a blank panel. `plan.js`
+    hand-rolled `el("pl-error").textContent = …` in its catch, and `reports.js` cleared
+    `el("rp-doc-body")` before reporting. `setBanner`/`showError` resolve their node with a bare
+    `getElementById` precisely so a missing banner stays silent instead of shouting over the
+    message it was asked to deliver.
+
+    Strings and comments are blanked first, so the prose explaining all this cannot trip its own
+    check — and a `}` inside a string can't truncate a body before the `el(` that follows it.
+
+    ⚠️ **Limit: this sees literal `el(` only.** A handler that calls a *helper* which calls `el`
+    has the same hazard and is invisible here — `review.js`'s `setStatus` was exactly that, and
+    was fixed by reading rather than by this test. One level of indirection is where a text scan
+    stops being honest; don't read a green run as proof no handler can throw.
+    """
+    offenders: list[str] = []
+    for path, src in _js_sources().items():
+        for line, body in _catch_bodies(src):
+            if re.search(r"(?<![\w.])el\(", body):
+                offenders.append(f"{path}:{line}")
+    assert not offenders, (
+        "these catch blocks call the throwing `el()`; use setBanner/showError (or a bare "
+        "getElementById) so the handler can't outlive its own error:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_catch_scanner_survives_the_forms_that_fooled_it() -> None:
+    """Each of these was a silent false negative in the first version — the guard passed while
+    the hazard sat in the block it failed to read.
+
+    Bodies come back literal-blanked, so these assert on the `el(` call form; the argument itself
+    is (correctly) spaces by then.
+    """
+    at = lambda js: _catch_bodies(js)[0][1]  # noqa: E731
+    # Optional catch binding: `catch {`, no parameter list. Six of these exist in docs/, and the
+    # first version's regex required the parens — leaving 38% of the corpus unscanned.
+    assert "el(" in at('try { a(); } catch { el("x"); }')
+    # A `}` inside a string or template used to end the body early, hiding everything after it.
+    assert "el(" in at('try { a(); } catch (e) { log("oops }"); el("x"); }')
+    assert "el(" in at('try { a(); } catch (e) { log(`a } b`); el("x"); }')
+    # `//` inside a string used to blank the rest of the line, including the el() after it.
+    assert "el(" in at('try { a(); } catch (e) { log("https://h"); el("x"); }')
+    # A nested object literal is balanced and must NOT end the body early.
+    assert "el(" in at('try { a(); } catch (e) { f({ k: 1 }); el("x"); }')
+    # And the converse: a clean handler still reads clean.
+    assert "el(" not in at('try { a(); } catch (e) { showError("x-error", "nope", e); }')
+
+
+def test_the_literal_blanker_preserves_offsets_and_hides_content() -> None:
+    """Blanking must not shift a single character, or every reported line number is wrong."""
+    src = 'a("}");\n// note }\nb();'
+    masked = _blank_literals(src)
+    assert len(masked) == len(src)
+    assert masked.count("\n") == src.count("\n")
+    assert "}" not in masked  # both the string's and the comment's brace are gone
+    assert masked.startswith('a("') and "b();" in masked  # code itself survives
+
+
+def test_the_catch_scanner_finds_a_real_block() -> None:
+    """Brace-matching that silently matches nothing makes the check above vacuous."""
+    src = 'try { a(); } catch (e) { el("x"); }\ntry { b(); } catch (err) { ok(); }'
+    bodies = _catch_bodies(src)
+    assert len(bodies) == 2
+    assert "el(" in bodies[0][1] and "el(" not in bodies[1][1]
+    # And the real corpus is scanned in full. A floor ("more than 5") was useless: the broken
+    # version found 10 of 16 real blocks and sailed past it. Compare against the `catch` keywords
+    # actually present instead — self-maintaining, and losing a whole *form* of catch block fails
+    # here rather than quietly shrinking the guard's reach.
+    for path, src in _js_sources().items():
+        # `(?<![\w.])` already excludes the promise form `.catch(` — that is a callback, not a
+        # catch *block*, and it has no braces of its own to match.
+        statements = len(re.findall(r"(?<![\w.])catch\s*[({]", _blank_literals(src)))
+        found = len(_catch_bodies(src))
+        assert found == statements, (
+            f"{path}: the scanner reads {found} catch blocks but the file has {statements}. "
+            "A form it can't parse is a form it can't guard."
+        )
+
+
 # ------------------------------------------------------------- memoised fetches (#509)
 # There is no browser coverage in CI, so a promise-cache bug has no runtime test to catch it.
 # These are structural, which is weak — but the failure they guard is permanent-until-reload
