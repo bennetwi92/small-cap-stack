@@ -37,6 +37,13 @@ class CandidateTrade:
     float_shares: int | None = None  # merged across sources by `report._funds_for` (fmp first)
     max_r: float | None = None  # peak favourable excursion in R — the ceiling `realized_r` chased
     max_gain_pct: float | None = None  # that same peak as a fraction of the entry price
+    # Measurement caveats on `max_r` (#581), carried so the book can mark a trade unresolved rather
+    # than reporting an assumption as a result. `same_bar_stop`: entry and stop fell on one bar, so
+    # the R above is the conservative guess at intrabar order (wrong 38% of the time where 1-min
+    # bars can check it, #583). `fill_above_entry_bar_high`: the fill sat above that bar's high, a
+    # price that never printed (#555). Different defects — do not merge them into one boolean.
+    same_bar_stop: bool = False
+    fill_above_entry_bar_high: bool = False
     # Provenance (#430). ``"live"`` = the tracker watched this day happen and captured the bars from
     # the scanner in real time. ``"recon"`` = the day was rebuilt after the fact from purchased
     # vendor minute bars, with the scanner appearance *reconstructed* rather than observed. The two
@@ -98,6 +105,8 @@ class PaperTrade:
     float_shares: int | None = None
     max_r: float | None = None
     max_gain_pct: float | None = None
+    same_bar_stop: bool = False  # see CandidateTrade — this trade's R is an assumption (#581)
+    fill_above_entry_bar_high: bool = False  # see CandidateTrade (#555)
     source: str = "live"  # "live" | "recon" — carried from the candidate, see CandidateTrade
 
 
@@ -146,6 +155,8 @@ class SkippedTrade:
     float_shares: int | None = None
     max_r: float | None = None
     max_gain_pct: float | None = None
+    same_bar_stop: bool = False  # see CandidateTrade — this trade's R is an assumption (#581)
+    fill_above_entry_bar_high: bool = False  # see CandidateTrade (#555)
     source: str = "live"  # "live" | "recon" — carried from the candidate, see CandidateTrade
 
 

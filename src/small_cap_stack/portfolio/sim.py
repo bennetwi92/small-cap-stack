@@ -48,6 +48,8 @@ def _skipped(
         float_shares=c.float_shares,
         max_r=c.max_r,
         max_gain_pct=c.max_gain_pct,
+        same_bar_stop=c.same_bar_stop,
+        fill_above_entry_bar_high=c.fill_above_entry_bar_high,
         source=c.source,
     )
 
@@ -158,6 +160,8 @@ def _take_day(
                 float_shares=c.float_shares,
                 max_r=c.max_r,
                 max_gain_pct=c.max_gain_pct,
+                same_bar_stop=c.same_bar_stop,
+                fill_above_entry_bar_high=c.fill_above_entry_bar_high,
                 source=c.source,
             )
         )

@@ -54,6 +54,11 @@ class RMetrics:
     mae_r: float | None = None  # worst adverse excursion after entry, in R
     stopped_out: bool = False
     stop_index: int | None = None
+    # The realised fill landed above the entry bar's own high — a price that never printed on this
+    # bar (#555, #581). Distinct from `same_bar_stop` below and easy to confuse with it: this one is
+    # about the ENTRY being fictional, not about the ORDER of entry and stop. 31 of the 91 same-bar
+    # cases in the recon record carry it, so the review page must be able to tell them apart.
+    fill_above_entry_bar_high: bool = False
     bars_to_max_r: int | None = None
     flag_len: int | None = None  # consolidation count of the traded setup
     retracement: float | None = None  # flag's retracement into the pole, fraction
@@ -66,6 +71,25 @@ class RMetrics:
     passed: bool | None = None  # all gates passed (shape quality)
     failing_gates: tuple[str, ...] = ()  # names of the gates that rejected the shape
     score: float | None = None  # 0..1 quality score
+
+    @property
+    def same_bar_stop(self) -> bool:
+        """Entry and stop landed on the SAME bar — so this trade's R is an assumption (#581).
+
+        ``_measure`` cannot see intrabar order, so when a 5-min bar contains both the trigger and
+        the stop it books the conservative reading: stopped on entry, zero favourable excursion,
+        no later bar measured. That is the right *default*, but it is not a measurement, and a
+        ``-1R`` that is really a coin-flip must be able to say so.
+
+        Re-resolving all 91 such cases in the recon store against its 1-min bars (#583) found the
+        conservative reading **wrong 38%** of the time (35 ran, 31 genuinely stopped inside the
+        bar, 16 irreducibly ambiguous within a single minute, 9 without minute data). Publishing
+        the flag is what lets the review page and the book mark those rows as unresolved rather
+        than quietly averaging them into a win rate.
+        """
+        return (
+            self.stopped_out and self.stop_index is not None and self.stop_index == self.entry_index
+        )
 
 
 def _measure(
@@ -111,6 +135,9 @@ def _measure(
         "stopped_out": stopped_out,
         "stop_index": stop_index,
         "bars_to_max_r": bars_to_max_r,
+        # See the NOTE above: `entry` is deliberately not clamped to the bar's range, so it can sit
+        # above a high that never printed. Record when it did rather than leaving it inferable.
+        "fill_above_entry_bar_high": entry > bar.high,
     }
 
 

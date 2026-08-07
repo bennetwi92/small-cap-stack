@@ -111,6 +111,8 @@ def extract_day_trades(
                     float_shares=float_shares,
                     max_r=rm.max_r,
                     max_gain_pct=rm.max_gain_pct,
+                    same_bar_stop=rm.same_bar_stop,
+                    fill_above_entry_bar_high=rm.fill_above_entry_bar_high,
                     source=source,
                 )
             )

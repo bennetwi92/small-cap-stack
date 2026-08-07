@@ -65,6 +65,9 @@ def _trade_json(t: PaperTrade) -> dict[str, object]:
         # R doesn't hide a big run. `float_shares` is the name's float at flag time.
         "max_r": t.max_r,
         "max_pct": t.max_gain_pct,
+        # Is that Max R a measurement or the conservative assumption? (#581)
+        "same_bar_stop": t.same_bar_stop,
+        "fill_above_bar_high": t.fill_above_entry_bar_high,
         "float_shares": t.float_shares,
         "reason": t.reason,
         "exit_price": t.exit_price,
@@ -90,6 +93,8 @@ def _skipped_json(sk: SkippedTrade) -> dict[str, object]:
         "realized_r": sk.realized_r,
         "max_r": sk.max_r,
         "max_pct": sk.max_gain_pct,
+        "same_bar_stop": sk.same_bar_stop,
+        "fill_above_bar_high": sk.fill_above_entry_bar_high,
         "float_shares": sk.float_shares,
         "reason": sk.reason,
         "exit_price": sk.exit_price,
@@ -348,6 +353,8 @@ def _candidate_to_json(c: CandidateTrade) -> dict[str, Any]:
         "float_shares": c.float_shares,
         "max_r": c.max_r,
         "max_gain_pct": c.max_gain_pct,
+        "same_bar_stop": c.same_bar_stop,
+        "fill_above_entry_bar_high": c.fill_above_entry_bar_high,
         "source": c.source,
         "bars": [_bar_to_json(b) for b in c.bars],
     }
@@ -375,6 +382,8 @@ def _candidate_from_json(d: dict[str, Any]) -> CandidateTrade:
         float_shares=None if d["float_shares"] is None else int(d["float_shares"]),
         max_r=_opt_float(d["max_r"]),
         max_gain_pct=_opt_float(d["max_gain_pct"]),
+        same_bar_stop=bool(d["same_bar_stop"]),
+        fill_above_entry_bar_high=bool(d["fill_above_entry_bar_high"]),
         source=str(d["source"]),
         bars=tuple(_bar_from_json(b) for b in d["bars"]),
     )
