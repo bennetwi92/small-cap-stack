@@ -34,6 +34,7 @@ import {
   fmtNum,
   paintR,
   etClockSec,
+  etClockNowSec,
   etMinutesSec,
 } from "./js/fmt.js";
 import {
@@ -696,10 +697,7 @@ function applyRows() {
   // the provenance confusion #430 keeps two stores to avoid.
   if (selectedOid && !grid.getRow(selectedOid)) clearSelection();
   const days = new Set(rows.map((r) => r.date)).size;
-  const now = new Intl.DateTimeFormat("en-US", {
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-  }).format(new Date());
-  setStatusPage(`${rows.length} opps · ${days} days${reconSpan()} · fetched ${esc(now)}`);
+  setStatusPage(`${rows.length} opps · ${days} days${reconSpan()} · fetched ${esc(etClockNowSec())}`);
 }
 
 // What the reconstruction contributes, and what the publisher's budget refused — the numbers

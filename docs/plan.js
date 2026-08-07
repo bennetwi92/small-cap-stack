@@ -18,7 +18,7 @@ import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
 import { el } from "./js/dom.js";
 import { issueStates, issueUrl } from "./js/gh.js";
-import { esc, fmtPct, fmtPctPlain, fmtRSigned } from "./js/fmt.js";
+import { esc, etDateOf, fmtPct, fmtPctPlain, fmtRSigned } from "./js/fmt.js";
 import { HARVEST_STALE_H, STALE_PUBLISH_MS } from "./js/thresholds.js";
 
 const POLL_MS = 5 * 60_000; // the plan moves in days; poll lazily
@@ -73,9 +73,7 @@ const GATES = [
    Small helpers
    ============================================================ */
 
-// en-CA renders YYYY-MM-DD; ET so "today" flips with the trading date, not the browser.
-const _etDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" });
-const todayEt = () => _etDate.format(new Date());
+const todayEt = () => etDateOf();
 
 const isoDay = (d) => d.toISOString().slice(0, 10);
 const addDays = (d, n) => {

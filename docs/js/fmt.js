@@ -33,9 +33,26 @@ export const fmtNum = (x, dp = 2, signed = false) =>
 export const fmtRSigned = (x) =>
   x == null || !isFinite(x) ? "—" : (x >= 0 ? "+" : "") + Number(x).toFixed(2) + "R";
 
+// ─── ET clocks ──────────────────────────────────────────────────────────────
+// Every time this app prints is ET, because the trading day is ET. There is exactly one place
+// each formatter is constructed (#510): four byte-identical copies of `_etHM` had drifted apart
+// across fmt/session/status-bar/app, and two more call sites built one WITHOUT a `timeZone` at
+// all — printing the viewer's local clock, unlabelled, between two "… ET" fields in the status
+// bar. From London that read as a 5-hour discrepancy on a single line.
+export const ET_TZ = "America/New_York";
+
 const _etHM = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
+  timeZone: ET_TZ, hour: "2-digit", minute: "2-digit", hour12: false,
 });
+// With seconds — for the "updated/fetched HH:MM:SS" stamps, which tick every poll.
+const _etHMS = new Intl.DateTimeFormat("en-US", {
+  timeZone: ET_TZ, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+});
+// en-CA renders YYYY-MM-DD; in ET so "today" flips with the trading date, not the browser's.
+const _etDate = new Intl.DateTimeFormat("en-CA", { timeZone: ET_TZ });
+
+// The raw formatters, for callers that need `formatToParts` (session.js) rather than a string.
+export const etHM = () => _etHM;
 
 // HH:MM ET for a UNIX-seconds instant.
 export const etClockSec = (sec) => (sec == null ? "—" : _etHM.format(new Date(sec * 1000)));
@@ -45,6 +62,21 @@ export const etClockIso = (iso) => {
   const d = new Date(iso);
   return isNaN(d) ? "—" : _etHM.format(d);
 };
+// HH:MM ET *with* the suffix — the status bar's own convention, so a field can't be added
+// without it. `iso` absent renders the em-dash the bar uses for "no data".
+export const etClockIsoSuffixed = (iso) => (iso ? `${etClockIso(iso)} ET` : "—");
+// HH:MM:SS ET for right now, suffixed. The "updated …" / "fetched …" stamps.
+export const etClockNowSec = () => `${_etHMS.format(new Date())} ET`;
+// YYYY-MM-DD, the ET trading date.
+export const etDateOf = (date = new Date()) => _etDate.format(date);
+
+// "Aug 07, 14:32 ET" — a date *and* time, for stamps that can be days old.
+const _etDateTime = new Intl.DateTimeFormat("en-US", {
+  timeZone: ET_TZ, month: "short", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hour12: false,
+});
+export const etDateTimeIsoSuffixed = (iso) =>
+  iso ? `${_etDateTime.format(new Date(iso))} ET` : "—";
 
 // Minutes-past-ET-midnight for a UNIX-seconds instant; null when absent.
 export function etMinutesSec(sec) {

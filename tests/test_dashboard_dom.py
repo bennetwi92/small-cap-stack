@@ -17,6 +17,7 @@ would be guessing.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -362,3 +363,96 @@ def test_no_page_hardcodes_a_staleness_literal() -> None:
         "staleness compared against an inline literal; import it from "
         f"{THRESHOLDS} instead:\n" + "\n".join(offenders)
     )
+
+
+# ------------------------------------------------ one ET clock, one place (#510)
+
+#: The single module allowed to construct a date/time formatter.
+FMT = "js/fmt.js"
+
+
+def test_only_one_module_builds_a_datetime_formatter() -> None:
+    """Five forks of the ET formatter is how two of them lost their `timeZone` (#510).
+
+    `fmt.js`, `session.js`, `status-bar.js` and `app.js` each carried a byte-identical copy of the
+    HH:MM ET formatter, and the "updated …" / "fetched …" stamps on the index and results pages
+    built a *sixth* with **no** `timeZone` at all — so an unlabelled browser-local clock rendered
+    between `PRE 09:14 ET` and `data 14:22 ET` on the same status line. From London that reads as
+    a five-hour discrepancy in the data feed. Nothing was wrong with the feed.
+
+    Constructor sites, not usages: importing and calling the shared helpers is the point.
+    """
+    offenders = [
+        f"{path}:{i}: {ln.strip()}"
+        for path, src in _js_sources().items()
+        if path != FMT
+        for i, ln in enumerate(src.splitlines(), 1)
+        if not ln.strip().startswith("//") and "new Intl.DateTimeFormat" in ln
+    ]
+    assert not offenders, (
+        f"date/time formatters must be built in {FMT} and imported; a private one drifts, and "
+        "the drift that matters is a missing timeZone:\n" + "\n".join(offenders)
+    )
+
+
+def test_every_et_formatter_is_pinned_to_eastern() -> None:
+    """The specific defect, stated directly: a formatter with no `timeZone` renders the viewer's
+    clock. Checked against the formatters themselves rather than their call sites, so it holds
+    even if `fmt.js` grows a new one."""
+    src = _js_sources()[FMT]
+    ctors = list(re.finditer(r"new Intl\.DateTimeFormat\((.*?)\);", src, re.S))
+    assert ctors, f"no formatter found in {FMT} — has it moved?"
+    missing = [c.group(1).strip()[:60] for c in ctors if "timeZone" not in c.group(1)]
+    assert not missing, (
+        "these formatters have no timeZone and will render the viewer's local clock: "
+        f"{missing}. Every time this app prints is ET."
+    )
+
+
+_NAMED_IMPORT = re.compile(r"import\s*\{([^}]+)\}\s*from\s*[\"'](\.[^\"']+)[\"']", re.S)
+
+
+def _exports(src: str) -> set[str]:
+    """Names a module exports: `export const/let/var/function/class/async function`, plus any
+    listed in an `export { a, b as c }` clause."""
+    decl = r"export\s+(?:async\s+)?(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)"
+    names = set(re.findall(decl, src))
+    for clause in re.findall(r"export\s*\{([^}]*)\}", src):
+        for part in clause.split(","):
+            alias = part.strip().split(" as ")
+            if alias and alias[-1].strip():
+                names.add(alias[-1].strip())
+    return names
+
+
+def test_every_named_import_resolves_to_a_real_export() -> None:
+    """There is no browser coverage in CI (CLAUDE.md), so a frontend change ships green even when
+    a module imports a name that no longer exists — the page then dies at load with
+    `SyntaxError: does not provide an export named …` and nothing before the user sees it.
+
+    Cheap to check statically, and it earns its keep whenever exports move between modules — as
+    #510 did, folding five forked ET formatters into `fmt.js`.
+    """
+    sources = _js_sources()
+    broken: list[str] = []
+    for path, src in sources.items():
+        for names, target in _NAMED_IMPORT.findall(src):
+            resolved = os.path.normpath(os.path.join(os.path.dirname(path), target))
+            if resolved not in sources:
+                broken.append(f"{path}: imports from {target}, which does not exist")
+                continue
+            available = _exports(sources[resolved])
+            for raw in names.split(","):
+                name = raw.strip().split(" as ")[0].strip()
+                if name and name not in available:
+                    broken.append(f"{path}: `{name}` is not exported by {resolved}")
+    assert not broken, "broken named imports — these pages die at load:\n" + "\n".join(broken)
+
+
+def test_the_import_check_would_notice_a_missing_export() -> None:
+    """A resolver that silently finds nothing makes the check above vacuous, and this one has two
+    ways to do that (a path that doesn't resolve, an export form it can't parse)."""
+    assert "etClockNowSec" in _exports(_js_sources()[FMT])
+    assert "etClockNowSec" not in _exports("export const somethingElse = 1;")
+    assert _exports("const hidden = 1;\nexport { hidden as shown };") == {"shown"}
+    assert len(_js_sources()) > 10  # the corpus is real, not an empty dict
