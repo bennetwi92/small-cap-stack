@@ -112,6 +112,10 @@ def test_locked_v2_defaults() -> None:
     assert s.bull_flag_trigger_offset_ticks == 1
     assert s.bull_flag_fill_offset_ticks == 3
     assert s.bull_flag_exhaustion_cap == 2
+    # A locked v2 rule (#130) that was pinned nowhere as a value until #554 — it survived only
+    # implicitly, via test_rmetrics.py's 25-min-in / 40-min-out pair. A break too long after the
+    # scanner appearance reads as faded, and 30 is the number that means.
+    assert s.entry_staleness_min == 30
 
 
 def test_legacy_entry_offset_is_gone() -> None:

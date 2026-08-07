@@ -89,6 +89,28 @@ def test_scan_tick_records_discovery_but_no_bars(tmp_path: Path) -> None:
     assert store.read("bars").is_empty()  # bars are NOT captured on the tick anymore
 
 
+def test_every_scanner_row_opens_an_opportunity_unfiltered(tmp_path: Path) -> None:
+    """⚠️ THERE IS NO FILTER BETWEEN THE SCAN AND THE ENGINE (`research/strategy.md`, §1 → §2).
+
+    The scan's own filters are the whole first stage; every row that comes back becomes an
+    opportunity, and the bull-flag engine then decides `takeable` on read, after the close. This
+    was demonstrated incidentally before #554 — a bare `Candidate` opened one opportunity — but
+    nothing said that was the invariant, so a filter added here would have read as a feature.
+
+    Note what a `Candidate` even carries: rank, symbol, con_id, exchange. No price, no change, no
+    volume, no float, no news. There is nothing here to filter *on*, which is the structural half
+    of why "float and news are collected, never gated" is true.
+    """
+    store = Store(tmp_path)
+    svc = _svc(store, FakeBars([]), FakeNews([]))
+    rows = [_candidate("AAA"), _candidate("BBB"), _candidate("CCC")]
+
+    asyncio.run(svc.on_scan_tick(rows, datetime(2026, 6, 29, 13, 40, tzinfo=UTC)))
+
+    assert store.read("opportunities").height == len(rows)
+    assert store.read("scanner_hits").height == len(rows)
+
+
 def test_eod_batch_writes_day_bars(tmp_path: Path) -> None:
     store = Store(tmp_path)
     svc = _svc(store, FakeBars([_bar(30), _bar(35), _bar(40)]), FakeNews([]))
