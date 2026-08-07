@@ -1,18 +1,21 @@
 """`research/` is the documentation root, and a doc nothing links to rots unread (#542).
 
 `review-workbench-spec.md` sat with **zero** inbound references for a month. Nothing pointed a
-reader at it and nothing marked it stale, so it went on describing the review page as read-only,
-single-day and clipped — three things #140/#141 had already fixed. Two published reports made the
-same mistake about the float gate (#551), which is what put a `correction:` field on reports.
+reader at it and nothing marked it stale, so a *proposal* — still headed `Status: proposed`, still
+naming files that no longer exist and one module that was never built — sat in the documentation
+root reading like a description of the live page. Two published reports made a similar mistake
+about the float gate (#551), which is what put a `correction:` field on reports.
 
-The rule that would have caught it is cheap and, measured, has **no** exceptions: 20 research docs,
-19 referenced, 1 orphan — the orphan being exactly the rotten one. So this is a guard rather than a
-guard-with-a-list-of-excuses, and it stays that way only if a new doc gets linked when it lands.
+The rule that would have caught it is cheap and, measured before writing it, had **no** exceptions:
+20 research docs, 19 referenced, 1 orphan — the orphan being exactly the rotten one. So this is a
+guard rather than a guard-with-a-list-of-excuses, and it stays that way only if a new doc gets
+linked when it lands.
 """
 
 from __future__ import annotations
 
 import re
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -20,18 +23,27 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RESEARCH = REPO_ROOT / "research"
 
-#: Where a doc may legitimately be referenced from — prose, code comments, workflows, the runbook.
-_SEARCH_ROOTS = ("src", "tests", "spikes", "docs", "deploy", ".github")
+#: Where a doc may legitimately be referenced from — prose, code comments, workflows, the runbook,
+#: the Makefile. `scripts/` and root-level files are in deliberately: `scripts/fetch_fixtures.sh`
+#: cites `decisions.md` and the `Makefile` cites `strategy.md`, so leaving them out would report a
+#: doc referenced only from there as an orphan.
+_SEARCH_ROOTS = ("src", "tests", "spikes", "docs", "deploy", "scripts", ".github")
 
 
 def _research_docs() -> list[Path]:
     return sorted(RESEARCH.rglob("*.md"))
 
 
+@cache
 def _corpus() -> dict[Path, str]:
-    """Every file that could carry a reference, keyed by path."""
-    paths = [*REPO_ROOT.glob("*.md"), *RESEARCH.rglob("*.md")]
+    """Every file that could carry a reference, keyed by path. Cached — this is parametrised over
+    every doc, and re-reading ~240 files per case turns 0.06s into 1.2s for no benefit."""
+    paths = [p for p in REPO_ROOT.glob("*") if p.is_file()]  # README, CLAUDE, Makefile, …
+    paths.extend(RESEARCH.rglob("*.md"))
     for root in _SEARCH_ROOTS:
+        # A renamed or mistyped root makes `rglob` return nothing and the guard silently shrink —
+        # `docs/` in particular is renameable now (#486). Fail loudly instead of failing open.
+        assert (REPO_ROOT / root).is_dir(), f"_SEARCH_ROOTS names {root}/, which does not exist"
         paths.extend(p for p in (REPO_ROOT / root).rglob("*") if p.is_file())
     out: dict[Path, str] = {}
     for p in paths:
@@ -86,7 +98,14 @@ def test_no_research_doc_still_calls_itself_proposed() -> None:
     stale = [
         f"research/{doc.relative_to(RESEARCH)}"
         for doc in _research_docs()
-        if re.search(r"^\*\*Status:\*\*\s*proposed\b", doc.read_text(encoding="utf-8"), re.M)
+        # Tolerant of the forms a human actually writes: a blockquote or list prefix, `**Status**:`
+        # as well as `**Status:**`, and any capitalisation. None of these occur today; the point is
+        # that they can't sneak past later.
+        if re.search(
+            r"^[>\-\s]*\*\*Status\*{0,2}:\*{0,2}\s*proposed\b",
+            doc.read_text(encoding="utf-8"),
+            re.M | re.I,
+        )
     ]
     assert not stale, (
         f"{stale} still say 'Status: proposed'. If the thing shipped, say so (and strike the old "

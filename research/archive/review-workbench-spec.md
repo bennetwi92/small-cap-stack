@@ -1,17 +1,26 @@
 # Spec — Interactive chart-review workbench
 
-> 📦 **Archived 2026-08-07 (#542) — shipped as #140/#141, and overtaken since.** This was written as
-> a proposal on 2026-07-05 and never updated, so it still describes the workbench as read-only,
-> single-day and clipped — all three of which the shipped page is not. It also had **zero** inbound
-> references anywhere in the repo, so nothing pointed a reader at it and nothing warned them it was
-> stale. What actually exists: `docs/review.html` (write-back to the `review-data` branch, chart
-> annotations, an auto-computed Max R) and the 25 signed-off cases in
-> `tests/fixtures/review_cases/`. The chart itself moved to `docs/js/inspector.js` in #478 so
-> Results and Portfolio can dock the same view.
+> ⚠️ **ARCHIVED 2026-08-07 (#542) — largely shipped as #140/#141, and overtaken since.** This was
+> written as a proposal on 2026-07-05 and never updated. It had **zero** inbound references
+> anywhere in the repo, so nothing pointed a reader at it and nothing warned them it was a plan
+> rather than a description — which is why it is archived rather than deleted, and why it is now
+> linked from `findings-index.md`.
 >
-> Kept as the record of what was intended, not as a live document.
+> What shipped: `docs/review.html` — date/symbol navigation, full-day charts, GitHub write-back,
+> per-opportunity notes, tap-to-place annotations with an auto-computed Max R — plus the 25
+> signed-off cases in `tests/fixtures/review_cases/`. The chart itself has since moved out into
+> `docs/js/inspector.js` (#478) so Results and Portfolio can dock the same view, which this spec
+> naturally does not anticipate.
+>
+> **Phase 2 item (5) never shipped.** `src/small_cap_stack/review_compare.py` — the
+> compare-and-refine loop at §"Compare-and-refine" and §Delivery — does not exist; the
+> engine-vs-trader comparison happens through `spikes/review_metaanalysis.py` instead. Two file
+> paths here are also stale: `docs/style.css` was replaced by `cockpit.css` in the #288 cockpit
+> rebuild.
+>
+> Read as the record of what was intended, not as a description of what exists.
 
-**Status:** ~~proposed~~ **shipped (#140/#141)** · **Epic:** interactive chart-review workbench (`Refs #1`) · **Date:** 2026-07-05
+**Status:** ~~proposed~~ **shipped, except Phase 2 item (5)** · **Epic:** interactive chart-review workbench (`Refs #1`) · **Date:** 2026-07-05
 
 ## Why
 

@@ -18,8 +18,14 @@ Explore these codebases and record in detail anything that could be useful.
 
 **Phase 1 — live, collecting.** The tracker has been deployed on a Hetzner VPS since
 **2026-07-01**, scanning every trading session and writing raw data it can re-derive from later.
-Phase 1 runs for three months of collection (target ~2026-10-01), then Phase 2 is paper trading
-and Phase 3 is live. It places no orders.
+Phase 2 is paper trading and Phase 3 is live; **it places no orders today.**
+
+Phase 1 was originally a three-month calendar wait (~2026-10-01). That is no longer the gate
+(#49, closed 2026-08-07): the harvest rebuilt more pre-market sessions in three nights than the
+live tracker collected in five weeks, so the question stopped being *how much data* and became
+*do we trust it* — is the strategy overfitted, does the reconstruction diverge from what actually
+happened. Live collection keeps running regardless: it is the only thing that can keep validating
+the reconstruction against reality.
 
 What that means in practice:
 
@@ -76,6 +82,7 @@ flagged, and nothing downstream filters on them.
 | `deploy/` | Host runbook and systemd units for the VPS |
 | `data/` | Local runtime data — **gitignored**, never committed |
 | `scripts/` | Repo helpers (e.g. `board.sh`) |
+| `.github/` | CI (`ci`), the deploy/backfill/publish workflows, issue templates |
 
 ---
 
