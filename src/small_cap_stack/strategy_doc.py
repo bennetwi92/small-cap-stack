@@ -163,6 +163,15 @@ def render_engine(s: Settings) -> str:
             _field("entry_staleness_min"),
         ),
         _row(
+            "Gap pole",
+            (
+                "the session's first bar may anchor a single-bar pole"
+                if s.bull_flag_gap_pole
+                else "disabled — a pole needs a higher high into its peak"
+            ),
+            _field("bull_flag_gap_pole"),
+        ),
+        _row(
             "Exhaustion",
             f"reject the {_ordinal(s.bull_flag_exhaustion_cap + 1)}+ contiguous cycle of the day",
             _field("bull_flag_exhaustion_cap"),

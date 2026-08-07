@@ -260,6 +260,14 @@ class Settings(BaseSettings):
     # ANYWHERE IN THE CYCLE — pole or fade (#582) — clears scan_min_5m_volume // 2, and it abuts
     # the run (see bullflag.cycles).
     bull_flag_exhaustion_cap: int = 2
+    # Let the session's FIRST bar anchor a single-bar pole (#587). Off by default. A day that gaps
+    # up and runs on its opening print has no prior bar to be higher than, so `segment_cycles` never
+    # proposes it and the greedy walk moves on to a later, smaller pole (MTVA 2026-05-19; SBFM
+    # 2026-05-18 run 1, whose 04:00 thrust broke down through its own base unnoticed). Measured over
+    # the recon record it changes 34 chosen poles for +1 takeable trade and 0 lost, so it ships
+    # inert: 28 of those 34 then fail cons_retracement, because a gap bar's low IS the opening print
+    # and almost any pullback exceeds half of it. That is a retracement question, not a pole one.
+    bull_flag_gap_pole: bool = False
     # Entry staleness (#130): a break more than this many minutes after the scanner appearance reads
     # as "faded" — the opportunity is no longer takeable (AHMA triggered ~1hr+ after the scan). Only
     # applies when the appearance (first_hit) is known; a large value disables the bound.
