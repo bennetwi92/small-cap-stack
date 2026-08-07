@@ -600,9 +600,9 @@ def test_extract_day_trades_reads_the_harvested_store_and_stamps_recon(tmp_path:
     """The harvest's entire value. A renamed column here is a silent zero in ``books_all``."""
     s = _settings(
         tmp_path,
-        portfolio_premarket_earliest=time(4, 0),
-        portfolio_premarket_cutoff=time(9, 15),
-        portfolio_entry_price_min=1.0,
+        select_window_start=time(4, 0),
+        select_window_end=time(9, 15),
+        select_price_min=1.0,
     )
     store = harvest_store(s)
     source = FakeSource(minutes={("AAAA", DAY): _runner_minutes()})

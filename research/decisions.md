@@ -1029,3 +1029,72 @@ implies — note that threshold **gates nothing**, so this is a contrast against
 rather than evidence about a live filter (#551), and
 against `float-vs-max-r`'s tail finding); and a re-run at 60+ days when collection completes
 ~2026-10-01. Nothing here is established — 13 trades, expectancy interval −0.40R to +1.26R.
+
+## DECISION 2026-08-07 (#567) — the engine selects, the book executes
+
+The split between the engine and the paper book was arbitrary. The **entry price band** and the
+**trigger-time window** lived in the book as `portfolio_entry_price_min/max` and
+`portfolio_premarket_earliest/cutoff`, so the code said they were execution rules when they decide
+**selection** — whether a setup is one we would take at all. Meanwhile the engine carried a
+04:00–11:59 window that gated nothing, which meant the only effective time-of-day rule in the whole
+system lived in the book while looking like it lived in the engine.
+
+**The line is now selection vs execution.**
+
+| Stage | Question | Owns |
+|---|---|---|
+| Scan | what do we **see** | price/change/volume/type filters, the scan window |
+| Engine | what would we **select** | shape gates, price band, trigger-time window, staleness, exhaustion |
+| Book | how would we **execute** | the 2-a-day cap, sizing, exits, costs, ledgers |
+
+The 2-trades-a-day cap stays in the book deliberately: it is a capacity constraint falling out of
+settled cash (`position_fraction × max_trades_per_day = 1.0`), not a judgement about the setup. The
+symbol exclusion list also stays — it is data hygiene for ETFs captured before the scanner's
+`stkTypes` filter existed, not strategy.
+
+**The selection rules bite on `takeable`, NOT on `passed`.** `passed` keeps meaning "the bull flag
+is well-formed" — the shape grammar the review workbench and the 25 golden fixtures are written
+against. A $1.50 name or an 11:00 break can be a textbook flag we simply don't select; it stays
+visible and scoreable on the results page, which is what a data-collection phase needs. Folding
+selection into `passed` would report it as a malformed setup and throw the observation away. The
+fixtures pin `passed` and `failing_gates` but not `takeable`, so all 25 were untouched by the move
+— which is the evidence the refactor changed where the rules run, not what they decide.
+
+**Verified book-neutral.** Replaying the whole local store (30 sessions, 2026-07-01 → 2026-08-07)
+before and after gives the identical book: 14 candidates, 14 trades, +9.62R, $650.43 closing,
+0.11% max drawdown, 57.1% win rate.
+
+Settings renamed: `select_price_min` / `select_price_max` / `select_window_start` /
+`select_window_end`. Nothing sets them via env, so the rename is internal; the published payload
+keys (`entry_price_min`, `premarket_earliest_et`, …) are unchanged, so the dashboard contract holds.
+
+## DECISION 2026-08-07 (#569) — the selection window opens to 04:00 (reverses #405)
+
+`select_window_start` 05:30 → **04:00**, i.e. the whole pre-market is selectable again. The cutoff
+stays 09:15 and the **scan** window is unchanged at 04:00–11:59.
+
+**Measured first.** Replaying the local store (30 sessions, 2026-07-01 → 2026-08-07) under both
+floors:
+
+| floor | trades | R | closing | max dd | win rate |
+|---|---|---|---|---|---|
+| 05:30 (before) | 14 | +9.62 | $650.43 | 0.11% | 57.1% |
+| 04:00 (now) | 18 | +4.93 | $575.84 | 0.15% | 44.4% |
+
+The four unlocked trades — SHPH 04:20, SUNE 04:30, LGHL 04:20, UPC 04:25 — **all stopped out**, for
+−4.69R and −$74.58 (−11.5% of the book). Nothing was displaced: the earlier triggers pushed no
+later winner out of the 2-a-day cap, so the change is purely additive.
+
+**Taken with that in hand, and the reasoning is the point.** n=4 is not evidence — four losses at a
+~43% base win rate happens about 10% of the time by chance, so this does not establish that the
+04:00–05:30 window is unprofitable. The floor it reverses was not a measured edge either (#405 said
+so in its own words): the time-of-day report found no pre-market window statistically separable
+from another, with the 04:00–06:00 block at −0.32R over 86 triggers but a permutation p of 0.68.
+Between two unmeasured judgements, this one collects the early tape in the book rather than
+assuming it away. Revisit when there are more than four early triggers to judge on.
+
+⚠️ **The published book will drop from ~$650 to ~$576 and show 18 trades.** That is this decision
+landing, not a regression. `spikes/window_0400.py` re-runs the comparison.
+
+Compute-on-read means the whole history replays under the new floor on the next publish — no stored
+state to migrate, and reverting is one line.

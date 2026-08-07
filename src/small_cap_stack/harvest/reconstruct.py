@@ -62,7 +62,7 @@ from ..clock import ET, within_window
 from ..config import Settings
 
 #: The pre-market session: 04:00 ET (the scan window opens) to the 09:30 bell. The paper book only
-#: ever trades here (``portfolio_premarket_earliest``/``_cutoff`` sit inside it), so restricting the
+#: ever trades here (``select_window_start``/``_cutoff`` sit inside it), so restricting the
 #: harvest's appearance search to it is not a filter over the strategy — it *is* its session.
 PREMARKET: tuple[time, time] = (time(4, 0), time(9, 30))
 

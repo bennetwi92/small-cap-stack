@@ -7,10 +7,11 @@ opportunities is pinned separately by the graduated fixtures (stage 4).
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import time, timedelta
 
 from small_cap_stack.bullflag import DaySetup, detect_day
 from small_cap_stack.capture import Bar
+from small_cap_stack.clock import ET
 from tests.support import T0 as _T0
 
 
@@ -110,3 +111,55 @@ def test_exhaustion_cap_is_respected() -> None:
     # Same shape, but a higher cap -> the 3rd cycle is no longer "exhausted".
     d = detect_day(_EXH, first_hit=_EXH[6].start, exhaustion_cap=5)
     assert d is not None and d.cycle_num == 3 and d.exhausted is False
+
+
+# --- selection: takeable vs merely well-formed (#567) ---------------------------------------
+#
+# The price band and the trigger-time window moved here from the paper book, where the
+# `portfolio_` prefix implied they were execution rules. They bite on `takeable` and deliberately
+# NOT on `passed`: a $1.50 name or an 11:00 break can be a textbook flag we simply don't select,
+# and Phase 1 needs it to stay visible and scoreable rather than reported as malformed.
+#
+# `_PASS` triggers at index 3 = T0 + 15 min = 10:15 ET, and its entry_fill is 10.93.
+
+
+def test_price_band_rejects_takeable_but_leaves_the_shape_passing() -> None:
+    out_of_band = detect_day(_PASS, price_min=20.0, price_max=50.0)
+    assert out_of_band is not None
+    assert out_of_band.passed is True  # the flag is still well-formed...
+    assert out_of_band.in_price_band is False  # ...it is simply not one we select
+    assert out_of_band.takeable is False
+    assert [g.name for g in out_of_band.gates if not g.passed] == []
+
+
+def test_price_band_accepts_a_name_inside_it() -> None:
+    d = detect_day(_PASS, price_min=2.0, price_max=20.0)
+    assert d is not None and d.in_price_band is True and d.takeable is True
+
+
+def test_price_band_bounds_are_inclusive() -> None:
+    fill = 10.93  # _PASS's entry_fill
+    assert detect_day(_PASS, price_min=fill, price_max=fill).in_price_band is True  # type: ignore[union-attr]
+    assert detect_day(_PASS, price_min=fill + 0.01).in_price_band is False  # type: ignore[union-attr]
+    assert detect_day(_PASS, price_max=fill - 0.01).in_price_band is False  # type: ignore[union-attr]
+
+
+def test_window_rejects_a_trigger_outside_it() -> None:
+    # _PASS triggers at 10:15 ET. A 05:30-09:15 selection window excludes it.
+    d = detect_day(_PASS, window_start=time(5, 30), window_end=time(9, 15))
+    assert d is not None
+    assert d.passed is True  # again: well-formed, just not selected
+    assert d.in_window is False
+    assert d.takeable is False
+
+
+def test_window_floor_is_inclusive_and_cutoff_is_strict() -> None:
+    trigger_et = _PASS[3].start.astimezone(ET).time()
+    assert detect_day(_PASS, window_start=trigger_et, window_end=time(23, 59)).in_window is True  # type: ignore[union-attr]
+    assert detect_day(_PASS, window_start=time(0, 0), window_end=trigger_et).in_window is False  # type: ignore[union-attr]
+
+
+def test_selection_defaults_are_permissive() -> None:
+    """A caller configuring neither selects on shape alone — spikes and unit tests need that."""
+    d = detect_day(_PASS)
+    assert d is not None and d.in_price_band is True and d.in_window is True
