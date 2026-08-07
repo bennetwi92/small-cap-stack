@@ -22,7 +22,7 @@ Diagnose "why does the review page show X for `<SYMBOL> #<run>` on `<date>`?" Th
 2. Pull the annotation JSON (source 2). Note `entry`, `stop`, `entry_t`, saved `max_r`, `no_trigger`.
 3. Pull the exact bars the page draws (source 1): `build_charts(store, Settings(), date, now)` → the chart whose `opportunity_id` matches; use its `bars` (full day 04:00–16:00 ET).
 4. Reproduce the number the user is questioning:
-   - **Engine Max R** (`—`/None when not triggered): replay `compute_r_metrics(run.bars, settings, first_hit=run.first_hit)`; trace the appearance (#99/#122) and staleness (#130, 30 min) gates.
+   - **Engine Max R** (`—`/None when not triggered): replay `compute_r_metrics(day_bars, settings, first_hit=run.first_hit)` where `day_bars = day_chart_bars(bars, oid, settings)` — the **full day**, not `run.bars`. Every production caller does this; the run window ends when the scanner stops hitting, which truncates the trade and hides the exhaustion cycles `detect_day` counts across the day (#180). Passing `run.bars` changes the cycle standing on 6 of the 25 golden fixtures. Then trace the appearance (#99/#122) and staleness (#130, 30 min) gates.
    - **Annotation Max R** (the tap-drawn one): port `computeMaxR()` and run it on the day bars with the saved `entry/stop/entry_t`.
    Scripts: `scripts/analysis/probe_run.py` (bars + gate trace) and `scripts/analysis/probe_annotation_maxr.py` (annotation replay + fixed version). Pipe them in over SSH — set the env vars **on the remote side** (SSH does not forward local env):
    `ssh -i ~/.ssh/oracle_scs root@<host> "SYMBOL=SNDQ DATE=2026-07-02 docker exec -i -e SYMBOL -e DATE small-cap-stack-app-1 python -" < scripts/analysis/probe_run.py`
