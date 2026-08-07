@@ -8,6 +8,7 @@ import "./js/nav.js";
 import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
+import { el, setBanner, showError } from "./js/dom.js";
 import { esc, fmtShares, rRampClass } from "./js/fmt.js";
 
 const POLL_MS = 60_000;
@@ -22,7 +23,6 @@ const _etDateTime = new Intl.DateTimeFormat("en-US", {
 // en-CA renders YYYY-MM-DD — the ET trading date for the options bar.
 const _etDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" });
 
-const el = (id) => document.getElementById(id);
 const etTime = (iso) => (iso ? _etTime.format(new Date(iso)) + " ET" : "—");
 const etDateTime = (iso) => (iso ? _etDateTime.format(new Date(iso)) + " ET" : "—");
 
@@ -207,15 +207,14 @@ async function refresh() {
     ]);
     renderStatus(status);
     renderStats(stats);
-    el("error").hidden = true;
+    setBanner("error", "");
     el("et-date").textContent = _etDate.format(new Date());
     const now = new Intl.DateTimeFormat("en-US", {
       hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
     }).format(new Date());
     setStatusPage(`updated ${esc(now)}`);
   } catch (e) {
-    el("error").hidden = false;
-    el("error").textContent = "Failed to load dashboard data: " + e.message;
+    showError("error", "Failed to load dashboard data", e);
     setStatusPage("update failed");
   }
 }

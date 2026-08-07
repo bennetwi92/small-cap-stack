@@ -170,6 +170,30 @@ hours, not authoring speed (see the remote-work limits above).
 - `scripts/` — repo helpers (e.g. `board.sh`).
 - `deploy/` — host runbook + systemd units.
 
+## The dashboard frontend (`docs/`) — the HTML↔JS contract
+Each page is static HTML plus one ES module that reaches into it **by id** (`el("stats")`), with no
+build step and no framework. Nothing links the two halves at build time, so the contract is a rule:
+- **Touch both halves in the same PR.** Remove or rename an element and you remove or rename every
+  lookup of it — and vice versa. `tests/test_dashboard_dom.py` fails when a page's module graph
+  reaches for an id that page can't produce (static markup, injected markup, or an options-bar
+  field), so the permanent form of this mistake can't merge (#406).
+- **`el()` lives in `docs/js/dom.js`** — import it, never re-fork `document.getElementById`. It
+  throws a `MissingElementError` naming the id instead of returning null, and page error banners go
+  through its `showError`/`setBanner` so a front-end mismatch stops being reported as a data-feed
+  failure. The test enforces the no-fork rule too.
+- ⚠️ **Assets are cached for 10 minutes and are not versioned.** Pages serves HTML and JS with
+  `max-age=600`; a browser reload revalidates the navigation HTML while still serving the *script*
+  from cache. So for up to ~10 min after a deploy that changed the markup, a returning visitor can
+  run the **previous** JS against the **current** HTML — the page then dies on an element the new
+  markup doesn't have. **A self-consistent PR does not prevent this** (#403 removed `#charts-card`
+  from both halves and still produced `Cannot set properties of null (setting 'hidden')` in the
+  wild). It self-heals when the cache expires; a hard reload (Cmd/Ctrl-Shift-R) fixes it now, and
+  the banner says so. **Don't chase a post-deploy null-property error on a dashboard page as a box
+  or data outage** — check whether the markup changed in the last deploy first.
+- **There is no browser coverage in CI.** `make check` type-checks and tests Python only; nothing
+  loads a page. Frontend changes that alter the DOM want a manual smoke-load of every page —
+  index / review / results / portfolio / reports — because a broken one still ships green.
+
 ## Quick commands
 `make help` lists everything. Common ones: `make setup` (venv + deps), `make check` (all CI gates), `make lint` / `make fmt` / `make typecheck` / `make test`. Run `make check` before every push.
 
