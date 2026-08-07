@@ -611,6 +611,21 @@ too.
   EOD crons stay valid on a 13:00 close, so job times are unchanged; `early_close_et` exists for
   any consumer that does care about the close.
 
+### One "previous session", and `early_close_et` stays (2026-08-07, #514)
+
+- **`market_calendar.previous_session` is the only answer to "the session before `d`".** Two
+  existed and only one was right: `harvest` asked the calendar, while the EOD report walked back
+  over `weekday() >= 5` and admitted in its own docstring that it ignored holidays. That made the
+  report's news-recency window open on a **closed** day after every holiday — Thanksgiving Friday
+  looking back to a shut Thursday rather than to Wednesday's session, so Wednesday-evening
+  catalysts went unflagged. Nothing gates on news, so the only casualty was the EOD
+  `with_recent_news` count and `stats.json`; a wrong number in a report is still a wrong number.
+- **`early_close_et` stays, unwired — deliberately.** #514 asked for an explicit verdict on a
+  function with no `src/` callers. Phase 1 *cannot* use it: the scan window is pre-market and the
+  EOD crons are valid on a 13:00 close, which is exactly why it has none. It is three tested lines
+  that stop a future order-logic consumer assuming 16:00, and deleting it to re-derive it in Phase
+  2 is churn. Recorded here so the next audit finds an answer rather than the question again.
+
 ## Repo stays PUBLIC; automation stays $0 (DECISION 2026-07-17, #344)
 
 Deciding how to host the GitHub-native automation layer (`research/archive/github-automation.md`) under a

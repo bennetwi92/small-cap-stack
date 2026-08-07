@@ -53,8 +53,9 @@ def test_previous_session_on_a_plain_weekday() -> None:
 
 
 def test_previous_session_skips_the_weekend() -> None:
-    # Monday looks back to Friday — the case the weekday walk did get right.
-    assert previous_session(date(2026, 7, 6)) == date(2026, 7, 2)
+    # A weekend with no holiday attached — the case a weekday walk DID get right, and which
+    # nothing else here covers. (2026-06-29 is a Monday; 2026-06-26 the Friday before.)
+    assert previous_session(date(2026, 6, 29)) == date(2026, 6, 26)
 
 
 def test_previous_session_skips_a_holiday() -> None:
@@ -82,17 +83,9 @@ def test_previous_session_gives_up_rather_than_guessing() -> None:
     """A fortnight of overrides returns None instead of an arbitrary date. Callers decide what
     that means; silently returning a closed day is what this function exists to stop."""
     d = date(2026, 7, 20)
-    closed = tuple(d - timedelta(days=n) for n in range(1, 30))
-    assert previous_session(d, extra_closed=closed) is None
+    # Exactly at the bound: 13 closed days still finds the 14th, 14 gives up. Asserting the
+    # boundary rather than "somewhere past it" means silently widening the lookback fails here.
+    closed = lambda n: tuple(d - timedelta(days=k) for k in range(1, n))  # noqa: E731
+    assert previous_session(d, extra_closed=closed(14)) is not None
+    assert previous_session(d, extra_closed=closed(15)) is None
 
-
-def test_early_close_is_deliberately_unused() -> None:
-    """#514 asked for an explicit verdict on `early_close_et`, which has no `src/` callers: wire
-    it, or drop it and re-add in Phase 2. **Verdict: keep.**
-
-    `research/decisions.md` (2026-07-17) records it as the hook that stops a future consumer
-    assuming a 16:00 close, and the scan window is pre-market so nothing in Phase 1 *can* use it.
-    Deleting a documented, tested, correct three-line lookup to re-derive it under order logic is
-    churn. This test is the decision, so the next audit finds an answer rather than the question.
-    """
-    assert early_close_et(date(2026, 11, 27)) == time(13, 0)

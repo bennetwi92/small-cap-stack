@@ -204,7 +204,10 @@ def _news_recent(news_times: list[datetime], trading_date: date, s: Settings) ->
     every holiday the window started on a **closed** day: the Friday after Thanksgiving looked
     back to a shut Thursday instead of to Wednesday's session, so Wednesday-evening catalysts
     went unflagged. Nothing gates on news (CLAUDE.md), so this only ever mis-reported the EOD
-    `with_recent_news` count — but a wrong number in a report is still a wrong number."""
+    `with_recent_news` count — but a wrong number in a report is still a wrong number.
+
+    If the calendar finds no session in its lookback the window degenerates to the trade date
+    alone: narrower than intended, which under-counts, rather than opening onto closed days."""
     prior = previous_session(trading_date, extra_closed=s.calendar_closed_dates)
     # None means no session in a fortnight, which the real calendar never produces; falling back
     # to the trade date narrows the window rather than opening it onto arbitrary closed days.

@@ -42,9 +42,10 @@ def is_trading_day(d: date, *, extra_closed: Collection[date] = ()) -> bool:
     return bool(_xnys().is_session(d.isoformat()))
 
 
-#: How far back :func:`previous_session` will look. The longest XNYS closure on record is four
-#: consecutive sessions (2001-09-11), so a fortnight is generous even with several manual
-#: ``extra_closed`` overrides stacked on a holiday week.
+#: How far back :func:`previous_session` will look. The worst real gap is a Monday probing back
+#: over a weekend, a multi-session closure and another weekend — the longest in this calendar's
+#: own coverage is Sandy's two sessions (2012-10-29/30), giving ~5 calendar days. A fortnight
+#: absorbs that plus several stacked ``extra_closed`` overrides.
 _PREVIOUS_SESSION_LOOKBACK = 14
 
 
