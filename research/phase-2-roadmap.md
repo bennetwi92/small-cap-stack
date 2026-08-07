@@ -19,7 +19,7 @@ The **brain is built**; the **body is not**.
 - ❌ **No real-time data.** `marketdata.py:4`: *"the account's feed is ~15 min delayed, so bars are
   **not streamed**"*. `keepUpToDate` was deliberately removed as fragile.
 
-So `decisions.md` §230's framing — that only "simulate exit from bars" gets swapped for "place
+So `decisions.md` §D-21's framing — that only "simulate exit from bars" gets swapped for "place
 bracket + capture fill" — is true of the *sizing/selection brain* but understates the gap. Gates 5–7
 below are greenfield.
 
@@ -29,7 +29,7 @@ below are greenfield.
   fires every entry and exit itself; there are no broker-native stops before 09:30 ET. Switch to
   native stops/brackets in the regular session.
 - Engine **v2** is the live engine.
-- **≤2 concurrent positions, ≤2 entries/day**, $500 virtual book (`decisions.md` §230/#237).
+- **≤2 concurrent positions, ≤2 entries/day**, $500 virtual book (`decisions.md` §D-21/#237).
 - Box is **Ashburn, VA** (`deploy/RUNBOOK.md:17`) — ~10ms to IBKR's NY/NJ servers. App-side
   triggering can realistically react in ~10–25ms; **milliseconds are not achievable** from any
   app-side loop, so a faster feed means learning sooner, not acting sooner.

@@ -25,7 +25,7 @@ SHELL_FILES := scripts/backup.sh scripts/board.sh scripts/box-job.sh scripts/fet
 # would leave a delegated agent silently without a venv and unable to run `make check`.
 PYTHON ?= $(shell command -v python3.11 2>/dev/null || command -v python3)
 
-.PHONY: help setup lock lint lint-sh fmt fmt-check typecheck test cov check clean reports strategy fetch-fixtures
+.PHONY: help setup lock lint lint-sh fmt fmt-check typecheck test cov check clean reports strategy decisions fetch-fixtures
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -67,6 +67,9 @@ reports: ## Rebuild docs/reports/index.json from the report markdown (run after 
 
 strategy: ## Regenerate research/strategy.md from config.py (run after changing a rule)
 	$(PY) -m small_cap_stack.strategy_doc build
+
+decisions: ## Regenerate research/decisions.md's status index (run after adding a decision)
+	$(PY) -m small_cap_stack.decisions build
 
 fetch-fixtures: ## Pull a sanitized sample dataset into data/fixtures/ (set FIXTURES_URI)
 	./scripts/fetch_fixtures.sh

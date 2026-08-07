@@ -125,7 +125,10 @@ hours, not authoring speed (see "Working remotely" at the end of this file).
     Keep In Progress honest: if it hasn't moved this week it belongs in Todo or Backlog.
   - Set a field: `gh project item-edit --project-id <PROJ_ID> --id <itemId> --field-id <FIELD_ID> --single-select-option-id <optId>`.
 - **Record findings on the issue**, not just in chat — spikes/experiments get a results comment on their issue (`gh issue comment N`).
-- When a decision is made, update `research/decisions.md` (and memory).
+- When a decision is made, update `research/decisions.md` (and memory). Entries carry a stable
+  `D-nn` ID and a **`**Status:**` line** under the heading (`LIVE` / `SUPERSEDED` / `REVERSED`);
+  amending an older entry means updating *its* status line too, then `make decisions` to rebuild the
+  index. Cite a decision as `§D-nn`, never by line number.
 
 ## Spikes (de-risking experiments)
 - Throwaway harnesses live in `spikes/`; documented in `spikes/README.md`; exempt from mypy/tests but ruff-linted.
@@ -226,9 +229,10 @@ build step and no framework. Nothing links the two halves at build time, so the 
 
 ## Quick commands
 `make help` lists everything. Common ones: `make setup` (venv + deps), `make check` (all CI gates), `make lint` / `make fmt` / `make typecheck` / `make test`. Run `make check` before every push.
-Two generators keep committed files honest — **`make strategy`** after changing a rule in
-`config.py`, **`make reports`** after adding or editing a report. Both have a test that fails on a
-stale artefact, so forgetting costs a red CI rather than a wrong doc.
+Three generators keep committed files honest — **`make strategy`** after changing a rule in
+`config.py`, **`make reports`** after adding or editing a report, **`make decisions`** after adding
+or amending an entry in `research/decisions.md`. Each has a test that fails on a stale artefact, so
+forgetting costs a red CI rather than a wrong doc.
 
 ## Reports (published analyses)
 Ask for an analysis — *"write me a report on how often a wide stop costs us the trade"* — and it gets

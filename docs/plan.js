@@ -28,8 +28,8 @@ const POLL_MS = 5 * 60_000; // the plan moves in days; poll lazily
    The committed skeleton — names, windows, issue numbers
    ============================================================ */
 
-// The 3-month collection window (decisions.md §11). It is a **data readout**, not a gate: the
-// harvest overtook it as the sample of record, so nothing waits on this window closing (#49).
+// The 3-month collection window (decisions.md §D-01 row 11). It is a **data readout**, not a
+// gate: the harvest overtook it as the sample of record, so nothing waits on this window closing (#49).
 // Collection keeps running because the live leg is the only thing that can validate the
 // reconstructed one — and because 09:30–11:59 exists in live data and nowhere else.
 // The XNYS closures inside it — the app's calendar of record is `exchange_calendars` XNYS
