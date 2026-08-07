@@ -210,8 +210,13 @@ async function showReport(slug) {
     window.scrollTo(0, 0);
     setStatusPage(`reading ${report.slug}`);
   } catch (e) {
-    el("rp-doc-body").innerHTML = "";
+    // Report first, clear second (#515): the clear is cosmetic and must not outrank the message.
+    // (`#rp-doc-body` is written above, outside the try, so a *missing* body can't reach this
+    // particular handler — but the ordering rule holds whichever element goes absent, and the
+    // bare lookup costs nothing.)
     showError("rp-error", `Failed to load ${report.file}`, e);
+    const body = document.getElementById("rp-doc-body");
+    if (body) body.innerHTML = "";
   }
 }
 
@@ -234,11 +239,26 @@ function openReport(slug) {
   route();
 }
 
+// Every entry to this page funnels through here, and until #515 each one could throw into
+// nothing. `route()` is also the `popstate` listener, and it called `showReport` **un-awaited**:
+// a MissingElementError anywhere in the render became an unhandled rejection with no banner, so
+// the page simply stopped — the exact symptom this issue is about. `showReport`'s own try/catch
+// starts too late to help, opening only after `#rp-doc-title` / `#rp-doc-meta` / `#rp-doc-body`
+// have already been dereferenced.
 function route() {
   setBanner("rp-error", "");
   const slug = slugFromUrl();
-  if (slug) showReport(slug);
-  else showList();
+  try {
+    if (slug) {
+      // Deliberately not awaited — the markdown fetch is slow and `route` is a listener — so the
+      // rejection is caught explicitly instead of escaping to the console.
+      showReport(slug).catch((e) => showError("rp-error", "Failed to open the report", e));
+    } else {
+      showList();
+    }
+  } catch (e) {
+    showError("rp-error", "Failed to render the reports page", e);
+  }
 }
 
 window.addEventListener("popstate", route);
@@ -259,4 +279,6 @@ async function load() {
   route();
 }
 
-load();
+// A bare `load()` sends any throw inside it — including the `el("rp-count")` above its try — to
+// an unhandled rejection: no banner, no message, a page that just stops (#515).
+load().catch((e) => showError("rp-error", "Failed to load the reports page", e));

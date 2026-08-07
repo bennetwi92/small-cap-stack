@@ -263,3 +263,40 @@ def test_gap_pole_ships_enabled() -> None:
     """
     assert settings().bull_flag_gap_pole is True
     assert detect_day_with_settings(_GAP, settings(), None) is not None
+
+
+def test_vol_ratio_tolerance_is_a_strict_generalisation() -> None:
+    """`vol_peak_gt_cons` is a tolerance, not a boolean (#606).
+
+    The locked #127 rule asks whether the thrust carried more conviction than the pullback, but
+    `peak_vol > max(cons_vol)` made a 3.7% miss reject identically to a 90% one (SPRC 2026-05-28
+    fails at 0.9633 with every other gate comfortable, never stops out, runs +2.97R). At
+    `min_vol_ratio=1.0` the strict rule is reproduced exactly, so the knob only ever loosens.
+    """
+    # peak volume 96,000 against a 100,000 consolidation bar -> ratio 0.96
+    near = [
+        _b(0, 9.90, 10.00, 9.90, 9.95, 50_000),
+        _b(1, 10.50, 11.00, 10.50, 10.95, 96_000),  # the peak
+        _b(2, 10.85, 10.90, 10.70, 10.75, 100_000),  # consolidation trades MORE
+        _b(3, 10.80, 10.92, 10.78, 10.90, 120_000),
+    ]
+
+    def _vol_gate(setup: DaySetup) -> bool:
+        return next(g.passed for g in setup.gates if g.name == "vol_peak_gt_cons")
+
+    strict = detect_day(near, min_vol_ratio=1.0)
+    assert strict is not None and _vol_gate(strict) is False  # today's behaviour, unchanged
+
+    tolerant = detect_day(near, min_vol_ratio=0.95)
+    assert tolerant is not None and _vol_gate(tolerant) is True
+
+    # The tolerance is a band, not an off switch — a genuinely quiet thrust still fails.
+    quiet = [near[0], _b(1, 10.50, 11.00, 10.50, 10.95, 10_000), near[2], near[3]]
+    lax = detect_day(quiet, min_vol_ratio=0.95)
+    assert lax is not None and _vol_gate(lax) is False
+
+
+def test_the_shipped_vol_ratio_tolerance_is_pinned() -> None:
+    """A 5% band is a judgement about measurement noise on a 5-min volume bucket, and it admits
+    only 2 trades over 31 recon sessions — so a silent drift either way should fail here."""
+    assert settings().bull_flag_min_vol_ratio == 0.95

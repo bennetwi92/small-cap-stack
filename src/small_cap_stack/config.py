@@ -253,7 +253,16 @@ class Settings(BaseSettings):
     bull_flag_min_pole_pct: float = 0.02
     # Lookback for the trailing ATR baseline the pole's abnormality is measured against.
     bull_flag_atr_window: int = 14
-    bull_flag_max_retracement: float = 0.50  # reject flags retracing > this fraction of the pole
+    bull_flag_max_retracement: float = 0.50
+    # `vol_peak_gt_cons` as a tolerance rather than a boolean (#606). The locked #127 rule asks
+    # whether the thrust carried more conviction than the pullback, but testing
+    # `peak_vol > max(cons_vol)` made a 3.7% miss on a 5-minute volume bucket reject identically to
+    # a 90% one. SPRC 2026-05-28 fails at 0.9633 (peak 1,752,451 vs consolidation 1,819,266) with
+    # every other gate comfortable, never stops out and runs +2.97R. 1.0 reproduces the strict rule
+    # exactly. ⚠️ This admits 2 trades on 31 recon sessions — SPRC and CLPT 2026-06-17 — for +4.34R.
+    # n=2 is a coin flip, not an edge; it is a judgement that a 5% band is measurement noise on a
+    # volume bucket, not a change of the rule's intent.
+    bull_flag_min_vol_ratio: float = 0.95  # reject flags retracing > this fraction of the pole
     # Pole wick quality (#132): reject a pole whose peak (highest-high) bar closed weakly — upper
     # wick > this fraction of the bar's range. A clean thrust closes near its high; a wicky one
     # (AHMA/VRXA) is a no-trade. Whether the pole holds a big green candle is recorded, not gated.

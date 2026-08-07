@@ -33,6 +33,7 @@ def evaluate(
     max_peak_wick: float,
     min_pole_pct: float,
     max_retracement: float,
+    min_vol_ratio: float = 1.0,
     gate_window: bool = False,
 ) -> tuple[GateResult, ...]:
     """Ordered gate results for a feature vector. ``all(g.passed for g in ...)`` = accepted.
@@ -45,7 +46,12 @@ def evaluate(
     gates = [
         GateResult("pole_len", fv.pole_len <= max_pole, fv.pole_len),
         GateResult("cons_len", fv.cons_len <= max_cons, fv.cons_len),
-        GateResult("vol_peak_gt_cons", fv.peak_gt_cons, fv.vol_ratio),
+        # A tolerance, not a boolean (#606). The locked #127 rule asks whether the thrust carried
+        # more conviction than the pullback; testing `peak_vol > max(cons_vol)` made 0.9999 and 0.10
+        # indistinguishable, so a 3.7% miss on a 5-minute volume bucket rejected identically to a
+        # 90% one. `min_vol_ratio = 1.0` reproduces the strict rule exactly, so this is a strict
+        # generalisation and the default keeps the gate's name honest.
+        GateResult("vol_peak_gt_cons", fv.vol_ratio >= min_vol_ratio, fv.vol_ratio),
         GateResult("wick_peak", fv.peak_upper_wick <= max_peak_wick, fv.peak_upper_wick),
         # "No red candle in the pole" as an identify-and-reject gate rather than a detection skip
         # (#196). refine_pole keeps a red/flat-peaked pole so the trader sees the setup they'd read;
