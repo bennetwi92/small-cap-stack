@@ -10,13 +10,14 @@ from typing import Any
 from small_cap_stack.canary import build_canary
 from small_cap_stack.config import Settings
 from small_cap_stack.storage import Store
+from tests.support import settings
 
 _DAY = date(2026, 7, 17)
 _NOW = datetime(2026, 7, 17, 15, 0, tzinfo=UTC)
 
 
 def _settings(**overrides: Any) -> Settings:
-    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
+    return settings(**overrides)
 
 
 def _seed_opportunity(store: Store, symbol: str, con_id: int) -> str:

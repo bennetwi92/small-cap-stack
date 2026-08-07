@@ -12,10 +12,11 @@ from ib_async import ScannerSubscription, TagValue
 
 from small_cap_stack.config import Settings
 from small_cap_stack.scanner import Candidate, Scanner, build_subscription
+from tests.support import settings
 
 
 def _settings(**overrides: object) -> Settings:
-    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
+    return settings(**overrides)
 
 
 def _row(rank: int, symbol: str, con_id: int, exchange: str = "NASDAQ") -> SimpleNamespace:

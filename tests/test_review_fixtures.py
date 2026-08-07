@@ -20,10 +20,10 @@ import pytest
 from small_cap_stack.bullflag import detect_day_with_settings
 from small_cap_stack.capture import Bar
 from small_cap_stack.clock import ET
-from small_cap_stack.config import Settings
+from tests.support import settings
 
 _FIXTURES = sorted((Path(__file__).parent / "fixtures" / "review_cases").glob("*.json"))
-_SETTINGS = Settings()
+_SETTINGS = settings()
 
 
 def _outcome(bars: list[Bar], first_hit: datetime | None) -> dict[str, Any]:

@@ -9,12 +9,13 @@ import pytest
 from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from small_cap_stack.rmetrics import compute_r_metrics
+from tests.support import settings
 
 _T0 = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
 
 
 def _settings() -> Settings:
-    return Settings(_env_file=None)  # type: ignore[call-arg]
+    return settings()
 
 
 def _bar(i: int, o: float, h: float, low: float, c: float, vol: float = 1e3) -> Bar:

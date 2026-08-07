@@ -29,12 +29,13 @@ from small_cap_stack.dashboard_recon import (
 )
 from small_cap_stack.portfolio import open_recon_store
 from small_cap_stack.storage import Store
+from tests.support import settings
 
 _NOW = datetime(2026, 8, 6, 14, 0, tzinfo=UTC)
 
 
 def _settings(tmp_path: Path, **kw: object) -> Settings:
-    return Settings(_env_file=None, data_dir=tmp_path, **kw)  # type: ignore[call-arg]
+    return settings(data_dir=tmp_path, **kw)
 
 
 def _seed_day(store: Store, day: date, symbol: str) -> None:

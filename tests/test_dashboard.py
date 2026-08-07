@@ -25,6 +25,7 @@ from small_cap_stack.dashboard import (
 )
 from small_cap_stack.report import EodReport, OpportunityAnalysis
 from small_cap_stack.storage import Store
+from tests.support import settings
 
 _DAY = date(2026, 6, 29)
 _TS1 = datetime(2026, 6, 29, 13, 0, tzinfo=UTC)
@@ -317,7 +318,7 @@ def test_build_stats_from_report() -> None:
 
 
 def _settings() -> Settings:
-    return Settings(_env_file=None)  # type: ignore[call-arg]
+    return settings()
 
 
 def test_build_charts_shape(tmp_path: Path) -> None:
@@ -672,8 +673,7 @@ def test_write_json_if_changed_ignores_generated_utc_across_real_payloads(tmp_pa
 
 
 def _harvest_settings(tmp_path: Path) -> Settings:
-    return Settings(
-        _env_file=None,  # type: ignore[call-arg]
+    return settings(
         data_dir=tmp_path / "data",
         recon_subdir="recon",
         harvest_lookback_days=14,

@@ -37,6 +37,7 @@ from small_cap_stack.portfolio import (
     step_risk_rung,
     trade_costs,
 )
+from tests.support import settings
 
 ET = ZoneInfo("America/New_York")
 ET_UTC = UTC  # seeds store timestamps in UTC (the store's native tz), like test_report
@@ -51,7 +52,7 @@ def _s(**overrides: object) -> Settings:
     # An explicit override still wins, so a test that *does* want the full thing can ask.
     defaults: dict[str, object] = {"portfolio_projection_paths": 8}
     defaults.update(overrides)
-    return Settings(_env_file=None, **defaults)  # type: ignore[call-arg]
+    return settings(**defaults)
 
 
 def _bar(o: float, h: float, low: float, c: float, *, minute: int = 0, hour: int = 8) -> Bar:

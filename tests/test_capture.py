@@ -18,12 +18,13 @@ from small_cap_stack.config import Settings
 from small_cap_stack.fundamentals import Fundamentals
 from small_cap_stack.scanner import Candidate
 from small_cap_stack.storage import Store
+from tests.support import settings
 
 _TRADING_DATE = date(2026, 6, 29)
 
 
 def _settings(**o: object) -> Settings:
-    return Settings(_env_file=None, **o)  # type: ignore[call-arg]
+    return settings(**o)
 
 
 def _bar(minute: int) -> Bar:

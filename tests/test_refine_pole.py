@@ -20,7 +20,7 @@ from small_cap_stack.bullflag import (
 )
 from small_cap_stack.bullflag.gates import passed
 from small_cap_stack.capture import Bar
-from small_cap_stack.config import Settings
+from tests.support import settings
 
 _T0 = datetime(2026, 7, 1, 14, 0, tzinfo=UTC)
 
@@ -100,15 +100,15 @@ def test_max_pole_zero_disables() -> None:
 
 
 def test_token_eps_is_half_a_tick() -> None:
-    s = Settings()
+    s = settings()
     assert token_eps(s) == s.tick_size / 2 == 0.005
 
 
 def test_half_tick_eps_keeps_a_one_tick_move_directional() -> None:
     # At eps = 1 tick a +0.01 higher high is E; at half a tick it is a directional H (the SNDQ fix).
     bars = _bars([2.13, 2.14])  # +0.01 step
-    assert tokenize(bars, eps=Settings().tick_size) == ["E"]  # full-tick eps swallows it
-    assert tokenize(bars, eps=token_eps(Settings())) == ["H"]  # half-tick keeps it directional
+    assert tokenize(bars, eps=settings().tick_size) == ["E"]  # full-tick eps swallows it
+    assert tokenize(bars, eps=token_eps(settings())) == ["H"]  # half-tick keeps it directional
 
 
 # ---- peak_green gate (via a red-peaked segment) ----
