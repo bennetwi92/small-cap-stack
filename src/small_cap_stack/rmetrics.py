@@ -189,3 +189,102 @@ def compute_r_metrics(
         **shape,  # type: ignore[arg-type]
         **m,  # type: ignore[arg-type]
     )
+
+
+# --- #583: resolving a same-bar entry+stop against a finer grid ---------------------------------
+#
+# `_measure` above is pure over ONE bar grid and the 25 golden fixtures are written against it, so
+# the finer-grid question lives here as a separate pass rather than inside it. A second grid is a
+# second question.
+
+
+@dataclass(frozen=True)
+class EntryResolution:
+    """What a finer bar grid says about a 5-min bar that held both the trigger and the stop.
+
+    ``outcome`` is one of:
+
+    - ``"ran"`` — the trigger printed and the stop was NOT touched again before the bar closed. The
+      only outcome that changes anything: the conservative reading was wrong.
+    - ``"confirmed_stop"`` — the trigger printed, then the stop was taken later inside the same bar.
+      The conservative reading stands, now *evidenced* rather than assumed.
+    - ``"ambiguous_same_minute"`` — the filling minute's own low breached the stop. Irreducible at
+      this resolution; the conservative reading stands.
+    - ``"unresolved"`` — no finer bars, or the trigger never printed in them. Nothing to say.
+
+    **The trigger decides whether we are in, not the fill.** ``entry_fill`` is a deliberately
+    pessimistic *price* (breakout + 3 ticks); a marketable limit at the 1-tick trigger fills at or
+    better than it. Keying the search on the fill printing would call a real fire a non-event —
+    BIYA 2026-05-22 triggers at 08:57 on a 1.14 high while the 1.15 fill does not print until 09:04.
+    """
+
+    outcome: str
+    entry_at: datetime | None = None  # start of the minute that filled
+    entry_price: float | None = None  # the pessimistic fill, or the minute's open if it gapped past
+    stopped_at: datetime | None = None  # minute the stop was taken (``confirmed_stop`` only)
+    synthetic_bar: Bar | None = None  # ``ran`` only: the entry bar re-cut from the filling minute
+
+    @property
+    def ran(self) -> bool:
+        return self.outcome == "ran"
+
+
+def resolve_entry_bar(
+    minute_bars: Sequence[Bar],
+    *,
+    entry_trigger: float,
+    entry_fill: float,
+    stop: float,
+    bar_start: datetime,
+    bar_end: datetime,
+) -> EntryResolution:
+    """Resolve the order of entry and stop inside ``[bar_start, bar_end)`` using finer bars.
+
+    Stop-first is preserved at the finer resolution — this narrows the ambiguous window, it does not
+    remove it. A minute that spans both levels stays ``ambiguous_same_minute`` and keeps the
+    conservative answer; only tick data could settle those.
+    """
+    mins = sorted((b for b in minute_bars if bar_start <= b.start < bar_end), key=lambda b: b.start)
+    fill_i = next((i for i, b in enumerate(mins) if b.high >= entry_trigger), None)
+    if fill_i is None:
+        return EntryResolution("unresolved")
+
+    filled = mins[fill_i]
+    entry = max(entry_fill, filled.open)  # same gap-through rule `_measure` applies
+    if filled.low <= stop:
+        return EntryResolution("ambiguous_same_minute", entry_at=filled.start, entry_price=entry)
+
+    rest = mins[fill_i:]
+    hit = next((b for b in rest[1:] if b.low <= stop), None)
+    if hit is not None:
+        return EntryResolution(
+            "confirmed_stop", entry_at=filled.start, entry_price=entry, stopped_at=hit.start
+        )
+
+    # Ran. Re-cut the 5-min entry bar to span only the part of it we were actually in, opening at
+    # the realised fill so `_measure`'s `max(entry_level, bar.open)` reproduces that same entry.
+    return EntryResolution(
+        "ran",
+        entry_at=filled.start,
+        entry_price=entry,
+        synthetic_bar=Bar(
+            start=bar_start,
+            open=entry,
+            high=max(b.high for b in rest),
+            low=min(b.low for b in rest),
+            close=rest[-1].close,
+            volume=sum(b.volume for b in rest),
+        ),
+    )
+
+
+def measure_resolved_trade(
+    bars: Sequence[Bar], *, entry_fill: float, stop: float, entry_index: int
+) -> dict[str, object]:
+    """Public seam onto the same measurement :func:`compute_r_metrics` runs internally.
+
+    Exists so :mod:`portfolio.extract` can re-measure a trade whose entry bar was re-cut by
+    :func:`resolve_entry_bar` without re-running detection (the setup is unchanged; only the bar we
+    were actually in has moved) and without reaching for a private name.
+    """
+    return _measure(bars, entry_fill, stop, entry_index)
