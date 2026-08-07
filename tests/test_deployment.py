@@ -588,16 +588,29 @@ def test_runtime_deps_are_imported_or_explained() -> None:
 # ------------------------------------------------ every action is SHA-pinned (#547)
 
 #: `uses: owner/repo@ref`, ignoring local composite refs (`./.github/actions/...`), which are this
-#: repo's own files and move with the commit being run.
-_USES = re.compile(r"^\s*(?:-\s*)?uses:\s*(?!\./)(\S+)(.*)$", re.M)
+#: repo's own files and move with the commit being run. Quotes are stripped: a correctly-pinned
+#: `uses: "owner/repo@<sha>"` would otherwise keep its trailing quote and read as floating.
+_USES = re.compile(r"""^\s*(?:-\s*)?uses:\s*["']?(?!\./)([^"'\s]+)["']?(.*)$""", re.M)
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
+def _action_files() -> list[Path]:
+    """Every file that can carry a `uses:` — workflows **and composite actions**.
+
+    The composites matter more than the workflows, not less: `deploy-app` is invoked by `deploy.yml`
+    and `deploy-backfill-publish.yml`, both `[self-hosted, vps]`. A first draft of this scanned only
+    `.github/workflows/`, and adding a floating `uses:` to `deploy-app/action.yml` left all four
+    guards green — a third-party action running unpinned on the trading box, which is the exact
+    thing this section exists to stop.
+    """
+    gh = ROOT / ".github"
+    return sorted([*(gh / "workflows").glob("*.y*ml"), *gh.glob("actions/*/action.y*ml")])
+
+
 def _action_uses() -> list[tuple[str, str, str]]:
-    """(workflow, ref, trailing) for every third-party action the workflows run."""
+    """(file, ref, trailing) for every third-party action this repo runs."""
     out: list[tuple[str, str, str]] = []
-    wf_dir = ROOT / ".github" / "workflows"
-    for path in sorted([*wf_dir.glob("*.yml"), *wf_dir.glob("*.yaml")]):
+    for path in _action_files():
         for ref, trailing in _USES.findall(path.read_text()):
             out.append((path.name, ref, trailing))
     return out
@@ -628,7 +641,10 @@ def test_every_pin_keeps_the_version_comment_dependabot_reads() -> None:
     comment beside it. Drop the comment and the pin silently stops being updated — which is worse
     than floating: it looks deliberate while quietly ageing into an unpatched action."""
     missing = [
-        f"{wf}: {ref}" for wf, ref, trailing in _action_uses() if not re.search(r"#\s*v", trailing)
+        f"{wf}: {ref}"
+        for wf, ref, trailing in _action_uses()
+        # `v` followed by a digit — so a stray `# verified` can't stand in for a version.
+        if not re.search(r"#\s*v[\d.]", trailing)
     ]
     assert not missing, (
         "these pins have no `# vN` comment, so dependabot will not bump them:\n  "
@@ -636,20 +652,40 @@ def test_every_pin_keeps_the_version_comment_dependabot_reads() -> None:
     )
 
 
-def test_the_uses_scanner_sees_the_real_workflows() -> None:
-    """A regex that matched nothing would make both checks above pass on an empty list."""
+def test_the_uses_scanner_sees_every_file_that_can_carry_one() -> None:
+    """A regex that matched nothing would make every check above pass on an empty list.
+
+    Compared as a **set against the files themselves**, not as a `len() >= N` floor. The floor was
+    the first draft, and deleting two whole `uses:` lines from `pages.yml` left it green — the same
+    objection `test_every_workflow_contributes_to_the_job_inventory` raises about that form.
+    """
     uses = _action_uses()
-    assert len(uses) >= 20
-    assert {wf for wf, _, _ in uses} >= {"ci.yml", "deploy.yml", "harvest.yml", "build-image.yml"}
-    # The local composite actions are deliberately excluded, and they do exist.
-    wf_text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text()
-    assert "./.github/actions/" in wf_text
+    scanned = {wf for wf, _, _ in uses}
+    expected = {
+        p.name
+        for p in _action_files()
+        if re.search(r"""^\s*(?:-\s*)?uses:\s*["']?(?!\./)""", p.read_text(), re.M)
+    }
+    assert scanned == expected, "the scanner missed a file that carries a third-party `uses:`"
+    assert scanned >= {"ci.yml", "deploy.yml", "harvest.yml", "build-image.yml"}
+    # Composite action files are in scope (that is the gap #547's review found) even though none
+    # carries a third-party `uses:` today — so assert the file is really being read, not just
+    # globbed past.
+    assert (ROOT / ".github" / "actions" / "deploy-app" / "action.yml").is_file()
+    assert any(p.name == "action.yml" for p in _action_files())
+    # Local `./` composite REFERENCES stay excluded — they move with the commit being run.
+    assert "./.github/actions/" in (ROOT / ".github" / "workflows" / "deploy.yml").read_text()
     assert not any(ref.startswith("./") for _, ref, _ in uses)
 
 
 def test_no_action_runs_on_the_box_unpinned() -> None:
     """States the risk ordering the original posture got backwards, so it is checked rather than
-    remembered: whatever else is true, nothing floating may execute on the trading box."""
+    remembered: whatever else is true, nothing floating may execute on the trading box.
+
+    Strictly redundant while the check above is total — it cannot fail on its own — and kept
+    anyway. The pre-#547 state was exactly one pin, on the *hosted* runner and none on the box, so
+    the rule that was missing was never "pin things"; it was "the box is where it matters".
+    """
     box_workflows = {wf for wf, _, runs_on, _ in _workflow_jobs() if "self-hosted" in runs_on}
     assert box_workflows, "no self-hosted jobs found — has the runner label changed?"
     unpinned_on_box = [

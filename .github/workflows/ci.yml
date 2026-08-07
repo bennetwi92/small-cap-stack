@@ -33,9 +33,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      # `@v9.0.0`, not `@v9`: astral-sh stopped publishing floating major tags after v7, so a bare
-      # `v9` fails the job at "Prepare all required actions" before a single step runs. Bump this
-      # to the exact release tag, and check the tag exists first.
+      # The `# v9.0.0` comment says `v9.0.0`, not `v9`: astral-sh stopped publishing floating major
+      # tags after v7, so a bare `v9` fails the job at "Prepare all required actions" before a
+      # single step runs. Since #547 the ref itself is the commit SHA — dependabot rewrites the SHA
+      # and the comment together, so a manual bump means changing both and checking the tag exists.
       - name: Set up uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
