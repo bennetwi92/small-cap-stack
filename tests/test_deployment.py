@@ -66,6 +66,14 @@ def test_both_deploy_workflows_use_the_shared_action() -> None:
         assert "docker compose" not in w, f"{name} should delegate the deploy, not inline it"
 
 
+def test_delegation_loop_can_authenticate() -> None:
+    """`id-token: write` is what the agent exchanges for its GitHub token, so dropping it makes
+    every delegation a red X before any work happens (#499, and #370 before it). The job's
+    permissions are otherwise deliberately least-privilege (#348) — this one is load-bearing."""
+    w = (ROOT / ".github" / "workflows" / "claude.yml").read_text()
+    assert "id-token: write" in w
+
+
 def test_build_image_covers_every_main_commit() -> None:
     """deploy resolves the image by commit SHA, so a path-filtered main build would strand
     commits with no image to deploy (#265's SHA was exactly that case, #278)."""

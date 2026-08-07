@@ -60,6 +60,10 @@ jobs:
       pull-requests: write # open/update the PR, comment
       issues: write # comment on the driving issue
       actions: read # let the agent read CI results on its PR
+      # Not optional: the action exchanges an OIDC token for its GitHub token before it does
+      # anything, so without this every dispatch dies in setupGitHubToken having done no work
+      # (#499 — the same gap as #370, lost when the rollback took the automation layer out).
+      id-token: write
     steps:
       # Secrets aren't readable in a job-level `if`, so gate here: without the token every
       # dispatch is an inert warning, not a red X on the issue.
