@@ -22,7 +22,6 @@ from small_cap_stack.storage import Store
 from tests.support import settings
 
 _DAY = date(2026, 6, 29)
-_T0 = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)
 
 
 def _settings(tmp_path: Path) -> Settings:

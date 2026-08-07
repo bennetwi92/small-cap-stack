@@ -2,19 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-
 from small_cap_stack.bullflag import evaluate, extract, segment_at_end, tokenize
 from small_cap_stack.bullflag.features import FeatureVector
 from small_cap_stack.bullflag.gates import passed
-from small_cap_stack.capture import Bar
-
-_T0 = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)  # 10:00 ET -> in window
-
-
-def _bar(i: int, o: float, h: float, low: float, c: float, vol: float = 1000.0) -> Bar:
-    return Bar(start=_T0 + timedelta(minutes=5 * i), open=o, high=h, low=low, close=c, volume=vol)
-
+from tests.support import bar as _bar
 
 # Clean setup: retracement ~0.47, wick 0.1, pole_height ~0.41, peak vol > cons vol.
 _BARS = [

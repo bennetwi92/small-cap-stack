@@ -23,20 +23,20 @@ from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from tests.support import settings
 
+# A local anchor, deliberately not `support.T0`: nothing here depends on 08:00 vs 10:00 (both
+# are inside 04:00–11:59), but the flat 200k volume below is load-bearing, so this module
+# keeps its own builder and its own anchor rather than half-sharing.
 _T0 = datetime(2026, 6, 29, 12, 0, tzinfo=UTC)  # 08:00 ET — inside the scan window
 
 
-def _bar(i: int, o: float, h: float, low: float, c: float, volume: float = 200_000.0) -> Bar:
+def _bar(i: int, o: float, h: float, low: float, c: float, vol: float = 200_000.0) -> Bar:
     """The i'th 5-min bar of the toy day. Volume is flat, so the pole's peak bar ties with the
     consolidation's — `vol_peak_gt_cons` is strict, so the caller drops the consolidation's."""
-    return Bar(
-        start=_T0 + timedelta(minutes=5 * i), open=o, high=h, low=low, close=c, volume=volume
-    )
+    return Bar(start=_T0 + timedelta(minutes=5 * i), open=o, high=h, low=low, close=c, volume=vol)
 
 
 def _distinct_settings_at_tick(trigger_ticks: int) -> Settings:
-    return Settings(  # type: ignore[call-arg]
-        _env_file=None,
+    return settings(
         bull_flag_trigger_offset_ticks=trigger_ticks,
         bull_flag_min_pole_pct=0.0,  # the toy bars are a ~10% move, but keep the gate out of it
     )
@@ -136,7 +136,7 @@ def test_the_trigger_offset_moves_the_bar_that_fires_not_just_the_price() -> Non
     bars = [
         _bar(0, 1.00, 1.02, 0.99, 1.02),  # pole
         _bar(1, 1.02, 1.10, 1.02, 1.09),  # peak (green, closes strong)
-        _bar(2, 1.09, 1.09, 1.05, 1.06, volume=50_000.0),  # rest — lower high, breakout = 1.09
+        _bar(2, 1.09, 1.09, 1.05, 1.06, vol=50_000.0),  # rest — lower high, breakout = 1.09
         _bar(3, 1.06, 1.10, 1.06, 1.10),  # high reaches 1.10: exactly +1 tick over the breakout
     ]
     fires = day_mod.detect_day_with_settings(bars, _distinct_settings_at_tick(1), None)

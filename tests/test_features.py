@@ -8,12 +8,7 @@ import pytest
 
 from small_cap_stack.bullflag import extract, segment_at_end, tokenize, trailing_atr
 from small_cap_stack.capture import Bar
-
-_T0 = datetime(2026, 6, 29, 14, 0, tzinfo=UTC)  # 10:00 ET (EDT) -> inside the 04:00-11:59 window
-
-
-def _bar(i: int, o: float, h: float, low: float, c: float, vol: float = 1000.0) -> Bar:
-    return Bar(start=_T0 + timedelta(minutes=5 * i), open=o, high=h, low=low, close=c, volume=vol)
+from tests.support import bar as _bar
 
 
 def _hbar(i: int, high: float, vol: float = 1000.0) -> Bar:

@@ -526,22 +526,33 @@ select.opt-input option{ background:var(--panel); color:var(--ink); }
   min-height:0;
 }
 .pf-inspect[hidden]{ display:none; }
+/* Panels size to their content — except the chart, which takes everything left over.
+   ⚠️ Both that exception and the side panel's have to be written as CHILD selectors:
+   `.pf-inspect > .panel` is (0,2,0) and outranks a bare `.pf-insp-chart-panel` (0,1,0)
+   whatever the source order, so the plain class form lost silently and the chart stood
+   at its 180px minimum with the rest of the column empty beneath it. */
 .pf-inspect > .panel{ flex:0 0 auto; }
 .pf-insp-head .panel-h{ display:flex; align-items:center; gap:8px; }
 .pf-insp-actions{ display:flex; gap:4px; margin-left:auto; flex:0 0 auto; text-transform:none; }
 .pf-insp-actions .rv-btn.on{ color:var(--acc); border-color:var(--acc); }
 /* the readout rides in the chart panel's own heading — it IS that panel's subtitle */
 .pf-insp-readout{ text-transform:none; letter-spacing:0; font-weight:400; }
-.pf-insp-chart-panel{
+.pf-inspect > .pf-insp-chart-panel{
   flex:1 1 auto;
   display:flex;
   flex-direction:column;
   min-height:0;
 }
+/* The chart is `autoSize:true`, so it draws to whatever box this is — the panel filling the
+   column is the whole of what makes it tall. */
 .pf-insp-chart{ flex:1 1 auto; min-height:180px; position:relative; }
-/* a reconstructed session has no bars to draw — the panel says so instead of standing empty */
+/* a reconstructed session has no bars to draw — the panel says so instead of standing empty,
+   and stands down from filling the column so one sentence doesn't sit in a full-height box */
+.pf-inspect > .pf-insp-chart-panel.pf-insp-blank{ flex:0 0 auto; }
 .pf-insp-chart-panel.pf-insp-blank .pf-insp-chart{ display:none; }
-.pf-insp-side-panel{
+/* Capped rather than growing: the chart is what should absorb a tall window, so the side
+   panel takes what it needs up to a third of the screen and scrolls inside itself. */
+.pf-inspect > .pf-insp-side-panel{
   flex:0 1 auto;
   display:flex;
   flex-direction:column;
