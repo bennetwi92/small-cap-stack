@@ -5,7 +5,7 @@ See [`CLAUDE.md`](./CLAUDE.md) for the full working agreement (conventions, issu
 ## Dev setup
 ```bash
 make setup     # creates .venv, installs the package + dev tools (Python 3.11)
-make check     # runs all CI gates: lint, format-check, type-check, test
+make check     # runs all CI gates: lint, format-check, type-check, tests + coverage
 ```
 
 ## Workflow
