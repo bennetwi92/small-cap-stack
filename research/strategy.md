@@ -86,7 +86,7 @@ between §1 and §2.
 | Retracement | ≤ 50% of the pole | `bull_flag_max_retracement` |
 | Peak upper wick | ≤ 50% of the bar's range | `bull_flag_max_peak_wick` |
 | Peak colour | must close green | — the `peak_green` gate |
-| Peak volume | > the consolidation's highest bar | — the `vol_peak_gt_cons` gate |
+| Peak volume | ≥ 95% of the consolidation's highest bar | `bull_flag_min_vol_ratio` |
 | Consolidation low | > the pole base | — the `cons_holds_base` gate |
 | Trigger (decides *when*) | last consolidation high + 1 tick ($0.01) | `bull_flag_trigger_offset_ticks` |
 | Fill (R is measured here) | last consolidation high + 3 ticks ($0.03) | `bull_flag_fill_offset_ticks` |

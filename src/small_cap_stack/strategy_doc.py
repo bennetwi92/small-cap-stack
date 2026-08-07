@@ -158,7 +158,11 @@ def render_engine(s: Settings) -> str:
             _field("bull_flag_max_peak_wick"),
         ),
         _row("Peak colour", "must close green", "— the `peak_green` gate"),
-        _row("Peak volume", "> the consolidation's highest bar", "— the `vol_peak_gt_cons` gate"),
+        _row(
+            "Peak volume",
+            f"≥ {_pct(s.bull_flag_min_vol_ratio)} of the consolidation's highest bar",
+            _field("bull_flag_min_vol_ratio"),
+        ),
         _row("Consolidation low", "> the pole base", "— the `cons_holds_base` gate"),
         _row(
             "Trigger (decides *when*)",
