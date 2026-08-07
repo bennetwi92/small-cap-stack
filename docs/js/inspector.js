@@ -763,7 +763,6 @@ export function createChartView(container) {
     draw,
     clear: () => draw(null),
     current: () => current,
-    destroy: () => api.remove(),
 
     // engine overlay
     setEngineOn(on) {
@@ -771,15 +770,11 @@ export function createChartView(container) {
       engBands.refresh();
       engMarks.refresh();
     },
-    isEngineOn: () => engState.on,
     setEngineLevels,
 
     // annotation surface
     setAnnotations,
-    setBands: (bands) => bandPrim.setBands(bands),
     setPending: (time, color) => bandPrim.setPending(time, color),
-    setLine,
-    clearLine,
 
     // input
     onClick: (cb) => clickCbs.push(cb),

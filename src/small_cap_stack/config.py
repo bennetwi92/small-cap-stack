@@ -262,6 +262,9 @@ class Settings(BaseSettings):
     # Entry staleness (#130): a break more than this many minutes after the scanner appearance reads
     # as "faded" — the opportunity is no longer takeable (AHMA triggered ~1hr+ after the scan). Only
     # applies when the appearance (first_hit) is known; a large value disables the bound.
+    # The bound is INCLUSIVE (#586): a trigger bar opening at exactly +N min is still fresh, because
+    # this is a duration and not a deadline. See the comment at bullflag/day.py's staleness test,
+    # which contrasts it with the selection window's strict cutoff.
     entry_staleness_min: int = 30
 
     # --- Selection: which setups are TAKEABLE (#567) ------------------------------------------
