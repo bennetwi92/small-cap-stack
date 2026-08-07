@@ -1159,3 +1159,43 @@ landing, not a regression. `spikes/window_0400.py` re-runs the comparison.
 
 Compute-on-read means the whole history replays under the new floor on the next publish — no stored
 state to migrate, and reverting is one line.
+
+## DECISION 2026-08-07 (#608) — the selection price band widens to $1–$50 for collection
+
+**Temporary, and intended to be reversed.** `select_price_min` 2.00 → **1.00**, `select_price_max`
+20.00 → **50.00**, matching the scanner's own universe. The owner's stated intent is to shrink the
+band again once the record can say where it belongs.
+
+**Why.** Across two rounds of trader review on 2026-08-07 (27 opportunities), the price band was
+the **deciding rejection in 13 of them** — more than every shape gate combined. Nine sat below the
+$2 floor (SBFM ×2, BIYA, MTVA, QTEX, TGHL, SUNE, RKTO…), four above the $20 ceiling (AKAN $29.18,
+QBTS $21.46, BNAI $24.03, QURE $28.99, SMCI $46.12, MGM $48.33). Several were setups the trader
+read as clean trades: **MGM ran +6.79R with MAE 0.48R and never stopped out**; QTEX passes all eight
+shape gates at a $1.26 fill. Every pole fix, gate tolerance and stop refinement raised in that
+review is downstream of this rule — if the band is right, much of that work concerns names we would
+never trade. Phase 1 is a collection phase and the standing principle is *collect before you
+filter*; a narrow band means the record never learns whether those names were tradable.
+
+**⚠️ It costs the virtual book, and that was accepted, not overlooked.** 31 recon sessions,
+`target_r=2.0`, #583 entry-bar resolution on:
+
+| band | takeable | book trades | realized R | end equity | max DD | days over the 2/day cap |
+|---|---|---|---|---|---|---|
+| $2–$20 (2026-07-31 → 2026-08-07) | 25 | 22 | **+0.60** | $484.15 | 30.8% | 3 |
+| **$1–$50 (this decision)** | **46** | 39 | **−8.96** | **$312.01** | **45.7%** | 5 |
+
+The admitted names are worse on average than the ones already selected — which is what a selection
+rule that was doing something looks like. **Coverage was bought with performance on purpose.**
+Anyone reading the published book from 2026-08-07 needs that context; this table is the baseline
+the shrink-back decision should be measured against.
+
+**Supersedes #386** (2026-07-31), which raised the floor $1 → $2 as an owner's call on the book and
+explicitly *not* a cost argument — `research/broker-costs.md` §3 stood then and stands now. The
+scanner floor has been $1 throughout, so the two bands now coincide in value while remaining
+separate rules (the conflation #551 was about — `test_retired_price_bands_cannot_reappear` asserts
+their distinct rendered forms so a future merge of the two rows still fails).
+
+**⚠️ Invalidates prior costings.** Every cost figure in #602 / #604 / #605 / #606 / #607 was
+measured under $2–$20, and several read "0 takeable affected" *because the band hid the
+population* — most sharply #604, where 24 zero-range/halted consolidations exist (live sum −32.65R)
+and none was takeable under the old band. Re-cost each before implementing it.

@@ -1099,25 +1099,37 @@ def test_extract_day_trades_floor_is_inclusive(tmp_path: Path) -> None:
     assert cands[0].trigger_at.astimezone(ET).time() == time(5, 30)  # exactly on the floor
 
 
-def test_extract_day_trades_rejects_sub_2_dollar_entries(tmp_path: Path) -> None:
-    """Sub-$2 entries are out of the book's price band (#386, floor raised $1 → $2).
+def test_extract_day_trades_rejects_entries_below_the_price_floor(tmp_path: Path) -> None:
+    """The price floor rejects a sub-floor entry, and it is the floor doing the work.
 
-    The same setup scaled to a ~$1.53 fill: rejected on the default floor, accepted when the floor
-    is dialled back to the old $1 — so it is the price band doing the work, not a broken fixture."""
+    The floor has moved twice ($1 → $2 at #386, back to $1 at #608 for the collection phase), so
+    this asserts the *mechanism* against an explicit floor rather than against whichever value
+    happens to ship. The same setup is scaled below the floor, rejected, then accepted once the
+    floor is dialled under it."""
     from small_cap_stack.portfolio import extract_day_trades
     from small_cap_stack.storage import Store
 
     day = date(2026, 6, 29)
     store = Store(tmp_path)
-    # 0.25× the AZI setup → the $6.13 fill becomes ~$1.53, below the $2 floor but above the old $1.
+    # 0.25× the AZI setup → the $6.13 fill becomes ~$1.53.
     _seed_premarket(
         store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC), price_scale=0.25
     )
 
-    assert extract_day_trades(store, _s(), day) == []
+    assert extract_day_trades(store, _s(select_price_min=2.0), day) == []
     cands = extract_day_trades(store, _s(select_price_min=1.0), day)
     assert [c.symbol for c in cands] == ["AZI"]
     assert 1.0 <= cands[0].entry_fill < 2.0
+
+
+def test_the_shipped_price_band_is_the_collection_phase_band(tmp_path: Path) -> None:
+    """#608 widened the band to the scanner's own $1–$50 for the collection phase.
+
+    Pinned because it is a deliberate, temporary strategy decision that costs the virtual book
+    (25 → 46 takeable, +0.60R → −8.96R over 31 recon sessions) and is meant to be reverted. A
+    silent drift back would erase the experiment; a silent drift wider would go unnoticed."""
+    s = _s()
+    assert (s.select_price_min, s.select_price_max) == (1.0, 50.0)
 
 
 def test_extract_day_trades_excludes_configured_symbols(tmp_path: Path) -> None:

@@ -306,12 +306,26 @@ class Settings(BaseSettings):
     # into `passed` would report it as a malformed setup and throw the data away.
     #
     # Price band, tested against `entry_fill` (the conservative 3-tick fill, so a name is judged on
-    # the price the book would actually pay). Narrower than the $1–50 scan on purpose: sub-$2 and
-    # over-$20 names keep being captured, charted and scored, they just aren't selected. Floor
-    # raised $1 → $2 on 2026-07-31 (#386) as the owner's call on the book, NOT a cost argument —
-    # `research/broker-costs.md` §3 still stands and the scanner floor stays $1.
-    select_price_min: float = 2.0
-    select_price_max: float = 20.0
+    # the price the book would actually pay). **Widened to match the $1–50 scan on 2026-08-07
+    # (#608)** — deliberately temporary, for the collection phase, and the owner intends to shrink
+    # it again once the record can say where it belongs.
+    #
+    # Why: across 27 reviewed opportunities the band was the deciding rejection in 13 of them, more
+    # than every shape gate combined — including setups the trader read as clean trades (MGM ran
+    # +6.79R with MAE 0.48R and never stopped out; QTEX passes all eight shape gates at $1.26). A
+    # narrow band during collection means the record never learns whether those names were tradable.
+    #
+    # It costs the virtual book, and that is the accepted trade: over 31 recon sessions the takeable
+    # population goes 25 → 46 and realised R goes +0.60 → −8.96 (equity $484 → $312, max drawdown
+    # 30.8% → 45.7%). The admitted names are worse on average than the ones already selected, which
+    # is what a selection rule that was doing something looks like. Coverage was bought with
+    # performance on purpose — see research/decisions.md and #608 before reading the published book.
+    #
+    # History: floor was $1 until #386 raised it to $2 on 2026-07-31 (an owner's call on the book,
+    # NOT a cost argument — `research/broker-costs.md` §3 stands either way); the scan floor has
+    # been $1 throughout.
+    select_price_min: float = 1.0
+    select_price_max: float = 50.0
     # Trigger-time window: `start` <= trigger bar open < `end` (floor inclusive, cutoff strict).
     #
     # ⚠️ This is NOT the scan window. `scan_start`/`scan_end` (04:00–11:59) bound when the scanner
