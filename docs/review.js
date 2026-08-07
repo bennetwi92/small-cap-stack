@@ -16,7 +16,7 @@
 
 import "./js/nav.js";
 import { REPO, fetchJson } from "./js/data.js";
-import { el } from "./js/dom.js";
+import { el, showError } from "./js/dom.js";
 import { esc } from "./js/fmt.js";
 import {
   MK,
@@ -163,7 +163,7 @@ function drawSelected() {
   if (!c) {
     currentOpp = null;
     clearChart("No opportunities for this date.");
-    loadReview(null);
+    loadReview(null).catch(failLoad);
     updateAnnReadout();
     updateNewsButton(null);
     return;
@@ -172,7 +172,25 @@ function drawSelected() {
   currentOpp = c;
   updateNewsButton(c);
   applyVerdict(); // reset the toolbar/verdict surface (a prior opp may have left it disabled)
-  loadReview(c); // pull this opportunity's saved note + annotations + verdict (if any)
+  // Unawaited by design — the chart is already drawn and the review is an overlay on it. The
+  // catch is not optional though: a rejection here is a floating promise, and the annotations
+  // silently failing to appear is indistinguishable from an opportunity that has none (#508).
+  loadReview(c).catch(failLoad);
+}
+
+// Report a failed load in both places this page's user looks: the banner, and the readout strip
+// that serves as its status line (#508).
+//
+// The banner goes first and through `showError`, which resolves its own node with a bare lookup —
+// a handler that throws while reporting an error reports nothing at all. `clearChart` is guarded
+// because it goes through `el()`.
+function failLoad(err) {
+  const msg = showError("rv-error", "Failed to load review data", err);
+  try {
+    clearChart(msg);
+  } catch {
+    /* the readout is itself missing — the banner above already carries the message */
+  }
 }
 
 // Load a trading date's chart file, repopulate the symbol dropdown, and draw the first opportunity.
@@ -778,7 +796,7 @@ el("rv-date").addEventListener("change", (e) => {
     e.target.value = currentDate;
     return;
   }
-  loadDate(e.target.value);
+  loadDate(e.target.value).catch(failLoad);
 });
 el("rv-symbol").addEventListener("change", (e) => {
   if (!confirmDiscard()) {
@@ -848,4 +866,9 @@ window.addEventListener("beforeunload", (e) => {
 });
 updateSaveState(); // paint the Save controls' initial (clean) label
 
-init();
+// #508: `init()` is async, so an unhandled rejection here used to leave the workbench showing its
+// initial "loading…" readout forever — no banner, no hint, nothing in the page to distinguish a
+// failed fetch from a slow one. `showError` also gives a MissingElementError its own wording, so a
+// stale cached script isn't reported as a data-feed outage. `clearChart` puts the same text where
+// this page's user is actually looking: the readout strip is its status line.
+init().catch(failLoad);

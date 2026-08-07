@@ -21,6 +21,12 @@
     <header id="appbar" class="appbar"></header>
 
     <div class="rv-wrap">
+      <!-- The page's error banner (#508). Every other cockpit page had one; this
+           one didn't, so a failed index.json — or the stale-asset skew dom.js
+           exists to name — left the workbench silently dead. Hidden costs no
+           layout, which matters on a page built to give the chart every pixel. -->
+      <p id="rv-error" class="error" hidden></p>
+
       <!-- Top control bar (#142) in options-bar clothing: same IDs, same
            elements — review.js populates and drives them itself. -->
       <div class="optbar rv-optbar">
