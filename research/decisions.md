@@ -952,3 +952,71 @@ share count), no news, and no saved review (the workbench annotates live opportu
 link is hidden rather than pointed at a page that would load empty). The appearance time is a
 *reconstruction* — the live gates replayed over the minute tape — not an observed scanner hit.
 
+---
+
+## Open Drive — a second strategy for the 09:30 open (DECISION 2026-08-02, #418)
+
+Spec: [`open-drive.md`](./open-drive.md). Measurement:
+`docs/reports/2026-08-02-the-0930-open-a-second-strategy.md`. Harness: `spikes/open_drive_sweep.py`.
+
+The engine trades the pre-market only. The time-of-day report (#387) measured the tape's forward
+excursion peaking at 09:00–10:00 (+8.5% / +5.6% median 60-min upside, against +1.1% at 04:00–06:00)
+with **170×** the pre-market's median $/bar, and the engine putting 32 of its 787 triggers there.
+Its recommendation #4 was to look harder at that window. This is the result of doing so.
+
+**The strategy — an opening-range breakout with a consolidation requirement.** The 09:30–09:35 bar
+is the opening range (green, body larger than both wicks combined); the 09:35–09:40 bar is a
+consolidation of it (less volume, shorter); entry is one tick above the consolidation high from
+09:40, R is measured against a 3-tick fill, the stop is the consolidation low. **One trade a day,
+first to trigger.** The 5/5 split is locked: expectancy falls monotonically as the trigger moves
+later — +0.436R at 5/5, +0.227R at 10/5, −0.034R at 5/10, **−0.794R at 15/5**.
+
+**The universe is symbols on the scanner strictly before the trigger fires.** This is not a gate or
+a treatment but the definition of what could have been traded, applied before anything is counted
+and relaxed by no variant. Where a length moves the trigger later its cutoff moves with it, so
+lengths are compared on different — each legitimately tradable — populations. Companion to the
+#379 no-lookahead rule: that one governs *selection* (first-to-trigger, never best-of-day), this one
+governs *population*.
+
+**Decision: specified, not traded.** Over 2026-07 (22 days with bars, 46 candidates on 13 days) the
+book returns **+5.67R over 13 trades at 53.8% wins** — and on its own $500 ends the month at
+**$497.67**. Three findings drive the decision:
+
+1. **The R cannot be monetised at $500.** `size_position`'s notional cap binds whenever the stop is
+   tighter than `risk_fraction / position_fraction` = 10% of entry. The bull-flag's stops run a
+   median 13.9% and are usually risk-bound; Open Drive's run **1–7%**, so it is cap-bound on **10 of
+   13** trades, each risking 2.46% of equity against a configured 5%. At 20% risk and a 100% cap
+   every trade is cap-bound for +7.1% and a 21.5% drawdown. This is a capital constraint, not a
+   failure of the setup — the mirror image of #416, where the cap was dormant because stops were wide.
+2. **No individual rule is defensible at this sample.** None of ten pre-registered contrasts survives
+   Holm on the 215-setup ungated population (best raw p = 0.080, `price ≥ $5`). All four gates point
+   the right way; none separates from noise. No fitted threshold cleared its permissive default
+   either, so **the strategy is exactly as the trader stated it, with nothing tuned**.
+3. **It must not share the adaptive book.** Slotting it in costs **$218** of end equity and 3.4R,
+   because the daily target re-fit and the risk ladder see the merged candidate stream — so the
+   merged book's *bull-flag* leg is no longer the one that was measured. At a fixed 2R it adds
+   +3.67R and still costs $20. If ever traded it needs its own book and its own target fitting.
+
+**Two of the trader's stated rules were dropped**, not demoted to score terms: the consolidation
+being "more wicky" than the opening candle (P(≥2R) 19% either way) and the opening bar's relative
+volume (RVOL>1 → RVOL>10 moved the population 137 → 119 with flat statistics). The RVOL result
+carries a caveat — the store has no average daily volume, so the only baseline available was the
+same morning's pre-market, and for a news gapper the opening bar is nearly always the session's
+largest. Revisit if ADV is ever captured.
+
+**If it is traded**, the capital shape is: `portfolio_max_trades_per_day` stays **2** — slot 1
+pre-market bull-flag, slot 2 Open Drive, fractions 0.50/0.50 — preserving the settled-cash
+invariant (`0.50 × 2 = 1.0`) and satisfying the good-faith rule ($250 + $250 ≤ $500) by construction.
+
+**Two structural notes.** Open Drive is **immune to prefix instability**, the "sleeper" risk in
+`phase-2-roadmap.md`: its two candles are fixed by the clock and final at 09:40, so live and replay
+cannot diverge — unlike the bull-flag's longest-valid segmentation over a growing window. It would
+also be the first strategy able to use **broker-native brackets**, trading after the bell rather
+than under the pre-market limit-only constraint (#37).
+
+**Open.** The largest caveat is that the store holds **5-min bars only**, so the shortest expressible
+opening range is five minutes; on 1-min bars this is a different setup with tighter stops, which
+would sharpen the entries and worsen the sizing problem at once. Also open: a real RVOL baseline;
+the float direction (**+0.226R for ≥20M here**, against the live `float_max_shares < 20M` gate, and
+against `float-vs-max-r`'s tail finding); and a re-run at 60+ days when collection completes
+~2026-10-01. Nothing here is established — 13 trades, expectancy interval −0.40R to +1.26R.
