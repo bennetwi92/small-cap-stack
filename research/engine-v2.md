@@ -141,10 +141,11 @@ def tokenize(bars: Sequence[Bar], *, eps: float) -> list[Token]:
     """One token per bar after the first, comparing high[i] to high[i-1] within eps."""
 ```
 
-- `eps` = flatness tolerance. ⚠️ **Half** a tick on the live path — `tokens.py::token_eps` returns
+- `eps` = flatness tolerance. ⚠️ **Half** a tick — `tokens.py::token_eps` returns
   `settings.tick_size / 2`, *derived* from `tick_size` rather than passed down as a setting of its
   own (see §14). This paragraph said "1 tick, passed down from settings" until #534; #196 reversed
-  the value and there has never been a knob.
+  the value and there has never been a knob. **Both** detectors read it: the end-anchored wrapper
+  ran at a full tick through a dead `getattr` until #513.
 - `H` if `high[i] > high[i-1] + eps`; `L` if `high[i] < high[i-1] - eps`; else `E`.
 - Length invariant: `len(tokenize(bars)) == max(0, len(bars) - 1)`.
 
@@ -397,8 +398,9 @@ cycle. `DaySetup` carries the segment, features, entry-trigger/entry-fill/stop, 
 Differences from stages 1–4 (all validated in review):
 
 - **eps = half a tick.** A genuine one-tick higher high extends the pole; only a truly-flat top
-  (Δhigh = 0) is `E` (#196/SNDQ). Reverses the "1-tick wobble = E" default of stage 1 for the v2
-  path.
+  (Δhigh = 0) is `E` (#196/SNDQ). Reverses the "1-tick wobble = E" default of stage 1. This was a
+  difference *between the two detectors* until #513 — accidentally, via a `getattr` on a setting
+  that never existed — and is now simply the engine's value.
 - **Red/flat peak → identify-and-reject, not skip.** `segment.refine_pole` keeps a red-peaked pole
   (it is the setup the trader reads); the new **`peak_green` gate** rejects it. The old "red peak →
   None, keep searching" made the greedy walk wander to a junk later pole (#196/OPEN, IRE).
