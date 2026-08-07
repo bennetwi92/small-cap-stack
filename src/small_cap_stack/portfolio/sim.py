@@ -50,6 +50,7 @@ def _skipped(
         max_gain_pct=c.max_gain_pct,
         same_bar_stop=c.same_bar_stop,
         fill_above_entry_bar_high=c.fill_above_entry_bar_high,
+        entry_resolution=c.entry_resolution,
         source=c.source,
     )
 
@@ -162,6 +163,7 @@ def _take_day(
                 max_gain_pct=c.max_gain_pct,
                 same_bar_stop=c.same_bar_stop,
                 fill_above_entry_bar_high=c.fill_above_entry_bar_high,
+                entry_resolution=c.entry_resolution,
                 source=c.source,
             )
         )

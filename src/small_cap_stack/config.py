@@ -229,6 +229,14 @@ class Settings(BaseSettings):
     # these lived only as `detect_day` defaults and the values here were stale fiction — the live
     # detector never read them. They are now the single source of truth for both detectors.
     bull_flag_max_pole: int = 4  # cap on the higher highs counted as the pole
+    # Minimum share of the pole's advance each EXTENSION bar must carry (#585). A bar that ticks
+    # higher but adds almost nothing to the move is a quiet pause, not thrust, and it inflates
+    # pole_len while deflating pole_velocity and the score (AKAN 2026-05-22: 08:00 contributed 6.8%
+    # against 32% and 61% for the real thrust bars). Deliberately a WITHIN-POLE share: on a frozen
+    # pre-market tape every trailing-relative measure is inflated, and each alternative tested ranks
+    # AKAN's quiet bar above the WULF extension a reviewed fixture keeps. 0.0 disables it.
+    # The admissible window is only (0.0677, 0.1058) — one observation at each end, so provisional.
+    bull_flag_pole_min_step_share: float = 0.08
     bull_flag_max_cons: int = 4  # max consolidation candles
     # Minimum meaningful pole move (#176, `research/bull-flag.md §3.4`): a "pole" that rises less
     # than this fraction of its base is noise, not a thrust. A loose floor — the abnormality signal
@@ -256,8 +264,9 @@ class Settings(BaseSettings):
     bull_flag_fill_offset_ticks: int = 3
     # Exhaustion (engine-v2 full-day detector, #102/#211): reject entry on the (cap+1)'th contiguous
     # significant pump/fade cycle of the day — "entering the third cycle is entering an exhausted
-    # opportunity" (trader). A cycle counts if its pole carries a green thrust bar and a bar clears
-    # scan_min_5m_volume // 2, and it abuts the run (see bullflag.cycles).
+    # opportunity" (trader). A cycle counts if its pole carries a green thrust bar and a bar
+    # ANYWHERE IN THE CYCLE — pole or fade (#582) — clears scan_min_5m_volume // 2, and it abuts
+    # the run (see bullflag.cycles).
     bull_flag_exhaustion_cap: int = 2
     # Entry staleness (#130): a break more than this many minutes after the scanner appearance reads
     # as "faded" — the opportunity is no longer takeable (AHMA triggered ~1hr+ after the scan). Only

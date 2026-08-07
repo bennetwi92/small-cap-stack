@@ -132,6 +132,15 @@ def render_engine(s: Settings) -> str:
             f"≥ {_pct(s.bull_flag_min_pole_pct)}",
             _field("bull_flag_min_pole_pct"),
         ),
+        _row(
+            "Pole step minimum",
+            (
+                f"each extension bar carries ≥ {_pct(s.bull_flag_pole_min_step_share)} of the pole"
+                if s.bull_flag_pole_min_step_share > 0
+                else "disabled"
+            ),
+            _field("bull_flag_pole_min_step_share"),
+        ),
         _row("Consolidation", f"≤ {s.bull_flag_max_cons} candles", _field("bull_flag_max_cons")),
         _row(
             "Retracement",
@@ -169,7 +178,7 @@ def render_engine(s: Settings) -> str:
         ),
         _row(
             "Cycle volume floor",
-            f"{s.scan_min_5m_volume // 2:,} (a cycle counts only above this)",
+            f"{s.scan_min_5m_volume // 2:,} (any bar in the cycle, pole or fade)",
             _field("scan_min_5m_volume") + " // 2",
         ),
         _row("Tick size", _money(s.tick_size), _field("tick_size")),

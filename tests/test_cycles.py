@@ -146,6 +146,58 @@ def test_significant_needs_a_green_bar_and_volume_together() -> None:
     assert significant_cycles(bars, [_cycle(0, 2)], _FLOOR) == [_cycle(0, 2)]
 
 
+# ---- #582: volume is measured over the WHOLE cycle, thrust only over the pole ----
+
+
+def _cycle_with_fade(pole_start: int, peak: int, cons_end: int) -> Cycle:
+    """A cycle whose consolidation actually spans bars, so pole and whole-cycle spans differ.
+
+    ``_cycle`` above sets ``cons_end = peak + 1`` against a 3-bar list, so its two spans clamp to
+    the same slice — which is why the pre-#582 tests pass unchanged either way.
+    """
+    return Cycle(
+        pole_start=pole_start, peak=peak, cons_start=peak + 1, cons_end=cons_end, breakout=None
+    )
+
+
+def test_significant_counts_volume_in_the_fade_not_just_the_pole() -> None:
+    """QUCY 2026-05-18: a quiet green thrust that then DUMPS is an exhausting cycle (#582).
+
+    Pole bar 1 is green but at 13k it is a quarter of the floor; the fade dumps 137k. Measuring
+    volume over the pole alone dropped the cycle and under-counted the day's exhaustion by one.
+    """
+    bars = [
+        _bar(0),
+        _bar(1, vol=13_000, green=True),  # the quiet thrust
+        _bar(2, vol=73_000, green=False),  # the dump...
+        _bar(3, vol=64_000, green=False),  # ...continues
+    ]
+    cycle = _cycle_with_fade(0, 1, 3)
+    assert significant_cycles(bars, [cycle], _FLOOR) == [cycle]
+
+
+def test_significant_still_requires_thrust_in_the_pole_however_loud_the_fade() -> None:
+    """The two tests read different spans: a fade can never *make* a move a pump."""
+    bars = [
+        _bar(0),
+        _bar(1, vol=13_000, green=False),  # no green thrust anywhere in the pole
+        _bar(2, vol=500_000, green=False),
+        _bar(3, vol=500_000, green=False),
+    ]
+    assert significant_cycles(bars, [_cycle_with_fade(0, 1, 3)], _FLOOR) == []
+
+
+def test_significant_drops_a_cycle_quiet_across_pole_and_fade_alike() -> None:
+    """Widening the window must not admit everything — a genuinely tiny blip still fails."""
+    bars = [
+        _bar(0),
+        _bar(1, vol=5_000, green=True),
+        _bar(2, vol=4_000, green=False),
+        _bar(3, vol=3_000, green=False),
+    ]
+    assert significant_cycles(bars, [_cycle_with_fade(0, 1, 3)], _FLOOR) == []
+
+
 # ---- contiguous_prior_cycles / prior_cycle_count ----
 
 
