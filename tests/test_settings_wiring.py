@@ -7,6 +7,12 @@ failed — the engine simply ignored the config, and the two detectors disagreed
 
 These tests fail loudly if a knob is ever added to ``Settings`` (or to a detector) without being
 wired through, which is the only way that class of bug gets caught.
+
+That claim was an overclaim until #513: the forwarding checks walk a hand-kept ``_SHARED`` dict, so
+a new field was only caught if a human also remembered to add it there — and ``eps`` never was, so
+the end-anchored detector spent a year resolving a ``getattr`` on a ``Settings`` field that has
+never existed. ``test_every_engine_knob_is_read_by_a_detector`` now derives the coverage from
+``Settings`` itself, so the docstring is true by construction rather than by diligence.
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ import pytest
 from small_cap_stack.bullflag import day as day_mod
 from small_cap_stack.bullflag import gates as gates_mod
 from small_cap_stack.bullflag import setup as setup_mod
+from small_cap_stack.bullflag.tokens import token_eps
 from small_cap_stack.capture import Bar
 from small_cap_stack.config import Settings
 from tests.support import settings
@@ -194,7 +201,7 @@ _RETIRED_SETTINGS_NAMES = {
     "bull_flag_max_flag": "renamed to bull_flag_max_cons in #302, no alias kept",
     "bull_flag_eps_ticks": (
         "never a Settings field — the live value is derived in bullflag/tokens.py::token_eps, but "
-        "the name IS still getattr-referenced by setup.py's end-anchored wrapper (#513)"
+        "the getattr that referenced this name in setup.py was removed in #513"
     ),
     "bull_flag_score_weights": "never existed — bullflag/score.py::DEFAULT_WEIGHTS (#534)",
 }
@@ -226,6 +233,91 @@ def test_the_specs_only_name_settings_fields_that_exist() -> None:
         + "\nEither add the field and wire it through detect_day_with_settings, or point the doc "
         "at where the value really lives (see _RETIRED_SETTINGS_NAMES for the pattern)."
     )
+
+
+_WRAPPERS = (
+    (day_mod, "detect_day_with_settings"),
+    (setup_mod, "detect_setup_with_settings"),
+)
+
+
+def _settings_attrs_read_by(module: object, func_name: str) -> set[str]:
+    """Every ``settings.<attr>`` the named wrapper's source touches, read from the AST.
+
+    Attribute names rather than call-args on purpose: the wrapper may forward a field directly
+    (``max_pole=settings.bull_flag_max_pole``) or derive from it (``trigger_offset_ticks * tick``),
+    and both count as wired. What must never happen is a field nothing reads at all.
+    """
+    source = Path(module.__file__).read_text()  # type: ignore[attr-defined]
+    func = next(
+        n
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.FunctionDef) and n.name == func_name
+    )
+    return {n.attr for n in ast.walk(func) if isinstance(n, ast.Attribute)}
+
+
+def test_every_engine_knob_is_read_by_a_detector() -> None:
+    """The module docstring's promise, made true (#513).
+
+    `_SHARED` above is hand-kept, so a new `Settings` field was only caught if a human also
+    remembered to add it there — and one didn't get caught: `eps` was resolved through a `getattr`
+    on `bull_flag_eps_ticks`, a name that has never existed, so the end-anchored detector silently
+    ran at a full tick while the live one ran at half. This derives the check instead: every
+    `bull_flag_*` field must be read by at least one settings wrapper.
+
+    "At least one", not both — `bull_flag_min_pole` is end-anchored-only (the day detector's pole
+    comes from its cycle walk) and `bull_flag_pole_min_step_share` / `bull_flag_exhaustion_cap` are
+    day-only. A knob read by neither is dead config: it looks tunable and does nothing.
+    """
+    read: set[str] = set()
+    for module, func_name in _WRAPPERS:
+        read |= _settings_attrs_read_by(module, func_name)
+    knobs = (f for f in Settings.model_fields if f.startswith("bull_flag_"))
+    unwired = sorted(f for f in knobs if f not in read)
+    assert not unwired, (
+        f"{unwired} are Settings fields no detector reads — either wire them through "
+        "detect_day_with_settings / detect_setup_with_settings, or delete them. A knob that "
+        "does nothing is worse than no knob: it reads as the source of truth."
+    )
+
+
+def test_no_detector_reads_settings_through_a_getattr_fallback() -> None:
+    """`getattr(settings, "name", default)` is how #302's bug and #513's survivor both hid: the
+    name is a string, so nothing — not mypy, not the tests above — notices it doesn't exist, and
+    the silent default becomes the real rule. Read the attribute directly and let it fail loudly."""
+    offenders: list[str] = []
+    for module, func_name in _WRAPPERS:
+        source = Path(module.__file__).read_text()  # type: ignore[attr-defined]
+        func = next(
+            n
+            for n in ast.walk(ast.parse(source))
+            if isinstance(n, ast.FunctionDef) and n.name == func_name
+        )
+        for node in ast.walk(func):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) == 3
+            ):
+                offenders.append(f"{func_name}:{node.lineno}")
+    assert not offenders, (
+        f"three-argument getattr on settings in {offenders} — the default silently becomes the "
+        "rule when the name is wrong, which is exactly how #513 survived #302."
+    )
+
+
+def test_both_detectors_tokenise_at_the_same_eps() -> None:
+    """#513: they didn't. The live path used `token_eps` (half a tick, #196/SNDQ — a genuine +0.01
+    higher high must extend the pole); the end-anchored wrapper resolved a `getattr` on a field
+    that doesn't exist and got a full tick. Measured over the 25 committed review fixtures, that
+    disagreement changed 193 of 3403 end-anchored prefixes and moved 20 accepted setups."""
+    s = _distinct_settings()
+    with patch.object(setup_mod, "detect_setup", return_value=None) as spy:
+        setup_mod.detect_setup_with_settings([], s)
+    assert spy.call_args.kwargs["eps"] == token_eps(s)
+    assert token_eps(s) == s.tick_size / 2  # derived, not a knob — nothing to add to Settings
 
 
 def test_the_retired_names_have_not_quietly_come_back() -> None:

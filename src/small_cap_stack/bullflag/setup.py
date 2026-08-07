@@ -25,7 +25,7 @@ from .features import FeatureVector, extract, trailing_atr
 from .gates import GateResult, evaluate, passed
 from .score import DEFAULT_WEIGHTS, score
 from .segment import Segment, segment_at_end
-from .tokens import tokenize
+from .tokens import token_eps, tokenize
 
 
 @dataclass(frozen=True)
@@ -112,6 +112,13 @@ def detect_setup_with_settings(bars: Sequence[Bar], settings: Settings) -> Setup
     ``getattr`` fallbacks named ``Settings`` fields that did not exist, so the 2% pole floor
     silently evaluated at ``0.0`` (off) and the two detectors disagreed.
 
+    One of those fallbacks outlived #302 and was only found in the 2026-08 audit (#513): ``eps``
+    read ``getattr(settings, "bull_flag_eps_ticks", 1)`` for a field that has never existed, so it
+    always resolved to a **full** tick while the live path used ``token_eps`` (half a tick, #196).
+    The paragraph above was therefore false for a year. It now calls ``token_eps`` directly — the
+    two detectors genuinely agree, and there is no name to add to ``Settings`` because the value is
+    derived from ``tick_size``.
+
     The entry TRIGGER uses ``bull_flag_trigger_offset_ticks`` (1 tick, validated via visual review,
     #182/#190); the FILL used for R uses ``bull_flag_fill_offset_ticks`` (3 ticks, conservative
     slippage, confirmed by the trader). Both are v2-only concepts.
@@ -128,7 +135,7 @@ def detect_setup_with_settings(bars: Sequence[Bar], settings: Settings) -> Setup
         atr_window=settings.bull_flag_atr_window,
         entry_offset=settings.bull_flag_trigger_offset_ticks * tick,  # v2-only, no legacy fallback
         fill_offset=settings.bull_flag_fill_offset_ticks * tick,  # v2-only, no legacy fallback
-        eps=getattr(settings, "bull_flag_eps_ticks", 1) * tick,
+        eps=token_eps(settings),  # half a tick, same as the live path (#196/#513)
         window_start=settings.scan_start,
         window_end=settings.scan_end,
     )
