@@ -2,6 +2,18 @@ name: spike-massive
 
 # Spike #428: historical scanner-hit reconstruction + backtest replay via Massive (ex-Polygon).
 #
+# STATUS (2026-08-07, #550): **superseded, retained as the calibration harness.** The spike's
+# question is answered and productionised — `src/small_cap_stack/harvest/` is the live producer,
+# run nightly on the box by `scs-harvest.timer`. #428 is still open and the three harnesses this
+# dispatches (`selftest` / `calibrate` / `replay`) still exist, so this is not orphaned: it is the
+# only path that re-measures the vendor against what the live scanner actually saw, and it does so
+# through a DIFFERENT code path to the vendor than `harvest/` uses — which is the point of a
+# calibration. It retires when #428 does; until then, expect it to be dispatched rarely and by
+# hand. See #543 for the harnesses' own retirement.
+#
+# ⚠️ It is also the second surface holding `MASSIVE_API_KEY`, so it stays in scope for any
+# secret rotation even though it runs a few times a year.
+#
 # Venue decision (issue #428, first comment): this spike talks to a PUBLIC HTTPS API, so the
 # Mac-only constraint that governs IBKR spikes does not apply. It runs from a Claude Code
 # web/mobile session instead — the session authors the harness and dispatches this workflow, the

@@ -54,8 +54,23 @@ on:
         required: false
         default: false
 
-# Serialise against the standalone workflows' groups so a pipeline run never overlaps a lone
-# deploy/backfill/publish on the box.
+# Shares `deploy-vps` with deploy.yml, so a pipeline run and a lone deploy cannot overlap.
+#
+# ⚠️ It does NOT serialise against backfill-dashboard.yml (`backfill-dashboard`) or
+# publish-dashboard.yml (`publish-dashboard`), which the previous version of this comment claimed.
+# What actually prevents those from overlapping is the runner: there is exactly ONE, executing one
+# job at a time, so a `*/15` cron publish queues rather than races.
+#
+# The residual hazard is *interleaving*, not concurrency: this pipeline is three separate jobs, so
+# a queued publish can slot between its backfill and its publish and push a partially-backfilled
+# tree. That self-heals on the next 15-minute cycle — worst case a quarter-hour of stale dashboard
+# JSON, no data loss — which is why this is left as a comment rather than fixed.
+#
+# A shared `box-vps` group across all four workflows would remove even that, but it is not free:
+# publish-dashboard.yml sets `cancel-in-progress: true`, and under a shared group a scheduled
+# publish would cancel an in-flight DEPLOY. Making this true means flipping that to `false` first,
+# and then scheduled publishes queue behind long jobs instead of superseding each other. Weigh
+# that against fifteen minutes of stale JSON before changing it.
 concurrency:
   group: deploy-vps
   cancel-in-progress: false

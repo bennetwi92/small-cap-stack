@@ -982,3 +982,86 @@ def test_the_sc1090_suppression_is_load_bearing() -> None:
         "the suppression is justified by the path being runtime-resolved; if that changed, "
         "re-examine whether the disable is still needed"
     )
+
+
+# ------------------------------------------------ concurrency comments stay true (#550)
+
+
+def _concurrency() -> dict[str, tuple[str, bool]]:
+    """`{workflow: (group, cancel_in_progress)}` for every workflow that declares one."""
+    out: dict[str, tuple[str, bool]] = {}
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
+        text = path.read_text()
+        block = re.search(r"^concurrency:\s*\n((?:[ \t#].*\n|\s*\n)+)", text, re.M)
+        if not block:
+            continue
+        group = re.search(r"^\s+group:\s*(\S.*?)\s*$", block.group(1), re.M)
+        cancel = re.search(r"^\s+cancel-in-progress:\s*(true|false)", block.group(1), re.M)
+        if group:
+            out[path.name] = (group.group(1), bool(cancel and cancel.group(1) == "true"))
+    return out
+
+
+def test_the_pipeline_shares_a_group_with_the_standalone_deploy_and_nothing_else() -> None:
+    """`deploy-backfill-publish.yml`'s comment used to claim it serialised against the standalone
+    deploy, backfill AND publish. It shares a group with the deploy only (#550) — what actually
+    stops the other two overlapping is that there is exactly ONE self-hosted runner, executing one
+    job at a time, so a `*/15` cron publish queues rather than races.
+
+    The corrected comment now says that, and this keeps it true: if the groups are ever unified or
+    split differently, the prose describing them has to move with them.
+    """
+    groups = _concurrency()
+    assert groups["deploy.yml"][0] == "deploy-vps"
+    assert groups["deploy-backfill-publish.yml"][0] == "deploy-vps", (
+        "the pipeline must share the standalone deploy's group, or two deploys can interleave"
+    )
+    assert groups["backfill-dashboard.yml"][0] != "deploy-vps"
+    assert groups["publish-dashboard.yml"][0] != "deploy-vps"
+
+
+def test_no_workflow_sharing_a_group_cancels_in_progress_runs() -> None:
+    """The trap behind "just give them all one group", written down so it can't be walked into.
+
+    `publish-dashboard.yml` sets `cancel-in-progress: true` and runs on a `*/15` cron. Put it in a
+    shared `box-vps` group with the deploy and a scheduled publish would **cancel an in-flight
+    deploy** — mid-`docker compose up`, on the box. Cancelling is safe only while its group is its
+    own, so the two settings have to be checked together rather than one at a time.
+    """
+    groups = _concurrency()
+    by_group: dict[str, list[str]] = {}
+    for name, (group, _) in groups.items():
+        by_group.setdefault(group, []).append(name)
+    offenders = [
+        f"{name} (group {group!r}, shared with {sorted(set(by_group[group]) - {name})})"
+        for name, (group, cancel) in groups.items()
+        if cancel and len(by_group[group]) > 1
+    ]
+    assert not offenders, (
+        "a workflow that cancels in-progress runs must not share its concurrency group — it would "
+        "cancel the OTHER workflow's run, not just its own:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_concurrency_parser_reads_the_real_workflows() -> None:
+    """A regex that matched nothing would make both checks above pass on an empty dict."""
+    groups = _concurrency()
+    assert len(groups) >= 8, f"only found {len(groups)} concurrency blocks"
+    assert groups["publish-dashboard.yml"] == ("publish-dashboard", True)
+    assert groups["deploy.yml"] == ("deploy-vps", False)
+
+
+def test_no_workflow_still_claims_to_be_blocked_on_the_runner_issue() -> None:
+    """#6 closed on 2026-06-29 and the runner has been live since. Two workflow headers went on
+    saying "blocked on #6 … this workflow is inert" for five weeks while deploying routinely — the
+    kind of stale prose that teaches a reader to distrust the comments that ARE load-bearing.
+
+    Scoped to the *claim*, not the issue number: the corrections quote the old wording, and a
+    check that banned the string would ban its own record.
+    """
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
+        text = path.read_text()
+        assert "PREREQUISITE (blocked on #6" not in text, f"{path.name} still claims to be blocked"
+        assert "this workflow is inert" not in text.replace(
+            'header used to say "blocked on #6 … this workflow is inert"', ""
+        ), f"{path.name} still claims to be inert"

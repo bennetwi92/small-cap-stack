@@ -7,9 +7,13 @@ name: deploy
 # ports open and no SSH key ever lives in the ephemeral Claude Code container. Trigger from the
 # phone with the GitHub UI / MCP "Run workflow" (workflow_dispatch).
 #
-# PREREQUISITE (blocked on #6): the VM must exist with a self-hosted runner registered and
-# labelled [self-hosted, vps]. Until then this workflow is inert — it only ever runs on manual
-# dispatch, so it will not queue or fail on its own.
+# The runner: one self-hosted runner, `hetzner-vps`, labelled [self-hosted, vps] (#6, closed
+# 2026-06-29). It has been live since then and this workflow deploys through it routinely — the
+# header used to say "blocked on #6 … this workflow is inert", which was true for about a day.
+#
+# It executes ONE job at a time, which is worth knowing before reading the concurrency groups:
+# jobs across workflows queue behind each other on the box rather than racing. `deploy/RUNBOOK.md`
+# §11 covers what to do when it goes offline (busy).
 
 on:
   workflow_dispatch:
