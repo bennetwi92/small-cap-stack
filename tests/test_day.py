@@ -10,9 +10,11 @@ from __future__ import annotations
 from datetime import time, timedelta
 
 from small_cap_stack.bullflag import DaySetup, detect_day
+from small_cap_stack.bullflag.day import detect_day_with_settings
 from small_cap_stack.capture import Bar
 from small_cap_stack.clock import ET
 from tests.support import T0 as _T0
+from tests.support import settings
 
 
 def _b(i: int, o: float, h: float, low: float, c: float, v: float = 100_000.0) -> Bar:
@@ -248,3 +250,16 @@ def test_a_first_bar_that_is_already_part_of_a_pole_is_not_a_gap_pole() -> None:
     assert with_gap is not None and without is not None
     assert (with_gap.segment.base_idx, with_gap.segment.peak_idx) == (0, 1)
     assert with_gap.segment == without.segment  # the knob changes nothing here
+
+
+def test_gap_pole_ships_enabled() -> None:
+    """#598: #587 shipped this off, costed on trades gained. That was the wrong measure.
+
+    With it off the engine skips a first-bar pole and anchors to a later fragment instead, then
+    publishes the fragment's measurement as the rejection reason — 0 of the 34 affected recon
+    setups passed, at a median retracement of 1.193 (a value above 1.0 means the "consolidation"
+    fell through the bottom of the "pole"). `passed` is supposed to answer whether the flag is
+    well-formed, so that number was fiction. Pinned here because a default is a strategy decision.
+    """
+    assert settings().bull_flag_gap_pole is True
+    assert detect_day_with_settings(_GAP, settings(), None) is not None
