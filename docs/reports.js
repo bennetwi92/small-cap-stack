@@ -210,8 +210,12 @@ async function showReport(slug) {
     window.scrollTo(0, 0);
     setStatusPage(`reading ${report.slug}`);
   } catch (e) {
-    el("rp-doc-body").innerHTML = "";
+    // Report first, clear second (#515). `el` throws, so if the failure being handled IS a
+    // missing `#rp-doc-body`, clearing it first re-throws over the top of the original error and
+    // the banner never gets written. The clear is cosmetic — don't let it outrank the message.
     showError("rp-error", `Failed to load ${report.file}`, e);
+    const body = document.getElementById("rp-doc-body");
+    if (body) body.innerHTML = "";
   }
 }
 

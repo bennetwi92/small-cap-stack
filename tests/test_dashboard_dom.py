@@ -186,6 +186,57 @@ def test_pages_share_one_dom_helper() -> None:
     assert not forked, f"{forked} define a local `el`; import it from js/dom.js instead"
 
 
+def _catch_bodies(src: str) -> list[tuple[int, str]]:
+    """`(line, body)` for every `catch (…) { … }` in a module, brace-matched."""
+    out: list[tuple[int, str]] = []
+    for match in re.finditer(r"\}\s*catch\s*\([^)]*\)\s*\{", src):
+        depth, start = 0, match.end() - 1
+        for i in range(start, len(src)):
+            if src[i] == "{":
+                depth += 1
+            elif src[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    out.append((src.count("\n", 0, match.start()) + 1, src[start : i + 1]))
+                    break
+    return out
+
+
+def test_no_error_handler_can_throw_over_the_error_it_reports() -> None:
+    """`el()` throws by design, so calling it inside a `catch` can re-throw over the failure being
+    handled — and the failure most likely to reach a `catch` on these pages is exactly the one
+    `el` raises: a stale-asset `MissingElementError` (#515).
+
+    When that happens the user sees **nothing**: no banner, no message, a blank panel. `plan.js`
+    hand-rolled `el("pl-error").textContent = …` in its catch, and `reports.js` cleared
+    `el("rp-doc-body")` before reporting. `setBanner`/`showError` resolve their node with a bare
+    `getElementById` precisely so a missing banner stays silent instead of shouting over the
+    message it was asked to deliver.
+
+    Comments are stripped first, so the prose explaining all this cannot trip its own check.
+    """
+    offenders: list[str] = []
+    for path, src in _js_sources().items():
+        for line, body in _catch_bodies(src):
+            code = re.sub(r"//[^\n]*", "", body)
+            if re.search(r"(?<![\w.])el\(", code):
+                offenders.append(f"{path}:{line}")
+    assert not offenders, (
+        "these catch blocks call the throwing `el()`; use setBanner/showError (or a bare "
+        "getElementById) so the handler can't outlive its own error:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_catch_scanner_finds_a_real_block() -> None:
+    """Brace-matching that silently matches nothing makes the check above vacuous."""
+    src = 'try { a(); } catch (e) { el("x"); }\ntry { b(); } catch (err) { ok(); }'
+    bodies = _catch_bodies(src)
+    assert len(bodies) == 2
+    assert 'el("x")' in bodies[0][1] and "el(" not in bodies[1][1]
+    # And the real corpus has catch blocks at all — otherwise the guard scans an empty set.
+    assert sum(len(_catch_bodies(s)) for s in _js_sources().values()) > 5
+
+
 # ------------------------------------------------------------- memoised fetches (#509)
 # There is no browser coverage in CI, so a promise-cache bug has no runtime test to catch it.
 # These are structural, which is weak — but the failure they guard is permanent-until-reload
