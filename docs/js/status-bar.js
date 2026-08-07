@@ -8,9 +8,9 @@
 import { fetchJson } from "./data.js";
 import { esc } from "./fmt.js";
 import { sessionNow, etClockNow } from "./session.js";
+import { STALE_PUBLISH_MS } from "./thresholds.js";
 
 const POLL_MS = 60_000;
-const STALE_MS = 30 * 60 * 1000;
 
 const SESS_LABEL = { pre: "PRE", open: "OPEN", closed: "CLOSED" };
 
@@ -76,7 +76,7 @@ function renderStatus(s) {
   setField("#sb-window", svc.in_scan_window ? "in-window" : "off-window");
   setField("#sb-commit", "commit " + esc(svc.deployed_commit || "—"));
   renderTick(s);
-  const stale = s.generated_utc && Date.now() - new Date(s.generated_utc).getTime() > STALE_MS;
+  const stale = s.generated_utc && Date.now() - new Date(s.generated_utc).getTime() > STALE_PUBLISH_MS;
   setField("#sb-data", `data ${esc(etTime(s.generated_utc))} (${esc(ago(s.generated_utc))})`,
     stale ? "sb-warn" : "");
 }

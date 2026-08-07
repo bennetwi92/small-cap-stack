@@ -19,14 +19,10 @@ import { fetchJson } from "./js/data.js";
 import { el } from "./js/dom.js";
 import { issueStates, issueUrl } from "./js/gh.js";
 import { esc, fmtPct, fmtPctPlain, fmtRSigned } from "./js/fmt.js";
+import { HARVEST_STALE_H, STALE_PUBLISH_MS } from "./js/thresholds.js";
 
 const POLL_MS = 5 * 60_000; // the plan moves in days; poll lazily
 
-// Hours without the harvest checkpoint moving before the panel calls it stalled. The job runs
-// nightly, so anything past ~36h means a night produced nothing — the only failure signal there
-// is, since the harvest is deliberately off the tracker's dead-man's switch and its unit finishing
-// with nothing to do looks identical to its having died (#450). Same threshold as the home page.
-const HARVEST_STALE_H = 36;
 
 /* ============================================================
    The committed skeleton — names, windows, issue numbers
@@ -558,7 +554,7 @@ function renderChecks(c, book, status) {
   const gap = c.missing.length;
   const published = status && status.generated_utc;
   const ageMs = published ? Date.now() - new Date(published).getTime() : null;
-  const stale = ageMs == null || ageMs > 60 * 60_000;
+  const stale = ageMs == null || ageMs > STALE_PUBLISH_MS;
   const atTopRung = next ? next.rung >= next.n_rungs - 1 : false;
   const throttleOff = next ? next.n_rungs <= 1 : false; // one rung = no ladder to walk (#474)
 
@@ -650,7 +646,9 @@ function renderChecks(c, book, status) {
       sub: `last session collected · published ${ago(published)}`,
       status: stale ? "STALE" : "FRESH",
       tone: stale ? "warn" : "ok",
-      title: "Publish runs every 15 minutes; anything over an hour old means the box or the workflow is behind.",
+      title:
+        `Publish runs every 15 minutes; anything over ${STALE_PUBLISH_MS / 60_000} minutes ` +
+        "old means the box or the workflow is behind.",
     }),
   ];
   el("pl-checks").innerHTML = rows.join("");
