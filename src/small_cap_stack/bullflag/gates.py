@@ -6,8 +6,9 @@ feature becomes one
 results (not just a bool) lets the review page show **which** gate rejected a shape and by how much.
 
 ``loc_in_window`` is optional (``gate_window``) and **off by default**: the trading-window check
-lives in the pipeline's appearance gate (``gates.py`` at the package root, #122) instead, so gating
-it here too would double-gate the same rule.
+lives in the selection tier (``day.py``'s ``in_window`` / ``select_window_start``, #567), so
+gating it here too would double-gate the same rule. It once pointed at a `trading_window_gate`
+in the root ``gates.py``; that was unused scaffolding, deleted in #517.
 """
 
 from __future__ import annotations
