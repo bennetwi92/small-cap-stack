@@ -1,7 +1,7 @@
 """One-off admin command: (re)generate the dashboard JSON for a past trading date.
 
 The EOD job (:meth:`app.Application._on_eod_report`) is normally the only writer of
-``stats.json`` / ``charts.json`` — so a day whose EOD ran on code that predated a dashboard
+``stats.json`` / ``charts/<date>.json`` — so a day whose EOD ran on code that predated a dashboard
 feature (e.g. the annotated charts, #113) has no such artifact and would otherwise only appear
 after the *next* EOD. This command rebuilds those files for an explicit date directly from the
 store, so the box can back-fill a day on demand without waiting for 16:30 ET.
@@ -59,19 +59,19 @@ def regenerate(
 ) -> tuple[int, int]:
     """Rebuild one date's dashboard artifacts; return (opportunities, charts).
 
-    Writes ``stats.json`` + the legacy single-day ``charts.json`` (existing dashboard), the
-    never-overwritten ``charts/<date>.json``, and refreshes ``index.json`` for this date (#141).
+    Writes ``stats.json`` + the never-overwritten ``charts/<date>.json``, and refreshes
+    ``index.json`` for this date (#141).
     """
     settings = settings or get_settings()
     store = store or Store(settings.data_dir)
     now_utc = now_et().astimezone(UTC)
     out = settings.data_dir / "dashboard"
 
+    (out / "charts.json").unlink(missing_ok=True)  # retire the pre-#519 undated file
     report = build_eod_report(store, settings, trading_date)
     write_json(out / "stats.json", build_stats(report, now_utc))
 
     charts = build_charts(store, settings, trading_date, now_utc)
-    write_json(out / "charts.json", charts)
     write_json(charts_path(out, trading_date), charts)
     write_json(
         out / "index.json",
@@ -113,23 +113,19 @@ def regenerate_archive(
 
     Populates the review workbench's date picker from day one — enumerates every past date with
     captured bars, writes each ``charts/<date>.json``, and rebuilds ``index.json`` across all of
-    them. Also refreshes the newest date's ``stats.json`` + legacy ``charts.json`` so the existing
-    single-day dashboard lands on the latest session. Returns (dates, total charts)."""
+    them. Also refreshes the newest date's ``stats.json``. Returns (dates, total charts)."""
     settings = settings or get_settings()
     store = store or Store(settings.data_dir)
     now_utc = now_et().astimezone(UTC)
     out = settings.data_dir / "dashboard"
 
+    (out / "charts.json").unlink(missing_ok=True)  # retire the pre-#519 undated file
     dates = collected_dates(store)
     entries: list[dict[str, Any]] = []
     total_charts = 0
-    latest_charts: dict[str, Any] | None = None
     for d in dates:
         charts = build_charts(store, settings, d, now_utc)
         write_json(charts_path(out, d), charts)
-        # `dates` is ascending, so the final iteration's payload is the newest session's — keep it
-        # for the legacy charts.json below rather than rebuilding the most expensive date twice.
-        latest_charts = charts
         # Reduce the date to its index row and drop the payload: accumulating every date's full
         # charts (all bars for all opportunities, all dates) purely to build the index retained the
         # archive for no reason. This removes ONE O(archive) retention — it does not make --all
@@ -154,10 +150,9 @@ def regenerate_archive(
         ),
     )
 
-    if dates and latest_charts is not None:  # keep the legacy dashboard on the newest session
+    if dates:  # land the summary panels on the newest session
         report = build_eod_report(store, settings, dates[-1])
         write_json(out / "stats.json", build_stats(report, now_utc))
-        write_json(out / "charts.json", latest_charts)
 
     log.info(
         "dashboard.archive_backfill_done",

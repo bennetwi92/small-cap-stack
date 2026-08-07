@@ -1,6 +1,6 @@
 name: backfill-dashboard
 
-# Phone-triggerable one-off: (re)generate the dashboard JSON (stats.json / charts.json / dated
+# Phone-triggerable one-off: (re)generate the dashboard JSON (stats.json / dated
 # charts/<date>.json + index.json) straight from the store in the app's docker volume. Use it for a
 # single past trading date whose EOD ran on code that predated a dashboard feature (e.g. annotated
 # charts #113) so its artifact is missing, or with `all: true` to backfill the whole archive at once

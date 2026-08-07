@@ -221,7 +221,7 @@ class Application:
     def _refresh_stats_charts(self, now: datetime) -> None:
         """Catch-up refresh of the EOD stats/charts on the tick (best-effort).
 
-        The 16:30 ET ``eod_report`` cron is no longer the *only* writer of stats.json/charts.json.
+        The 16:30 ET ``eod_report`` cron is no longer the *only* writer of the stats/chart JSON.
         Once the day's bars are in (>= ``eod_bars_fetch``) each tick rebuilds today's stats/charts,
         so the dashboard advances to the completed session even when that single job was missed —
         e.g. a deploy/restart after 16:30 would otherwise leave it stuck on yesterday until the next
@@ -238,24 +238,32 @@ class Application:
             log.warning("dashboard.refresh_failed", exc_info=True)
 
     def _export_stats_charts(self, report: EodReport, now_utc: datetime) -> None:
-        """Write stats.json + charts.json + the dated review payload for ``report``.
+        """Write stats.json + the dated chart payload for ``report``.
 
         Best-effort, content-diffed. Shared by the EOD job and the tick refresh. Skips a report with
         no opportunities so a non-trading day never overwrites the last completed session the
-        dashboard shows all day. Besides the legacy single-day ``charts.json`` (existing dashboard),
-        it publishes the never-overwritten ``charts/<date>.json`` and refreshes ``index.json`` so
-        the review workbench (#141) can navigate back through every collected day.
+        dashboard shows all day. It publishes the never-overwritten ``charts/<date>.json`` and
+        refreshes ``index.json`` so the review workbench (#141) can navigate back through every
+        collected day.
+
+        There is no undated ``charts.json`` (#519) — nothing ever read it; every reader resolves
+        ``charts/<date>.json`` via ``docs/js/inspector.js::chartsUrl``.
         """
         if not self.settings.dashboard_enabled or not report.analyses:
             return
         out = self.settings.data_dir / "dashboard"
+        # Retire the file this used to write (#519). Nothing deletes from /data/dashboard and
+        # `publish-dashboard` copies the whole directory, so without this the box would keep
+        # force-pushing a 2.7 MB payload every 15 minutes — now frozen at the last pre-#519 EOD,
+        # which is worse than the stale-but-moving file it replaced. Safe to delete this line
+        # once the box has run it once.
+        (out / "charts.json").unlink(missing_ok=True)
         try:
             write_json_if_changed(out / "stats.json", build_stats(report, now_utc))
         except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
             log.warning("dashboard.stats_write_failed", exc_info=True)
         try:
             charts = build_charts(self.store, self.settings, report.trading_date, now_utc)
-            write_json_if_changed(out / "charts.json", charts)  # legacy single-day file
             write_json_if_changed(charts_path(out, report.trading_date), charts)
             write_json_if_changed(
                 out / "index.json",

@@ -1,4 +1,4 @@
-"""Tests for the on-demand dashboard back-fill command (regenerate stats.json + charts.json)."""
+"""Tests for the on-demand dashboard back-fill (regenerate stats.json + charts/<date>.json)."""
 
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ def test_regenerate_writes_both_files(tmp_path: Path) -> None:
     n_opps, n_charts = regenerate(_DAY, settings=settings, store=store)
 
     stats_path = tmp_path / "dashboard" / "stats.json"
-    charts_path = tmp_path / "dashboard" / "charts.json"
+    charts_path = tmp_path / "dashboard" / "charts" / "2026-06-29.json"
     assert stats_path.exists() and charts_path.exists()
 
     stats = json.loads(stats_path.read_text())
@@ -135,9 +135,40 @@ def test_regenerate_archive_backfills_every_date(tmp_path: Path) -> None:
 
     index = json.loads((out / "index.json").read_text())
     assert [d["date"] for d in index["dates"]] == ["2026-06-30", "2026-06-29", "2026-06-27"]
-    # Legacy single-day dashboard lands on the newest session.
-    assert json.loads((out / "charts.json").read_text())["trading_date"] == "2026-06-30"
+    # The summary panels land on the newest session; there is no undated charts.json (#519).
+    assert not (out / "charts.json").exists()
     assert json.loads((out / "stats.json").read_text())["trading_date"] == "2026-06-30"
+
+
+def test_regenerate_retires_a_pre_existing_charts_json(tmp_path: Path) -> None:
+    """#519: nothing deletes from /data/dashboard, so the writer has to retire it.
+
+    Without this the box would keep force-pushing the last pre-#519 payload every 15 minutes,
+    frozen forever — worse than the stale-but-moving file it replaced.
+    """
+    settings = _settings(tmp_path)
+    store = Store(tmp_path)
+    _seed(store)
+    stale = tmp_path / "dashboard" / "charts.json"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text('{"trading_date": "2026-01-01"}')
+
+    regenerate(_DAY, settings=settings, store=store)
+
+    assert not stale.exists()
+
+
+def test_regenerate_archive_retires_a_pre_existing_charts_json(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    store = Store(tmp_path)
+    _seed(store)
+    stale = tmp_path / "dashboard" / "charts.json"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text('{"trading_date": "2026-01-01"}')
+
+    regenerate_archive(settings=settings, store=store)
+
+    assert not stale.exists()
 
 
 def test_collected_dates_empty_store(tmp_path: Path) -> None:
@@ -159,7 +190,7 @@ def test_regenerate_empty_day_writes_empty_charts(tmp_path: Path) -> None:
 
     n_opps, n_charts = regenerate(date(2026, 6, 30), settings=settings, store=store)
 
-    charts = json.loads((tmp_path / "dashboard" / "charts.json").read_text())
+    charts = json.loads((tmp_path / "dashboard" / "charts" / "2026-06-30.json").read_text())
     assert n_opps == 0 and n_charts == 0
     assert charts["charts"] == []
 

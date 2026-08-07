@@ -420,7 +420,7 @@ class BandPrimitive {
 }
 
 /* ---------- engine-v2 detection overlay (#216) ----------
-   The detector's read of the SAME full-day series the chart draws, published in charts.json's
+   The detector's read of the SAME full-day series the chart draws, published in charts/<date>.json's
    `engine` block (charts.py::_engine_block): per-bar H/L/E tokens, the pole/consolidation segment,
    the contiguous prior-cycle (exhaustion) run, gates/score and cycle context. Two primitives share
    one state object — a primitive has a single z-order, so the readable text can't share a layer
