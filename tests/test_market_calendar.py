@@ -88,4 +88,3 @@ def test_previous_session_gives_up_rather_than_guessing() -> None:
     closed = lambda n: tuple(d - timedelta(days=k) for k in range(1, n))  # noqa: E731
     assert previous_session(d, extra_closed=closed(14)) is not None
     assert previous_session(d, extra_closed=closed(15)) is None
-
