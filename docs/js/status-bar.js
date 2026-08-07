@@ -6,8 +6,8 @@
 // dashboard always has.
 
 import { fetchJson } from "./data.js";
-import { esc } from "./fmt.js";
-import { sessionNow, etClockNow } from "./session.js";
+import { esc, etClockIsoSuffixed, etClockNow } from "./fmt.js";
+import { sessionNow } from "./session.js";
 import { STALE_PUBLISH_MS } from "./thresholds.js";
 
 const POLL_MS = 60_000;
@@ -21,11 +21,6 @@ function ago(iso) {
   if (s < 5400) return `${Math.round(s / 60)}m ago`;
   return `${Math.round(s / 3600)}h ago`;
 }
-
-const _etTime = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
-});
-const etTime = (iso) => (iso ? _etTime.format(new Date(iso)) + " ET" : "—");
 
 let bar = null;
 
@@ -77,7 +72,7 @@ function renderStatus(s) {
   setField("#sb-commit", "commit " + esc(svc.deployed_commit || "—"));
   renderTick(s);
   const stale = s.generated_utc && Date.now() - new Date(s.generated_utc).getTime() > STALE_PUBLISH_MS;
-  setField("#sb-data", `data ${esc(etTime(s.generated_utc))} (${esc(ago(s.generated_utc))})`,
+  setField("#sb-data", `data ${esc(etClockIsoSuffixed(s.generated_utc))} (${esc(ago(s.generated_utc))})`,
     stale ? "sb-warn" : "");
 }
 

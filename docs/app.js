@@ -9,23 +9,14 @@ import { createOptionsBar } from "./js/options-bar.js";
 import { setStatusPage } from "./js/status-bar.js";
 import { fetchJson } from "./js/data.js";
 import { el, setBanner, showError } from "./js/dom.js";
-import { esc, fmtShares, rRampClass } from "./js/fmt.js";
+import { esc, etClockIsoSuffixed, etClockNowSec, etDateOf, etDateTimeIsoSuffixed, fmtShares,
+  rRampClass } from "./js/fmt.js";
 import { HARVEST_STALE_H } from "./js/thresholds.js";
 
 const POLL_MS = 60_000;
 
-const _etTime = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
-});
-const _etDateTime = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/New_York", month: "short", day: "2-digit",
-  hour: "2-digit", minute: "2-digit", hour12: false,
-});
-// en-CA renders YYYY-MM-DD — the ET trading date for the options bar.
-const _etDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" });
-
-const etTime = (iso) => (iso ? _etTime.format(new Date(iso)) + " ET" : "—");
-const etDateTime = (iso) => (iso ? _etDateTime.format(new Date(iso)) + " ET" : "—");
+const etTime = etClockIsoSuffixed;
+const etDateTime = etDateTimeIsoSuffixed;
 
 function relIn(iso) {
   if (!iso) return "";
@@ -40,7 +31,7 @@ function relIn(iso) {
 
 createOptionsBar("optbar", {
   primary: [
-    { type: "readout", id: "et-date", label: "ET DATE", value: _etDate.format(new Date()) },
+    { type: "readout", id: "et-date", label: "ET DATE", value: etDateOf() },
     { type: "btn", id: "refresh", label: "Refresh", title: "Refresh now" },
   ],
   extra: [
@@ -209,11 +200,8 @@ async function refresh() {
     renderStatus(status);
     renderStats(stats);
     setBanner("error", "");
-    el("et-date").textContent = _etDate.format(new Date());
-    const now = new Intl.DateTimeFormat("en-US", {
-      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-    }).format(new Date());
-    setStatusPage(`updated ${esc(now)}`);
+    el("et-date").textContent = etDateOf();
+    setStatusPage(`updated ${esc(etClockNowSec())}`);
   } catch (e) {
     showError("error", "Failed to load dashboard data", e);
     setStatusPage("update failed");
