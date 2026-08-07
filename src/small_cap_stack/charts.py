@@ -63,6 +63,10 @@ class ChartData:
     # printed. They are separate defects and the page must not blur them into one badge.
     same_bar_stop: bool
     fill_above_entry_bar_high: bool
+    # Data quality (#604): a consolidation bar in which nothing traded, next to one that did — the
+    # published entry/stop are then prices the tape was halted through, not levels anything held.
+    halted_consolidation: bool
+    untraded_cons_bars: int
     engine: dict[str, Any]  # engine-v2 detector's read of the drawn series (overlay #216)
 
 
@@ -297,5 +301,7 @@ def build_opportunity_chart(
         mae_r=rm.mae_r,
         same_bar_stop=rm.same_bar_stop,
         fill_above_entry_bar_high=rm.fill_above_entry_bar_high,
+        halted_consolidation=rm.halted_consolidation,
+        untraded_cons_bars=rm.untraded_cons_bars,
         engine=_engine_block(render_bars, settings, first_hit),
     )

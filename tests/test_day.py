@@ -300,3 +300,70 @@ def test_the_shipped_vol_ratio_tolerance_is_pinned() -> None:
     """A 5% band is a judgement about measurement noise on a 5-min volume bucket, and it admits
     only 2 trades over 31 recon sessions — so a silent drift either way should fail here."""
     assert settings().bull_flag_min_vol_ratio == 0.95
+
+
+# --- #604: a halted consolidation is not a consolidation ----------------------------------------
+#
+# AHMA 2026-06-09's entire "consolidation" is one zero-volume, zero-range bar between two
+# million-share bars — a LULD pause. Because the bar has no range, breakout == stop, so the planned
+# "risk" collapses to the fill offset: $0.03, 0.91% of entry, off prices the tape was halted
+# through. The stop is not a level anything defended; it is the measurement convention showing.
+
+_HALT = [
+    _b(0, 9.90, 10.00, 9.90, 9.95, 50_000),
+    _b(1, 10.50, 11.00, 10.50, 10.95, 1_200_000),  # peak, real volume
+    Bar(  # the halt: nothing traded, so open == high == low == close
+        start=_T0 + timedelta(minutes=10),
+        open=11.00,
+        high=11.00,
+        low=11.00,
+        close=11.00,
+        volume=0.0,
+    ),
+    _b(3, 11.60, 12.50, 11.55, 12.40, 880_000),  # resumption, gapped
+]
+
+
+def test_a_zero_range_consolidation_is_not_takeable() -> None:
+    """`breakout == stop` means the flag traded through no range, so there is no stop to risk."""
+    d = detect_day(_HALT)
+    assert d is not None
+    assert d.breakout_level == d.stop  # the whole defect, in one line
+    assert d.cons_has_range is False
+    assert d.takeable is False
+    # ...and `passed` is untouched: the candle is well-formed by shape, which is what it means.
+    assert d.passed is True
+    assert [g.name for g in d.gates if not g.passed] == []
+
+
+def test_the_halt_flag_needs_a_neighbour_that_actually_traded() -> None:
+    """A pause is an untraded bar next to a real one. A dead tape everywhere is not flagged."""
+    live = detect_day(_HALT, halt_neighbour_volume=100_000.0)
+    assert live is not None
+    assert live.untraded_cons_bars == 1
+    assert live.halted_consolidation is True
+
+    # Same shape, but nothing around it traded either -> untraded, yet not a halt.
+    quiet = [
+        _HALT[0],
+        _b(1, 10.50, 11.00, 10.50, 10.95, 5_000),
+        _HALT[2],
+        _b(3, 11.60, 12.50, 11.55, 12.40, 6_000),
+    ]
+    d = detect_day(quiet, halt_neighbour_volume=100_000.0)
+    assert d is not None and d.untraded_cons_bars == 1 and d.halted_consolidation is False
+
+
+def test_the_halt_flag_is_off_when_the_floor_is_zero() -> None:
+    """`halt_neighbour_volume=0.0` disables it — every bar trivially clears a zero floor, so the
+    flag would otherwise fire on any untraded bar and mean nothing."""
+    d = detect_day(_HALT, halt_neighbour_volume=0.0)
+    assert d is not None and d.untraded_cons_bars == 1 and d.halted_consolidation is False
+
+
+def test_a_normal_consolidation_is_unflagged_and_still_takeable() -> None:
+    d = detect_day(_PASS, halt_neighbour_volume=100_000.0)
+    assert d is not None
+    assert d.cons_has_range is True
+    assert d.untraded_cons_bars == 0 and d.halted_consolidation is False
+    assert d.takeable is True

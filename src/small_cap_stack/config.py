@@ -262,7 +262,19 @@ class Settings(BaseSettings):
     # exactly. ⚠️ This admits 2 trades on 31 recon sessions — SPRC and CLPT 2026-06-17 — for +4.34R.
     # n=2 is a coin flip, not an edge; it is a judgement that a 5% band is measurement noise on a
     # volume bucket, not a change of the rule's intent.
-    bull_flag_min_vol_ratio: float = 0.95  # reject flags retracing > this fraction of the pole
+    bull_flag_min_vol_ratio: float = 0.95
+    # A consolidation bar counts as a HALT rather than a quiet tape when nothing traded in it while
+    # a neighbouring bar cleared this floor (#604). Same value as `scan_min_5m_volume`, for the same
+    # reason: a bar in which zero shares changed hands, next to one clearing the scanner's own 5-min
+    # volume bar, is a pause. AHMA 2026-06-09 shows the LULD signature — three zero-volume,
+    # zero-range bars in 25 minutes, each followed by an 8-15% gap on resumption, on a tape
+    # printing 0.9-6.1M shares per bar.
+    # Publishes a FLAG, never a gate: a halted bar is a well-formed candle by shape, and `passed`
+    # answers shape. The unusable-stop half is handled structurally by `cons_has_range`.
+    # 0.0 disables the flag. Sensitivity: 50k/100k/250k flag 17/15/8 live setups — 100k is the knee.
+    data_quality_halt_neighbour_volume: float = (
+        100_000.0  # reject flags retracing > this fraction of the pole
+    )
     # Pole wick quality (#132): reject a pole whose peak (highest-high) bar closed weakly — upper
     # wick > this fraction of the bar's range. A clean thrust closes near its high; a wicky one
     # (AHMA/VRXA) is a no-trade. Whether the pole holds a big green candle is recorded, not gated.

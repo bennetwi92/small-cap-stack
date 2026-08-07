@@ -216,6 +216,11 @@ def render_engine(s: Settings) -> str:
             _field("select_price_min / select_price_max"),
         ),
         _row(
+            "**Selection** — consolidation range",
+            "the flag must trade through some range (`breakout` > `stop`)",
+            "— structural; rejects a halted flag, whose stop is unusable",
+        ),
+        _row(
             "**Selection** — trigger window",
             f"{_et(s.select_window_start)} ≤ trigger open < {_et(s.select_window_end)}",
             _field("select_window_start / select_window_end"),
