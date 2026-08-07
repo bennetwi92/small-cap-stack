@@ -3,6 +3,7 @@ title: The 09:30 open as a second strategy
 published: 2026-08-02
 summary: A 10-minute opening-range breakout makes +5.67R over 13 trades and still loses money — because at $500 the notional cap sizes 10 of them.
 tags: strategy,portfolio,research
+correction: 2026-08-07 — two premises have moved. There is no live `float_max_shares < 20M` gate (#551); that threshold feeds a report count and filters nothing. And the risk throttle described as live shipped OFF on 2026-08-06 (#474), with the adaptive target now fit over all history behind a paired margin gate (#476). The Open Drive measurements are unaffected; the selection rule was superseded the same day by "Open Drive: picking the day's stock".
 ---
 
 The book trades one strategy: the pre-market bull-flag, entries gated to `[05:30, 09:15)` ET. The

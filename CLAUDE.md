@@ -1,36 +1,41 @@
 # CLAUDE.md — working agreement for small-cap-stack
 
 Automated systematic trading system for US small-cap momentum (Warrior-style), via IBKR.
-Read `research/decisions.md` for locked decisions and `research/findings-index.md` for the
-research record. This file documents **how we work** — follow it on every task.
+**Read `research/strategy.md` for what the system does** (the canonical spec, generated from
+`config.py`), `research/decisions.md` for why each rule is what it is, and
+`research/findings-index.md` for the research record. This file documents **how we work** — follow
+it on every task.
 
 ## Project shape
 - **Phases:** P1 = tracker only (no orders, 3 months data collection) · P2 = paper trading · P3 = live.
-- **Strategy (live — engine v2):** price $1–50 (widened from $2–10, #126) · trailing 5-min volume
-  > 100k · change > 10% · window 04:00–11:59 ET.
-  ⚠️ **Float and news are COLLECTED, never gated.** The IBKR scan filters on price / change /
-  5-min volume only; `float < 20M` and "breaking news" are enrichment written *after* a name is
-  flagged, and nothing downstream filters on them. `capture.on_scan_tick` opens an opportunity for
-  every scanner candidate; `rmetrics.takeable` is `setup.passed and not setup.exhausted`, where
-  `passed` is the **bull-flag shape gates only**. `gates.py::float_gate` / `news_gate` feed the EOD
-  report's `float_ok` / `with_recent_news` counts and nothing else. So the virtual portfolio does
-  take high-float names — the published book holds CLSK (246M float) and XRX (119M). If that should
-  change, the gate goes in `portfolio.extract._qualify`; until then this line is the spec.
-  Bull-flag: **pole = a run of higher highs**, colour-gated to green thrust bars (≤4, a red peak is
-  allowed) · **flag = a pullback** (≤4 candles) making **lower highs**, retracing **≤50%** of the
-  pole · pole must clear a **2% minimum move** · pole peak-bar volume **>** consolidation volume
-  (#127) · the peak must close strong (upper wick ≤50%).
-  **Entry splits in two (#182/#190):** a **1-tick** mechanical trigger above the last consolidation
-  candle's high decides *when* the setup fires; R is measured against a separate, deliberately
-  conservative **3-tick** fill. Stop = the consolidation low.
-  The live detector is the **full-day** `bullflag/day.py::detect_day` (compute-on-read over a whole
-  day, gated by scanner-appearance time + staleness, with exhaustion flagged on the 3rd+ cycle) —
-  consumed by `rmetrics.py` and `charts.py`. The superseded anchored detector was deleted in #296.
-  Read `research/bull-flag.md` (the *what*) and `research/engine-v2.md` (the *how*) for the full spec.
-  **`config.py` is the single source of truth for the rules** (#302): both detectors read every cap
-  and gate from `Settings` — `bull_flag_max_pole`=4, `bull_flag_max_cons`=4,
-  `bull_flag_min_pole_pct`=0.02, trigger 1 tick / fill 3 ticks. A new knob must be wired through
-  `detect_day_with_settings` or it does nothing; `tests/test_settings_wiring.py` fails if it isn't.
+- **Strategy: `research/strategy.md` is the single source of truth — do not restate its numbers
+  here or anywhere else.** It is generated from `config.py` by `make strategy`, and
+  `tests/test_strategy_doc.py` fails when it drifts. Seven surfaces used to state the rules and
+  they disagreed on four price bands (#551); the fix only holds if new prose links instead of
+  copying. What is worth knowing structurally:
+  - **There are three funnels, not one** — the scan (wide, deliberately), the engine (shape gates,
+    compute-on-read after the close), and the paper book (a strictly narrower band and window).
+    A name can be captured, charted and scored and still never be takeable. Saying "the strategy"
+    for all three is what caused the drift.
+  - ⚠️ **Float and news are COLLECTED, never gated.** They are enrichment written *after* a name is
+    flagged. `capture.on_scan_tick` opens an opportunity for every scanner candidate;
+    `rmetrics.takeable` is `setup.passed and not setup.exhausted`, where `passed` is the
+    **bull-flag shape gates only**. `gates.py::float_gate` / `news_gate` feed the EOD report's
+    `float_ok` / `with_recent_news` counts and nothing else. So the virtual portfolio does take
+    high-float names — the published book holds CLSK (246M float) and XRX (119M). If that should
+    change, the gate goes in `portfolio.extract._qualify`.
+  - **Entry splits in two (#182/#190):** a mechanical trigger above the last consolidation candle's
+    high decides *when* the setup fires; R is measured against a separate, deliberately
+    conservative fill. Stop = the consolidation low.
+  - The live detector is the **full-day** `bullflag/day.py::detect_day` (compute-on-read over a
+    whole day, gated by scanner-appearance time + staleness, with exhaustion on late cycles) —
+    consumed by `rmetrics.py` and `charts.py`. The superseded anchored detector was deleted in #296.
+    Read `research/bull-flag.md` (the *what*) and `research/engine-v2.md` (the *how*) for the
+    grammar behind the rules.
+  - **`config.py` is the single source of truth for the values** (#302): both detectors read every
+    cap and gate from `Settings`. A new knob must be wired through `detect_day_with_settings` or it
+    does nothing; `tests/test_settings_wiring.py` fails if it isn't. **After changing a rule, run
+    `make strategy`** or CI fails on the stale spec.
 - **Core principle:** *store raw, compute derived on read* — capture raw data at flag time; gate/stat logic is replayable pure functions so methodology can change retroactively.
 - **Parquet-store cost model:** for this store, **read cost tracks FILE count, not row count or
   bytes on disk** — every read/query opens each file's footer, so 32k one-row files read ~40×
@@ -125,10 +130,12 @@ hours, not authoring speed (see the remote-work limits above).
 - `src/small_cap_stack/` — the package (typed, tested).
 - `tests/` — pytest suite (incl. `fixtures/review_cases/` — 25 real-market regression cases).
 - `spikes/` — de-risking experiments (see `spikes/README.md`).
-- `research/` — the **documentation root**: `decisions.md` (locked decisions) + `findings-index.md`
-  (the research record) + the specs (`bull-flag.md` = the *what*, `engine-v2.md` = the *how*) and
-  the standing reports. `research/archive/` holds one-off reports that already did their job (the
-  2026-06-29 `arch-*` set) — kept as the record, not as live docs.
+- `research/` — the **documentation root**: `strategy.md` (**the canonical spec — the state**,
+  generated from `config.py`) + `decisions.md` (**the log** — why each rule is what it is, and when
+  it changed) + `findings-index.md` (the research record) + the grammar specs (`bull-flag.md` = the
+  *what*, `engine-v2.md` = the *how*) and the standing reports. `research/archive/` holds one-off
+  reports that already did their job (the 2026-06-29 `arch-*` set and `strategy-validation.md`) —
+  kept as the record, not as live docs.
 - ⚠️ **`docs/` is NOT documentation** — it is the **GitHub Pages dashboard frontend** (HTML/CSS/JS;
   `cockpit.css` + `docs/js/` modules). Pages is published by our own
   **`.github/workflows/pages.yml`** (`build_type: workflow`, #486) — the legacy build's managed
@@ -204,16 +211,25 @@ build step and no framework. Nothing links the two halves at build time, so the 
 
 ## Quick commands
 `make help` lists everything. Common ones: `make setup` (venv + deps), `make check` (all CI gates), `make lint` / `make fmt` / `make typecheck` / `make test`. Run `make check` before every push.
+Two generators keep committed files honest — **`make strategy`** after changing a rule in
+`config.py`, **`make reports`** after adding or editing a report. Both have a test that fails on a
+stale artefact, so forgetting costs a red CI rather than a wrong doc.
 
 ## Reports (published analyses)
-Ask for an analysis — *"write me a report on how often the float gate kills a runner"* — and it gets
+Ask for an analysis — *"write me a report on how often a wide stop costs us the trade"* — and it gets
 published to the dashboard's **Reports** tab. The **`publish-report`** skill is the procedure.
 **Reports are also where all commentary lives** (#414): the dashboard's other pages are status
 boards, so any writing that explains, justifies or concludes belongs here rather than in a panel.
 - A report is markdown in **`docs/reports/<published>-<slug>.md`** with front matter (`title`,
-  `published` required; `summary`, `tags`, `author` optional). `src/small_cap_stack/reports.py`
-  parses it into **`docs/reports/index.json`**, which `docs/reports.js` renders as the list
-  (newest first) and then fetches the markdown on click (`?r=<slug>` deep-links a report).
+  `published` required; `summary`, `tags`, `author`, `correction` optional).
+  `src/small_cap_stack/reports.py` parses it into **`docs/reports/index.json`**, which
+  `docs/reports.js` renders as the list (newest first) and then fetches the markdown on click
+  (`?r=<slug>` deep-links a report).
+- ⚠️ **A report is dated and is never silently rewritten. When one is overtaken or rests on a
+  premise that turned out wrong, add a `correction:` line** — one sentence, dated, rendered as a
+  gold banner on the list row and above the body. Editing the analysis instead destroys the record
+  of what was believed when a decision was taken. Before #551 nothing marked a report stale, so
+  two of them went on asserting a float gate that had never run.
 - **Run `make reports` after adding or editing one** — a report missing from `index.json` is
   invisible to the page. `tests/test_reports.py` fails when the committed index is stale.
 - ⚠️ **`docs/.nojekyll` must stay.** A Jekyll pass over `docs/` turns each front-matter-carrying

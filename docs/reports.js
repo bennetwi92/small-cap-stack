@@ -107,6 +107,13 @@ const pubDate = (r) => String(r.published || "").slice(0, 10);
 const tagsHtml = (tags) =>
   (tags || []).map((t) => `<span class="rp-tag">${esc(t)}</span>`).join(" ");
 
+// A report is a dated analysis, never silently rewritten — so when one is overtaken
+// or rests on a premise that turned out wrong, it carries a `correction:` line in its
+// front matter (#551). Without this the list gives a reader no way to tell a current
+// report from a superseded one, and all of them read as live.
+const correctionHtml = (r) =>
+  r.correction ? `<span class="rp-correction">${esc(r.correction)}</span>` : "";
+
 function renderList() {
   const rows = reports.filter(matches);
   el("rp-count").textContent = query
@@ -136,6 +143,7 @@ function renderList() {
           `<td class="rp-date">${esc(pubDate(r))}</td>` +
           `<td class="rp-title-cell"><span class="rp-title">${esc(r.title)}</span>` +
           (r.summary ? `<span class="rp-summary">${esc(r.summary)}</span>` : "") +
+          correctionHtml(r) +
           `</td>` +
           `<td class="rp-tags">${tagsHtml(r.tags)}</td>` +
           `<td class="r muted">${Number(r.words || 0).toLocaleString()}</td>` +
@@ -191,6 +199,14 @@ async function showReport(slug) {
   try {
     const text = await fetchText(reportUrl(report.file));
     await renderMarkdown(stripHeader(text), el("rp-doc-body"));
+    // Above the body, not inside it — the markdown is the report as published and
+    // stays that way; the correction is metadata about it.
+    if (report.correction) {
+      el("rp-doc-body").insertAdjacentHTML(
+        "afterbegin",
+        `<p class="rp-correction rp-correction-doc">${esc(report.correction)}</p>`,
+      );
+    }
     window.scrollTo(0, 0);
     setStatusPage(`reading ${report.slug}`);
   } catch (e) {

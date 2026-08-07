@@ -37,6 +37,17 @@ cloud session can `make check` on turn one — the test suite is fully offline (
 Deploys are driven from GitHub (see [`deploy/RUNBOOK.md`](./deploy/RUNBOOK.md) §11 "Operating from
 mobile").
 
+## The strategy
+
+**[`research/strategy.md`](./research/strategy.md) is the canonical spec** — the scan universe, the
+bull-flag engine and the paper book's own rules, **generated from `config.py`** so it cannot go
+stale. Read that before the product brief further down this file, which is the *original 2026-06-29
+ask* and no longer matches what was built.
+
+Two things the brief gets wrong and the spec gets right: the price band has moved, and **float and
+"breaking news" are collected but never gated** — they are enrichment written after a name is
+flagged, and nothing downstream filters on them.
+
 ## Repo layout
 
 | Path | What |
@@ -47,7 +58,14 @@ mobile").
 | `research/` | Research reports, `findings-index.md`, `decisions.md` |
 | `scripts/` | Repo helpers (e.g. `board.sh`) |
 
-> Everything below is the original product brief.
+---
+
+> ⚠️ **Everything below is the original product brief, written 2026-06-29 before anything was
+> built. It is kept as the record of what was asked for — it is _not_ a description of what runs.**
+> Several rules changed during Phase 1 and some were never implemented at all. The built system is
+> specified in **[`research/strategy.md`](./research/strategy.md)**, generated from `config.py`;
+> the reasoning behind each change is logged in
+> [`research/decisions.md`](./research/decisions.md).
 
 ## mile high architecture
 
@@ -75,20 +93,27 @@ mobile").
 
 ## Strategy details
 
-- trade stocks priced between $2 - $10.
-- float should be less than $20million.
-- There should be breaking news on the stock.
-- 5 min volume should be greater than 100,000
-- Change % (i.e. today's change) should be greater than 10%
-- bull flag pattern
-- max 2 Green extension candles
-- Max 2 red consolidation candles.
-- Trading window runs between US 4am to 11:59am.
-- Exit strategy needs to be established
+_As originally asked for. **Five of these ten lines are not what shipped** — see
+[`research/strategy.md`](./research/strategy.md) for the live rules._
+
+- ~~trade stocks priced between $2 - $10.~~ → **widened** (#126)
+- ~~float should be less than $20million.~~ → **collected, never gated** (and measured in *shares*, not dollars)
+- ~~There should be breaking news on the stock.~~ → **collected, never gated**
+- 5 min volume should be greater than 100,000 → shipped, as IBKR's native *trailing* 5-min volume
+- Change % (i.e. today's change) should be greater than 10% → shipped
+- bull flag pattern → shipped
+- ~~max 2 Green extension candles~~ → **the pole is a capped run of higher highs, colour-gated** (#127)
+- ~~Max 2 red consolidation candles.~~ → **the flag is a capped pullback making lower highs** (#127)
+- Trading window runs between US 4am to 11:59am. → shipped as the *scan* window; the paper book trades a narrower one
+- Exit strategy needs to be established → **established** (#230): fixed R target re-fit from trailing expectancy
 
 
 
 ## Process
+
+_As originally asked for. **Steps 2–4 did not ship as filters**: float and short interest are
+captured but gate nothing, news is captured but gates nothing, and the daily-chart check was never
+built. The live pipeline is scan → capture everything → detect on read → size and simulate._
 
 1. Scanner identifies low priced stocks experiencing a volume spike.
 2. Checks stock's float (yfinance is suitable resource), also short interest %.

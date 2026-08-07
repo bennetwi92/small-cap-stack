@@ -3,6 +3,7 @@ title: The 2-trade-a-day cap: is it wasting capital?
 published: 2026-08-01
 summary: It has never dropped a setup, and a 75/25 first/second split changes almost nothing — because the notional cap is not what limits position size.
 tags: strategy,portfolio
+correction: 2026-08-07 — the "adaptive book" here runs the risk-throttle ladder, which shipped OFF on 2026-08-06 (#474) after 500 calendar-preserving shuffles showed it cost a mean $22.35; the adaptive target also now fits over all history behind a paired margin gate (#476). The cap findings and the sizing crossover are unaffected — the throttle never bound in this window.
 ---
 
 Two questions were put to the virtual book: does `max_trades_per_day = 2` waste capital on days

@@ -3,6 +3,7 @@ title: Does a smaller float buy a bigger Max R?
 published: 2026-07-31
 summary: Float is a tail effect, not a gradient — it barely moves the median trade but roughly doubles the odds of a big one, and the break is at ~5M shares, not at the 20M gate.
 tags: strategy,data,float
+correction: 2026-08-07 — this report calls `float < 20M` "the live rule" and charts it as a gate. There is no live float gate and never was (#551): `float_max_shares` feeds a count in the EOD report and filters nothing, so the closing recommendation argues against a rule that was not running. The measured float/Max-R relationship stands; its framing as a re-gating decision does not. Data window ends 2026-07-25.
 ---
 
 Yes — and in the direction expected. But it is a **tail effect, not a gradient**: float barely

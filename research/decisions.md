@@ -2,11 +2,16 @@
 
 **Date:** 2026-06-29. Resolves the open questions in [`findings-index.md`](./findings-index.md) §3.
 
+> **This file is the log — *why* each rule is what it is, and when it changed. It is not the spec.**
+> For what the system does *right now*, read [`strategy.md`](./strategy.md): it is generated from
+> `config.py` and CI fails when it drifts. Entries below are dated and some are superseded further
+> down the file; where one disagrees with `strategy.md`, `strategy.md` wins (#551).
+
 ## Locked decisions
 
 | # | Topic | Decision |
 |---|---|---|
-| 1 | Float threshold | **< 20 million shares** (share count, NOT $ market value). |
+| 1 | Float threshold | **< 20 million shares** (share count, NOT $ market value). ⚠️ **This is a threshold, not a gate — it filters nothing.** `float_max_shares` feeds the EOD report's `float_ok` **count** and nothing else; the paper book takes names far above it. See [`strategy.md`](./strategy.md) §4. |
 | 2 | Scanner / broker | **IBKR only.** User trades via the **TWS Mosaic scanner** today and considers it sufficient. ⚠️ Headless system must use the **API scanner (`reqScannerSubscription`)**, a different/more limited surface than Mosaic — see Spike below. |
 | 3 | Exit strategy (Phase 1) | **Not required for execution** in Phase 1 (tracking only). BUT "Max R" reporting needs a **notional entry trigger + notional stop** to compute R — see Phase-1 note below. |
 | 4 | News source | **Try IBKR news feed first** (what user used before). Subscribe to a paid service only if insufficient. |
@@ -47,9 +52,9 @@
 - **UPDATE 2026-07-12 — scanner breadth raised to the full cap (`scan_max_rows` 10 → 50).** For *acting*, the top few still suffice; but Phase-1 is a data-collection exercise and on busy mornings there are far more than 10 low-float runners in play. Store-raw/compute-on-read means we capture the whole ranked list now and decide actionability on read later. One scanner request per tick regardless of row count, and opportunities dedup per symbol/day (news/fundamentals fetched once per distinct symbol; EOD bar/news batches are paced), so the wider net is safe on IBKR pacing. 50 is the API hard cap (`numberOfRows` is `min(scan_max_rows, 50)`).
 
 ## Remaining technical risks → validation spikes (before building)
-- **A. API scanner vs Mosaic** (issue #8): ⏳ **largely validated 2026-06-29** — the API scanner returned a ranked candidate list **pre-market**, addressing the main suspected weak spot. `reqScannerParameters` confirmed IBKR exposes **trailing 5-min volume natively** (`stVolume5minAbove`, `stVolumeVsAvg5minAbove`, scan code `HIGH_STVOLUME_5MIN`), so the strategy's "5-min volume > 100k" is a built-in filter — NOT day volume, NOT derived from bars. Recommended scan: `TOP_PERC_GAIN` + price 2–10 + `changePercAbove 10` + `stVolume5minAbove 100000` @ `STK.US.MAJOR`. Remaining: user to confirm API top 1–3 == Mosaic top 1–3 at the same moment.
+- **A. API scanner vs Mosaic** (issue #8): ⏳ **largely validated 2026-06-29** — the API scanner returned a ranked candidate list **pre-market**, addressing the main suspected weak spot. `reqScannerParameters` confirmed IBKR exposes **trailing 5-min volume natively** (`stVolume5minAbove`, `stVolumeVsAvg5minAbove`, scan code `HIGH_STVOLUME_5MIN`), so the strategy's "5-min volume > 100k" is a built-in filter — NOT day volume, NOT derived from bars. Recommended scan: `TOP_PERC_GAIN` + ~~price 2–10~~ + `changePercAbove 10` + `stVolume5minAbove 100000` @ `STK.US.MAJOR` (**the price leg was widened to $1–50 by #126, below; the shipped subscription is [`strategy.md`](./strategy.md) §1**). Remaining: user to confirm API top 1–3 == Mosaic top 1–3 at the same moment.
 
-  > **Criterion #5 (5-min volume > 100k) resolved:** native `stVolume5minAbove` scanner filter. This was a previously-open data-feasibility item in `strategy-validation.md`.
+  > **Criterion #5 (5-min volume > 100k) resolved:** native `stVolume5minAbove` scanner filter. This was a previously-open data-feasibility item in [`archive/strategy-validation.md`](./archive/strategy-validation.md).
 - **B. Pre-market bar completeness** (#9): ✅ **GREEN** — active names get contiguous gap-free 5-min bars from 04:00 ET; only a leading absence before first trade. No interpolation needed.
 - **C. IBKR news sufficiency** (#10): ✅ **GREEN to start** — account entitled to 8 providers incl. Dow Jones DJ-N (per-symbol headlines + retrievable bodies + halt notices). Start with included feed; measure timeliness in Phase 1 before paying.
 - **D. Tradability gate** (#25, new): ✅ **GREEN** — `whatIfOrder` + error 201 reliably flags symbols IBKR blocks for the account even while they trade. Confirmed CBRG BLOCKED (PRIIPs/KID). **Account is under EU/UK PRIIPs rules** → expect some US small-cap SPAC/warrant/ETP runners to be un-orderable. **Add a tradability gate to the gate engine (#15).** Re-validate on live in P3.
@@ -145,7 +150,9 @@ over already-collected raw bars):
 - **Volume:** the pole's peak bar volume **must exceed** the consolidation's peak bar volume (hard).
   Whether the consolidation volume is reducing is recorded (`cons_vol_reducing`) but **not** gated —
   it may be flat.
-- Entry/stop spec **unchanged** (5 ticks above the last consolidation high; stop = flag low).
+- Entry/stop spec **unchanged** (~~5 ticks above the last consolidation high~~; stop = flag low).
+  ⚠️ The 5-tick entry was superseded by the **1-tick trigger / 3-tick fill** split (#182/#190, §"Entry"
+  below). Current values: [`strategy.md`](./strategy.md) §2.
 
 **Follow-ups (separate issues, not in #127):** ATR%/movement gate for "barely moving/ranging" names
 (CLVT/CYH/CMMB); entry appearance-bar gate #122 (SOXS/JEM mid-bar appearance); later-intraday setups
@@ -1017,6 +1024,8 @@ than under the pre-market limit-only constraint (#37).
 **Open.** The largest caveat is that the store holds **5-min bars only**, so the shortest expressible
 opening range is five minutes; on 1-min bars this is a different setup with tighter stops, which
 would sharpen the entries and worsen the sizing problem at once. Also open: a real RVOL baseline;
-the float direction (**+0.226R for ≥20M here**, against the live `float_max_shares < 20M` gate, and
+the float direction (**+0.226R for ≥20M here**, against the direction `float_max_shares < 20M`
+implies — note that threshold **gates nothing**, so this is a contrast against an *unapplied* rule
+rather than evidence about a live filter (#551), and
 against `float-vs-max-r`'s tail finding); and a re-run at 60+ days when collection completes
 ~2026-10-01. Nothing here is established — 13 trades, expectancy interval −0.40R to +1.26R.

@@ -1,5 +1,16 @@
 # Data Feasibility Assessment — US Small-Cap Momentum Strategy
 
+> ⚠️ **ARCHIVED 2026-08-07 (#551) — this is the record, not the spec.** It is a snapshot of the
+> **2026-06-29 brief**, written before anything was built, and the nine criteria below are the
+> strategy *as originally proposed*. Several were never implemented as filters and two of the
+> numbers have since changed: the price band is no longer $2–$10, and **float and news are
+> collected, never gated**. For what the system actually does today, read
+> [`../strategy.md`](../strategy.md), which is generated from `config.py`.
+>
+> Kept because the sourcing analysis did its job and still explains *why* the data layer looks the
+> way it does — IBKR as the only viable pre-market backbone, yfinance/FMP for float, the
+> short-interest staleness that stopped it being wired at all.
+
 _Prepared 2026-06-29. Scope: validate that each strategy criterion can be sourced cheaply (prefer free), and flag real-time vs delayed feasibility for an automated system operating in a 4:00am–11:59am ET window (pre-market heavy)._
 
 ## Summary feasibility table

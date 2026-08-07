@@ -1,9 +1,14 @@
 """Scanner ingestion (issue #13): discover candidate tickers via the IBKR API scanner.
 
 Uses the definition validated in spike #8 — rank by % gain, filter to the strategy universe
-(price $1–50, today's change > 10%, trailing 5-min volume > 100k via the native
-``stVolume5minAbove`` filter). The float / short-interest / news / bull-flag checks are
-post-filters applied downstream (the gate engine, #15), not scanner parameters.
+(price, today's change, trailing 5-min volume via the native ``stVolume5minAbove`` filter, and an
+``stkTypes`` ETF/ETN exclusion). Values come from ``Settings``; the shipped numbers are
+``research/strategy.md`` §1.
+
+⚠️ These are the **only** filters in the system's first stage — ``capture.on_scan_tick`` opens an
+opportunity for every row that comes back. Float, short interest and news are **enrichment written
+after a name is flagged**, not post-filters: nothing downstream gates on them (#551). The bull-flag
+check runs later still, compute-on-read, and decides ``takeable`` rather than what is captured.
 """
 
 from __future__ import annotations
