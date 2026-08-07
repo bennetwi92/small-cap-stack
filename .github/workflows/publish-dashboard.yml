@@ -28,6 +28,8 @@ jobs:
     # Repository guard: box job runs only in THIS repo, never a fork (#333, A1 lockdown).
     if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
     runs-on: [self-hosted, vps]
+    # A hang holds the single vps runner and CI queues behind it (#544). p95 0.5 min; runs every 15 min, so it must never stack.
+    timeout-minutes: 15
     steps:
       - name: Extract dashboard JSON from the app container
         run: |

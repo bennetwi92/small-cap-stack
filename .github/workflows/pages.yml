@@ -42,6 +42,8 @@ jobs:
   deploy:
     name: build-and-deploy
     runs-on: ubuntu-latest
+    # Bound the hang; GitHub's default is 360 minutes (#544). p95 0.5 min; #486 moved off the managed workflow that hung at 10.
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}

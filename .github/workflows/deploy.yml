@@ -44,6 +44,8 @@ jobs:
     # registered its own runner or re-used these files (#333, A1 lockdown).
     if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
     runs-on: [self-hosted, vps]
+    # A hang holds the single vps runner and CI queues behind it (#544). p95 0.9 min; covers an image pull plus the health-gate wait.
+    timeout-minutes: 25
     steps:
       # Composite actions resolve from the workspace, so the action directory must exist locally.
       # Sparse: these jobs otherwise never check out — they operate on /opt/small-cap-stack.
