@@ -25,12 +25,11 @@ it on every task.
     than being reported as malformed, which is what a data-collection phase needs. Selection rules
     go in `takeable`; never fold them into `passed`.
   - ⚠️ **Float and news are COLLECTED, never gated.** They are enrichment written *after* a name is
-    flagged. `capture.on_scan_tick` opens an opportunity for every scanner candidate, and neither
-    the shape gates nor the selection rules read them. `gates.py::float_gate` / `news_gate` feed the
-    EOD report's `float_ok` / `with_recent_news` counts and nothing else. So the virtual portfolio
-    does take high-float names — the published book holds CLSK (246M float) and XRX (119M). If that
-    should change, the gate goes in the engine's selection tier. `tests/test_portfolio.py` pins
-    this, and the float test says in its own failure message to delete it if you meant it.
+    flagged; neither the shape gates nor the selection rules read them, and `gates.py::float_gate` /
+    `news_gate` feed EOD *counts* only. So the book really does take high-float names — it holds
+    CLSK (246M) and XRX (119M). If that should change, the gate goes in the engine's selection tier;
+    `tests/test_portfolio.py` pins it today, and the float test's own failure message says to delete
+    it if you meant it. Evidence: `docs/reports/2026-07-31-float-vs-max-r.md`.
   - **Entry splits in two (#182/#190):** a mechanical trigger above the last consolidation candle's
     high decides *when* the setup fires; R is measured against a separate, deliberately
     conservative fill. Stop = the consolidation low.
@@ -86,29 +85,12 @@ make cov                        # tests + the coverage gate CI enforces on main
   computes money, so it fails the build on the PR that bumps the dep. If a floating dep trips it
   on an unrelated PR, add a targeted `ignore` for that message — don't remove the gate.
 
-## Throughput & estimation (calibration for "how long will this take")
-Use these as **estimation anchors**, not targets — they're what one focused agent day actually
-delivers on this repo's trunk-based, one-issue-per-PR flow. Baseline sample: **2026-07-17** —
-**40 merged PRs** in a ~9-hour window (~4–5 PRs/hr, one every ~13 min average), **110 files**
-touched, **+8.4k / −2.8k** lines (~5.6k net). Estimate a task by mapping each PR to a size tier:
-- **XS — one-liner / doc or config tweak** (≤50 lines, 1–5 files): ~5–10 min. e.g. a cost
-  correction (#277), a health-gate fix (#357), an `id-token` permission add (#370).
-- **S — one focused change** (50–250 lines, tests included): ~10–15 min. The bulk of a day.
-  e.g. dt-scoping a hot read (#324/#325), one guarded workflow (#362), a roadmap doc (#315).
-- **M — new module / non-trivial refactor / one dashboard screen** (250–850 lines + tests):
-  ~20–30 min. e.g. the calendar gate (#326), tick instrumentation (#327), a cockpit view (#293/#294).
-- **L — foundational / cross-cutting** (850–1300 lines, many files): ~30–45 min. e.g. the cockpit
-  foundation (#292), extracting shared bull-flag primitives + deleting the legacy detector (#301),
-  the infra watchdog (#358).
-**Rules of thumb:** median PR ≈ **110 lines / ~4 files**; whole *themes* (the cockpit rebuild
-#287–295, the automation layer #332–370) land in ~1.5–2 hrs each. Sizing caveats that keep
-estimates honest: (1) each PR carries fixed overhead — issue + board move + `make check` + CI's
-`lint-typecheck-test` + squash-merge — so **ten XS PRs cost more than one M PR of the same total
-diff**; prefer batching trivia. (2) Apparent cadence overstates serial speed: PRs are often built
-in parallel and **merged in bursts** (10 automation PRs merged in ~50 min on 2026-07-17 were
-authored beforehand), so don't promise 40/day as a linear rate. (3) Anything needing the **box, a
-live IBKR session, or a spike** is not estimable from this table — it's gated by runtime/market
-hours, not authoring speed (see "Working remotely" at the end of this file).
+## Throughput & estimation
+Size tiers, also the board's **Size** field: **XS** ≤50 lines · **S** 50–250 · **M** 250–850 ·
+**L** 850–1300. Roughly 5–10 / 10–15 / 20–30 / 30–45 min each; median PR ≈ 110 lines / ~4 files.
+**Ten XS PRs cost more than one M PR of the same diff** (fixed per-PR overhead) — batch trivia. Box,
+IBKR and spike work isn't estimable from these at all. Anchors, sample and caveats:
+**[`research/throughput.md`](./research/throughput.md)**.
 
 ## Issue & project hygiene (keep these current — every task)
 - **Every unit of work is a GitHub issue** with labels: `epic`, `phase-1`, `spike`, `infra`, `setup`, `ibkr`, `data`, `strategy`, `bug`. Epic is **#1**.
@@ -170,36 +152,19 @@ hours, not authoring speed (see "Working remotely" at the end of this file).
     superseded. Prose on a page has to be re-read and re-approved every time the data moves;
     that is how the pre-#414 Plan page and Projection view went stale. If a panel can't be
     rendered from the published data, ask whether it belongs on a page at all.
-  - **`docs/plan.html` / `plan.js` is the plan board (#410, rebuilt #414)** — the phase spine, the
-    live collection countdown, the historical harvest's progress (#454, from `status.json.harvest`
-    — sessions rebuilt, universe pass, history covered, hours since the checkpoint last moved), the
-    Phase-1 checks and the Phase-2 gate ladder. Every value is computed at render time from
-    `index.json` / `portfolio.json` / `status.json`; each gate's status is **derived from GitHub
-    issue state** (`docs/js/gh.js`, unauthenticated REST, cached 30 min in sessionStorage, falling
-    back to the dependency graph when unreachable). The committed constants are labels only:
-    `PHASES` (name, tag, window) and `GATES` (name, issue numbers, `after` dependencies) mirror
-    `research/phase-2-roadmap.md` — change a gate's *name, issues or dependencies* there and here
-    in the same PR; its *status* looks after itself.
-- `data/` — local runtime data (gitignored). `data/recon/` is a **second store with the same dataset
-  layout** (#430) holding pre-market days rebuilt from purchased vendor minute bars. Separate root
-  on purpose: nothing that reads `data/` can return vendor rows by accident — only
-  `build_portfolio_payload(recon_store=…)` opts in, publishing them as `books_all` alongside the
-  untouched live `books`. Every trade carries `source: "live" | "recon"`.
-  Its **producer** is `src/small_cap_stack/harvest/` (#431) — `python -m small_cap_stack.harvest`,
-  run nightly on the box by `scs-harvest.timer` (RUNBOOK §13). It streams one session at a time,
-  **refuses to start outside 12:30–03:00 ET**, recesses at 16:10 so it is never inside a session
-  during the 16:20/16:30 EOD jobs (#455), hard-stops at 03:00 clear of the 03:45
-  `eod_backfill`, runs in its own `--memory=1g` container (never `docker exec` into the app — that
-  spends the tracker's cgroup), and checkpoints per session so a kill costs at most one session.
-  Phase 1 (`harvest daily`, grouped-daily + previous closes) must run before phase 2 (`harvest
-  run`): #428 measured the previous close as a *required* input, not a nicety.
-  Its **dashboard side** is `dashboard_recon.py` (#488): each completed session publishes
-  `dashboard/charts/recon/<date>.json` + `recon_index.json` — a **separate namespace**, never a flag
-  on the live `index.json`, so no existing reader can start serving vendor rows by accident. Bounded
-  at `recon_charts_max_dates` (30) because `publish-dashboard` force-pushes the whole tree every
-  15 min — but evicting by **publish order, not by date**: the harvest walks backwards, so a
-  newest-date window would make everything after night ~2 permanently invisible. `harvest charts`
-  fills the window; `harvest charts --dates <d>` brings an evicted session back.
+  - **`docs/plan.html` / `plan.js` is the plan board (#410, rebuilt #414).** Every value is computed
+    at render time from the published payloads, and each gate's *status* is derived from GitHub issue
+    state — so it looks after itself. The committed `PHASES` / `GATES` constants are **labels only**
+    and mirror [`research/phase-2-roadmap.md`](./research/phase-2-roadmap.md): change a gate's name,
+    issues or dependencies **there and here in the same PR**.
+- `data/` — local runtime data (gitignored). ⚠️ **`data/recon/` is a separate store root** (#430) of
+  pre-market days rebuilt from vendor bars, kept apart so nothing reading `data/` can return vendor
+  rows by accident: only `build_portfolio_payload(recon_store=…)` opts in, and its charts publish to
+  their own `recon_index.json` namespace (#488). Every trade carries `source: "live" | "recon"`.
+  Producer is `src/small_cap_stack/harvest/` (#431), run nightly by `scs-harvest.timer`.
+  **Why it is shaped this way: `decisions.md` §D-30/§D-31/§D-33. How to run and debug it:
+  `deploy/RUNBOOK.md` §13** — including the run window, the memory cap, and that `harvest daily`
+  must precede `harvest run`.
 - `scripts/` — repo helpers (e.g. `board.sh`).
 - `deploy/` — host runbook + systemd units.
 
@@ -272,34 +237,29 @@ boards, so any writing that explains, justifies or concludes belongs here rather
 When running on the **Mac** (the primary working dir, not a cloud/web session), you can operate the live box directly — don't tell the user "I have no box access":
 - **Trigger GitHub Actions** (deploy, backfill, data-export, publish-dashboard) with `gh workflow run <name>.yml --field k=v`; they run on the self-hosted `vps` runner. Deploy: `gh workflow run deploy.yml --field ref=main`.
 - **SSH into the box**: `ssh -i ~/.ssh/oracle_scs root@138.199.151.179` (root; repo `/opt/small-cap-stack`; app container `small-cap-stack-app-1`; systemd unit `small-cap-stack`). Full details in **`deploy/host.local.md`** (gitignored). ICMP is firewalled so `ping` always fails — that's normal, not a symptom.
-- ⚠️ **The box is small (Hetzner CX23: 2 vCPU / 4 GB).** Heavy jobs will OOM/thrash it until sshd can't even complete its banner and the runner drops **offline (busy)** — and then you can't cancel or SSH in (recovery = OOM-killer reaping the job, or a power-cycle: `hcloud server reboot small-cap-stack`, then `reset` if that doesn't take — the CLI reaches the Hetzner API when the box is unreachable, so no browser needed. See `deploy/RUNBOOK.md` §9.1; Mac only, needs the token in `~/.config/hcloud/cli.toml`). **NEVER run `backfill-dashboard --all` (all dates + every chart) on it** — recompute **per date** instead (`--field date=YYYY-MM-DD`, one at a time), or SSH in and run `scripts/box-job.sh backfill -- -m small_cap_stack.dashboard_backfill --date <d>`
-  sequentially — its own 1 GB container, never `docker exec` into the app, which would spend the
-  tracker's cgroup and OOM the tracker instead of the job (#545). `build_eod_report` is compute-on-read, so per-date backfill is cheap (~4 s/day locally).
-- ⚠️ **`--all` now requires `--force`** (#261), and the `backfill-dashboard` / `deploy-backfill-publish`
-  workflows require a separate `force` input on top of `all` — two deliberate actions, because a
-  confirmation the caller auto-answers protects nobody. The rule above is unchanged: don't.
-- ⚠️ **Per-date backfill is not automatically safe either.** On 2026-07-16 a plain `--date <today>`
-  run grew to 1.5 GB RSS and got OOM-killed after 13 min, taking the CI runner offline for 5h37m
-  (#264). **`--date` is still exposed** — `build_portfolio_payload` holds *every* collected day's
-  bars in memory regardless of which date you asked for, and that grows daily (**#273**, the actual
-  driver; #243's cache made single-date extraction O(1 day) of *work*, not of *memory*). So treat
-  **any** backfill as a job that can OOM the box: prefer a **past** date over the live day, run one
-  at a time, and watch `free -m`.
-- ⚠️ **After an OOM, check the runner is actually back.** A job OOM leaves the runner service
-  `failed` and CI silently queues forever — `gh api repos/bennetwi92/small-cap-stack/actions/runners`
-  shows `offline`. `deploy/actions-runner-restart.conf` (a `Restart=always` drop-in) should now
-  self-heal this within 30 s; if it doesn't, the drop-in is missing — see `deploy/RUNBOOK.md` §11.
-- ⚠️ **Never `systemctl restart` the runner while a job is in flight** — it cancels the job. If that
-  job is a deploy, it can leave the app container **stopped** (compose has torn the old one down but
-  not brought the new one up). Check `docker ps` and re-run `deploy.yml` before walking away.
+- ⚠️ **The box is small (Hetzner CX23: 2 vCPU / 4 GB) and a heavy job takes it down hard** — sshd
+  stops answering, the runner drops **offline (busy)**, and you can then neither cancel nor SSH in.
+  Four rules, all learned the expensive way (#264 cost 5h37m of CI):
+  - **NEVER `backfill-dashboard --all`.** Recompute **per date** (`--field date=YYYY-MM-DD`, one at
+    a time), or `scripts/box-job.sh backfill -- -m small_cap_stack.dashboard_backfill --date <d>` —
+    its own 1 GB container, **never `docker exec` into the app**, which spends the tracker's cgroup
+    and OOMs the tracker instead of the job (#545). `--all` needs `--force`, and the workflows need
+    a separate `force` input on top of `all` (#261) — two deliberate actions, on purpose.
+  - **Per-date is not automatically safe either.** `build_portfolio_payload` holds *every* collected
+    day's bars in memory whichever date you ask for, and that grows daily (#273). Prefer a **past**
+    date over the live day, run one at a time, watch `free -m`.
+  - **Never `systemctl restart` the runner while a job is in flight** — it cancels the job, and a
+    cancelled deploy can leave the app container **stopped**.
+  - **After any OOM, confirm the runner came back** — a `failed` runner makes CI queue silently
+    forever rather than fail.
+  - Recovery, the `hcloud` out-of-band CLI and the full incident record: **`deploy/RUNBOOK.md`
+    §9/§9.1** (Mac only; needs the token in `~/.config/hcloud/cli.toml`).
 
 ## How work gets done (#377, #489)
-Work happens by **you driving Claude Code** (desktop or mobile) against this repo: one issue per
-unit of work, one PR per issue, `make check` before every push. There is no `/spec` gate, no
-auto-triage, no watchdog, no agent that opens issues on its own — the 2026-07-17 automation layer
-was rolled back on 2026-07-19 because it added protocol without earning its keep (it opened zero
-issues and fired almost never). Nothing gates you: ask for any change on any issue, whatever its
-labels, and it gets built.
+Work happens by **you driving Claude Code** (desktop or mobile). **There is no automation layer** —
+no `/spec` gate, no auto-triage, no watchdog, no agent that opens issues on its own; the 2026-07-17
+one was rolled back (#377, `decisions.md` §D-27). Nothing gates you: ask for any change on any
+issue, whatever its labels, and it gets built.
 - **Delegation (#489) is the one agent piece that came back.** Labelling an issue `agent` dispatches
   `claude.yml` — a Claude agent on a **hosted** runner (never the VPS) builds it and opens a PR;
   `@claude …` on that PR revises it; a human reviews and squash-merges. **Delegate only when all
@@ -308,14 +268,15 @@ labels, and it gets built.
   isn't what you're actively iterating on. Engine/strategy work qualifies when the brief names the
   exact rule and test. Spikes, reports, review investigations and anything box- or data-touching
   stay in-house. Procedure — including the six-heading brief template — is the **`delegate-issue`**
-  skill. Before adding a *second* agent workflow, read `research/archive/github-automation.md`.
+  skill. ⚠️ Before adding a *second* agent workflow, read
+  [`research/archive/github-automation.md`](./research/archive/github-automation.md), which is the
+  design, the post-mortem and the `git show` range to resurrect from.
 - The other workflows are the **hands-off, human-triggered** ones: `ci` (on every PR),
   `deploy`, `build-image`, `publish-dashboard` (scheduled), `backfill-dashboard`,
   `deploy-backfill-publish`, `data-export`. Trigger them with `gh workflow run <name>.yml`.
 - **Liveness monitoring** is the app's own Healthchecks.io dead-man's switch (`monitoring.py`,
-  `HEALTHCHECKS_PING_URL`) — it pings each tick and `/fail`s if the tick dies. That predates the
+  `HEALTHCHECKS_PING_URL`) — it pings each tick and `/fail`s if the tick dies. It predates the
   automation layer and is the signal to trust.
-- To rebuild an automation layer later, the deleted code is in git history: `git show c573a60..0c85a1c`.
 
 ## Working remotely (Claude Code on mobile / web)
 The cloud environment has GitHub access (issues, PRs, board, CI all work) and can run `make setup`/`make check`, but it does **NOT** have: the local `.venv`, the local `gh` keyring token, the `.env` file, or any **live IBKR connection**. Therefore:
