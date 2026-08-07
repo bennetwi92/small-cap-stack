@@ -6,7 +6,8 @@ name: data-export
 # web/mobile session cannot SSH into the box (the web sandbox allows only HTTP/HTTPS through a
 # domain-allowlist proxy, and has no secret store), and the box keeps NO inbound ports open. So
 # data flows OUT the same way deploys flow in: a SELF-HOSTED runner on the box (label
-# [self-hosted, vps]) polls GitHub outbound, docker-execs into the app container to query /data,
+# [self-hosted, vps]) polls GitHub outbound, runs the query in its own container via
+# scripts/box-job.sh (#545) against the shared /data volume,
 # and commits the result to the `data-export` branch. The session then reads that file back over
 # GitHub — no SSH, no inbound port, no credential in the cloud. Drive it from the `box-data` skill.
 #
@@ -17,6 +18,10 @@ name: data-export
 on:
   workflow_dispatch:
     inputs:
+      ignore_window:
+        description: "Run even inside the tracker's 04:00-16:10 ET session window (contends for CPU)."
+        type: boolean
+        default: false
       dataset:
         description: "Dataset to export (or 'query' to run raw SQL below)"
         type: choice
@@ -87,6 +92,9 @@ jobs:
           IN_END: ${{ inputs.end_date }}
           IN_SYMBOLS: ${{ inputs.symbols }}
           IN_FORMAT: ${{ inputs.format }}
+          # Empty unless explicitly requested, so the session-window guard in
+          # scripts/box-job.sh holds by default (#545).
+          BOX_JOB_IGNORE_WINDOW: ${{ inputs.ignore_window && '1' || '' }}
         run: |
           set -euo pipefail
           case "$IN_FORMAT" in
@@ -112,9 +120,18 @@ jobs:
             docker_env+=( -e "SCS_DATASET=$IN_DATASET" )
           fi
 
-          docker exec -i "${docker_env[@]}" small-cap-stack-app-1 python - \
+          # Its own container, not `docker exec` into the app's (#545): `Store.query` builds a
+          # DuckDB view over every parquet in the dataset, and inside the tracker's 2 GB cgroup an
+          # unbounded export takes the LIVE TRACKER down with it rather than itself.
+          scripts/box-job.sh export "${docker_env[@]}" -- - \
             < scripts/analysis/export_query.py | tee export.log
-          docker cp "small-cap-stack-app-1:/data/exports/$name" "./$name"
+          # Read the result straight off the shared volume, through the SAME runner — so it uses
+          # the image box-job.sh already resolved and adds no new dependency on the box. Going via
+          # the app container worked, but made the last step of the job depend on the tracker
+          # being up, so a stopped or renamed container failed the copy after all the work (#545).
+          scripts/box-job.sh export-copy -- -c \
+            "import shutil,sys; shutil.copyfileobj(open('/data/exports/$name','rb'), sys.stdout.buffer)" \
+            > "./$name"
 
           {
             echo "RESULT_PATH=$PWD/$name"

@@ -7,8 +7,9 @@ name: backfill-dashboard
 # so the review workbench's date picker is populated from day one (#141) — rather than waiting for
 # the next 16:30 ET EOD.
 #
-# Runs on the SELF-HOSTED runner (on the box) so it can `docker exec` the app container, which owns
-# the store. Pure store-read + projection — no IBKR, no live state — so it's safe any time.
+# Runs on the SELF-HOSTED runner (on the box) so it can reach the data volume that holds the
+# store. Pure store-read + projection — no IBKR, no live state — but NOT free: it runs in its own
+# 1 GB container via `scripts/box-job.sh`, never inside the tracker's cgroup (#545).
 # The existing `publish-dashboard` cron (*/15) then pushes the refreshed files to the
 # `dashboard-data` branch; dispatch that workflow too if you want it live immediately.
 #
@@ -18,6 +19,10 @@ name: backfill-dashboard
 on:
   workflow_dispatch:
     inputs:
+      ignore_window:
+        description: "Run even inside the tracker's 04:00-16:10 ET session window (contends for CPU)."
+        type: boolean
+        default: false
       date:
         description: "Trading date to rebuild (YYYY-MM-DD). Blank = yesterday (ET)."
         required: false
@@ -37,8 +42,10 @@ concurrency:
   group: backfill-dashboard
   cancel-in-progress: false
 
-# No GITHUB_TOKEN needed — this job only docker-execs the app container (#333).
-permissions: {}
+# `contents: read` only, for the checkout that puts `scripts/box-job.sh` in the workspace
+# (#545). The job reads the repo and nothing else — no packages, no issues, no id-token.
+permissions:
+  contents: read
 
 jobs:
   backfill:
@@ -47,7 +54,13 @@ jobs:
     if: ${{ github.repository == 'bennetwi92/small-cap-stack' }}
     runs-on: [self-hosted, vps]
     steps:
-      - name: Regenerate dashboard JSON in the app container
+      # `scripts/box-job.sh` is a workspace path, and the self-hosted runner SHARES one
+      # workspace across workflows — a prior sparse-checkout run can leave `scripts/` absent
+      # or stale. `docker exec` needed nothing checked out; this does (#545).
+      - name: Check out the job runner
+        uses: actions/checkout@v7
+
+      - name: Regenerate the dashboard JSON
         # Dispatch inputs are read as runtime env vars, never interpolated into the script by the
         # Actions templater — so a crafted input can't inject shell (#333). (Owner-only today, but
         # cheap defense-in-depth, matching data-export.yml.)
@@ -55,13 +68,11 @@ jobs:
           IN_ALL: ${{ inputs.all }}
           IN_FORCE: ${{ inputs.force }}
           IN_DATE: ${{ inputs.date }}
+          # Empty unless explicitly requested, so the session-window guard in
+          # scripts/box-job.sh holds by default (#545).
+          BOX_JOB_IGNORE_WINDOW: ${{ inputs.ignore_window && '1' || '' }}
         run: |
           set -euo pipefail
-          cid="$(docker ps --filter 'name=small-cap-stack-app' --format '{{.ID}}' | head -1)"
-          if [ -z "$cid" ]; then
-            echo "app container not running — cannot reach the store" >&2
-            exit 1
-          fi
           args=""
           if [ "$IN_ALL" = "true" ]; then
             # A second, separate confirmation — the `all` toggle alone is not enough. --all rebuilds
@@ -78,4 +89,4 @@ jobs:
           elif [ -n "$IN_DATE" ]; then
             args="--date $IN_DATE"
           fi
-          docker exec "$cid" python -m small_cap_stack.dashboard_backfill $args
+          scripts/box-job.sh backfill -- -m small_cap_stack.dashboard_backfill $args

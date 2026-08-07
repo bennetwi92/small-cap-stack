@@ -28,6 +28,10 @@ as `deploy.yml`). If it isn't up, the dispatched run just queues.
    - `query` — raw DuckDB SQL over the dataset views (only when `dataset = query`); e.g.
      `SELECT symbol, count(*) FROM opportunities WHERE dt >= '2026-07-01' GROUP BY 1`
    - `format` — `parquet` (default, compressed — best for wide ranges) | `csv` | `ndjson`
+   - `ignore_window` — the job **refuses to run between 04:00 and 16:10 ET** (#545): it runs
+     in its own container on a 2-vCPU box and would otherwise compete with the live scan.
+     Outside those hours you need nothing. Inside them the run fails with that message —
+     set this to `true` only if you accept the contention.
    - `ref` — ref to run the exporter from (default `main`)
 2. **Poll** the run with `actions_get` (list recent runs with `actions_list` to find the run id) until
    `status = completed`. On `conclusion = failure`, read `get_job_logs` — the job summary echoes the
