@@ -32,6 +32,8 @@ jobs:
   build:
     name: build (linux/amd64)
     runs-on: ubuntu-latest
+    # Bound the hang; GitHub's default is 360 minutes (#544). p95 1.7 min; a cache-miss docker build is the slow case.
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
