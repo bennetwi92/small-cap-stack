@@ -16,11 +16,33 @@ Explore these codebases and record in detail anything that could be useful.
 
 ## Status
 
-Pre-build. Research and de-risking complete; foundation (CI, scaffolding) in place. Tracked via
-[GitHub issues](https://github.com/bennetwi92/small-cap-stack/issues) and
-[project board #3](https://github.com/users/bennetwi92/projects/3). Phase 1 (opportunity tracker)
-is next. See [`research/`](./research) for the full record — start with
-[`research/findings-index.md`](./research/findings-index.md) and [`research/decisions.md`](./research/decisions.md).
+**Phase 1 — live, collecting.** The tracker has been deployed on a Hetzner VPS since
+**2026-07-01**, scanning every trading session and writing raw data it can re-derive from later.
+Phase 2 is paper trading and Phase 3 is live; **it places no orders today.**
+
+Phase 1 was originally a three-month calendar wait (~2026-10-01). That is no longer the gate
+(#49, closed 2026-08-07): the harvest rebuilt more pre-market sessions in three nights than the
+live tracker collected in five weeks, so the question stopped being *how much data* and became
+*do we trust it* — is the strategy overfitted, does the reconstruction diverge from what actually
+happened. Live collection keeps running regardless: it is the only thing that can keep validating
+the reconstruction against reality.
+
+What that means in practice:
+
+- The **paper book** is *compute-on-read*, not a running account — every trade and every R is
+  re-derived from stored bars whenever the rules change, so a methodology fix reprices all of
+  history rather than only what comes next.
+- A nightly **harvest** rebuilds pre-market sessions from purchased vendor bars into a separate
+  store, so the record reaches back before collection started without vendor rows ever mixing
+  into live ones.
+- Progress against the Phase-2 gates is on the dashboard's
+  [Plan page](https://bennetwi92.github.io/small-cap-stack/plan.html), computed from published
+  data and live issue state rather than hand-maintained.
+
+Work is tracked via [GitHub issues](https://github.com/bennetwi92/small-cap-stack/issues) and
+[project board #3](https://github.com/users/bennetwi92/projects/3). See [`research/`](./research)
+for the full record — start with [`research/strategy.md`](./research/strategy.md) (the canonical
+spec), then [`research/decisions.md`](./research/decisions.md) for why each rule is what it is.
 
 ## Getting started
 
@@ -53,10 +75,14 @@ flagged, and nothing downstream filters on them.
 | Path | What |
 |---|---|
 | `src/small_cap_stack/` | The package (typed, tested) |
-| `tests/` | Pytest suite |
+| `tests/` | Pytest suite, incl. 25 real-market regression fixtures |
 | `spikes/` | De-risking experiments (run against IBKR locally / on the VPS) |
-| `research/` | Research reports, `findings-index.md`, `decisions.md` |
+| `research/` | ⚠️ **The documentation** — `strategy.md` (the spec), `decisions.md` (the log), `findings-index.md` |
+| `docs/` | ⚠️ **NOT documentation** — the GitHub Pages dashboard frontend (HTML/CSS/JS). Its one prose exception is `docs/reports/`, the published analyses |
+| `deploy/` | Host runbook and systemd units for the VPS |
+| `data/` | Local runtime data — **gitignored**, never committed |
 | `scripts/` | Repo helpers (e.g. `board.sh`) |
+| `.github/` | CI (`ci`), the deploy/backfill/publish workflows, issue templates |
 
 ---
 
