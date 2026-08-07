@@ -85,6 +85,7 @@ def detect_day(
     pole_extension_min_body: float = 0.5,
     max_cons: int = 4,
     max_retracement: float = 0.50,
+    min_vol_ratio: float = 1.0,
     max_peak_wick: float = 0.50,
     min_pole_pct: float = 0.02,
     trigger_offset: float = 0.01,
@@ -199,6 +200,7 @@ def detect_day(
         max_peak_wick=max_peak_wick,
         min_pole_pct=min_pole_pct,
         max_retracement=max_retracement,
+        min_vol_ratio=min_vol_ratio,
     )
     sc, contributions = score(
         fv, weights=weights, max_pole=max_pole, max_retracement=max_retracement
@@ -282,6 +284,7 @@ def detect_day_with_settings(
         max_cons=settings.bull_flag_max_cons,
         min_pole_pct=settings.bull_flag_min_pole_pct,
         max_retracement=settings.bull_flag_max_retracement,
+        min_vol_ratio=settings.bull_flag_min_vol_ratio,
         max_peak_wick=settings.bull_flag_max_peak_wick,
         trigger_offset=settings.bull_flag_trigger_offset_ticks * tick,
         fill_offset=settings.bull_flag_fill_offset_ticks * tick,
