@@ -33,6 +33,18 @@ export const fmtNum = (x, dp = 2, signed = false) =>
 export const fmtRSigned = (x) =>
   x == null || !isFinite(x) ? "—" : (x >= 0 ? "+" : "") + Number(x).toFixed(2) + "R";
 
+// The provenance chip (#430): a row rebuilt from purchased vendor minute bars, never captured
+// live. It existed in five hand-written copies across Results and Portfolio — and one of them,
+// `portfolio.js`'s Date tile, had already lost its `title`, so the same chip explained itself on
+// four surfaces and not the fifth. That is the whole drift #524 evidenced.
+//
+// Returns a LEADING space when it renders, because every call site appends it to an escaped
+// value; returns "" otherwise, so `${esc(x)}${reconChip(...)}` is the whole pattern.
+export const reconChip = (isRecon) =>
+  isRecon
+    ? ' <span class="pf-src" title="Reconstructed from vendor minute bars, not captured live">recon</span>'
+    : "";
+
 // ─── ET clocks ──────────────────────────────────────────────────────────────
 // Every time this app prints is ET, because the trading day is ET. There is exactly one place
 // each formatter is constructed (#510).

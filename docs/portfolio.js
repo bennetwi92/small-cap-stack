@@ -23,6 +23,7 @@ import {
   fmtRSigned,
   fmtShares,
   rRampClass,
+  reconChip,
 } from "./js/fmt.js";
 import {
   chartsFor,
@@ -1140,11 +1141,7 @@ const maxPctCell = (t) =>
 // The date cell, tagged when the row came from reconstructed history rather than live capture
 // (#430). Absent `source` — every payload published before the harvest — reads as live.
 function dateCell(t) {
-  const tag =
-    t.source === "recon"
-      ? ` <span class="pf-src" title="Reconstructed from vendor minute bars, not captured live">recon</span>`
-      : "";
-  return `<td>${esc(t.date)}${tag}</td>`;
+  return `<td>${esc(t.date)}${reconChip(t.source === "recon")}</td>`;
 }
 
 // The symbol cell. Plain text since #480: the whole row opens the inspector, which draws the
@@ -1516,7 +1513,7 @@ function inspEnsureView() {
 function inspTiles(kind, t) {
   const rCls = (v) => (v == null ? "" : rRampClass(v));
   const common =
-    tile("Date", esc(t.date) + (t.source === "recon" ? ' <span class="pf-src">recon</span>' : "")) +
+    tile("Date", esc(t.date) + reconChip(t.source === "recon")) +
     tile("Trigger", etClockIso(t.trigger_at)) +
     tile("Float", fmtShares(t.float_shares)) +
     tile("Entry", fmtPrice(t.entry)) +
@@ -1632,11 +1629,7 @@ async function drawInspector(t) {
     return;
   }
   v.draw(c);
-  el("pf-insp-title").innerHTML =
-    esc(`${optionLabel(c)} · ${t.date}`) +
-    (recon
-      ? ' <span class="pf-src" title="Reconstructed from vendor minute bars, not captured live">recon</span>'
-      : "");
+  el("pf-insp-title").innerHTML = esc(`${optionLabel(c)} · ${t.date}`) + reconChip(recon);
   el("pf-insp-readout").innerHTML = readoutHtml(c, { engineOn: inspEngineOn });
   const n = newsCount(c);
   el("pf-insp-news").textContent = `News ${n}`;

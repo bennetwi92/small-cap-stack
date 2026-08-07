@@ -766,3 +766,30 @@ def test_the_fmt_palette_tokens_exist_in_the_stylesheet() -> None:
     assert used, "no CSS tokens read — has the accessor been removed?"
     missing = used - declared
     assert not missing, f"portfolio.js reads tokens cockpit.css does not define: {missing}"
+
+
+def test_the_provenance_chip_has_exactly_one_renderer() -> None:
+    """`.pf-src` marks a row rebuilt from purchased vendor bars rather than captured live (#430),
+    and it was hand-written in five places across Results and Portfolio. Four matched; the fifth —
+    Portfolio's Date tile — had already lost its `title`, so the chip explained itself on four
+    surfaces and stayed cryptic on the fifth. That is drift on a *provenance* marker, which is the
+    one thing on these pages that must never be ambiguous.
+
+    ⚠️ This is the whole of #524 that the evidence supported. The issue's headline ask was to
+    extract a shared `createInspectorHost` from the two docks; measured against the current files
+    they are **9.8% similar, with exactly one non-trivial identical line** — this chip. A shared
+    host would be a config object papering over the other 90%, written without a browser to
+    smoke-load it. Recorded rather than built.
+    """
+    offenders = [
+        f"{path}:{i}"
+        for path, src in _js_sources().items()
+        if path != FMT
+        for i, ln in enumerate(src.splitlines(), 1)
+        if 'class="pf-src"' in ln and not ln.lstrip().startswith("//")
+    ]
+    assert not offenders, (
+        "the provenance chip must come from `reconChip` in js/fmt.js — a second copy is how the "
+        "Date tile lost its tooltip:\n  " + "\n  ".join(offenders)
+    )
+    assert "reconChip" in (_exports(_js_sources()[FMT]) or set())
