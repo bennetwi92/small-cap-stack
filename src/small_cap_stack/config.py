@@ -291,16 +291,23 @@ class Settings(BaseSettings):
     # data-collection phase. Before #567 this was the only effective time-of-day rule in the system
     # and it lived in the book, while the engine carried a 04:00–11:59 window that gated nothing.
     #
-    # Floor added 2026-07-31 (#405): no trades before 05:30 ET. The owner's call, like the $2 price
-    # floor — `research/reports/…time-of-day…` found no pre-market window statistically separable
-    # from another (the 04:00–06:00 block is −0.32R over 86 triggers, but permuting entry-time
-    # labels within a day reproduces that spread 68% of the time), so it is a selection decision
-    # about the thinnest, earliest tape, not a measured edge.
+    # ⚠️ The floor is OPEN — 04:00, i.e. the whole pre-market (#569, 2026-08-07, reversing #405's
+    # 05:30). Measured before taking it: over 30 sessions the earlier floor adds 4 trades, ALL of
+    # them stop-outs triggering 04:20–04:30, for −4.69R and −$74.58 (−11.5% of the book). Nothing
+    # was displaced — the earlier triggers pushed no later winner out of the 2/day cap.
+    #
+    # Taken anyway, and the reasoning matters more than the number: n=4 is not evidence (four
+    # losses at a ~43% base rate happens ~10% of the time by chance), and the floor was never a
+    # measured edge either — the time-of-day report found no pre-market window statistically
+    # separable from another (the 04:00–06:00 block is −0.32R over 86 triggers, but permuting
+    # entry-time labels within a day reproduces that spread 68% of the time). So this collects the
+    # early tape in the book rather than assuming it away. Revisit once there are more than four
+    # early triggers to judge on. `spikes/window_0400.py` re-runs the comparison.
     #
     # Cutoff tightened 09:30 → 09:15 (2026-07-21): the final pre-open ramp/auction trades like the
     # open, which this strategy excludes (a VMAR entry at ~09:25 on 2026-07-20 lost). Spike
     # #379/#380 only swept relaxations (10:00–12:00), all worse. Last takeable bar opens 09:10.
-    select_window_start: time = time(5, 30)
+    select_window_start: time = time(4, 0)
     select_window_end: time = time(9, 15)
 
     # Capture (issue #14). The intraday tick only does discovery (scanner_hits + opportunities +

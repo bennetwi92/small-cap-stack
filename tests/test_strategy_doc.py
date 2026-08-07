@@ -8,6 +8,7 @@ own copy of the numbers (which is the failure mode the whole exercise exists to 
 
 from __future__ import annotations
 
+from datetime import time
 from pathlib import Path
 
 import pytest
@@ -104,11 +105,22 @@ def test_float_and_news_are_rendered_as_not_gated() -> None:
     assert not_gated.count("**No.**") == 4
 
 
-def test_time_windows_are_distinct_and_both_present() -> None:
-    """The scan window and the book's trigger window are different rules; the doc renders both."""
+def test_the_scan_and_selection_windows_are_rendered_as_separate_rules() -> None:
+    """Two different windows, and conflating them is what #551 was about.
+
+    They now share a 04:00 start (#569), which makes it *more* important that the doc renders them
+    as distinct rows: the scan bounds what gets captured, the selection window bounds what is
+    takeable, and a reader who merges them concludes the tracker stops looking at 09:15.
+    """
     block = render_block(_settings())
-    assert "04:00 ET – 11:59 ET" in block
-    assert "05:30 ET ≤ trigger open < 09:15 ET" in block
+    assert "| Scan window | 04:00 ET – 11:59 ET |" in block
+    assert "04:00 ET ≤ trigger open < 09:15 ET" in block
+
+    # Pin the distinction against the defaults rather than the strings: move one, and only one row
+    # moves. A single window rendered twice would fail here.
+    moved = render_block(_settings(select_window_start=time(6, 0)))
+    assert "| Scan window | 04:00 ET – 11:59 ET |" in moved
+    assert "06:00 ET ≤ trigger open < 09:15 ET" in moved
 
 
 def test_disabled_knobs_render_as_disabled() -> None:
