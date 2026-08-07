@@ -237,6 +237,15 @@ class Settings(BaseSettings):
     # AKAN's quiet bar above the WULF extension a reviewed fixture keeps. 0.0 disables it.
     # The admissible window is only (0.0677, 0.1058) — one observation at each end, so provisional.
     bull_flag_pole_min_step_share: float = 0.08
+    # Minimum body fraction for a bar to EXTEND the pole (#607), split out from the locked 0.50 in
+    # `is_big_green`. A hard cut with no tolerance truncates poles on near-misses and inflates the
+    # reported retracement: BNAI 2026-06-09's 06:20 bar ran +7.5% on 163k shares carrying 72% of the
+    # pole's advance and was called a quiet pause on a body of 0.4861 — a 1.4-point miss. Read ONLY
+    # by refine_pole's walk; `significant_cycles` and `pole_has_big_green` keep 0.50, or exhaustion
+    # counts move with it. Admissible window (0.4526, 0.4861] — CIFR 2026-07-06's 11:35 bar stays
+    # out, BNAI's comes in — i.e. 0.033 wide on two observations. As provisional as the step share
+    # above; a reviewed case inside that window closes it.
+    bull_flag_pole_extension_min_body: float = 0.47
     bull_flag_max_cons: int = 4  # max consolidation candles
     # Minimum meaningful pole move (#176, `research/bull-flag.md §3.4`): a "pole" that rises less
     # than this fraction of its base is noise, not a thrust. A loose floor — the abnormality signal
@@ -306,12 +315,26 @@ class Settings(BaseSettings):
     # into `passed` would report it as a malformed setup and throw the data away.
     #
     # Price band, tested against `entry_fill` (the conservative 3-tick fill, so a name is judged on
-    # the price the book would actually pay). Narrower than the $1–50 scan on purpose: sub-$2 and
-    # over-$20 names keep being captured, charted and scored, they just aren't selected. Floor
-    # raised $1 → $2 on 2026-07-31 (#386) as the owner's call on the book, NOT a cost argument —
-    # `research/broker-costs.md` §3 still stands and the scanner floor stays $1.
-    select_price_min: float = 2.0
-    select_price_max: float = 20.0
+    # the price the book would actually pay). **Widened to match the $1–50 scan on 2026-08-07
+    # (#608)** — deliberately temporary, for the collection phase, and the owner intends to shrink
+    # it again once the record can say where it belongs.
+    #
+    # Why: across 27 reviewed opportunities the band was the deciding rejection in 13 of them, more
+    # than every shape gate combined — including setups the trader read as clean trades (MGM ran
+    # +6.79R with MAE 0.48R and never stopped out; QTEX passes all eight shape gates at $1.26). A
+    # narrow band during collection means the record never learns whether those names were tradable.
+    #
+    # It costs the virtual book, and that is the accepted trade: over 31 recon sessions the takeable
+    # population goes 25 → 46 and realised R goes +0.60 → −8.96 (equity $484 → $312, max drawdown
+    # 30.8% → 45.7%). The admitted names are worse on average than the ones already selected, which
+    # is what a selection rule that was doing something looks like. Coverage was bought with
+    # performance on purpose — see research/decisions.md and #608 before reading the published book.
+    #
+    # History: floor was $1 until #386 raised it to $2 on 2026-07-31 (an owner's call on the book,
+    # NOT a cost argument — `research/broker-costs.md` §3 stands either way); the scan floor has
+    # been $1 throughout.
+    select_price_min: float = 1.0
+    select_price_max: float = 50.0
     # Trigger-time window: `start` <= trigger bar open < `end` (floor inclusive, cutoff strict).
     #
     # ⚠️ This is NOT the scan window. `scan_start`/`scan_end` (04:00–11:59) bound when the scanner

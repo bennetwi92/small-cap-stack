@@ -80,6 +80,7 @@ between §1 and §2.
 |---|---|---|
 | Pole | ≤ 4 higher highs | `bull_flag_max_pole` |
 | Pole minimum move | ≥ 2% | `bull_flag_min_pole_pct` |
+| Pole thrust body | an extension bar's body ≥ 47% of its range | `bull_flag_pole_extension_min_body` |
 | Pole step minimum | each extension bar carries ≥ 8% of the pole | `bull_flag_pole_min_step_share` |
 | Consolidation | ≤ 4 candles | `bull_flag_max_cons` |
 | Retracement | ≤ 50% of the pole | `bull_flag_max_retracement` |
@@ -90,13 +91,14 @@ between §1 and §2.
 | Trigger (decides *when*) | last consolidation high + 1 tick ($0.01) | `bull_flag_trigger_offset_ticks` |
 | Fill (R is measured here) | last consolidation high + 3 ticks ($0.03) | `bull_flag_fill_offset_ticks` |
 | Stop | the consolidation low | — `R = fill − stop` |
+| Appearance | the trigger bar must open at or after the first scanner hit | — structural; see `bullflag/day.py` |
 | Staleness | the trigger bar must open ≤ 30 min after the first scanner hit | `entry_staleness_min` |
 | Gap pole | the session's first bar may anchor a single-bar pole | `bull_flag_gap_pole` |
 | Exhaustion | reject the 3rd+ contiguous cycle of the day | `bull_flag_exhaustion_cap` |
 | Cycle volume floor | 50,000 (any bar in the cycle, pole or fade) | `scan_min_5m_volume` // 2 |
 | Tick size | $0.01 | `tick_size` |
 | ATR window | 14 bars (score only, gates nothing) | `bull_flag_atr_window` |
-| **Selection** — price band | $2.00 ≤ `entry_fill` ≤ $20.00 | `select_price_min / select_price_max` |
+| **Selection** — price band | $1.00 ≤ `entry_fill` ≤ $50.00 | `select_price_min / select_price_max` |
 | **Selection** — trigger window | 04:00 ET ≤ trigger open < 09:15 ET | `select_window_start / select_window_end` |
 
 ### 3. The book — what actually gets traded

@@ -88,10 +88,16 @@ def test_every_rendered_value_tracks_its_setting(field: str, value: object, expe
 
 
 def test_retired_price_bands_cannot_reappear() -> None:
-    """#551: four price bands were live at once. Only the two real ones may be rendered."""
+    """#551: four price bands were live at once. Only the two real ones may be rendered.
+
+    The selection band widened to the scan's own $1–$50 at #608, so the two now coincide in value
+    while remaining separate rules — which is exactly the conflation #551 was about. They are
+    asserted by their distinct rendered forms (a range for the scan, a bounded `entry_fill`
+    expression for selection), so a future edit that merged them into one row would still fail."""
     block = render_block(_settings())
     assert "$1.00 – $50.00" in block  # the scan
-    assert "$2.00 ≤ `entry_fill` ≤ $20.00" in block  # the book
+    assert "$1.00 ≤ `entry_fill` ≤ $50.00" in block  # the book (#608)
+    assert "$2.00 ≤ `entry_fill` ≤ $20.00" not in block  # the 2026-07-31 → 2026-08-07 band (#386)
     assert "$2.00 – $10.00" not in block  # the 2026-06-29 brief
     assert "$1.00 – $20.00" not in block  # broker-costs' modelled universe
 

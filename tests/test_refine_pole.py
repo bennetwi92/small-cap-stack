@@ -188,3 +188,63 @@ def test_a_non_positive_span_blocks_the_extension() -> None:
     """A peak at or below the would-be base cannot be judged, so it must not extend the pole."""
     flat = _bars([20.0, 20.5, 20.0])
     assert refine_pole(flat, ["H", "L"], 2, max_pole=4, min_step_share=0.08) is None
+
+
+# --- #607: the thrust-body threshold for pole extension is tunable, and only here ----------------
+#
+# The discriminating pair from the record: BNAI 2026-06-09's 06:20 bar (body 0.4861) ran +7.5% on
+# 163k shares carrying 72% of the pole's advance and must extend the pole; CIFR 2026-07-06's 11:35
+# bar (body 0.4526) is a signed-off fixture rejection and must not. The default 0.47 sits between
+# them, and the window is only that wide.
+
+
+def _body_bars(body_frac: float) -> list[Bar]:
+    """Three rising bars whose MIDDLE one has the given body fraction (the extension candidate)."""
+    bars = _bars([10.0, 15.0, 20.0])
+    mid = bars[1]
+    rng = mid.high - mid.low
+    return [
+        bars[0],
+        Bar(
+            start=mid.start,
+            open=mid.low,
+            high=mid.high,
+            low=mid.low,
+            close=mid.low + body_frac * rng,
+            volume=mid.volume,
+        ),
+        bars[2],
+    ]
+
+
+def _refine_body(bars: list[Bar], min_body: float) -> tuple[int, int] | None:
+    return refine_pole(bars, tokenize(bars, eps=0.005), 2, max_pole=4, min_body_frac=min_body)
+
+
+def test_a_near_miss_thrust_bar_extends_the_pole_at_the_default() -> None:
+    """BNAI-shaped: 0.4861 is a real thrust, not to be truncated on a 1.4-point technicality."""
+    assert _refine_body(_body_bars(0.4861), 0.47) == (0, 2)
+
+
+def test_a_genuinely_weak_bar_still_stops_the_walk() -> None:
+    """CIFR-shaped: 0.4526 stays excluded — the window is (0.4526, 0.4861], not "anything green"."""
+    assert _refine_body(_body_bars(0.4526), 0.47) == (1, 1)
+
+
+def test_the_locked_half_body_rule_is_reproducible() -> None:
+    """`min_body_frac=0.5` reproduces the pre-#607 walk exactly, so the knob is a generalisation."""
+    assert _refine_body(_body_bars(0.4861), 0.5) == (1, 1)  # truncated, as before
+    assert _refine_body(_body_bars(0.5001), 0.5) == (0, 2)  # extended, as before
+
+
+def test_the_threshold_is_read_only_by_the_extension_walk() -> None:
+    """`is_big_green` keeps the locked 0.50 — `significant_cycles` and the feature vector need it.
+
+    Loosening the extension walk must not quietly move exhaustion counts with it, which is why
+    #607 added a parameterised sibling rather than changing the primitive.
+    """
+    from small_cap_stack.bullflag.primitives import is_big_green, is_green_bodied
+
+    near_miss = _body_bars(0.4861)[1]
+    assert is_big_green(near_miss) is False  # the locked rule is unmoved
+    assert is_green_bodied(near_miss, 0.47) is True  # the tunable one admits it

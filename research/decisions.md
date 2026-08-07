@@ -157,6 +157,30 @@ series' modal bar spacing, so a pre-market gap doesn't over-credit across a miss
 appearance marker (`charts._bar_containing`) matches — it sits on the bar that *contains* `first_hit`,
 not the next one (fixes the JEM 08:45-vs-08:40 dot). Backcastable over collected bars.
 
+> **⚠️ SUPERSEDED IN CODE 2026-07-10, recorded 2026-08-07 (#605).** The engine-v2 rewrite
+> (#182/#190) replaced this path with `bullflag/day.py::detect_day`, which reverted to **bar-start**
+> granularity — and this entry was never amended, so for a month the log described a rule the engine
+> did not run. `research/engine-v2.md` §13 and the module docstrings said bar-start throughout;
+> `research/strategy.md` did not state the bound at all, so nothing caught the divergence.
+>
+> **The shipped behaviour is the stricter one and it is being kept.** Measured over both stores
+> (61 days, 2,195 setups): under the documented bar-close rule, **9 trades whose appearance lands
+> strictly inside the entry bar** become takeable (JEM 2026-07-24 bar 07:00 / appearance 07:04:58,
+> MSTZ 07-06, SUNE 07-14, SRXH 07-09, APPS, IOTR, EDHL, RPGL, QNRX) carrying **+11.67R against a
+> +10.59R book** — i.e. more than the entire book. That is a large, unreviewed loosening riding on a
+> stale log entry, not a decision anyone took.
+>
+> The bound is now rendered in `strategy.md`, so `make strategy` keeps it honest from here.
+>
+> **Left open:** whether a trigger bar opening *exactly* at the appearance should count.
+> `tests/test_rmetrics.py::test_trigger_exactly_at_appearance_counts` asserts that it does, by name
+> and with intent ("the gate is inclusive"). The case for tightening it is that reconstructed
+> appearances are quantised to `:00` and measured ~0.34 min early, so a recon `09:15:00` corresponds
+> to a live appearance *inside* the bar; the case against is that if we genuinely saw the symbol at
+> the bar's first instant, any break within that bar was takeable. It affects 4 of 2,195 setups,
+> **all already non-takeable**, and 0 R either way — so it is a semantics question with no evidence
+> to settle it, and reversing a deliberate test to win it is not worth doing silently.
+
 ## Entry staleness bound (DECISION 2026-07-03, #130 — from notes.md)
 A break more than **`entry_staleness_min` (default 30 min)** after the scanner appearance reads as
 *faded* and is not counted as a takeable entry — the run reports setup-found-but-not-triggered
@@ -1174,3 +1198,43 @@ landing, not a regression. `spikes/window_0400.py` re-runs the comparison.
 
 Compute-on-read means the whole history replays under the new floor on the next publish — no stored
 state to migrate, and reverting is one line.
+
+## DECISION 2026-08-07 (#608) — the selection price band widens to $1–$50 for collection
+
+**Temporary, and intended to be reversed.** `select_price_min` 2.00 → **1.00**, `select_price_max`
+20.00 → **50.00**, matching the scanner's own universe. The owner's stated intent is to shrink the
+band again once the record can say where it belongs.
+
+**Why.** Across two rounds of trader review on 2026-08-07 (27 opportunities), the price band was
+the **deciding rejection in 13 of them** — more than every shape gate combined. Nine sat below the
+$2 floor (SBFM ×2, BIYA, MTVA, QTEX, TGHL, SUNE, RKTO…), four above the $20 ceiling (AKAN $29.18,
+QBTS $21.46, BNAI $24.03, QURE $28.99, SMCI $46.12, MGM $48.33). Several were setups the trader
+read as clean trades: **MGM ran +6.79R with MAE 0.48R and never stopped out**; QTEX passes all eight
+shape gates at a $1.26 fill. Every pole fix, gate tolerance and stop refinement raised in that
+review is downstream of this rule — if the band is right, much of that work concerns names we would
+never trade. Phase 1 is a collection phase and the standing principle is *collect before you
+filter*; a narrow band means the record never learns whether those names were tradable.
+
+**⚠️ It costs the virtual book, and that was accepted, not overlooked.** 31 recon sessions,
+`target_r=2.0`, #583 entry-bar resolution on:
+
+| band | takeable | book trades | realized R | end equity | max DD | days over the 2/day cap |
+|---|---|---|---|---|---|---|
+| $2–$20 (2026-07-31 → 2026-08-07) | 25 | 22 | **+0.60** | $484.15 | 30.8% | 3 |
+| **$1–$50 (this decision)** | **46** | 39 | **−8.96** | **$312.01** | **45.7%** | 5 |
+
+The admitted names are worse on average than the ones already selected — which is what a selection
+rule that was doing something looks like. **Coverage was bought with performance on purpose.**
+Anyone reading the published book from 2026-08-07 needs that context; this table is the baseline
+the shrink-back decision should be measured against.
+
+**Supersedes #386** (2026-07-31), which raised the floor $1 → $2 as an owner's call on the book and
+explicitly *not* a cost argument — `research/broker-costs.md` §3 stood then and stands now. The
+scanner floor has been $1 throughout, so the two bands now coincide in value while remaining
+separate rules (the conflation #551 was about — `test_retired_price_bands_cannot_reappear` asserts
+their distinct rendered forms so a future merge of the two rows still fails).
+
+**⚠️ Invalidates prior costings.** Every cost figure in #602 / #604 / #605 / #606 / #607 was
+measured under $2–$20, and several read "0 takeable affected" *because the band hid the
+population* — most sharply #604, where 24 zero-range/halted consolidations exist (live sum −32.65R)
+and none was takeable under the old band. Re-cost each before implementing it.
