@@ -116,6 +116,18 @@ class Settings(BaseSettings):
     # keeps the harvest out of them.
     harvest_start_et: time = time(12, 30)
     harvest_stop_et: time = time(3, 0)
+    # The start on a day the market is SHUT — weekend or holiday, per `market_calendar` (#633).
+    # Everything the 12:30 start ducks is trading-day-only: the scan window self-gates on the same
+    # calendar, and `eod_bars_fetch` / `eod_report` both return immediately on a closed day (so
+    # `harvest_eod_recess_et` buys nothing then either, and `effective_deadline` skips it).
+    # The 03:00 STOP is unchanged and deliberately not a weekend variant: `portfolio_refresh` 03:15
+    # and `eod_backfill` 03:45 run every day of the week, closed or not.
+    # 05:00 rather than 04:00 for the same asymmetry the stop is built on — a run must be *finished*
+    # before a heavy job, and started only once one is done. `eod_backfill` at 03:45 walks
+    # `backfill_days` of trading days over IBKR and rebuilds a report per repaired day, and its
+    # duration grows with the store. Starting on top of it would risk `HostGuard` tripping at the
+    # first session boundary, which ends the WHOLE run — an expensive way to buy one hour.
+    harvest_weekend_start_et: time = time(5, 0)
     # The afternoon run's OWN stop, 10 minutes before `eod_bars_fetch` (#455). This is what makes
     # the widened window safe, and it replaces an argument that did not survive review: the claim
     # was that `HostGuard` would stop the harvest if the EOD jobs made the box tight. It cannot.

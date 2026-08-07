@@ -1,9 +1,10 @@
 [Unit]
-Description=small-cap-stack pre-market harvest (afternoon + evening)
+Description=small-cap-stack pre-market harvest (afternoon + evening; whole day when the market is shut)
 Documentation=https://github.com/bennetwi92/small-cap-stack/blob/main/deploy/RUNBOOK.md
 
 [Timer]
-# FOUR fires a day, all inside the 12:30-03:00 ET window (#455).
+# FOUR fires a day, all inside the 12:30-03:00 ET window (#455), plus TWO more on Sat/Sun, when
+# the window opens at 05:00 instead (#633).
 #
 # 12:30 — half an hour after the 11:59 scan close, opening the one block of the box's day that
 # nothing else is scheduled in. At the free tier's 5 calls/min the harvest's calendar is set purely
@@ -19,10 +20,24 @@ Documentation=https://github.com/bennetwi92/small-cap-stack/blob/main/deploy/RUN
 # unit is `activating` and systemd MERGES the duplicate start job — ExecStart is not re-executed
 # and nothing appears in the journal. They cost something only when there is nothing running,
 # which is exactly when they are wanted.
+#
+# Sat/Sun 05:00 — the weekend opening. Nothing the 12:30 start ducks happens on a closed day: the
+# scan window and both EOD jobs are gated on the same trading calendar, so the harvest gets 05:00
+# → 03:00 with no recess. 05:00 rather than 04:00 keeps it clear of `eod_backfill` FINISHING (it
+# starts 03:45 and its length grows with the store), because a HostGuard trip at the first session
+# boundary would end the whole 22-hour run.
+#
+# Sat/Sun 08:00 — the weekend's recovery fire, for the same reason 20:00 and 23:00 exist.
+#
+# HOLIDAYS get the wider window and the skipped recess (both are decided in the app, from the
+# calendar) but no early fire — systemd has no trading calendar, and a second scheduling mechanism
+# on the box is not worth one extra morning a year.
 OnCalendar=*-*-* 12:30:00 America/New_York
 OnCalendar=*-*-* 17:15:00 America/New_York
 OnCalendar=*-*-* 20:00:00 America/New_York
 OnCalendar=*-*-* 23:00:00 America/New_York
+OnCalendar=Sat,Sun *-*-* 05:00:00 America/New_York
+OnCalendar=Sat,Sun *-*-* 08:00:00 America/New_York
 # Persistent=false ON PURPOSE, unlike the backup timer: a missed fire is not work to catch up on
 # at boot (the harvest resumes from its checkpoint whenever it next runs), and a boot-time fire
 # could land at 04:00 with the scan window opening.

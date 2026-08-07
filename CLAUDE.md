@@ -186,7 +186,9 @@ hours, not authoring speed (see the remote-work limits above).
   run nightly on the box by `scs-harvest.timer` (RUNBOOK §13). It streams one session at a time,
   **refuses to start outside 12:30–03:00 ET**, recesses at 16:10 so it is never inside a session
   during the 16:20/16:30 EOD jobs (#455), hard-stops at 03:00 clear of the 03:45
-  `eod_backfill`, runs in its own `--memory=1g` container (never `docker exec` into the app — that
+  `eod_backfill`, gets **05:00–03:00 with no recess on a day the market is shut** (#633 — the scan
+  and both EOD jobs are calendar-gated, so a Saturday/Sunday/holiday is free; the *stop* never
+  moves, because `portfolio_refresh` 03:15 is not), runs in its own `--memory=1g` container (never `docker exec` into the app — that
   spends the tracker's cgroup), and checkpoints per session so a kill costs at most one session.
   Phase 1 (`harvest daily`, grouped-daily + previous closes) must run before phase 2 (`harvest
   run`): #428 measured the previous close as a *required* input, not a nicety.

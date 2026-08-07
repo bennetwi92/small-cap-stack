@@ -52,11 +52,13 @@ from small_cap_stack.harvest import (
     trading_sessions,
     trim_session,
     universe_rows,
+    window_for,
 )
 from small_cap_stack.harvest import __main__ as cli_mod
 from small_cap_stack.harvest.checkpoint import CHECKPOINT_VERSION
 from small_cap_stack.harvest.runner import checkpoint_path, effective_deadline
 from small_cap_stack.harvest.source import HarvestEntitlementError, HarvestError
+from small_cap_stack.market_calendar import early_close_et
 from small_cap_stack.portfolio import extract_day_trades
 from small_cap_stack.storage import Store
 from tests.support import settings
@@ -64,6 +66,9 @@ from tests.support import settings
 # A quiet weekday well inside the XNYS calendar; every fixture below is anchored to it.
 DAY = date(2026, 7, 2)
 PREV = date(2026, 7, 1)
+#: A day the market is shut, for the closed-day window (#633). Deliberately unrelated to DAY:
+#: the point of these tests is that the calendar decides, not the fixture.
+SATURDAY = date(2026, 8, 8)
 
 
 def _settings(tmp_path: Path, **kw: Any) -> Settings:
@@ -912,10 +917,14 @@ def test_massive_source_from_env_refuses_without_a_key(monkeypatch: Any) -> None
 # ================================================================================================
 
 
-def _at_et(monkeypatch: Any, hh: int, mm: int = 0) -> None:
+def _at_et(monkeypatch: Any, hh: int, mm: int = 0, *, day: date = DAY) -> None:
     """Pin the CLI's wall clock. The window guard reads `datetime.now(ET)` directly, so this is
-    what makes "would it refuse at 05:00?" testable rather than a claim in a docstring."""
-    fixed = datetime.combine(DAY, time(hh, mm), tzinfo=ET)
+    what makes "would it refuse at 05:00?" testable rather than a claim in a docstring.
+
+    `day` matters as much as the hour now that the window depends on the calendar (#633) — the
+    same 06:00 is refused on a Thursday and allowed on a Saturday.
+    """
+    fixed = datetime.combine(day, time(hh, mm), tzinfo=ET)
 
     class _Now(datetime):
         @classmethod
@@ -1070,6 +1079,35 @@ def test_cli_lets_both_through_inside_the_window(
     _at_et(monkeypatch, 22, 0)
     assert _cli(monkeypatch, s, [command, "--today", "2026-07-10", "--limit", "1"]) == 2
     assert "MASSIVE_API_KEY" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", ["run", "daily"])
+def test_cli_lets_both_through_at_an_hour_only_a_closed_day_allows(
+    monkeypatch: Any, tmp_path: Path, capsys: Any, command: str
+) -> None:
+    """The wiring test for #633: 06:00 is refused above on a Thursday and allowed here on the
+    Saturday, with nothing else changed. Without this a `harvest_weekend_start_et` that no code
+    path ever reads would look exactly like a working one — the whole point of #302's rule."""
+    monkeypatch.delenv("MASSIVE_API_KEY", raising=False)
+    s = _settings(tmp_path, harvest_lookback_days=10)
+    _at_et(monkeypatch, 6, 0, day=SATURDAY)
+    # Past the guard, the next thing either hits is the missing key.
+    assert _cli(monkeypatch, s, [command, "--today", "2026-07-10", "--limit", "1"]) == 2
+    assert "MASSIVE_API_KEY" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", ["run", "daily"])
+def test_cli_still_refuses_the_closed_day_hour_on_a_trading_day(
+    monkeypatch: Any, tmp_path: Path, capsys: Any, command: str
+) -> None:
+    """The other half, and the one that matters: the wider opening must not leak onto a Monday,
+    where 06:00 is two hours into the tracker's own pre-market scan."""
+    s = _settings(tmp_path, harvest_lookback_days=10)
+    _at_et(monkeypatch, 6, 0)  # DAY is a Thursday
+    assert _cli(monkeypatch, s, [command, "--today", "2026-07-10", "--limit", "1"]) == 3
+    err = capsys.readouterr().err
+    assert "refusing to start at 06:00 ET" in err
+    assert s.harvest_start_et.strftime("%H:%M") in err
 
 
 @pytest.mark.parametrize("command", ["run", "daily"])
@@ -1860,6 +1898,93 @@ def test_a_run_after_midnight_is_not_pushed_out_to_the_next_afternoon() -> None:
 
     assert deadline.astimezone(ET).time() == s.harvest_stop_et
     assert (deadline - started).total_seconds() / 3600 == pytest.approx(2.5)
+
+
+def test_a_closed_day_opens_the_window_early_and_stops_at_the_same_time() -> None:
+    """#633. The 12:30 opening exists to clear a scan window that does not run on a Saturday; the
+    03:00 stop clears `portfolio_refresh` and `eod_backfill`, which do."""
+    s = _settings(Path("/tmp"))
+
+    weekday, weekend = window_for(s, DAY), window_for(s, SATURDAY)
+
+    assert weekday.start == s.harvest_start_et
+    assert weekend.start == s.harvest_weekend_start_et < weekday.start
+    assert weekend.stop == weekday.stop == s.harvest_stop_et
+    assert weekend.length_hours() > weekday.length_hours()
+
+
+def test_a_holiday_is_a_closed_day_too() -> None:
+    """The gate is the tracker's own calendar, not `weekday() >= 5` — so Thanksgiving gets the
+    wider window for free, because the EOD jobs it would be ducking are skipped that day as well."""
+    s = _settings(Path("/tmp"))
+    thanksgiving = date(2026, 11, 26)  # a Thursday the market is shut
+
+    assert window_for(s, thanksgiving) == window_for(s, SATURDAY)
+
+
+def test_an_unscheduled_closure_moves_the_window_without_a_release() -> None:
+    """`calendar_closed_dates` is the override for a closure `exchange_calendars` has not shipped
+    yet (#137). It gates the tracker's own day, so it must gate this too — otherwise the harvest
+    would keep the narrow window on a day nothing it is avoiding actually runs."""
+    s = _settings(Path("/tmp"), calendar_closed_dates=(DAY,))
+
+    assert window_for(s, DAY).start == s.harvest_weekend_start_et
+
+
+def test_a_closed_day_run_does_not_duck_eod_jobs_that_do_not_run() -> None:
+    """The recess costs eleven hours, and on a Saturday it buys nothing: `_on_eod_bars` and
+    `_on_eod_report` both return immediately on the same calendar gate."""
+    s = _settings(Path("/tmp"))
+    win = window_for(s, SATURDAY)
+    started = datetime.combine(SATURDAY, s.harvest_weekend_start_et, tzinfo=ET)
+
+    deadline = effective_deadline(win, s, started)
+
+    assert deadline == win.deadline(started)
+    assert deadline.astimezone(ET).time() == s.harvest_stop_et
+    assert deadline.astimezone(ET).date() == SATURDAY + timedelta(days=1)  # 03:00 SUNDAY
+    assert (deadline - started).total_seconds() / 3600 == pytest.approx(22.0)
+
+
+def test_the_closed_day_run_still_stops_before_the_jobs_that_do_run() -> None:
+    """The stop has no weekend variant, and this is why: `portfolio_refresh` (03:15) is
+    `build_portfolio_payload`, the ~1.5 GB job of #264/#273, and it is not calendar-gated."""
+    s = _settings(Path("/tmp"))
+    started = datetime.combine(SATURDAY, s.harvest_weekend_start_et, tzinfo=ET)
+
+    deadline = effective_deadline(window_for(s, SATURDAY), s, started)
+
+    assert deadline.astimezone(ET).time() < s.portfolio_refresh_et
+
+
+def test_a_friday_evening_run_keeps_the_trading_day_deadline_it_started_with() -> None:
+    """The boundary the closed-day window could plausibly get wrong: a Friday 17:15 run ENDS on a
+    Saturday. Keying off the day it stops on — or re-deciding at midnight — would hand it Sunday
+    03:00 and leave the container running for 34 hours."""
+    s = _settings(Path("/tmp"))
+    friday = SATURDAY - timedelta(days=1)
+    win = window_for(s, friday)
+    started = datetime.combine(friday, time(17, 15), tzinfo=ET)
+
+    deadline = effective_deadline(win, s, started)
+
+    assert win.start == s.harvest_start_et, "Friday is a trading day"
+    assert deadline.astimezone(ET).date() == SATURDAY
+    assert deadline.astimezone(ET).time() == s.harvest_stop_et
+
+
+def test_an_early_close_day_keeps_the_recess() -> None:
+    """A half day is still a trading day: `eod_bars_fetch` and `eod_report` run at 16:20/16:30 on
+    it exactly as usual, so this is the case where 'the market shut early' must NOT mean 'the box
+    is free'."""
+    s = _settings(Path("/tmp"))
+    half_day = date(2026, 11, 27)  # the 13:00 ET close after Thanksgiving
+    win = window_for(s, half_day)
+    started = datetime.combine(half_day, s.harvest_start_et, tzinfo=ET)
+
+    assert early_close_et(half_day) is not None, "the fixture must be an early close"
+    assert win.start == s.harvest_start_et
+    assert effective_deadline(win, s, started).astimezone(ET).time() == s.harvest_eod_recess_et
 
 
 def test_the_afternoon_run_refuses_a_session_it_cannot_finish_before_the_recess(

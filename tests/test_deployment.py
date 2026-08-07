@@ -7,13 +7,14 @@ import re
 import shutil
 import subprocess
 import tomllib
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import pytest
 
 from small_cap_stack.clock import ET
-from small_cap_stack.harvest.guard import RunWindow
+from small_cap_stack.harvest.guard import window_for
 from tests.support import settings
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -339,6 +340,18 @@ def test_the_harvest_window_cannot_overlap_the_trackers_own_day() -> None:
     # ...and it must duck the EOD jobs it now spans, rather than relying on HostGuard, which is
     # checked once per ~47-minute session and so cannot fire during them (#455).
     assert s.harvest_start_et < s.harvest_eod_recess_et < s.eod_bars_fetch < s.eod_report
+    # The closed-day window (#633) is anchored the same way: nothing it opens into may be a job the
+    # tracker still runs when the market is shut. `eod_backfill` is exactly that — it deliberately
+    # filters DATES by the calendar rather than skipping the job, so a failed Friday EOD is still
+    # recovered on Saturday morning. Starting merely after it BEGINS is not enough: it walks
+    # `backfill_days` of trading days over IBKR and its length grows with the store, so leave it an
+    # hour. `portfolio_refresh` (03:15) is likewise daily, and is the #273 payload builder.
+    assert s.harvest_weekend_start_et >= _plus_minutes(s.eod_backfill, 60), (
+        "the closed-day window must open clear of eod_backfill finishing, not merely starting"
+    )
+    # Neither of those two is calendar-gated as a whole, which is why the STOP has no weekend
+    # variant. `portfolio_refresh` is the earlier of them and so the one the stop must clear.
+    assert s.harvest_stop_et <= s.portfolio_refresh_et <= s.eod_backfill
 
 
 def test_harvest_timer_fires_inside_the_window_and_never_catches_up_at_boot() -> None:
@@ -350,12 +363,17 @@ def test_harvest_timer_fires_inside_the_window_and_never_catches_up_at_boot() ->
     assert "Persistent=false" in timer
 
     s = settings()
-    window = RunWindow(start=s.harvest_start_et, stop=s.harvest_stop_et)
-    for at in _timer_fires():
-        # RunWindow wraps midnight, so this cannot be a `start <= t < stop` comparison.
-        assert window.is_open(datetime.combine(date(2026, 8, 5), at, tzinfo=ET)), (
-            f"{at:%H:%M} ET is outside the harvest window {window.describe()}"
-        )
+    for fire in _timer_fires():
+        # Every day the fire can land on, not one representative day (#633): an unqualified fire
+        # lands on Saturdays too, and a `Sat,Sun` fire is checked against the window Saturday
+        # actually gets. Checking one weekday for all of them would pass a 05:00 daily fire that
+        # runs straight through Monday's scan window.
+        for day in _fire_days(fire):
+            window = window_for(s, day)
+            # RunWindow wraps midnight, so this cannot be a `start <= t < stop` comparison.
+            assert window.is_open(datetime.combine(day, fire.at, tzinfo=ET)), (
+                f"{fire.at:%H:%M} ET on {day:%a} is outside the harvest window {window.describe()}"
+            )
 
 
 def test_the_timer_claims_the_widened_hours_and_can_recover_a_stopped_run() -> None:
@@ -369,9 +387,12 @@ def test_the_timer_claims_the_widened_hours_and_can_recover_a_stopped_run() -> N
     `HostGuard` ended at an arbitrary session boundary. Both bounds come from `Settings`, so moving
     the EOD jobs or the recess fails here rather than drifting."""
     s = settings()
-    fires = _timer_fires()
+    fires = [f.at for f in _timer_fires()]
     assert any(f < s.harvest_eod_recess_et for f in fires), "nothing claims the afternoon hours"
-    assert min(fires) <= _plus_minutes(s.harvest_start_et, 30), (
+    # The unqualified fires only: a `Sat,Sun` fire at 05:00 is the earliest of all of them and
+    # would otherwise satisfy this on every weekday, where nothing then claims 12:30.
+    daily = [f.at for f in _timer_fires() if not f.days]
+    assert min(daily) <= _plus_minutes(s.harvest_start_et, 30), (
         "the first fire is too far into the window to use the hours it opens"
     )
     assert sum(1 for f in fires if f > s.eod_report) >= 2, (
@@ -379,23 +400,70 @@ def test_the_timer_claims_the_widened_hours_and_can_recover_a_stopped_run() -> N
     )
 
 
+def test_the_timer_claims_the_closed_day_hours_too() -> None:
+    """The same two properties for the weekend window (#633), which the test above cannot see.
+
+    Without a fire near 05:00 the wider closed-day window is committed in `Settings` and never
+    used: the first fire would be 12:30, the harvest would get exactly the hours it already had,
+    and every other test would still be green. And a `HostGuard` trip at 06:00 needs a recovery
+    fire before 12:30 for the same reason the evening has 20:00 and 23:00."""
+    s = settings()
+    weekend = sorted(f.at for f in _timer_fires() if "Sat" in f.days and "Sun" in f.days)
+    assert weekend, "nothing claims the hours the closed-day window opens"
+    assert min(weekend) <= _plus_minutes(s.harvest_weekend_start_et, 30), (
+        "the first weekend fire is too far into the window to use the hours it opens"
+    )
+    assert any(f < s.harvest_start_et for f in weekend[1:]), (
+        "a run stopped at 06:00 on a Saturday would wait until the weekday opening to recover"
+    )
+
+
 def _plus_minutes(t: time, minutes: int) -> time:
     return (datetime.combine(date(2026, 1, 1), t) + timedelta(minutes=minutes)).time()
 
 
-def _timer_fires() -> list[time]:
+@dataclass(frozen=True)
+class _Fire:
+    """One `OnCalendar=` line: when it fires, and which weekdays it fires on (empty = all)."""
+
+    at: time
+    days: tuple[str, ...] = ()
+
+
+#: Representative dates for `_fire_days` — a mid-week trading day and the weekend after it. Fixed
+#: rather than derived from today, so the suite does not pass or fail depending on when it is run.
+_WEEKDAY = date(2026, 8, 5)  # Wednesday
+_WEEKEND = {"Sat": date(2026, 8, 8), "Sun": date(2026, 8, 9)}
+
+
+def _fire_days(fire: _Fire) -> list[date]:
+    """Every kind of day a fire can land on. An unqualified fire lands on all three."""
+    if not fire.days:
+        return [_WEEKDAY, *_WEEKEND.values()]
+    return [_WEEKEND[d] for d in fire.days]
+
+
+def _timer_fires() -> list[_Fire]:
     """Every OnCalendar fire, parsed strictly — a spec systemd would reject must not read as valid.
 
-    Deliberately not a loose split: a typo in one of four lines silently drops that fire, and the
+    Deliberately not a loose split: a typo in one of six lines silently drops that fire, and the
     only symptom is fewer harvesting hours, which nothing else would catch."""
     timer = (ROOT / "deploy" / "scs-harvest.timer").read_text()
-    fires: list[time] = []
+    fires: list[_Fire] = []
     for line in timer.splitlines():
         if not line.startswith("OnCalendar="):
             continue
-        m = re.fullmatch(r"OnCalendar=\*-\*-\* (\d{2}):(\d{2}):(\d{2}) America/New_York", line)
+        # The day-of-week prefix is optional and, where present, restricted to the weekend names
+        # this repo uses. A holiday cannot be expressed here at all — systemd has no trading
+        # calendar — so a fire that needs one belongs in the app, not in this file.
+        m = re.fullmatch(
+            r"OnCalendar=(?:((?:Sat|Sun)(?:,(?:Sat|Sun))*) )?"
+            r"\*-\*-\* (\d{2}):(\d{2}):(\d{2}) America/New_York",
+            line,
+        )
         assert m, f"unparseable OnCalendar spec: {line!r}"
-        fires.append(time(int(m.group(1)), int(m.group(2)), int(m.group(3))))
+        days = tuple(m.group(1).split(",")) if m.group(1) else ()
+        fires.append(_Fire(time(int(m.group(2)), int(m.group(3)), int(m.group(4))), days))
     assert fires, "the timer must schedule at least one fire"
     return fires
 
