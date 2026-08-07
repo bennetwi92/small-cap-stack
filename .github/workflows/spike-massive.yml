@@ -129,6 +129,8 @@ jobs:
         if: ${{ inputs.command != 'selftest' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Via env:, not interpolated — see the note at the top of this file (#548).
+          IN_COMMAND: ${{ inputs.command }}
         run: |
           set -euo pipefail
           authrepo="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
@@ -151,14 +153,16 @@ jobs:
           git -C "$pub" \
             -c user.name='github-actions[bot]' \
             -c user.email='github-actions[bot]@users.noreply.github.com' \
-            commit -m "spike: massive ${{ inputs.command }} run ${GITHUB_RUN_ID}"
+            commit -m "spike: massive ${IN_COMMAND} run ${GITHUB_RUN_ID}"
           git -C "$pub" push origin HEAD:spike-massive-data
 
       - name: Job summary
         if: always()
+        env:
+          IN_COMMAND: ${{ inputs.command }}
         run: |
           {
-            echo "### spike-massive — \`${{ inputs.command }}\`"
+            echo "### spike-massive — \`${IN_COMMAND}\`"
             echo ""
             echo "- run: \`${GITHUB_RUN_ID}\`"
             echo "- branch path: \`runs/${GITHUB_RUN_ID}/${RESULT_NAME:-<failed>}\` on \`spike-massive-data\`"

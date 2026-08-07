@@ -75,10 +75,15 @@ jobs:
           BOX_JOB_IGNORE_WINDOW: ${{ inputs.ignore_window && '1' || '' }}
         run: |
           set -euo pipefail
-          # An ARRAY, not a string (#548). `--date $IN_DATE` used to word-split, and `IN_DATE`
-          # is a workflow_dispatch input — so `2026-01-01 --all` would have smuggled `--all` past
-          # the refusal three lines below. Quoting a string would break the two-word case; this
-          # keeps each argument whole.
+          # An ARRAY, not a string (#548). Built as a string, this expanded unquoted — so the
+          # value word-split AND glob-expanded: `date: "*"` became a directory listing, and a
+          # stray space silently corrupted the date. Quoting the string would break the two-word
+          # `--all --force` case; an array keeps each argument whole.
+          #
+          # It was NOT an argument-injection, though the first version of this comment said
+          # so: `dashboard_backfill.py` puts the date and all flags in a mutually exclusive group,
+          # so a date input carrying a second flag is rejected by argparse before the force guard
+          # is even reached. Two CLI defences already covered that.
           args=()
           if [ "$IN_ALL" = "true" ]; then
             # A second, separate confirmation — the `all` toggle alone is not enough. --all rebuilds

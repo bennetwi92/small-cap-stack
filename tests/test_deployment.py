@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -818,7 +819,11 @@ def test_make_check_still_mirrors_ci_after_adding_the_shell_lint() -> None:
     and it only holds if a new CI step gets a make target and vice versa."""
     mk = (ROOT / "Makefile").read_text()
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
-    assert "make lint-sh" in ci, "CI must run the shell/workflow lint"
+    step = re.search(r"^\s*run:\s*make lint-sh\s*$", ci, re.M)
+    assert step, (
+        "CI must run `make lint-sh`, and run it *bare* — `make lint-sh || true` is the canonical "
+        "way to neuter a gate while leaving it looking present, and a substring check accepts it"
+    )
     assert re.search(r"^lint-sh:", mk, re.M), "`make lint-sh` is what CI calls"
     check = re.search(r"^check:([^\n]*)", mk, re.M)
     assert check and "lint-sh" in check.group(1), (
@@ -835,13 +840,14 @@ def test_every_shell_script_in_the_tree_is_linted() -> None:
     mk = (ROOT / "Makefile").read_text()
     block = mk.split("SHELL_FILES :=")[1].split("\n\n")[0]
     listed = set(re.findall(r"[\w./-]+\.sh", block))
+    # rglob over the whole tree, not three hardcoded directories: my first version globbed
+    # `scripts/`, `deploy/` and `.claude/hooks/`, which just moved the staleness from the Makefile
+    # into the test. A script added under `deploy/scripts/` passed the guard AND `make lint-sh`.
+    skip = {".venv", ".git", "node_modules", ".mypy_cache", ".ruff_cache", ".pytest_cache"}
     on_disk = {
         str(p.relative_to(ROOT))
-        for p in [
-            *ROOT.glob("scripts/*.sh"),
-            *ROOT.glob("deploy/*.sh"),
-            *ROOT.glob(".claude/hooks/*.sh"),
-        ]
+        for p in ROOT.rglob("*.sh")
+        if not skip & set(p.relative_to(ROOT).parts)
     }
     assert on_disk, "no shell scripts found — has the layout changed?"
     assert listed == on_disk, (
@@ -878,3 +884,101 @@ def test_the_backfill_dispatch_builds_its_arguments_as_an_array() -> None:
         assert '${args[@]+"${args[@]}"}' in w, (
             f"{name}: expand the array with the empty-safe idiom box-job.sh uses"
         )
+
+
+def test_no_free_text_input_is_interpolated_into_a_shell_script() -> None:
+    """`${{ }}` is substituted into a `run:` block's script TEXT before bash parses it, so a `"`
+    in the value closes the string and the rest executes — on the box, as the runner user, with
+    the Docker socket (#548). Reaching the value through `env:` makes it a real environment
+    variable that bash never re-parses.
+
+    ⚠️ **This is the check actionlint cannot do for us.** actionlint 1.7 refuses to lint composite
+    actions at all — `.github/actions/deploy-app/action.yml` is *the* deploy path, 121 lines, and
+    it is invisible to `make lint-sh`. It was also the file that had the problem: `inputs.ref` and
+    `inputs.image_tag` are free-text dispatch inputs and both went straight into `git checkout`
+    and a tag assignment. The workflows already followed the env: rule; the composite action, the
+    one file no linter can see, did not.
+
+    `github.*` context values are excluded — `github.repository` is not attacker-controlled and is
+    the conventional way to build an image reference.
+    """
+    offenders: list[str] = []
+    for path in _lintable_yaml():
+        text = path.read_text()
+        for block in re.finditer(r"^(\s+)run:\s*\|?\s*\n((?:\1  .*\n|\s*\n)+)", text, re.M):
+            for ref in re.findall(r"\$\{\{\s*([\w.-]+)", block.group(2)):
+                if ref.startswith(("github.", "runner.", "job.", "strategy.", "matrix.")):
+                    continue
+                line = text.count("\n", 0, block.start(2)) + 1
+                offenders.append(f"{path.name}:~{line}: ${{{{ {ref} }}}} inside a run: block")
+    assert not offenders, (
+        'pass these through `env:` and reference them as "$VAR" instead:\n  '
+        + "\n  ".join(offenders)
+    )
+
+
+def _lintable_yaml() -> list[Path]:
+    gh = ROOT / ".github"
+    return sorted([*(gh / "workflows").glob("*.y*ml"), *gh.glob("actions/*/action.y*ml")])
+
+
+def test_actionlint_really_runs_shellcheck_over_run_blocks() -> None:
+    """The `PATH=` on the Makefile's actionlint line is load-bearing and fails *silently*.
+
+    Without shellcheck on PATH, actionlint exits **0** on a workflow containing SC2086 and only
+    whispers `Rule "shellcheck" was disabled` under `-verbose`. So a `VENV` rename, or a CI image
+    that puts the binary elsewhere, would quietly downgrade this to workflow-syntax-only while
+    every other guard here stayed green — and the `run:` blocks are where the box commands live.
+
+    Two halves, because either alone is insufficient: the recipe must *set* the PATH, and
+    actionlint must actually *use* it. Removing the PATH from the Makefile leaves `make lint-sh`
+    exiting 0 on a workflow with SC2086 — verified by mutation — and a test that only invokes
+    actionlint itself would stay green through exactly that.
+    """
+    recipe = (ROOT / "Makefile").read_text()
+    lint_sh = recipe.split("lint-sh:")[1].split("\n\n")[0]
+    assert "$(VENV)/bin" in lint_sh and "PATH=" in lint_sh, (
+        "the actionlint line must put the venv on PATH, or actionlint finds no shellcheck and "
+        "silently skips every `run:` block while still exiting 0"
+    )
+    actionlint = ROOT / ".venv" / "bin" / "actionlint"
+    if not actionlint.exists():  # pragma: no cover - only when the venv isn't synced
+        pytest.skip("actionlint not installed; `uv sync --locked --all-extras`")
+    bad = (
+        "on: workflow_dispatch\n"
+        "jobs:\n"
+        "  j:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: |\n"
+        "          x=$1\n"
+        "          echo $x\n"
+    )
+    env = {**os.environ, "PATH": f"{ROOT / '.venv' / 'bin'}{os.pathsep}{os.environ['PATH']}"}
+    result = subprocess.run(  # noqa: S603
+        [str(actionlint), "-stdin-filename", "probe.yml", "-oneline", "-"],
+        input=bad,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=ROOT,
+    )
+    assert result.returncode != 0, "actionlint accepted a workflow with an unquoted expansion"
+    assert "shellcheck" in result.stdout.lower(), (
+        "actionlint ran but did NOT invoke shellcheck on the run: block — the PATH the Makefile "
+        f"sets is not reaching it. Output: {result.stdout[:300]}"
+    )
+
+
+def test_the_sc1090_suppression_is_load_bearing() -> None:
+    """#548 asked for this to be fixed *or justified*. Justified: `scripts/backup.sh` sources a
+    runtime-resolved path (`/etc/scs-backup.env`, root-only, absent on any dev machine), which
+    shellcheck cannot follow and shouldn't guess at. It is also no longer a directive for a linter
+    that never runs — deleting it now makes `make lint-sh` fail, which is how it should be.
+    """
+    src = (ROOT / "scripts" / "backup.sh").read_text()
+    assert "# shellcheck disable=SC1090" in src
+    assert 'ENV_FILE="${SCS_BACKUP_ENV:-/etc/scs-backup.env}"' in src, (
+        "the suppression is justified by the path being runtime-resolved; if that changed, "
+        "re-examine whether the disable is still needed"
+    )
