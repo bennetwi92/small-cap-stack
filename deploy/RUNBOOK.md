@@ -269,7 +269,7 @@ See `research/decisions.md` → "Phone-driven control plane".
   from a web session (HTTP-only allowlist proxy, no secret store). Instead trigger **Actions →
   `data-export` → Run workflow** (or the GitHub MCP `actions_run_trigger`). Inputs pick a dataset
   (`bars`/`opportunities`/`scanner_hits`/`news`/`fundamentals`/`analysis` or raw `query`), an
-  optional date range / symbol filter, and a `format`. The self-hosted runner `docker exec`s
+  optional date range / symbol filter, and a `format`. The self-hosted runner runs (#545, §15)
   `scripts/analysis/export_query.py` against `/data` and commits the result to the **`data-export`**
   branch (`exports/<run_id>/…`), which the session reads back over GitHub. This is the read
   counterpart to `deploy.yml`'s write path — no inbound ports, no SSH key, no cloud secret. Driven by
@@ -485,3 +485,40 @@ committed review cases. `./scripts/harvest.sh sweep` re-runs the filter at sever
 already-stored phase-1 rows, costing **no API calls**, and reports candidates/day and sessions/night
 at each. If a tighter floor halves the candidate set, ~27 days becomes ~14. Change it by setting
 `HARVEST_MIN_DAY_VOLUME` in `.env` — and record the measurement on the issue before you do.
+
+## 15. On-demand box jobs — backfill and data-export (#545)
+
+`backfill-dashboard`, `deploy-backfill-publish`'s backfill stage, and `data-export` all run through
+**`scripts/box-job.sh`**, which starts its own container against the shared `/data` volume.
+
+⚠️ **They used to `docker exec` into the app container**, which put the work inside the *tracker's*
+2 GB cgroup (`mem_limit: 2g`, `oom_score_adj: 500`). A growing backfill — and `build_portfolio_payload`
+holds every collected day's bars in memory regardless of which date you asked for (#273) — pushed
+that cgroup over, and the kernel reaped the **live tracker** rather than the job. That is #264's
+shape. `scripts/harvest.sh` was rewritten around this exact lesson in #452; the backfill never was.
+
+Two things follow from the change:
+
+- **Cancellation now works.** `docker exec` does not forward a signal inward, so the job timeouts
+  added in #544 killed the client and left the work running. An attached `docker run` gets it.
+- **There is a session-window guard.** The job refuses to start between **04:00 and 16:10 ET** — the
+  live scan window through the harvest's own EOD recess (#455). Dispatch outside it, or set the
+  workflow's `ignore_window` input if you accept the contention. It refuses rather than waits: a job
+  that sleeps for six hours holds the single self-hosted runner, which is the outage #544 bounded.
+
+### Installing the slice (a one-time box action)
+
+```bash
+scp -i ~/.ssh/oracle_scs deploy/scs-jobs.slice root@<host>:/etc/systemd/system/
+ssh -i ~/.ssh/oracle_scs root@<host> 'systemctl daemon-reload && systemctl start scs-jobs.slice'
+# and, on the box:  systemctl show scs-jobs.slice -p MemoryMax   # expect 1258291200
+```
+
+**This is a backstop, not the protection.** The container's own `--memory=1g` is what binds, and it
+works on a host where the slice was never installed — Docker creates the named slice transiently
+with no limits. So the failure mode of forgetting this step is "no second line of defence", never
+"no limit at all". Verify with `systemd-cgls /scs.slice/scs-jobs.slice` while a job runs.
+
+Separate from `scs-harvest.slice` deliberately: the harvest owns 12:30–03:00 ET, and a job
+dispatched inside that window sharing one ceiling could push the harvest over and have the kernel
+kill the night — which is exactly why `harvest.sh` keeps its own read-only commands out of its slice.

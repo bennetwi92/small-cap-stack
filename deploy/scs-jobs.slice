@@ -1,0 +1,41 @@
+[Unit]
+Description=Resource envelope for on-demand box jobs — backfill, data-export (#545)
+Documentation=https://github.com/bennetwi92/small-cap-stack/blob/main/deploy/RUNBOOK.md
+Before=slices.target
+
+# Why this exists, and why it is NOT scs-harvest.slice.
+#
+# `scripts/box-job.sh` runs the backfill and data-export in their own container instead of
+# `docker exec`-ing into the app's. That alone is the fix: the app's cgroup is the tracker's 2 GB
+# budget (`mem_limit: 2g`, `oom_score_adj: 500`), so a growing backfill used to push the cgroup
+# over and have the kernel reap the LIVE TRACKER rather than the job (#264/#273).
+#
+# This slice is the backstop for the case the container's own `--memory` is wrong, absent, or
+# overridden — the same role `scs-harvest.slice` plays for the harvest, and for the same reason:
+# the container is created by the Docker daemon, so a limit on the invoking unit bounds the docker
+# CLIENT (~15 MB) and never reaches the job. See scs-harvest.slice for the measurement.
+#
+# Separate from the harvest's slice on purpose. The harvest owns 12:30-03:00 ET, and a job
+# dispatched inside that window sharing one 1200M ceiling could push the harvest over and have the
+# kernel kill the night — which is exactly why harvest.sh keeps its read-only commands OUT of its
+# own slice. Two jobs, two envelopes.
+#
+# Docker here uses the systemd cgroup driver on cgroup v2, which is why this must be a `.slice`
+# and not a `system.slice/…service` path. The name implies its own parent (`scs.slice`), per
+# systemd's dash-hierarchy convention; systemd creates it.
+
+[Slice]
+# Slightly above box-job.sh's own `--memory=1g`, so a job normally dies inside its own container
+# cgroup with a clean, attributable OOM and this only catches the case that limit failed.
+MemoryMax=1200M
+# No swap. The box's 2 GB swapfile is an emergency cushion for the TRACKER; letting a background
+# job swap is how the CX23 thrashes past sshd (#264/#320).
+MemorySwapMax=0
+
+# The tracker's latency matters and an on-demand job's does not. Weights are relative to sibling
+# cgroups; the default is 100.
+CPUWeight=20
+IOWeight=20
+
+[Install]
+WantedBy=slices.target

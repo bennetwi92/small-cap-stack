@@ -115,7 +115,9 @@ fi
 # ref installs that ref's units. Idempotent — re-running after a unit changes is the upgrade path.
 if [ "${1:-}" = "install-units" ]; then
   units_src="$(dirname "$SCRIPT_DIR")/deploy"
-  for unit in scs-harvest.slice scs-harvest.service scs-harvest.timer; do
+  # `scs-jobs.slice` is the on-demand jobs' envelope (#545). It rides along here so the phone path
+  # can install it too — otherwise the only route is SSH, against this repo's whole posture.
+  for unit in scs-harvest.slice scs-jobs.slice scs-harvest.service scs-harvest.timer; do
     if [ ! -f "$units_src/$unit" ]; then
       echo "install-units: $units_src/$unit not found" >&2
       exit 2
@@ -131,7 +133,7 @@ if [ "${1:-}" = "install-units" ]; then
   # Start the slice explicitly so its limits are live now, rather than at the next service start.
   # Docker will create the cgroup on its own if this is skipped — but an uninstalled slice has
   # MemoryMax=infinity, which is exactly the silent no-op this change exists to remove.
-  systemctl start scs-harvest.slice
+  systemctl start scs-harvest.slice scs-jobs.slice
   systemctl enable --now scs-harvest.timer
   # The timer is the thing to verify, not the service: a service that never fires is the failure
   # mode, and `is-enabled` on a oneshot service says nothing about whether it is scheduled.

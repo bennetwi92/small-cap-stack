@@ -10,13 +10,17 @@ name: deploy-backfill-publish
 # backfill-dashboard.yml / publish-dashboard.yml, which all still exist for one-off use). Jobs are
 # chained with `needs:`, so a failure in an earlier stage skips the rest.
 #
-# All three stages run on the SELF-HOSTED `vps` runner (they `docker exec` / `docker cp` the app
+# All three stages run on the SELF-HOSTED `vps` runner (they reach the data volume / `docker cp` the app
 # container and read the store directly). Trigger from the phone via the GitHub UI / MCP
 # "Run workflow" (workflow_dispatch).
 
 on:
   workflow_dispatch:
     inputs:
+      ignore_window:
+        description: "Run even inside the tracker's 04:00-16:10 ET session window (contends for CPU)."
+        type: boolean
+        default: false
       ref:
         description: "Git ref (branch/tag/SHA) to deploy"
         required: false
@@ -91,19 +95,28 @@ jobs:
     # A hang holds the single vps runner and CI queues behind it (#544). as backfill-dashboard.yml.
     timeout-minutes: 30
     steps:
-      - name: Regenerate dashboard JSON in the app container
+      # A FULL checkout, deliberately: the `deploy` job above sparse-checks-out only
+      # `.github/actions` and runs `git clean -ffdx` in this same shared workspace, so
+      # `scripts/` is guaranteed absent here without this (#545).
+      - name: Check out the job runner
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Regenerate the dashboard JSON
         # Dispatch inputs read as runtime env vars, never templated into the script (#333).
         env:
           IN_ALL: ${{ inputs.backfill_all }}
           IN_FORCE: ${{ inputs.backfill_force }}
           IN_DATE: ${{ inputs.backfill_date }}
+          # Empty unless explicitly requested, so the session-window guard in
+          # scripts/box-job.sh holds by default (#545).
+          BOX_JOB_IGNORE_WINDOW: ${{ inputs.ignore_window && '1' || '' }}
+          # Skip this stage rather than fail it, so a daytime dispatch still deploys and
+          # publishes instead of leaving a fresh box on a stale dashboard (#545).
+          BOX_JOB_SKIP_ON_WINDOW: '1'
         run: |
           set -euo pipefail
-          cid="$(docker ps --filter 'name=small-cap-stack-app' --format '{{.ID}}' | head -1)"
-          if [ -z "$cid" ]; then
-            echo "app container not running — cannot reach the store" >&2
-            exit 1
-          fi
           args=""
           if [ "$IN_ALL" = "true" ]; then
             # A second, separate confirmation — the `all` toggle alone is not enough. --all rebuilds
@@ -120,7 +133,7 @@ jobs:
           elif [ -n "$IN_DATE" ]; then
             args="--date $IN_DATE"
           fi
-          docker exec "$cid" python -m small_cap_stack.dashboard_backfill $args
+          scripts/box-job.sh backfill -- -m small_cap_stack.dashboard_backfill $args
 
   publish:
     name: publish dashboard data
