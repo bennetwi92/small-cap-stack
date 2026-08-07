@@ -16,25 +16,43 @@ only be wrong here for as long as it takes CI to notice.
 
 ---
 
-## There are three funnels, not one
+## Three stages, and each owns one question
 
 Most of the drift this file exists to end came from one habit: saying "the strategy" for three
-different rule sets that happen to run in sequence.
+different rule sets that happen to run in sequence. Each stage owns exactly one question, and a
+rule belongs to whichever question it answers.
 
 ```
-IBKR scan  ──►  every row becomes an opportunity  ──►  the engine scores it  ──►  the book takes ≤2
-   §1                    (no filter at all)                     §2                       §3
+IBKR scan  ──►  every row becomes  ──►  ENGINE: is this a trade  ──►  BOOK: what do I do
+   §1          an opportunity           we would take?                with the ones it picked?
+                (no filter)                    §2                              §3
+
+           "what do we SEE"          "what would we SELECT"          "how do we EXECUTE"
 ```
 
-1. **The scan** decides what the tracker ever *sees*. It is deliberately wide — Phase 1 is a
-   data-collection exercise, so the net is cast well beyond what is tradeable.
-2. **The engine** decides whether a seen name formed a takeable bull flag. It runs
-   **compute-on-read** over the whole day's bars, after the close — nothing is decided live.
-3. **The book** decides which takeable setups a $500 cash account would actually have traded. Its
-   band and window are strictly narrower than the scan's, and that is the point.
+1. **The scan — what we see.** Deliberately wide: Phase 1 is a data-collection exercise, so the net
+   is cast well beyond what is tradeable.
+2. **The engine — what we'd select.** Whether a seen name formed a bull flag *we would take*: the
+   shape gates, and the two **selection** rules (price band, trigger-time window). Runs
+   **compute-on-read** over the whole day's bars after the close — nothing is decided live.
+3. **The book — how we'd execute.** Given the setups the engine selected, what a $500 cash account
+   does with them: capacity, sizing, exits, costs.
 
-A name can be captured, charted, scored and published on the results page and still never reach the
-book. That is not a bug and not an inconsistency — §1 and §3 answer different questions.
+**The dividing line is selection vs execution.** Before #567 it was arbitrary — the price band and
+the trigger window sat in the book under a `portfolio_` prefix, so the code implied they were
+execution rules when they decide selection. They now live with the shape gates. Conversely the
+2-trades-a-day cap stays in the book: it is a capacity constraint falling out of settled cash
+(`position_fraction × max_trades_per_day = 1.0`), not a judgement about the setup.
+
+**`passed` and `takeable` are different questions, on purpose.** `passed` means the bull flag is
+well-formed — the shape grammar the review workbench and the 25 golden fixtures are written
+against. `takeable` means *and it is one we'd select*. A $1.50 name or an 11:00 break can be a
+textbook flag we simply don't trade; it stays visible and scoreable on the results page, which is
+exactly what a data-collection phase needs. Folding selection into `passed` would report it as a
+malformed setup and throw the observation away.
+
+So a name can be captured, charted, scored and published and still never reach the book. That is
+not an inconsistency — the three stages answer different questions.
 
 `capture.on_scan_tick` opens an opportunity for **every** scanner candidate. There is no filter
 between §1 and §2.
@@ -76,14 +94,14 @@ between §1 and §2.
 | Cycle volume floor | 50,000 (a cycle counts only above this) | `scan_min_5m_volume` // 2 |
 | Tick size | $0.01 | `tick_size` |
 | ATR window | 14 bars (score only, gates nothing) | `bull_flag_atr_window` |
+| **Selection** — price band | $2.00 ≤ `entry_fill` ≤ $20.00 | `select_price_min / select_price_max` |
+| **Selection** — trigger window | 05:30 ET ≤ trigger open < 09:15 ET | `select_window_start / select_window_end` |
 
 ### 3. The book — what actually gets traded
 
 | Rule | Value | `Settings` field |
 |---|---|---|
 | Starting equity | $500.00 | `portfolio_start_equity_usd` |
-| Entry price band | $2.00 ≤ `entry_fill` ≤ $20.00 | `portfolio_entry_price_min / _max` |
-| Trigger window | 05:30 ET ≤ trigger open < 09:15 ET | `portfolio_premarket_earliest / _cutoff` |
 | Trades per day | 2, taken first-by-trigger-time | `portfolio_max_trades_per_day` |
 | Risk target | 5% of the day's opening equity | `portfolio_risk_fraction` |
 | Notional cap | 50% of the day's opening equity | `portfolio_position_fraction` |
@@ -112,8 +130,8 @@ between §1 and §2.
 | Section | Implemented in |
 |---|---|
 | §1 Scan | `scanner.py::build_subscription` — the only place a scan is defined |
-| §2 Engine | `bullflag/day.py::detect_day` (segmentation + levels), `bullflag/gates.py::evaluate` (the shape gates), `rmetrics.py::compute_r_metrics` (R, MAE, stop-first) |
-| §3 Book | `portfolio/extract.py::_qualify` (the gates), `portfolio/sim.py::_select_day` (the cap), `portfolio/costs.py` (sizing), `portfolio/exit.py` (exits) |
+| §2 Engine | `bullflag/day.py::detect_day` (segmentation + levels + the selection rules, via `DaySetup.takeable`), `bullflag/gates.py::evaluate` (the shape gates, via `passed`), `rmetrics.py::compute_r_metrics` (R, MAE, stop-first) |
+| §3 Book | `portfolio/sim.py::_select_day` (the daily cap), `portfolio/costs.py` (sizing), `portfolio/exit.py` (exits), `portfolio/ledgers.py` (costs and tax). `extract.py::_qualify` no longer selects — it only checks the numbers are usable. |
 | §4 Not gated | `gates.py::float_gate` / `news_gate` — report counts only |
 
 `config.py` is the single source of truth for the values. A knob that isn't threaded through

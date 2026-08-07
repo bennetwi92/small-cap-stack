@@ -45,14 +45,14 @@ from small_cap_stack.storage import Store
 # (label, Settings overrides). The first entry is the live configuration.
 VARIANTS: list[tuple[str, dict]] = [
     ("pre-market only (09:30) — live", {}),
-    ("cutoff 10:00", {"portfolio_premarket_cutoff": time(10, 0)}),
-    ("cutoff 11:00", {"portfolio_premarket_cutoff": time(11, 0)}),
-    ("no cutoff (full 04:00-11:59)", {"portfolio_premarket_cutoff": time(12, 0)}),
+    ("cutoff 10:00", {"select_window_end": time(10, 0)}),
+    ("cutoff 11:00", {"select_window_end": time(11, 0)}),
+    ("no cutoff (full 04:00-11:59)", {"select_window_end": time(12, 0)}),
     (
         "no cutoff + price cap $50",
-        {"portfolio_premarket_cutoff": time(12, 0), "portfolio_entry_price_max": 50.0},
+        {"select_window_end": time(12, 0), "select_price_max": 50.0},
     ),
-    ("pre-market only + price cap $50", {"portfolio_entry_price_max": 50.0}),
+    ("pre-market only + price cap $50", {"select_price_max": 50.0}),
 ]
 
 CUTOFF = time(9, 30)  # the bucket boundary for the signal view, not a filter
@@ -82,7 +82,7 @@ def book_sweep(store: Store, now: datetime) -> dict:
 def signal_isolation(store: Store) -> dict:
     """Bucket every candidate pre-market vs post-open, unsized and cost-free at a 2R target."""
     # Widest band so nothing is hidden by the price cap — this view is about time of day.
-    s = Settings(portfolio_premarket_cutoff=time(12, 0), portfolio_entry_price_max=50.0)
+    s = Settings(select_window_end=time(12, 0), select_price_max=50.0)
     buckets: dict[str, list[float]] = {"pre-market": [], "post-open": []}
     per_day: dict[str, dict[str, int]] = {}
     for d in collected_dates(store):

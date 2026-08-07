@@ -178,16 +178,22 @@ def render_engine(s: Settings) -> str:
             f"{s.bull_flag_atr_window} bars (score only, gates nothing)",
             _field("bull_flag_atr_window"),
         ),
+        _row(
+            "**Selection** — price band",
+            f"{_money(s.select_price_min)} ≤ `entry_fill` ≤ {_money(s.select_price_max)}",
+            _field("select_price_min / select_price_max"),
+        ),
+        _row(
+            "**Selection** — trigger window",
+            f"{_et(s.select_window_start)} ≤ trigger open < {_et(s.select_window_end)}",
+            _field("select_window_start / select_window_end"),
+        ),
     ]
     return "\n".join([_HEADER, *rows])
 
 
 def render_book(s: Settings) -> str:
-    """The paper book's own gates — a strictly narrower funnel than the scan."""
-    window = (
-        f"{_et(s.portfolio_premarket_earliest)} ≤ trigger open < "
-        f"{_et(s.portfolio_premarket_cutoff)}"
-    )
+    """Execution: given the setups the engine selected, what happens to $500."""
     throttle = (
         "off (flat risk)"
         if s.portfolio_risk_rungs <= 1
@@ -202,10 +208,6 @@ def render_book(s: Settings) -> str:
         else f"trailing {s.portfolio_adaptive_window_days} days"
     )
     grid = ", ".join(f"{t:g}R" for t in s.portfolio_target_grid)
-    band = (
-        f"{_money(s.portfolio_entry_price_min)} ≤ `entry_fill` ≤ "
-        f"{_money(s.portfolio_entry_price_max)}"
-    )
     slippage = (
         f"{_ticks(s.portfolio_exit_slippage_ticks, s.tick_size)} on stop / close exits, "
         "0 on the limit target"
@@ -216,8 +218,6 @@ def render_book(s: Settings) -> str:
             _money(s.portfolio_start_equity_usd),
             _field("portfolio_start_equity_usd"),
         ),
-        _row("Entry price band", band, _field("portfolio_entry_price_min / _max")),
-        _row("Trigger window", window, _field("portfolio_premarket_earliest / _cutoff")),
         _row(
             "Trades per day",
             f"{s.portfolio_max_trades_per_day}, taken first-by-trigger-time",
