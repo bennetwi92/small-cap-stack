@@ -1624,7 +1624,6 @@ body.review{
 .plan-gate-name{ font-size:11px; font-weight:600; }
 .plan-gate-iss{ margin:2px 0 0; display:flex; flex-wrap:wrap; gap:4px; }
 .plan-gate-pill{ margin-left:auto; flex:0 0 auto; font-size:9px; }
-.plan-gate-bar{ margin-top:4px; }
 /* one chip per issue, carrying its own state — this is where "done" is actually read from */
 .plan-iss{
   font-size:9.5px;
@@ -1641,32 +1640,15 @@ body.review{
 .plan-iss-done{ color:var(--win); border-color:color-mix(in srgb, var(--win) 45%, var(--line-2)); }
 .plan-iss-open{ color:var(--ink); }
 .plan-iss-unknown{ opacity:.6; }
-/* done = its issues are closed; open now = workable today; running = the countdown;
-   blocked = waiting on another gate */
+/* done = its issues are closed; open now = workable today; blocked = waiting on another gate.
+   There is no "running" state any more — gate 3 stopped being a calendar countdown (#49). */
 .plan-gate-done .plan-gate-n,
 .plan-gate-done .plan-gate-pill{ color:var(--win); border-color:var(--win); }
 .plan-gate-done .plan-gate-name{ color:var(--dim); }
 .plan-gate-open .plan-gate-n{ color:var(--lime); border-color:var(--lime); }
 .plan-gate-open .plan-gate-pill{ color:var(--lime); border-color:var(--lime); }
-.plan-gate-running .plan-gate-n{ color:var(--acc); border-color:var(--acc); }
-.plan-gate-running .plan-gate-pill{ color:var(--acc); border-color:var(--acc); }
-.plan-gate-running .plan-gate-n::after{
-  content:"";
-  position:absolute;
-  inset:-3px;
-  border:1px solid var(--acc);
-  border-radius:3px;
-  opacity:0;
-  animation:plan-pulse 2.4s ease-out infinite;
-}
 .plan-gate-blocked{ opacity:.72; }
-@keyframes plan-pulse{
-  0%{ opacity:.55; transform:scale(.9); }
-  70%{ opacity:0; transform:scale(1.25); }
-  100%{ opacity:0; transform:scale(1.25); }
-}
 @media (prefers-reduced-motion:reduce){
-  .plan-gate-running .plan-gate-n::after{ animation:none; }
   .plan-bar-fill, .plan-ring-arc{ transition:none; }
 }
 
