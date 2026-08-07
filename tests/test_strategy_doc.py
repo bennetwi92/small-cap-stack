@@ -65,7 +65,7 @@ def test_doc_exists_and_keeps_its_markers() -> None:
         ("bull_flag_min_pole_pct", 0.035, "≥ 3.5%"),
         ("bull_flag_max_retracement", 0.4, "≤ 40% of the pole"),
         ("bull_flag_exhaustion_cap", 3, "4th+ contiguous cycle"),
-        ("entry_staleness_min", 15, "< 15 min"),
+        ("entry_staleness_min", 15, "≤ 15 min"),
         ("select_price_min", 3.0, "$3.00 ≤ `entry_fill`"),
         ("select_price_max", 25.0, "≤ $25.00"),
         ("portfolio_max_trades_per_day", 4, "4, taken first-by-trigger-time"),

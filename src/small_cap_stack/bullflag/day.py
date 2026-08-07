@@ -181,10 +181,17 @@ def detect_day(
 
     # Staleness (#130): a break too long after the appearance reads as faded (the "closed before
     # appearance" half is already covered — every bar after a visible peak is itself visible).
+    #
+    # STRICT `>` (#586): a break at *exactly* `staleness_min` is still fresh. That reads the other
+    # way from the selection window below (`window_start <= t < window_end`), deliberately: the two
+    # are different kinds of bound. `window_end` is a **deadline** — the last moment we would enter,
+    # so a bar opening on it is out. Staleness is a **duration**, and "the break came within 30
+    # minutes of the scan" includes the 30th minute. This was `>=`, so a trigger bar opening on the
+    # cutoff to the second was faded (INFQ 2026-05-21: first_hit 06:05:00, trigger 06:35:00).
     if (
         trigger_idx is not None
         and first_hit is not None
-        and bars[trigger_idx].start >= first_hit + timedelta(minutes=staleness_min)
+        and bars[trigger_idx].start > first_hit + timedelta(minutes=staleness_min)
     ):
         trigger_idx = None
 

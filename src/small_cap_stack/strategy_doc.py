@@ -159,7 +159,7 @@ def render_engine(s: Settings) -> str:
         _row("Stop", "the consolidation low", "— `R = fill − stop`"),
         _row(
             "Staleness",
-            f"the trigger bar must open < {s.entry_staleness_min} min after the first scanner hit",
+            f"the trigger bar must open ≤ {s.entry_staleness_min} min after the first scanner hit",
             _field("entry_staleness_min"),
         ),
         _row(
