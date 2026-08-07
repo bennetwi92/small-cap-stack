@@ -1070,21 +1070,33 @@ def test_no_workflow_still_claims_to_be_blocked_on_the_runner_issue() -> None:
 # ------------------------------------------------ container hygiene (#549)
 
 
+def _compose_services() -> dict[str, str]:
+    """`{service: its yaml block}` from docker-compose.yml, hand-parsed.
+
+    Per this module's standing convention: PyYAML is not a dependency of this project, and adding
+    one solely for a test is what `_workflow_jobs` already declines to do. My first version
+    imported it regardless — it happened to be a leftover in the local venv, and #546's lockfile is
+    precisely what caught that CI installs only the recorded set. A good demonstration of the
+    lockfile earning its keep on the PR after it landed.
+
+    Stops at the top-level `volumes:` key: `scs-data` is indented exactly like a service, so a
+    naive two-space split reports it as a third one.
+    """
+    text = (ROOT / "docker-compose.yml").read_text().split("\nvolumes:")[0]
+    parts = re.split(r"^  ([\w-]+):$", text, flags=re.M)[1:]
+    services = dict(zip(parts[::2], parts[1::2], strict=True))
+    assert set(services) == {"ibgateway", "app"}, f"unexpected services: {sorted(services)}"
+    return services
+
+
 def test_both_services_cap_their_logs() -> None:
     """Unbounded `json-file` logs are not a generic worry here. The nightly harvest **aborts** when
     free disk drops below `harvest_min_disk_free_mb` (2 GB), so logs quietly eating the disk
     disables the harvest rather than filling it — and the app writes a JSON line per tick."""
-    import yaml  # a transitive dep of the toolchain; only this test needs it
-
-    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
-    services = compose["services"]
-    assert set(services) == {"ibgateway", "app"}, f"unexpected services: {sorted(services)}"
-    for name, svc in services.items():
-        logging_cfg = svc.get("logging") or {}
-        assert logging_cfg.get("driver") == "json-file", f"{name} has no logging driver pinned"
-        options = logging_cfg.get("options") or {}
-        assert re.fullmatch(r"\d+m", str(options.get("max-size", ""))), f"{name}: no max-size"
-        assert str(options.get("max-file", "")).isdigit(), f"{name}: no max-file"
+    for name, block in _compose_services().items():
+        assert "driver: json-file" in block, f"{name} has no logging driver pinned"
+        assert re.search(r"max-size:\s*\d+m", block), f"{name} has no max-size"
+        assert re.search(r'max-file:\s*"?\d+', block), f"{name} has no max-file"
 
 
 def test_the_gateway_is_pinned_by_digest() -> None:
