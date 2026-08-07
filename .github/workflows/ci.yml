@@ -31,8 +31,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      # `@v9.0.0`, not `@v9`: astral-sh stopped publishing floating major tags after v7, so a bare
+      # `v9` fails the job at "Prepare all required actions" before a single step runs. Bump this
+      # to the exact release tag, and check the tag exists first.
       - name: Set up uv
-        uses: astral-sh/setup-uv@v9
+        uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
 
