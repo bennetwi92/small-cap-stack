@@ -28,6 +28,49 @@
 
 **Capture split — discovery intraday, bars at EOD (DECISION 2026-07-01, #62).** The intraday 60s tick does **discovery only**: scanner hits + opening opportunities + news/fundamentals at flag time (all point-in-time — not reconstructable later). The day's **5-min bars are pulled once in an end-of-day batch** (~16:20 ET, before the 16:30 report): a single `reqHistoricalData(durationStr="1 D", "5 mins", useRTH=False)` returns the whole session (04:00 ET→close) per flagged symbol. Replaces the fragile keepUpToDate streaming, which lost data + duplicated bars on a mid-session restart (observed after a deploy) and implicitly assumed a real-time feed we don't have (data is ~15 min delayed). The EOD job reads opportunities from storage and discovery rehydrates its open-set from storage on startup, so **restarts/deploys during market hours no longer create gaps**. Phase-1 places no orders, so real-time bars have no operational value.
 
+## Standing principle — collect before you filter (2026-08-07, #569)
+
+**While the sample is this thin, prefer collecting to filtering. A selection rule that narrows the
+book needs measured support; an unmeasured one defaults OPEN.**
+
+The reasoning is an asymmetry in what each mistake costs:
+
+- A rule **wrongly imposed is invisible.** It removes candidates before they ever become trades, so
+  the record contains no trace of what it excluded, and no amount of staring at the book reveals
+  the error. You cannot miss what you never logged.
+- A rule **wrongly omitted is visible.** The bad trades land in the book where you can see them,
+  and — everything being compute-on-read — removing the rule later replays the whole history under
+  it. Reverting costs one line and no data.
+
+The two errors are not symmetric, so the cheap direction is to leave the net wide.
+
+**Prior discretionary experience counts as evidence**, of a different kind than replay: the owner
+traded this strategy manually for a year, across far more sessions and regimes than the tracker has
+collected, and reports that **the best fills came at 04:00**. Thirty replayed sessions containing
+four early triggers do not overturn that — they are not powered to.
+
+**Worked example — the 05:30 floor (#405, reversed by #569).** Added on an unmeasured judgement
+about thin tape. Reversing it admitted four trades, all stop-outs, −4.69R. That looks like the
+floor was right, and it may be; but four trades at a ~43% base win rate produce four losses about
+10% of the time by chance, so the number decides nothing either way. Under this principle the rule
+goes back to open and the tape gets collected until there is something to measure.
+
+**What ends this principle.** The reconstructed history (#428/#431) is rebuilding ~500 pre-market
+sessions from purchased vendor bars. At that sample these stop being coin flips and become
+measurable, and selection rules can be argued on evidence rather than on which error is cheaper.
+Until then, treat any proposal that *narrows* the book — a price floor, a time window, a minimum
+stop distance — as needing to clear a bar this sample mostly cannot.
+
+⚠️ **This is a Phase-1 data-collection stance, not a trading philosophy.** In Phase 2/3 a wide net
+costs real money and the asymmetry reverses: an unmeasured rule left open becomes a live loss
+rather than a free observation. Revisit at the Phase-2 gate.
+
+**Known gap it creates.** The book logs what the 2-a-day *cap* costs — a dropped candidate becomes
+a `SkippedTrade` carrying the R it would have made — but logs **nothing** for a setup a *selection
+rule* rejected, because those never become candidates at all. So today the only way to see a
+selection rule's cost is to open the rule, which is part of why #569 went the way it did. Worth
+closing once the harvest lands; not worth building against 30 sessions.
+
 ## Entry / stop spec (for Max-R measurement)
 - **Entry trigger (CONFIRMED 2026-07-01, ⚠️ SUPERSEDED for engine v2 2026-07-10 by #182/#190 — see
   below):** ~~5 ticks above the high of the last _complete_ consolidation candle (i.e.
@@ -1085,13 +1128,23 @@ The four unlocked trades — SHPH 04:20, SUNE 04:30, LGHL 04:20, UPC 04:25 — *
 −4.69R and −$74.58 (−11.5% of the book). Nothing was displaced: the earlier triggers pushed no
 later winner out of the 2-a-day cap, so the change is purely additive.
 
-**Taken with that in hand, and the reasoning is the point.** n=4 is not evidence — four losses at a
-~43% base win rate happens about 10% of the time by chance, so this does not establish that the
-04:00–05:30 window is unprofitable. The floor it reverses was not a measured edge either (#405 said
-so in its own words): the time-of-day report found no pre-market window statistically separable
-from another, with the 04:00–06:00 block at −0.32R over 86 triggers but a permutation p of 0.68.
-Between two unmeasured judgements, this one collects the early tape in the book rather than
-assuming it away. Revisit when there are more than four early triggers to judge on.
+**Taken with that in hand — and the owner's reasoning is the point, not the number.** This is not
+a claim that 04:00–05:30 is profitable. It is a claim that **it is too early to be deciding this at
+all**, and that a rule which prunes the book also blinds it: those four trades are only visible
+*because* the window was opened. See the standing principle above — an unmeasured rule defaults
+open, because a rule wrongly imposed leaves no trace of what it removed.
+
+Two further inputs, both of which outweigh 30 sessions of replay:
+
+- **The owner traded this strategy manually for a year and reports the best fills came at 04:00.**
+  That is a larger and more varied sample than anything the tracker holds. It is not decisive
+  either, but it is evidence, and it pointed the opposite way to the floor.
+- **n=4 is not evidence.** Four losses at a ~43% base win rate happens about 10% of the time by
+  chance. The floor being reversed was not measured either (#405 said so in its own words): the
+  time-of-day report found no pre-market window statistically separable from another, the
+  04:00–06:00 block sitting at −0.32R over 86 triggers with a permutation p of 0.68.
+
+Revisit when the reconstructed history (#431) makes this measurable rather than watchable.
 
 ⚠️ **The published book will drop from ~$650 to ~$576 and show 18 trades.** That is this decision
 landing, not a regression. `spikes/window_0400.py` re-runs the comparison.
