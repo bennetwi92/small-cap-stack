@@ -550,7 +550,10 @@ const FEATURE_GROUPS = [
       price("FILL", "fill", "The conservative 3-tick fill R is measured against"),
       price("STOP", "stop", "The consolidation low"),
       price("RISK $", "risk", "1R in dollars (fill − stop)"),
-      flag("IN WIN", "inWindow", "The breakout lands inside the 04:00–11:59 ET strategy window"),
+      // #567: this is the SELECTION window, not the scanner's. A break outside it is a valid
+      // setup we don't take, so it fails `takeable` while `passed` stays true. Times deliberately
+      // not repeated here — they are config, and the spec renders them (research/strategy.md §2).
+      flag("IN WIN", "inWindow", "The breakout lands inside the selection window (see the spec)"),
     ],
   },
 ];

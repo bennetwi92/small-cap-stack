@@ -264,6 +264,52 @@ class Settings(BaseSettings):
     # applies when the appearance (first_hit) is known; a large value disables the bound.
     entry_staleness_min: int = 30
 
+    # --- Selection: which setups are TAKEABLE (#567) ------------------------------------------
+    # The engine answers "is this a trade we would select"; the book answers "given the trades we'd
+    # select, what happens to $500". These two rules decide selection, so they live here with the
+    # shape gates and not in `portfolio_*` where they used to sit — the split was arbitrary and the
+    # `portfolio_` prefix was lying about which question they answer.
+    #
+    # They bite on `DaySetup.takeable`, deliberately NOT on `passed`. `passed` means "the bull flag
+    # is well-formed" — the shape grammar the review workbench and the 25 golden fixtures are
+    # written against. A $1.50 name or an 11:00 break is a perfectly good flag we simply don't
+    # trade, and Phase 1 needs it to stay visible and scoreable on the results page. Folding these
+    # into `passed` would report it as a malformed setup and throw the data away.
+    #
+    # Price band, tested against `entry_fill` (the conservative 3-tick fill, so a name is judged on
+    # the price the book would actually pay). Narrower than the $1–50 scan on purpose: sub-$2 and
+    # over-$20 names keep being captured, charted and scored, they just aren't selected. Floor
+    # raised $1 → $2 on 2026-07-31 (#386) as the owner's call on the book, NOT a cost argument —
+    # `research/broker-costs.md` §3 still stands and the scanner floor stays $1.
+    select_price_min: float = 2.0
+    select_price_max: float = 20.0
+    # Trigger-time window: `start` <= trigger bar open < `end` (floor inclusive, cutoff strict).
+    #
+    # ⚠️ This is NOT the scan window. `scan_start`/`scan_end` (04:00–11:59) bound when the scanner
+    # RUNS and what gets captured; this bounds what is takeable. They are deliberately different:
+    # names outside this window keep being collected and scored, which is the whole point of a
+    # data-collection phase. Before #567 this was the only effective time-of-day rule in the system
+    # and it lived in the book, while the engine carried a 04:00–11:59 window that gated nothing.
+    #
+    # ⚠️ The floor is OPEN — 04:00, i.e. the whole pre-market (#569, 2026-08-07, reversing #405's
+    # 05:30). Measured before taking it: over 30 sessions the earlier floor adds 4 trades, ALL of
+    # them stop-outs triggering 04:20–04:30, for −4.69R and −$74.58 (−11.5% of the book). Nothing
+    # was displaced — the earlier triggers pushed no later winner out of the 2/day cap.
+    #
+    # Taken anyway, and the reasoning matters more than the number: n=4 is not evidence (four
+    # losses at a ~43% base rate happens ~10% of the time by chance), and the floor was never a
+    # measured edge either — the time-of-day report found no pre-market window statistically
+    # separable from another (the 04:00–06:00 block is −0.32R over 86 triggers, but permuting
+    # entry-time labels within a day reproduces that spread 68% of the time). So this collects the
+    # early tape in the book rather than assuming it away. Revisit once there are more than four
+    # early triggers to judge on. `spikes/window_0400.py` re-runs the comparison.
+    #
+    # Cutoff tightened 09:30 → 09:15 (2026-07-21): the final pre-open ramp/auction trades like the
+    # open, which this strategy excludes (a VMAR entry at ~09:25 on 2026-07-20 lost). Spike
+    # #379/#380 only swept relaxations (10:00–12:00), all worse. Last takeable bar opens 09:10.
+    select_window_start: time = time(4, 0)
+    select_window_end: time = time(9, 15)
+
     # Capture (issue #14). The intraday tick only does discovery (scanner_hits + opportunities +
     # news/fundamentals). The day's 5-min bars are fetched once in an end-of-day batch (#62) —
     # capture_end marks the last bar time we care about (regular close).
@@ -308,29 +354,10 @@ class Settings(BaseSettings):
     portfolio_risk_fraction: float = 0.05  # target risk per trade, as a fraction of opening equity
     portfolio_position_fraction: float = 0.50  # max position notional, as a fraction of opening eq.
     portfolio_max_trades_per_day: int = 2  # cap 50% × 2 = at most fully deployed → 2 concurrent
-    # The takeable window for the TRIGGER bar: `earliest` <= bar open < `cutoff` (floor inclusive,
-    # cutoff strict). The scan window still starts at 04:00 — this only bounds the paper book.
-    # Floor added 2026-07-31: no trades before 05:30 ET. The owner's call, like the $2 price floor
-    # (#386) — `research/reports/…time-of-day…` found no pre-market window statistically separable
-    # from another (the 04:00–06:00 block is −0.32R over 86 triggers, but permuting entry-time
-    # labels within a day reproduces that spread 68% of the time), so this is a selection decision
-    # about the thinnest, earliest tape, not a measured edge. The *scanner* window is unchanged, so
-    # pre-05:30 names keep being captured, charted and scored on the results page — they simply
-    # stop being takeable. Compute-on-read means the whole historical book replays under the new
-    # floor on the next publish; there is no stored state to migrate.
-    portfolio_premarket_earliest: time = time(5, 30)
-    # Strict: the TRIGGER bar must open before this. Tightened 09:30 → 09:15 (2026-07-21) — the
-    # final pre-open ramp/auction (09:15–09:30) trades like the open, which this strategy excludes
-    # (a VMAR entry at ~09:25 on 2026-07-20 lost). Spike #379/#380 only swept relaxations
-    # (10:00–12:00), all worse; tightening is the owner's call. Last takeable bar opens 09:10.
-    portfolio_premarket_cutoff: time = time(9, 15)
-    # entry_fill price band (narrower than the $1–50 scan). Floor raised $1 → $2 (2026-07-31, #386)
-    # — the owner's call on the book, NOT a cost argument: `research/broker-costs.md` §3 still
-    # stands and the *scanner* floor stays $1, so sub-$2 names keep being captured and scored on the
-    # results page; they just stop being takeable in the paper book. Being compute-on-read, the
-    # whole book replays under the new floor on the next publish — no stored state to migrate.
-    portfolio_entry_price_min: float = 2.0
-    portfolio_entry_price_max: float = 20.0
+    # ⚠️ The entry price band and the takeable trigger window used to live here. They are
+    # SELECTION rules, not execution ones, so #567 moved them to `select_price_min/max` and
+    # `select_window_start/end` beside the shape gates. The book no longer decides which
+    # setups are takeable — it decides what to do with the ones the engine selected.
     # Symbols to exclude from the paper book. Before #226/#227 added the scanner's `stkTypes`
     # ETF/ETN filter, `STK.US.MAJOR` captured a handful of leveraged single-stock ETFs (no share
     # float, not Warrior-style candidates) that then flowed into this compute-on-read book. The

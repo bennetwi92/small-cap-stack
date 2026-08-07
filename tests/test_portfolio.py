@@ -892,21 +892,25 @@ def test_single_rung_disables_the_throttle() -> None:
     assert res.n_trades == 3  # every day still trades at full risk
 
 
-def test_qualify_rejects_in_session_and_out_of_band() -> None:
-    # A direct check that the selection predicate enforces strict pre-market + the price band.
+def test_qualify_needs_takeable_and_usable_numbers() -> None:
+    """What `_qualify` still decides after #567.
+
+    Selection — the price band and the trigger-time window — moved into the engine and reaches
+    here already folded into `takeable` (see `tests/test_day.py`). What is left is the book's own
+    question: are the numbers usable to size and simulate a position? So the price and time cases
+    that used to live here are gone, deliberately, rather than duplicated in two layers.
+    """
     from small_cap_stack.portfolio import _qualify
 
-    s = _s()
-    pre = [_bar(10, 10.1, 9.9, 10.0, hour=9, minute=10)]  # 09:10 ET -> before the 09:15 cutoff
-    edge = [_bar(10, 10.1, 9.9, 10.0, hour=9, minute=15)]  # 09:15 ET -> at cutoff (excluded)
-    intr = [_bar(10, 10.1, 9.9, 10.0, hour=9, minute=45)]  # 09:45 ET -> in-session
-    assert _qualify(0, 10.0, 10.0, 9.0, 1.0, True, pre, s) is True
-    assert _qualify(0, 10.0, 10.0, 9.0, 1.0, True, edge, s) is False  # 09:15 is not < 09:15
-    assert _qualify(0, 10.0, 10.0, 9.0, 1.0, True, intr, s) is False  # after the cutoff
-    assert _qualify(0, 25.0, 25.0, 24.0, 1.0, True, pre, s) is False  # entry_fill 25 > $20 band
-    assert _qualify(0, 1.5, 1.5, 1.2, 0.3, True, pre, s) is False  # entry_fill 1.50 < $2 floor
-    assert _qualify(0, 2.0, 2.0, 1.7, 0.3, True, pre, s) is True  # $2.00 exactly is inclusive
-    assert _qualify(0, 10.0, 10.0, 9.0, 1.0, False, pre, s) is False  # not takeable
+    assert _qualify(0, 10.0, 10.0, 9.0, 1.0, True) is True
+    assert _qualify(0, 10.0, 10.0, 9.0, 1.0, False) is False  # engine didn't select it
+    assert _qualify(None, 10.0, 10.0, 9.0, 1.0, True) is False  # never fired
+    assert _qualify(0, None, 10.0, 9.0, 1.0, True) is False
+    assert _qualify(0, 10.0, None, 9.0, 1.0, True) is False
+    assert _qualify(0, 10.0, 10.0, None, 1.0, True) is False  # no stop -> no risk to size against
+    assert _qualify(0, 10.0, 10.0, 9.0, None, True) is False
+    assert _qualify(0, 10.0, 10.0, 9.0, 0.0, True) is False  # non-positive risk is unsizeable
+    assert _qualify(0, 10.0, 10.0, 9.0, -1.0, True) is False
 
 
 # --- extraction (store integration; reuses the report seams) ---------------------------
@@ -1050,17 +1054,18 @@ def test_extract_day_trades_rejects_after_0915_cutoff(tmp_path: Path) -> None:
     # Trigger opens 09:15 ET — at the cutoff, so rejected by the 09:15 default (not < 09:15).
     assert extract_day_trades(store, _s(), day) == []
     # ...but it is a valid setup: relaxing the cutoff back to 09:30 lets it through.
-    cands = extract_day_trades(store, _s(portfolio_premarket_cutoff=time(9, 30)), day)
+    cands = extract_day_trades(store, _s(select_window_end=time(9, 30)), day)
     assert [c.symbol for c in cands] == ["AZI"]
     assert cands[0].trigger_at.astimezone(ET).time() == time(9, 15)
 
 
-def test_extract_day_trades_rejects_before_0530_floor(tmp_path: Path) -> None:
-    """The book doesn't take the earliest pre-market tape: no trigger before 05:30 ET.
+def test_extract_day_trades_takes_the_earliest_premarket_tape(tmp_path: Path) -> None:
+    """The floor is OPEN — a 05:15 ET trigger is takeable (#569, reversing #405's 05:30).
 
-    The `first_hit` bar (index 0) is seeded at 05:00 ET so the run's trigger (idx 3) lands at
-    05:15 — rejected on the default floor, accepted when the floor is dialled back to 04:00, so it
-    is the floor doing the work and not a broken fixture."""
+    Measured before the reversal: the earlier floor adds 4 trades over 30 sessions, all stop-outs,
+    for −4.69R. Taken anyway — n=4 is not evidence, and the floor it replaces was not a measured
+    edge either. A floor dialled back in still rejects it, so it is the setting doing the work and
+    not a broken fixture."""
     from small_cap_stack.portfolio import extract_day_trades
     from small_cap_stack.storage import Store
 
@@ -1068,16 +1073,19 @@ def test_extract_day_trades_rejects_before_0530_floor(tmp_path: Path) -> None:
     store = Store(tmp_path)
     _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 9, 0, tzinfo=ET_UTC))  # 05:00 ET
 
-    assert extract_day_trades(store, _s(), day) == []
-    cands = extract_day_trades(store, _s(portfolio_premarket_earliest=time(4, 0)), day)
+    cands = extract_day_trades(store, _s(), day)  # trigger lands 05:15
     assert [c.symbol for c in cands] == ["AZI"]
     assert cands[0].trigger_at.astimezone(ET).time() == time(5, 15)
 
+    # The control: re-impose a floor above it and the same setup drops out.
+    assert extract_day_trades(store, _s(select_window_start=time(5, 30)), day) == []
 
-def test_extract_day_trades_takes_trigger_exactly_at_0530(tmp_path: Path) -> None:
-    """The floor is inclusive: a trigger bar opening exactly at 05:30 ET is takeable.
 
-    Pins the boundary convention against the cutoff's strict `<` — the window is [earliest, cutoff).
+def test_extract_day_trades_floor_is_inclusive(tmp_path: Path) -> None:
+    """The window is [start, end): a trigger opening exactly ON the floor is takeable.
+
+    Pins the boundary convention against the cutoff's strict `<`. Uses an explicit floor rather
+    than the default, so it keeps testing the convention if the default moves again.
     """
     from small_cap_stack.portfolio import extract_day_trades
     from small_cap_stack.storage import Store
@@ -1086,9 +1094,9 @@ def test_extract_day_trades_takes_trigger_exactly_at_0530(tmp_path: Path) -> Non
     store = Store(tmp_path)
     _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 9, 15, tzinfo=ET_UTC))  # 05:15 ET
 
-    cands = extract_day_trades(store, _s(), day)
+    cands = extract_day_trades(store, _s(select_window_start=time(5, 30)), day)
     assert [c.symbol for c in cands] == ["AZI"]
-    assert cands[0].trigger_at.astimezone(ET).time() == time(5, 30)
+    assert cands[0].trigger_at.astimezone(ET).time() == time(5, 30)  # exactly on the floor
 
 
 def test_extract_day_trades_rejects_sub_2_dollar_entries(tmp_path: Path) -> None:
@@ -1107,7 +1115,7 @@ def test_extract_day_trades_rejects_sub_2_dollar_entries(tmp_path: Path) -> None
     )
 
     assert extract_day_trades(store, _s(), day) == []
-    cands = extract_day_trades(store, _s(portfolio_entry_price_min=1.0), day)
+    cands = extract_day_trades(store, _s(select_price_min=1.0), day)
     assert [c.symbol for c in cands] == ["AZI"]
     assert 1.0 <= cands[0].entry_fill < 2.0
 

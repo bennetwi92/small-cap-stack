@@ -196,8 +196,11 @@ def _engine_block(
     )
     return {
         "setup": True,
-        "passed": setup.passed,
-        "takeable": setup.takeable,
+        "passed": setup.passed,  # the flag is well-formed (shape gates only)
+        "takeable": setup.takeable,  # ...and it is one we'd select and could have fired
+        # Which selection rule vetoed it, so "passed but not takeable" is explainable (#567).
+        "in_price_band": setup.in_price_band,
+        "in_window": setup.in_window,
         "score": setup.score,
         "contributions": dict(setup.contributions),
         "cycle_num": setup.cycle_num,
