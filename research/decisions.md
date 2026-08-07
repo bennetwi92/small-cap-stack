@@ -1067,3 +1067,34 @@ before and after gives the identical book: 14 candidates, 14 trades, +9.62R, $65
 Settings renamed: `select_price_min` / `select_price_max` / `select_window_start` /
 `select_window_end`. Nothing sets them via env, so the rename is internal; the published payload
 keys (`entry_price_min`, `premarket_earliest_et`, …) are unchanged, so the dashboard contract holds.
+
+## DECISION 2026-08-07 (#569) — the selection window opens to 04:00 (reverses #405)
+
+`select_window_start` 05:30 → **04:00**, i.e. the whole pre-market is selectable again. The cutoff
+stays 09:15 and the **scan** window is unchanged at 04:00–11:59.
+
+**Measured first.** Replaying the local store (30 sessions, 2026-07-01 → 2026-08-07) under both
+floors:
+
+| floor | trades | R | closing | max dd | win rate |
+|---|---|---|---|---|---|
+| 05:30 (before) | 14 | +9.62 | $650.43 | 0.11% | 57.1% |
+| 04:00 (now) | 18 | +4.93 | $575.84 | 0.15% | 44.4% |
+
+The four unlocked trades — SHPH 04:20, SUNE 04:30, LGHL 04:20, UPC 04:25 — **all stopped out**, for
+−4.69R and −$74.58 (−11.5% of the book). Nothing was displaced: the earlier triggers pushed no
+later winner out of the 2-a-day cap, so the change is purely additive.
+
+**Taken with that in hand, and the reasoning is the point.** n=4 is not evidence — four losses at a
+~43% base win rate happens about 10% of the time by chance, so this does not establish that the
+04:00–05:30 window is unprofitable. The floor it reverses was not a measured edge either (#405 said
+so in its own words): the time-of-day report found no pre-market window statistically separable
+from another, with the 04:00–06:00 block at −0.32R over 86 triggers but a permutation p of 0.68.
+Between two unmeasured judgements, this one collects the early tape in the book rather than
+assuming it away. Revisit when there are more than four early triggers to judge on.
+
+⚠️ **The published book will drop from ~$650 to ~$576 and show 18 trades.** That is this decision
+landing, not a regression. `spikes/window_0400.py` re-runs the comparison.
+
+Compute-on-read means the whole history replays under the new floor on the next publish — no stored
+state to migrate, and reverting is one line.
