@@ -687,3 +687,82 @@ def test_the_import_pattern_reads_every_clause_form_in_use() -> None:
     ]
     # A CDN import is not ours to resolve.
     assert _NAMED_IMPORT.findall('import { T } from "https://cdn/x.js";') == []
+
+
+# ------------------------------------------------ one name, one behaviour (#527)
+
+
+def test_no_page_redefines_a_name_that_fmt_js_exports() -> None:
+    """`portfolio.js` declared its own `fmtR` — a **signed** one — while `js/fmt.js` exports an
+    unsigned `fmtR` that `results.js` uses. So `fmtR(0.5)` rendered `0.50R` on Results and
+    `+0.50R` on Portfolio: one identifier, two behaviours, two pages showing the same book.
+
+    Shadowing is what made that invisible. A local `const fmtR` reads as "this page's helper"
+    rather than as a divergence from the shared one, and the page couldn't have imported the
+    shared version anyway — the declaration would have been a redeclaration.
+    """
+    shared = _exports(_js_sources()[FMT]) or set()
+    assert "fmtR" in shared and "fmtRSigned" in shared, "fmt.js's R formatters moved"
+    offenders: list[str] = []
+    for path, src in _js_sources().items():
+        if path == FMT:
+            continue
+        for match in re.finditer(r"^\s*(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)", src, re.M):
+            if match.group(1) in shared:
+                line = src.count("\n", 0, match.start()) + 1
+                offenders.append(f"{path}:{line}: local `{match.group(1)}` shadows js/fmt.js")
+    assert not offenders, (
+        "these shadow a shared formatter — import it, or rename the local so the difference is "
+        "visible at the call site:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_portfolio_reads_its_svg_palette_from_the_stylesheet() -> None:
+    """Five hex literals in `portfolio.js` matched `cockpit.css`'s `:root` character-for-character
+    (#527), so a theme change moved every CSS-driven element and left the page's inline SVGs
+    behind — drift that still renders, which is the hard kind to notice.
+
+    The fallbacks are deliberate and must stay: a token that goes missing should leave the chart in
+    today's colours, not paint strokes of `""`.
+    """
+    src = _js_sources()["portfolio.js"]
+    assert "getComputedStyle(document.documentElement)" in src, (
+        "the palette must come from the stylesheet, not from hex literals"
+    )
+    for token in ("--win", "--loss", "--dim", "--cyan", "--gold"):
+        assert f'cssToken("{token}"' in src, f"{token} is not read from CSS"
+    # Every entry resolves through the accessor: `key: cssToken("--token", "#fallback"),`. A bare
+    # hex sitting directly in the object is the state this replaced.
+    block = re.search(r"const PF_MK = \{(.*?)\n\};", src, re.S)
+    assert block, "PF_MK is gone or reshaped"
+    entries = [ln.strip() for ln in block.group(1).splitlines() if ln.strip()]
+    assert entries, "PF_MK is empty"
+    for entry in entries:
+        assert re.fullmatch(r'\w+: cssToken\("--[\w-]+", "#[0-9a-fA-F]{6}"\),', entry), (
+            f"PF_MK entry does not read from CSS with a fallback: {entry}"
+        )
+
+
+def test_the_two_palettes_keep_distinct_names() -> None:
+    """`js/inspector.js` exports `MK` — the chart-candle palette (`up: "#1a7f37"`), which
+    `review.js` imports. `portfolio.js`'s is a different palette for a different purpose, and while
+    it was also called `MK` the collision hid that choice instead of stating it."""
+    portfolio = _js_sources()["portfolio.js"]
+    assert "PF_MK" in portfolio
+    assert not re.search(r"^\s*const MK\b", portfolio, re.M), (
+        "portfolio.js must not redeclare `MK` — inspector.js exports a different one"
+    )
+    assert re.search(r"^export const MK\b", _js_sources()["js/inspector.js"], re.M)
+
+
+def test_the_fmt_palette_tokens_exist_in_the_stylesheet() -> None:
+    """The accessor falls back silently by design, so a typo'd token name would go unnoticed —
+    the page would keep rendering, permanently, in the fallback colours."""
+    css = (DOCS / "cockpit.css").read_text()
+    root = re.search(r":root\s*\{(.*?)\}", css, re.S)
+    assert root, "cockpit.css has no :root block"
+    declared = set(re.findall(r"(--[\w-]+)\s*:", root.group(1)))
+    used = set(re.findall(r'cssToken\("(--[\w-]+)"', _js_sources()["portfolio.js"]))
+    assert used, "no CSS tokens read — has the accessor been removed?"
+    missing = used - declared
+    assert not missing, f"portfolio.js reads tokens cockpit.css does not define: {missing}"
