@@ -30,6 +30,20 @@ _PASS = [
 ]
 
 
+# The same textbook shape at a sub-$3 price — the population #643's floor removes. Deliberately
+# built rather than scaled from `_PASS`: the tokeniser's epsilon is a fixed half-tick, so dividing
+# a $10 series down to $2.50 shrinks its steps below eps and the shape stops being detected at all,
+# which would have made the test pass for the wrong reason. Pole 2.30 → 2.70 (17.4%), retracement
+# 37.5%, stop 2.55, entry_fill 2.68 — inside every shape gate, and a 4.85% stop so it also clears
+# #584's minimum. Nothing about it is malformed; it is simply cheap.
+_CHEAP = [
+    _b(0, 2.20, 2.30, 2.20, 2.25, 50_000),
+    _b(1, 2.35, 2.70, 2.35, 2.68, 300_000),
+    _b(2, 2.62, 2.65, 2.55, 2.57, 100_000),
+    _b(3, 2.58, 2.67, 2.56, 2.66, 120_000),
+]
+
+
 def test_clean_pass() -> None:
     d = detect_day(_PASS)
     assert isinstance(d, DaySetup)
@@ -183,6 +197,39 @@ def test_selection_defaults_are_permissive() -> None:
     """A caller configuring neither selects on shape alone — spikes and unit tests need that."""
     d = detect_day(_PASS)
     assert d is not None and d.in_price_band is True and d.in_window is True
+
+
+def test_the_shipped_floor_is_three_dollars_and_the_cap_is_fifty() -> None:
+    """#643. The floor completes the shrink #608 promised; the cap has never bound and stays put."""
+    s = settings()
+    assert (s.select_price_min, s.select_price_max) == (3.0, 50.0)
+
+
+def test_a_sub_three_dollar_setup_stays_well_formed_but_is_not_selected() -> None:
+    """The #643 population, through the shipped settings: visible and scoreable, just not takeable.
+
+    This is the `passed` / `takeable` split doing its job. The scan floor is still $1, so these
+    names keep being collected — and the reason the floor exists is that below $3 the fixed 3-tick
+    fill is >0.8% of price and ~half of those entries carry a measurement defect, not that the flag
+    is malformed. If this ever starts asserting `passed is False`, the rule has been put in the
+    wrong tier.
+    """
+    s = settings()
+    inside = detect_day(_PASS, price_min=s.select_price_min, price_max=s.select_price_max)
+    assert inside is not None
+    assert inside.entry_fill == 10.93  # _PASS sits inside the shipped band
+    assert inside.in_price_band is True and inside.takeable is True
+
+    sub = detect_day(_CHEAP, price_min=s.select_price_min, price_max=s.select_price_max)
+    assert sub is not None
+    assert sub.entry_fill == 2.68  # below the shipped $3 floor
+    assert sub.passed is True  # the flag is textbook...
+    assert [g.name for g in sub.gates if not g.passed] == []  # ...every shape gate agrees
+    assert sub.in_price_band is False  # ...it is simply below the floor
+    assert sub.takeable is False
+    # And it stays in-band under the pre-#643 floor, so this test fails if the value is reverted
+    # without also revisiting D-39.
+    assert detect_day(_CHEAP, price_min=1.0, price_max=50.0).in_price_band is True  # type: ignore[union-attr]
 
 
 # --- #587: the session's first bar as a pole (off by default) -----------------------------------

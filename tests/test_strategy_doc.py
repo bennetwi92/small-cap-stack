@@ -66,7 +66,7 @@ def test_doc_exists_and_keeps_its_markers() -> None:
         ("bull_flag_max_retracement", 0.4, "≤ 40% of the pole"),
         ("bull_flag_exhaustion_cap", 3, "4th+ contiguous cycle"),
         ("entry_staleness_min", 15, "≤ 15 min"),
-        ("select_price_min", 3.0, "$3.00 ≤ `entry_fill`"),
+        ("select_price_min", 7.5, "$7.50 ≤ `entry_fill`"),
         ("select_price_max", 25.0, "≤ $25.00"),
         ("portfolio_max_trades_per_day", 4, "4, taken first-by-trigger-time"),
         ("portfolio_risk_fraction", 0.02, "2% of the day's opening equity"),
@@ -90,13 +90,15 @@ def test_every_rendered_value_tracks_its_setting(field: str, value: object, expe
 def test_retired_price_bands_cannot_reappear() -> None:
     """#551: four price bands were live at once. Only the two real ones may be rendered.
 
-    The selection band widened to the scan's own $1–$50 at #608, so the two now coincide in value
-    while remaining separate rules — which is exactly the conflation #551 was about. They are
+    #608 widened the selection band to the scan's own $1–$50, briefly making the two coincide in
+    value; #643 raised the selection floor to $3.00, so they differ again. Either way they are
     asserted by their distinct rendered forms (a range for the scan, a bounded `entry_fill`
-    expression for selection), so a future edit that merged them into one row would still fail."""
+    expression for selection), so a future edit that merged them into one row would still fail —
+    that is the conflation #551 was about, and it does not depend on the values agreeing."""
     block = render_block(_settings())
-    assert "$1.00 – $50.00" in block  # the scan
-    assert "$1.00 ≤ `entry_fill` ≤ $50.00" in block  # the book (#608)
+    assert "$1.00 – $50.00" in block  # the scan — floor unchanged throughout
+    assert "$3.00 ≤ `entry_fill` ≤ $50.00" in block  # the book (#643)
+    assert "$1.00 ≤ `entry_fill` ≤ $50.00" not in block  # the 2026-08-07 collection band (#608)
     assert "$2.00 ≤ `entry_fill` ≤ $20.00" not in block  # the 2026-07-31 → 2026-08-07 band (#386)
     assert "$2.00 – $10.00" not in block  # the 2026-06-29 brief
     assert "$1.00 – $20.00" not in block  # broker-costs' modelled universe

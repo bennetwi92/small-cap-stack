@@ -60,6 +60,7 @@ down is reading forward in time within a topic.
 | [D-36](#d-36--the-selection-window-opens-to-0400-2026-08-07-569) | 2026-08-07 | The selection window opens to 04:00 | #569 | LIVE — reverses #405 |
 | [D-37](#d-37--the-selection-price-band-widens-to-150-for-collection-2026-08-07-608) | 2026-08-07 | The selection price band widens to $1–$50 for collection | #608 | LIVE — temporary and intended to be reversed once the record can say where the band belongs; supersedes #386 |
 | [D-38](#d-38--the-adaptive-r-target-optimiser-is-retired-2026-08-08-644) | 2026-08-08 | The adaptive R-target optimiser is retired | #644 | LIVE — the layer is disabled by grid width, not deleted; re-enabling is one field |
+| [D-39](#d-39--the-selection-price-floor-rises-to-3-2026-08-08-643) | 2026-08-08 | The selection price floor rises to $3 | #643 | LIVE — completes the shrink D-37 said it intended; the cap is deliberately untouched |
 
 <!-- END DECISION INDEX -->
 
@@ -1464,3 +1465,73 @@ switching to 1.5 on 18 days and lands at $333.02 — worse than either endpoint.
   occupancy runs 19–41 of 61 sessions. Stays at 1.
 
 Compute-on-read means the whole history replays under the fixed target on the next publish.
+## D-39 — The selection price floor rises to $3 (2026-08-08, #643)
+
+**Status:** LIVE — completes the shrink D-37 said it intended; the cap is deliberately untouched
+
+`select_price_min` 1.00 → **3.00**. `select_price_max` stays **50.00**.
+
+D-37 widened the band to $1–$50 on 2026-08-07 for collection, explicitly temporary, with the
+owner's stated intent to shrink it once the record could say where the floor belonged. Eight days
+later the record — **61 sessions**, 31 recon (2026-05-15→06-30) and 30 live (2026-07-01→08-07),
+159 candidates extracted under maximally-wide selection — says $3.
+
+**What it buys** (both stores, through the real adaptive book):
+
+| | selected | trades | win | realized R | end equity | max DD |
+|---|---|---|---|---|---|---|
+| $1 floor (D-37) | 79 | 65 | 30.8% | −9.67 | $283.03 | 41.9% |
+| **$3 floor** | 59 | 52 | 42.3% | **+12.65** | **$791.40** | **18.8%** |
+
+Positive in **both** stores — recon +7.15R / $611.44, live +5.50R / $556.15 — and a plateau rather
+than a peak: floors of 2.50 / 3.00 / 3.25 / 3.50 / 3.75 / 4.00 give +9.17 / +12.65 / +7.65 / +5.65 /
++4.75 / +5.86 R, with every floor from $2.50 to $6.00 positive. Paired day-cluster bootstrap vs the
+$1 floor: Δ mean R **+0.267, 95% CI [+0.097, +0.477]**, P(Δ>0)=0.999.
+
+**⚠️ The mechanism is measurement, not edge — this matters for how the rule is cited.** The honest
+claim is *"below $3 we cannot measure the fill"*, **not** *"cheap stocks don't work"*. The engine's
++3-tick nominal fill is a fixed 3 ticks, so as a share of price it explodes on cheap names, and the
+measurement-defect rate tracks it exactly:
+
+| 3-tick offset as % of price | n | `same_bar_stop` or `fill_above_entry_bar_high` | avg R |
+|---|---|---|---|
+| <0.4% (≥$7.50) | 39 | **7.7%** | +0.205 |
+| 0.4–0.8% | 15 | 46.7% | −0.452 |
+| 0.8–1.5% | 13 | 46.2% | +0.019 |
+| >1.5% (<$2) | 12 | **50.0%** | −0.952 |
+
+On defect-free trades alone the floor's edge falls to **+0.101R with a CI straddling zero**. It is
+still the right rule — an entry price that never printed teaches the record nothing, and the same
+tick geometry is real slippage risk live — but do not cite it as evidence about cheap stocks.
+
+A "gate on the tick offset as a share of price" rule was considered and **rejected as strictly
+equivalent**: offset = 3 × tick / price is monotone in price, so `offset <= 0.010` *is*
+`price >= $3.00`. There is no sharper rule on that axis.
+
+**⚠️ The cap stays at $50 and should not be narrowed.** No candidate in the record has ever exceeded
+it, so it has never bound. The >$20 population is flat (n=21, avg −0.174R) and is 100%
+notional-cap-sized at ~1.3% actual risk, costing −$26.87 over 9 trades — expensive names are nearly
+free to keep, so narrowing buys nothing measurable and costs 21 candidates and 8 sessions.
+
+**Coverage cost**, which D-37's argument makes us state explicitly: 79 → 59 candidates (−25%),
+sessions with at least one selection 41/61 → 37/61, distinct symbols 73 → 54. The **scan** floor is
+unchanged at $1, so sub-$3 names keep being collected and scored — only `takeable` moves. That is
+the `passed` / `takeable` split doing its job, and it is why D-03 (*collect before you filter*)
+is not violated here.
+
+**Out-of-sample, both directions.** Fitting the price × stop grid on **recon only** picks
+$2.50 / 4.0% and scores **+0.309R** applied blind to live (baseline −0.211); fitting on **live only**
+independently picks **exactly $3.00 / 2.5%** and scores **+0.368R** applied blind to recon (baseline
+−0.071). The two halves of the record agree on the same region of the surface without being shown
+each other.
+
+**⚠️ Caveats to carry.** A selection-bias null — shuffle the outcomes so no edge exists, then let
+the same 56-cell price × stop grid pick its best — gives **P = 0.018**: clears 5%, not 1%, and that
+prices only this one grid when the full sweep ran >150 variants on n=79. Strict chronological
+walk-forward is thinner still (+2.56R over 32 trades vs baseline −14.70). And the **absolute** edge
+remains indistinguishable from zero — the baseline mean R is −0.126 with a 95% CI of
+[−0.436, +0.197]. Only the *improvement over D-37's band* is significant, never the level.
+
+Interacts with D-40 (the 2.5% minimum stop): the two rules remove near-disjoint populations — only
+3 candidates overlap — and each adds incrementally to the other. Together: 44 selected, 43 trades,
+48.8% win, **+19.21R, $908.97, 18.8% max DD**.
