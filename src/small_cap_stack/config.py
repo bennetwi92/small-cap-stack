@@ -455,7 +455,24 @@ class Settings(BaseSettings):
     portfolio_breakeven_r: float = 0.0  # arm a breakeven stop once +Nb·R is reached; 0 disables
     # Adaptive target: each day re-fits the target to the highest-expectancy grid value over the
     # trailing window of prior candidates. Small-N overfit is guarded by the window + plateau bias.
-    portfolio_target_grid: tuple[float, ...] = (1.5, 2.0, 2.5, 3.0)
+    #
+    # ⚠️ **A single-value grid disables the optimiser** (#644, 2026-08-08) — `best_target` has one
+    # choice, the paired-edge test compares 2.0 against itself, and every day runs the fixed
+    # `portfolio_target_r`. Nothing is deleted: `expectancy_curve` / `best_target` / `_fit_target` /
+    # `_paired_edge` stay tested, so re-enabling is this one line, exactly as the risk ladder is.
+    #
+    # Why: over 61 sessions the layer changed the target on **2 days**, both wrongly, and its edge
+    # has decayed monotonically to z=0.043. The 40 `margin` days are it preferring 1.5 or 2.5 and
+    # failing to clear the z bar. The robust finding is the negative one — across every grid, every
+    # `switch_z`, every `window_days` and every `min_samples` swept, no optimiser setting beat the
+    # fixed-2.0 book. Treat this as retiring a layer that never fired usefully, not as a P&L gain:
+    # the $66.66 those two days cost goes to $0 once #643's price floor removes their trades.
+    #
+    # The knobs below are now inert, and are deliberately left at their considered values so the
+    # re-enable is one line rather than four. Do NOT reach for `portfolio_adaptive_min_samples = 15`
+    # as an alternative kill — it reaches the same number here but starts switching to 1.5 on 18
+    # days as soon as a breakeven stop is on, landing worse than either endpoint.
+    portfolio_target_grid: tuple[float, ...] = (2.0,)
     # Trailing lookback for the expectancy re-fit, in CALENDAR days — or **None for all history**,
     # which is the shipped default (2026-08-06, #476).
     #

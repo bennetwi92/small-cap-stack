@@ -111,7 +111,7 @@ between §1 and §2.
 | Risk target | 5% of the day's opening equity | `portfolio_risk_fraction` |
 | Notional cap | 50% of the day's opening equity | `portfolio_position_fraction` |
 | Exit target | 2R fallback | `portfolio_target_r` |
-| Adaptive target | grid 1.5R, 2R, 2.5R, 3R, fit over all history, ≥ 8 prior trades, 1σ paired margin to switch | `portfolio_target_grid / _adaptive_* / _target_switch_z` |
+| Adaptive target | grid 2R, fit over all history, ≥ 8 prior trades, 1σ paired margin to switch | `portfolio_target_grid / _adaptive_* / _target_switch_z` |
 | Breakeven arm | disabled | `portfolio_breakeven_r` |
 | Risk throttle | off (flat risk) | `portfolio_risk_rungs / _risk_step_days` |
 | Exit slippage | 2 ticks ($0.02) on stop / close exits, 0 on the limit target | `portfolio_exit_slippage_ticks` |

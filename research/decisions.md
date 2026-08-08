@@ -59,6 +59,7 @@ down is reading forward in time within a topic.
 | [D-35](#d-35--the-engine-selects-the-book-executes-2026-08-07-567) | 2026-08-07 | The engine selects, the book executes | #567 | LIVE |
 | [D-36](#d-36--the-selection-window-opens-to-0400-2026-08-07-569) | 2026-08-07 | The selection window opens to 04:00 | #569 | LIVE — reverses #405 |
 | [D-37](#d-37--the-selection-price-band-widens-to-150-for-collection-2026-08-07-608) | 2026-08-07 | The selection price band widens to $1–$50 for collection | #608 | LIVE — temporary and intended to be reversed once the record can say where the band belongs; supersedes #386 |
+| [D-38](#d-38--the-adaptive-r-target-optimiser-is-retired-2026-08-08-644) | 2026-08-08 | The adaptive R-target optimiser is retired | #644 | LIVE — the layer is disabled by grid width, not deleted; re-enabling is one field |
 | [D-39](#d-39--the-selection-price-floor-rises-to-3-2026-08-08-643) | 2026-08-08 | The selection price floor rises to $3 | #643 | LIVE — completes the shrink D-37 said it intended; the cap is deliberately untouched |
 
 <!-- END DECISION INDEX -->
@@ -1412,6 +1413,58 @@ measured under $2–$20, and several read "0 takeable affected" *because the ban
 population* — most sharply #604, where 24 zero-range/halted consolidations exist (live sum −32.65R)
 and none was takeable under the old band. Re-cost each before implementing it.
 
+## D-38 — The adaptive R-target optimiser is retired (2026-08-08, #644)
+
+**Status:** LIVE — the layer is disabled by grid width, not deleted; re-enabling is one field
+
+`portfolio_target_grid` (1.5, 2.0, 2.5, 3.0) → **(2.0,)**. A single-value grid makes `best_target`
+a no-op: the paired-edge test compares 2.0 against itself and every day runs the fixed
+`portfolio_target_r`. Nothing is removed — `expectancy_curve` / `best_target` / `_fit_target` /
+`_paired_edge` stay tested, exactly as the risk ladder stays tested at `portfolio_risk_rungs = 1`.
+
+**Why.** 61 sessions (31 recon 2026-05-15→06-30, 30 live 2026-07-01→08-07) have given the layer
+enough rope. Its `TargetFit` status runs **thin 6 · fitted 15 · margin 40**, but "fitted" is mostly
+the optimiser agreeing with the fallback — the target actually *moved* on **2 days out of 61**:
+
+| date | trailing n | pick | z |
+|---|---|---|---|
+| 2026-05-26 | 9 | 3.0 | +2.53 |
+| 2026-05-27 | 12 | 2.5 | +2.80 |
+
+Both were wrong, together costing **$66.66** ($283.03 vs $349.69 with the layer off). Every session
+since is `margin` — it prefers 1.5 or 2.5 and cannot clear the z bar — and its edge has decayed
+monotonically to **z = 0.043** by 2026-08-07.
+
+**⚠️ Do not read the $66.66 as the value of this change.** It rests on 2 days out of 61, and once
+D-39's price floor lands it goes to **$0**, because both switch days involved trades the new
+selection removes. **The robust claim is the negative one:** across every grid width, every
+`switch_z` (0 / 0.5 / 1.0 / 1.96), every `window_days` (None / 20 / 40 / 60) and every
+`min_samples` (5 / 8 / 15 / 25) swept, **no optimiser setting beat the fixed-2.0 book.** This
+retires a layer that never fired usefully; it does not buy P&L.
+
+`portfolio_adaptive_window_days`, `portfolio_adaptive_min_samples` and `portfolio_target_switch_z`
+are left at their considered values (see #476) and are now inert. `min_samples = 15` reaches the
+same number by a different route and was rejected as fragile: with a breakeven stop on it starts
+switching to 1.5 on 18 days and lands at $333.02 — worse than either endpoint.
+
+**Rejected in the same sweep, recorded so they are not re-litigated:**
+
+- **`portfolio_target_r = 1.5`.** The biggest in-sample number on the board ($473.02, max DD 0.133)
+  and it **fails the train/test split** — fitted on recon it loses to the incumbent on the live
+  store ($375.59 vs $408.88). The target axis is jagged (1.75 sits below both 1.5 and 2.0 at every
+  breakeven level, in both stores), the signature of reading a surface at finer resolution than
+  n=79 supports. Revisit when the live store alone has ~80 candidates.
+- **A breakeven stop (`portfolio_breakeven_r = 0.3`).** Cuts drawdown robustly across all 8 targets
+  in both stores, but under D-39 + D-40 selection it *costs* $100 ($908.97 → $808.92) and splits
+  the stores — recon +13.46R while live falls +8.62 → +3.98. Paired z at the shipped 2.0 target is
+  +0.61 overall and **−0.09 on live**. Bought for variance it would be defensible; on this evidence
+  it is not bought at all.
+- **The risk-throttle ladder (`portfolio_risk_rungs > 1`).** Independently reproduces #474 on a 5×
+  larger sample: the best cell barely beats ladder-off while cutting 65 trades to 27, the surface
+  is a sawtooth in both knobs (rungs=3: step 1 → $311, step 2 → $347, step 3 → $297), and rung-0
+  occupancy runs 19–41 of 61 sessions. Stays at 1.
+
+Compute-on-read means the whole history replays under the fixed target on the next publish.
 ## D-39 — The selection price floor rises to $3 (2026-08-08, #643)
 
 **Status:** LIVE — completes the shrink D-37 said it intended; the cap is deliberately untouched
