@@ -458,7 +458,9 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     assert payload["start_equity"] == 500.0
     assert payload["gbpusd_rate"] == 1.27  # top-level FX rate for the take-home panel
     assert "adaptive" in payload["books"]
-    assert set(payload["targets"]) >= {"1.5", "2", "3"}  # grid widened with extremes
+    # The slider's own set, NOT the optimiser's grid (#644) — the grid is a single value now, and
+    # deriving the slider from it would have cut the page from seven explorable targets to four.
+    assert set(payload["targets"]) >= {"1", "1.5", "2", "2.5", "3", "4", "5"}
     adaptive = payload["books"]["adaptive"]
     assert adaptive["stats"]["n_trades"] == 1
     assert "daily_targets" in adaptive  # only the adaptive book carries the per-day target
@@ -468,9 +470,11 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     assert "withdrawals_gbp" in adaptive["stats"] and "tax_paid_gbp" in adaptive["stats"]
     assert "cash_flows" in adaptive
     assert "withdraw_fraction" in payload["config"] and "cgt_rate" in payload["config"]
-    # The target chart draws its rules from the *adaptive grid*, which the widened `targets` book
-    # list can't stand in for — 4R/5R are selectable books the daily re-fit can never choose.
-    assert payload["config"]["target_grid"] == [1.5, 2.0, 2.5, 3.0]
+    # The target chart draws its rules from the *adaptive grid*, which the wider `targets` book
+    # list can't stand in for — most of those are selectable books the daily re-fit can never
+    # choose. Since #644 the grid is a single value (the optimiser is retired), so the chart draws
+    # one rule; the two fields stay distinct precisely so the page keeps saying which is which.
+    assert payload["config"]["target_grid"] == [2.0]
     assert payload["config"]["target_fallback_r"] == 2.0
     # The forward projection rides along per book (see `portfolio.projection`), and the page needs
     # the day-rate knobs from config to state its own comparison rather than hard-coding one.
