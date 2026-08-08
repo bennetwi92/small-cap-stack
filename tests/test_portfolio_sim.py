@@ -698,6 +698,47 @@ def test_the_shipped_default_fits_on_all_history_with_a_margin_gate() -> None:
     assert s.portfolio_target_switch_z == 1.0
 
 
+def test_the_shipped_grid_is_a_single_value_so_the_optimiser_cannot_fire() -> None:
+    """#644: the layer is retired by grid width, not by deleting it.
+
+    Over 61 sessions the optimiser moved the target on 2 days, both wrongly, and its edge decayed
+    to z=0.043. A one-value grid makes `best_target` a no-op, so every day runs
+    `portfolio_target_r`. Re-enabling is this one field — which is the point of disabling it this
+    way rather than by ripping the layer out.
+    """
+    assert _s().portfolio_target_grid == (2.0,)
+
+
+def test_a_single_value_grid_holds_the_fallback_where_a_wider_one_would_switch() -> None:
+    """The discriminating case: identical trades, identical guards, only the grid differs.
+
+    `_win3_cand` runs to +3R, so a (1.5, 3.0) grid re-fits to 3.0 and clears the margin gate — the
+    exact behaviour `test_next_session_state_target_uses_every_collected_day` pins. Under the
+    shipped one-value grid the same history must never leave 2.0, and must never be *reported* as
+    fitted either: a `TargetFit` claiming `fitted` while sitting on the fallback is precisely the
+    failure #463 was raised for.
+    """
+    base = date(2026, 7, 1)
+    days = [(base + timedelta(days=i), [_win3_cand(f"W{i}")]) for i in range(10)]
+    common = {
+        "portfolio_adaptive_min_samples": 6,
+        "portfolio_target_r": 2.0,
+        "portfolio_exit_slippage_ticks": 0,
+    }
+
+    wide = simulate_portfolio_adaptive(days, _s(portfolio_target_grid=(1.5, 3.0), **common))
+    assert 3.0 in {f.target_r for _d, f in wide.daily_targets}  # the layer does fire when it can
+
+    single = simulate_portfolio_adaptive(days, _s(portfolio_target_grid=(2.0,), **common))
+    assert {f.target_r for _d, f in single.daily_targets} == {2.0}
+    assert all(t.target_r == 2.0 for t in single.result.trades)
+    # `thin` while warming up, then `fitted` at 2.0 — the optimiser runs and agrees with itself.
+    # What it must never do is report a *switch*, which is what `target_r == 2.0` above pins.
+    assert {f.status for _d, f in single.daily_targets} <= {"thin", "fitted"}
+    st = single.state
+    assert st is not None and st.target_r == 2.0  # and the next session inherits the same answer
+
+
 def test_all_history_window_keeps_trades_a_trailing_window_would_have_dropped() -> None:
     # Six warm-up trades, then a 200-day gap, then the decision day. Any calendar window shorter
     # than the gap discards every warm-up trade and the fit starves; None keeps all of them.

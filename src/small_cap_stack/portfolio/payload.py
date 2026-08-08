@@ -602,8 +602,14 @@ def build_portfolio_payload(
         if recon_store is not None
         else ([], 0)
     )
-    # Selectable fixed targets: the adaptive grid widened with a couple of extremes for exploration.
-    targets = sorted(set(s.portfolio_target_grid) | {1.0, 4.0, 5.0})
+    # Selectable fixed targets for the page's manual slider. Deliberately its OWN set and not
+    # `portfolio_target_grid` widened (#644): the grid is what the optimiser is allowed to choose
+    # between, and it is now a single value because that layer is retired. Deriving the slider from
+    # it would have silently cut the page from seven explorable targets to four — the fixed books
+    # are for looking at the record, which is exactly what you want *more* of once the automatic
+    # re-fit is gone. Keep the grid's values inside this set so the adaptive book is always
+    # comparable against a fixed book on the same target.
+    targets = sorted(set(s.portfolio_target_grid) | {1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0})
     books = _books_json(by_day, s, targets, with_projection=True)
     payload: dict[str, object] = {
         "generated_utc": generated_utc.isoformat(),
