@@ -61,6 +61,7 @@ down is reading forward in time within a topic.
 | [D-37](#d-37--the-selection-price-band-widens-to-150-for-collection-2026-08-07-608) | 2026-08-07 | The selection price band widens to $1–$50 for collection | #608 | LIVE — temporary and intended to be reversed once the record can say where the band belongs; supersedes #386 |
 | [D-38](#d-38--the-adaptive-r-target-optimiser-is-retired-2026-08-08-644) | 2026-08-08 | The adaptive R-target optimiser is retired | #644 | LIVE — the layer is disabled by grid width, not deleted; re-enabling is one field |
 | [D-39](#d-39--the-selection-price-floor-rises-to-3-2026-08-08-643) | 2026-08-08 | The selection price floor rises to $3 | #643 | LIVE — completes the shrink D-37 said it intended; the cap is deliberately untouched |
+| [D-40](#d-40--a-minimum-stop-distance-of-25-2026-08-08-584) | 2026-08-08 | A minimum stop distance of 2.5% | #584 | LIVE — a selection rule in the engine, deliberately not a shape gate |
 
 <!-- END DECISION INDEX -->
 
@@ -1535,3 +1536,73 @@ remains indistinguishable from zero — the baseline mean R is −0.126 with a 9
 Interacts with D-40 (the 2.5% minimum stop): the two rules remove near-disjoint populations — only
 3 candidates overlap — and each adds incrementally to the other. Together: 44 selected, 43 trades,
 48.8% win, **+19.21R, $908.97, 18.8% max DD**.
+
+## D-40 — A minimum stop distance of 2.5% (2026-08-08, #584)
+
+**Status:** LIVE — a selection rule in the engine, deliberately not a shape gate
+
+New `select_min_stop_pct = 0.025`, ANDed into `DaySetup.takeable` as `has_stop_room` beside
+`in_price_band` / `in_window`: `(entry_fill − stop) / entry_fill >= select_min_stop_pct`.
+
+**Why.** A flag compressed to a few ticks is one the entry model and the spread decide, not the
+setup. AIIO 2026-05-18 run 2 stops **2.32% from entry (10.9 ticks)**, so the engine's own 3-tick
+conservative fill offset is **27% of planned R** before any spread or slippage; for the two tightest
+in the record — SEGG (4 ticks) and MTEN (5) — it is 75% and 60%.
+
+Over 61 sessions the sub-2.5% population wins **2 of 18** and averages **−0.80R**, against +0.074R
+for the 61 kept. On its own the rule takes the book from −9.67R / $283.03 / 41.9% max DD to
+**+3.78R / $398.20 / 33.2%**, win 30.8% → 37.9%.
+
+**Why 2.5% and not the 3% first proposed.** That figure was fitted under the old $2–$20 band, which
+D-37 has since invalidated. On the current record 2.5% is the only threshold clearing **both**
+bootstrap tests — kept-vs-removed on disjoint populations (Δ **+0.878R, 95% CI [+0.253, +1.446]**,
+P=0.998) *and* a day-block bootstrap on daily book R (**+13.45R, 95% CI [+0.21, +27.26]**). It also
+sits in a natural gap: sorted stop distances run 2.407% (U, live) → 2.548% (MASK, recon), so any cut
+in between gives the identical 18/61 partition. 3% additionally removes MASK #2, CLSK and FCEL for
+no measured gain (+2.94 vs +3.78).
+
+**⚠️ Do not raise it to 5%** despite the larger headline (+7.40R, $475.87): its disjoint CI lower
+bound is +0.004, its day-block CI includes zero, and its gain leans on an n=6 bucket.
+
+**This unblocks itself.** #584 was held Blocked on #583 because a 3% cut removes MASK 2026-05-29
+run 2 — the exact trade 1-min entry resolution rescues from −1.16R to +2.00R. That trade's stop is
+**2.548%**, so a 2.5% cut *keeps* it, and in this sweep it is additionally one of five trades
+promoted into a freed 2/day cap slot. The threshold choice dissolved the dependency.
+
+**⚠️ It is selection, not sizing — tested, not assumed.** Stop distance drives sizing directly
+(`risk_fraction / position_fraction = 10%`, so the notional cap binds on every trade with a stop
+under 10% and actual risk is exactly `0.50 × stop_pct`), which makes "tight stops are under-risked"
+a live rival explanation. It fails: all nine (`position_fraction` × `risk_fraction`) combinations
+give **identical** total R, because R is size-independent; and raising `position_fraction` to 1.0 so
+tight stops get their full 5% risk makes the book *strictly worse* ($283.03 → $262.65, max DD
+0.419 → 0.466). **The notional cap is currently a shield against this population, not its cause.**
+Two further rivals ruled out: the effect survives dropping every measurement-defective trade
+(Δ +0.978, t=2.36), and it holds inside **all five** price bands while a max-price rule fails
+outright ($25 cap −14.22R, $12 −11.03R, $6 −17.57R, all worse than baseline).
+
+**Why the engine and not `gates.py`.** The flag *is* well-formed. Four of the 25 signed-off golden
+fixtures have sub-3% stops as `passed=True` (MARA 1.30%, FWDI 1.82%, FATE 2.13%, OKLL 2.25%), so a
+shape gate would contradict the trader's own sign-offs. It also reads `entry_fill` / `stop`, which
+are entry-pricing values rather than `FeatureVector` fields. Measured against the **fill** and not
+the breakout for the same reason the price band is: the book pays that price, so that is the planned
+risk it would actually carry (off the breakout the same setup reads 1.835% rather than 2.104%).
+
+**Rejected: a maximum stop distance.** No robust signal — every cap is worse than or equal to
+baseline in signal terms and the sequence is non-monotone (8% beats 10%). The only apparent win,
+20%, removes **4 candidates** out of 79: one bad week, not a rule.
+
+**Combined with D-39** (the $3 floor) the two remove near-disjoint populations — only 3 candidates
+overlap — and each adds incrementally to the other (paired day bootstrap: stop-on-top-of-price
+95% CI [+0.014, +0.586]; price-on-top-of-stop [+0.123, +0.622]).
+
+| | tight stop (<2.5%) | wide stop (≥2.5%) |
+|---|---|---|
+| **cheap (<$3)** | n=3, −1.47R | n=17, −0.80R |
+| **rich (≥$3)** | n=15, −0.67R | **n=44, +0.41R, 48% win** |
+
+Together, verified against the shipped configuration end-to-end: **44 selected, 43 trades, 48.8%
+win, +19.21R, $908.97, 18.8% max DD** — recon +10.59R and live +8.62R.
+
+**⚠️ The same caveats as D-39 apply and are not repeated in full:** a selection-bias null over the
+price × stop grid gives P = 0.018, walk-forward is thinner (+2.56R over 32 trades), and the
+**absolute** edge remains indistinguishable from zero. Only the improvement is significant.

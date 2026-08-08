@@ -212,6 +212,7 @@ def _engine_block(
         # Which selection rule vetoed it, so "passed but not takeable" is explainable (#567).
         "in_price_band": setup.in_price_band,
         "in_window": setup.in_window,
+        "has_stop_room": setup.has_stop_room,  # the stop is far enough to be a level, not a tick
         "score": setup.score,
         "contributions": dict(setup.contributions),
         "cycle_num": setup.cycle_num,
