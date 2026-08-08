@@ -45,6 +45,85 @@ def test_systemd_unit() -> None:
     assert "up -d --build" not in s
 
 
+def _deploy_window_guard() -> str:
+    """The guard's shell, lifted verbatim out of `deploy.yml`.
+
+    Run for real below rather than eyeballed: a boundary written as `-gt` instead of `-ge`, or a
+    range that quietly never matches, is a guard that reports green while guarding nothing.
+    """
+    lines = (ROOT / ".github" / "workflows" / "deploy.yml").read_text().splitlines()
+    start = next(i for i, ln in enumerate(lines) if "Refuse to restart the tracker" in ln)
+    run_at = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+    body: list[str] = []
+    for ln in lines[run_at + 1 :]:
+        if ln.strip() and not ln.startswith(" " * 10):
+            break
+        body.append(ln[10:])
+    return "\n".join(body)
+
+
+def _deploy_blocked_at(now_et: str) -> bool:
+    script = _deploy_window_guard().replace(
+        'now_et="$(TZ=America/New_York date +%H%M)"', f'now_et="{now_et}"'
+    )
+    assert f'now_et="{now_et}"' in script, "the clock line changed — this test stopped injecting"
+    return subprocess.run(["bash", "-c", script], capture_output=True, text=True).returncode != 0
+
+
+@pytest.mark.parametrize(
+    "now_et",
+    [
+        "0345",  # eod_backfill
+        "0400",  # scan opens
+        "0930",
+        "1159",  # scan closes
+        "1214",  # buffer after the close
+        "1620",  # eod_bars_fetch
+        "1630",  # eod_report
+    ],
+)
+def test_deploy_refuses_inside_a_protected_window(now_et: str) -> None:
+    """A deploy restarts the app container, so these are the times it destroys something (#673)."""
+    assert _deploy_blocked_at(now_et)
+
+
+@pytest.mark.parametrize(
+    "now_et",
+    [
+        "0000",
+        "0339",  # just before eod_backfill's guard
+        "1215",  # the UK evening starts here — 17:15 BST
+        "1600",
+        "1645",  # EOD pair done
+        "2300",
+    ],
+)
+def test_deploy_is_allowed_outside_the_protected_windows(now_et: str) -> None:
+    """Deliberately NOT the siblings' 04:00-16:10: that is 09:00-21:10 BST, the whole usable
+    evening for a UK operator, and a freeze overridden every week is one you learn to ignore."""
+    assert not _deploy_blocked_at(now_et)
+
+
+def test_deploy_exposes_an_ignore_window_escape_hatch() -> None:
+    """Same affordance its siblings have, and the guard must be skippable rather than editable."""
+    wf = (ROOT / ".github" / "workflows" / "deploy.yml").read_text()
+    assert "ignore_window:" in wf
+    assert "if: ${{ !inputs.ignore_window }}" in wf
+
+
+def test_every_box_workflow_has_a_session_window_guard() -> None:
+    """deploy.yml was the ONLY box workflow without one (#673) — and the only one that restarts
+    the tracker. Its siblings guard via `box-job.sh`'s BOX_JOB_IGNORE_WINDOW; it guards inline."""
+    wf_dir = ROOT / ".github" / "workflows"
+    for name in (
+        "backfill-dashboard.yml",
+        "data-export.yml",
+        "deploy-backfill-publish.yml",
+        "deploy.yml",
+    ):
+        assert "ignore_window:" in (wf_dir / name).read_text(), f"{name} lost its window guard"
+
+
 def test_deploy_action_pulls_and_never_builds_on_box() -> None:
     """The box must never build (#278). The deploy lives in one composite action (#280)."""
     a = (ROOT / ".github" / "actions" / "deploy-app" / "action.yml").read_text()
