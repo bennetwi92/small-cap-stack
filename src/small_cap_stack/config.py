@@ -131,6 +131,17 @@ class Settings(BaseSettings):
     # exist: a promise is not a limit, and a limit alone kills instead of checkpointing.
     harvest_min_mem_available_mb: float = 800.0
     harvest_min_disk_free_mb: float = 2000.0
+    # --- Point-in-time share counts for reconstructed days (#563), from SEC EDGAR. ---
+    # SEC needs no API key; it needs to know who is calling. Its fair-access policy asks for a
+    # contact string ("name email") and caps requests at 10/s — a missing User-Agent is a 403, and
+    # a *plausible* one that isn't a real contact is the kind of thing that gets an IP blocked. So
+    # there is no default: empty means the `harvest fundamentals` pass refuses to start, which is
+    # the only failure mode here that cannot be mistaken for an outage.
+    harvest_edgar_user_agent: str = ""
+    # ~6.7 req/s, inside SEC's 10/s ceiling with headroom. Unlike the bar vendor's 13-second sleep
+    # this does not price the job: EDGAR returns a company's whole filing history in one response,
+    # so a full backfill costs about one call per distinct SYMBOL, not per symbol-day.
+    harvest_edgar_min_interval_sec: float = 0.15
 
     # Monitoring (issue #5)
     healthchecks_ping_url: str = ""

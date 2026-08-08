@@ -43,6 +43,7 @@ TWS_PASSWORD=hunter2
 FMP_API_KEY=fmpsecret
 HEALTHCHECKS_PING_URL=https://hc-ping.com/abc-123
 MASSIVE_API_KEY=vendorkey
+HARVEST_EDGAR_USER_AGENT=small-cap-stack box@example.com
 HARVEST_MIN_DAY_VOLUME=500000   # tightened after the sweep
 RECON_CHARTS_MAX_DATES=12
 SCAN_MAX_PRICE=50.0
@@ -357,6 +358,39 @@ def test_read_only_commands_run_beside_a_live_harvest_and_stay_out_of_its_slice(
         assert "--name scs-harvest" not in called, f"{cmd} took the lock"
         assert "--cgroup-parent" not in called, f"{cmd} joined the harvest's slice"
         assert "--memory=512m" in called, f"{cmd} took the harvest's full 1g cap"
+
+
+def test_an_ambient_edgar_contact_string_wins_over_the_stored_one(tmp_path: Path) -> None:
+    """Same path as the vendor key, for a value that is deliberately NOT a secret (#563). SEC's
+    fair-access policy asks callers to identify themselves, so it rides on an Actions *variable* —
+    which is what lets `harvest fundamentals` be dispatched at a box whose .env has none."""
+    argv = _dry_run(tmp_path, command="fundamentals", HARVEST_EDGAR_USER_AGENT="scs ci@example.com")
+    assert _env_flags(argv)["HARVEST_EDGAR_USER_AGENT"] == "scs ci@example.com"
+    assert argv.count("HARVEST_EDGAR_USER_AGENT=scs ci@example.com") == 1
+    assert "HARVEST_EDGAR_USER_AGENT=small-cap-stack box@example.com" not in argv
+
+    stored = _env_flags(_dry_run(tmp_path, command="fundamentals"))
+    assert stored["HARVEST_EDGAR_USER_AGENT"] == "small-cap-stack box@example.com"
+
+
+def test_fundamentals_takes_the_lock_and_the_harvest_slice(tmp_path: Path) -> None:
+    """It spends no vendor budget — EDGAR is free — but `run`/`auto` DELETE the `fundamentals`
+    partitions it writes (the dataset is in HARVEST_DATASETS, so `discard_partial` clears it before
+    re-harvesting a date). Running the two together lets the enrichment land rows for a date whose
+    bars are being rebuilt underneath it, so it is not a read-only command.
+
+    It does real per-date work too (a DuckDB read plus an HTTPS call per distinct symbol), which is
+    why it belongs in the memory slice rather than the 512 MB no-slice envelope."""
+    with tempfile.TemporaryDirectory() as td:
+        env = _docker_stub(Path(td), state="true")
+        proc = _run(env, "fundamentals")
+    assert proc.returncode != 0, "fundamentals ran beside a live harvest that could delete its rows"
+    assert "already running" in proc.stderr
+
+    argv = _dry_run(tmp_path, command="fundamentals")
+    assert "--cgroup-parent=scs-harvest.slice" in argv
+    assert "--memory=1g" in argv
+    assert "--name" in argv and "scs-harvest" in argv
 
 
 def test_charts_takes_the_lock_and_the_harvest_slice(tmp_path: Path) -> None:

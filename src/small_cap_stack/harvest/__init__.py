@@ -12,6 +12,17 @@ scanner's history.
 from __future__ import annotations
 
 from .checkpoint import Checkpoint
+from .edgar import EdgarError, EdgarFundamentals, SharesRow, parse_shares_series, shares_asof
+from .fundamentals import (
+    FUNDAMENTALS_DATASET,
+    EdgarNotConfigured,
+    FundamentalsResult,
+    discard_partial_fundamentals,
+    edgar_source,
+    harvest_fundamentals,
+    plan_fundamentals,
+    run_fundamentals,
+)
 from .guard import HostGuard, RunWindow, peak_rss_mb
 from .prefilter import DailyRow, candidates, sweep_floors, universe_rows
 from .reconstruct import (
@@ -26,10 +37,12 @@ from .reconstruct import (
 )
 from .runner import (
     HARVEST_DATASETS,
+    SESSION_DATASETS,
     DailyResult,
     HarvestConfigError,
     HarvestRun,
     SessionResult,
+    abandon_reason,
     checkpoint_path,
     discard_partial,
     exclusions_path,
@@ -46,11 +59,17 @@ from .runner import (
 from .source import HarvestEntitlementError, HarvestError, HarvestSource, MassiveSource
 
 __all__ = [
+    "FUNDAMENTALS_DATASET",
     "HARVEST_DATASETS",
+    "SESSION_DATASETS",
     "PREMARKET",
     "Checkpoint",
     "DailyResult",
     "DailyRow",
+    "EdgarError",
+    "EdgarFundamentals",
+    "EdgarNotConfigured",
+    "FundamentalsResult",
     "GateTrace",
     "HarvestConfigError",
     "HarvestEntitlementError",
@@ -62,21 +81,30 @@ __all__ = [
     "Reconstruction",
     "RunWindow",
     "SessionResult",
+    "SharesRow",
+    "abandon_reason",
     "aggregate",
     "candidates",
     "checkpoint_path",
     "discard_partial",
+    "discard_partial_fundamentals",
+    "edgar_source",
     "exclusions_path",
     "harvest_daily",
+    "harvest_fundamentals",
     "harvest_session",
     "harvest_store",
     "load_exclusions",
+    "parse_shares_series",
     "peak_rss_mb",
+    "plan_fundamentals",
     "plan_sessions",
     "reconstruct_hit",
     "refresh_exclusions",
     "rolling_window_volume",
+    "run_fundamentals",
     "run_harvest",
+    "shares_asof",
     "stored_universe",
     "sweep_floors",
     "to_bars",

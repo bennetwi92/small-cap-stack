@@ -3,6 +3,7 @@
     auto     what the nightly timer runs: fill phase 1 if needed, then spend the night on 2
     daily    phase 1 — grouped-daily universe + previous closes for the window (~500 calls)
     run      phase 2 — minute bars per candidate, newest-first, until the night runs out
+    fundamentals  point-in-time share counts from SEC EDGAR (#563) — free, no vendor budget
     charts   publish reconstructed sessions to the dashboard's chart namespace (#488), no calls
     sweep    the pre-flight measurement: candidates retained at each day-volume floor
     status   what is harvested, what is left, and what the next night would do
@@ -22,6 +23,7 @@ import json
 import sys
 from collections.abc import Callable, Collection, Sequence
 from datetime import date, datetime, timedelta
+from typing import Any
 
 from ..clock import ET, now_et
 from ..config import Settings, get_settings
@@ -30,6 +32,7 @@ from ..logging import configure_logging
 from ..portfolio import collected_dates
 from ..storage import Store
 from .checkpoint import Checkpoint
+from .fundamentals import edgar_source, plan_fundamentals, run_fundamentals
 from .guard import RunWindow
 from .prefilter import candidates, sweep_floors
 from .runner import (
@@ -169,6 +172,9 @@ def cmd_status(s: Settings, args: argparse.Namespace) -> int:
                 cp.entitlement_floor.isoformat() if cp.entitlement_floor else None
             ),
             "lookback_days": s.harvest_lookback_days,
+            # Sessions whose bars are stored but whose share counts are not (#563). Read off the
+            # partitions on disk, not off the checkpoint — see harvest/fundamentals.py.
+            "fundamentals_pending": len(plan_fundamentals(store)),
             "harvested_span": [
                 cp.oldest.isoformat() if cp.oldest else None,
                 cp.newest.isoformat() if cp.newest else None,
@@ -320,6 +326,7 @@ def cmd_auto(s: Settings, args: argparse.Namespace) -> int:
         now_fn=_now,
         on_session=_session_reporter(s),
     )
+    fundamentals = _fill_fundamentals(s, store, run.completed)
     _print(
         {
             "phase": "auto",
@@ -329,9 +336,38 @@ def cmd_auto(s: Settings, args: argparse.Namespace) -> int:
             "stopped_because": run.stopped_because,
             "calls": source.calls,
             "peak_rss_mb": round(run.peak_rss_mb, 1),
+            "fundamentals": fundamentals,
         }
     )
     return 0
+
+
+def _fill_fundamentals(s: Settings, store: Store, dates: Sequence[date]) -> dict[str, Any]:
+    """Share counts for the sessions this night harvested (#563), best-effort.
+
+    Scoped to tonight's dates rather than the whole backlog: this runs *after* the night's stop
+    condition has already fired, so it must be bounded by something the night controls. A session
+    is ~30 opportunities and EDGAR memoises per symbol, so that is seconds — the backlog is what
+    ``harvest fundamentals`` is for.
+
+    Every failure is swallowed, including an unset ``HARVEST_EDGAR_USER_AGENT``, for the reason the
+    chart publish hook gives: a free enrichment must never be able to fail a night that spent real
+    vendor budget. The dates stay pending and the next run picks them up.
+    """
+    if not dates:
+        return {"dates": 0}
+    try:
+        results = run_fundamentals(edgar_source(s), store, s, dates)
+    except Exception as exc:  # noqa: BLE001 — never let enrichment fail a harvested night
+        print(f"warning: EDGAR share counts skipped: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return {"dates": 0, "error": f"{type(exc).__name__}: {exc}"}
+    done = [r for r in results if r.complete]
+    return {
+        "dates": len(done),
+        "with_shares": sum(r.resolved for r in done),
+        "without_shares": sum(r.unresolved for r in done),
+        "failed_symbols": sum(r.failed for r in results),
+    }
 
 
 def cmd_sweep(s: Settings, args: argparse.Namespace) -> int:
@@ -412,6 +448,44 @@ def cmd_charts(s: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fundamentals(s: Settings, args: argparse.Namespace) -> int:
+    """Fill point-in-time share counts for harvested sessions from SEC EDGAR (#563).
+
+    Spends no vendor budget — EDGAR is free — so it is not window-guarded like ``daily``/``run``.
+    What it does spend is a few seconds of box CPU per date and one HTTPS call per *distinct
+    symbol* (a company's whole filing history arrives in one response and is memoised for the run),
+    so the whole backlog is minutes rather than nights.
+
+    With no ``--dates`` it fills every harvested session that has none, newest-first. With
+    ``--dates`` it rebuilds exactly those, dropping the existing partition first — which is how a
+    date is refreshed after a filing is amended, or after a re-harvest changed which symbols
+    appeared.
+    """
+    store = harvest_store(s)
+    source = edgar_source(s)
+    dates = [date.fromisoformat(d) for d in args.dates] if args.dates else plan_fundamentals(store)
+    if args.limit:
+        dates = dates[: args.limit]
+    results = run_fundamentals(
+        source, store, s, dates, on_result=lambda r: print(r.line(), file=sys.stderr)
+    )
+    done = [r for r in results if r.complete]
+    _print(
+        {
+            "phase": "fundamentals",
+            "dates": len(done),
+            "abandoned": [r.trading_date.isoformat() for r in results if not r.complete],
+            "opportunities": sum(r.opportunities for r in done),
+            "with_shares": sum(r.resolved for r in done),
+            "without_shares": sum(r.unresolved for r in done),
+            "failed_symbols": sum(r.failed for r in results),
+            "calls": source.calls,
+            "remaining": len(plan_fundamentals(store)),
+        }
+    )
+    return 0
+
+
 def cmd_prefilter(s: Settings, args: argparse.Namespace) -> int:
     """The candidate list a session would fetch — the cheap way to see what a night will do."""
     store = harvest_store(s)
@@ -441,16 +515,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     p.add_argument(
         "command",
-        choices=["status", "auto", "daily", "run", "charts", "sweep", "prefilter"],
+        choices=["status", "auto", "daily", "run", "fundamentals", "charts", "sweep", "prefilter"],
     )
     p.add_argument(
         "--limit",
         type=int,
         default=0,
-        help="cap sessions (daily/run), dates (charts) or rows (sweep)",
+        help="cap sessions (daily/run), dates (charts/fundamentals) or rows (sweep)",
     )
     p.add_argument("--today", type=date.fromisoformat, help="override 'today' (testing/backdating)")
-    p.add_argument("--dates", nargs="*", help="explicit dates for sweep/charts")
+    p.add_argument("--dates", nargs="*", help="explicit dates for sweep/charts/fundamentals")
     p.add_argument(
         "--floors",
         default="100000,250000,500000,1000000,2000000",
@@ -471,6 +545,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "auto": cmd_auto,
         "daily": cmd_daily,
         "run": cmd_run,
+        "fundamentals": cmd_fundamentals,
         "charts": cmd_charts,
         "sweep": cmd_sweep,
         "prefilter": cmd_prefilter,
