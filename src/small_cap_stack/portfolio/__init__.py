@@ -92,6 +92,7 @@ from .ledgers import (
     _VpsLedger,
     _WithdrawalLedger,
 )
+from .metrics import daily_returns, sharpe, sortino, ulcer_index
 from .models import (
     CandidateTrade,
     CashFlow,
@@ -150,6 +151,7 @@ __all__ = [
     "capital_for_income",
     "collected_dates",
     "commission",
+    "daily_returns",
     "day_rate_net_annual_gbp",
     "day_samples",
     "expectancy_curve",
@@ -161,11 +163,14 @@ __all__ = [
     "portfolio_candidate_cache_dir",
     "recon_store_dir",
     "risk_ladder",
+    "sharpe",
     "simulate_exit",
     "simulate_portfolio",
     "simulate_portfolio_adaptive",
     "size_position",
+    "sortino",
     "step_risk_rung",
     "trade_costs",
+    "ulcer_index",
     "years_to_capital",
 ]

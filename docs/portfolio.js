@@ -877,6 +877,9 @@ function statTiles(book, start) {
     tile("Avg R", fmtRSigned(s.avg_r)) +
     tile("Expectancy", `${fmtPrice(s.expectancy_usd)}<span class="muted">/trade</span>`) +
     tile("Max DD", s.max_drawdown_pct == null ? "—" : "-" + (s.max_drawdown_pct * 100).toFixed(1) + "%", "pf-neg") +
+    tile("Sharpe", s.sharpe == null ? "—" : s.sharpe.toFixed(2)) +
+    tile("Sortino", s.sortino == null ? "—" : s.sortino.toFixed(2)) +
+    tile("Ulcer", s.ulcer_index == null ? "—" : s.ulcer_index.toFixed(1)) +
     costTile(s, start)
   );
 }
