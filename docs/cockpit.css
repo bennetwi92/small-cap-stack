@@ -2,10 +2,10 @@
    small-cap-stack — cockpit design system (#288)
    Dense, monospace, terminal-flavoured UI for a small window.
    Modelled on the macro-beans web/v2 cockpit, with this app's
-   twists: the 04:00–11:59 ET session window lives in the data colours,
-   R is the native colour unit (diverging ramp anchored at 0R, stop at
-   −1R), and box
-   health sits in a bottom status bar instead of a card.
+   twists: the 04:00–11:59 ET session window lives in the data
+   colours, R is the native colour unit (diverging ramp anchored at
+   0R, stop at −1R), and box health sits in a bottom status bar
+   instead of a card.
    Replaces Pico.css on converted pages.
    ============================================================ */
 
