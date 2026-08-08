@@ -5,8 +5,12 @@ from __future__ import annotations
 from datetime import date, time
 from functools import lru_cache
 from pathlib import Path
+from typing import Self
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .ibkr.mode import MODES, mode_for_port, port_description
 
 
 class Settings(BaseSettings):
@@ -32,6 +36,10 @@ class Settings(BaseSettings):
     # Left False so Phase-1 reconnect behaviour is unchanged; flipping it is a Gate 6 precondition.
     ibkr_pin_client_id: bool = False
     ibkr_connect_timeout_sec: float = 15.0  # bound the connectAsync handshake
+    # A LABEL, not a switch (#663). Its only readers are a log line and `status.json`; the socket
+    # the app actually lands on is `ibkr_port`, and what sits behind that is decided by the Gateway
+    # container's own `TRADING_MODE`. The validator at the bottom of this class is what stops the
+    # three disagreeing — before #663 the dashboard could report "paper" over a live account.
     ibkr_trading_mode: str = "paper"  # paper | live
 
     # Storage (DuckDB + Parquet — issue #7). DuckDB is opened in-memory over the Parquet globs.
@@ -651,6 +659,32 @@ class Settings(BaseSettings):
     # Rungs for the "capital needed to pay me £X/month" ladder, in GBP/month. The day-rate figure
     # is appended at render time, so this is the road up to it.
     portfolio_income_targets_gbp_per_month: tuple[float, ...] = (500.0, 1000.0, 2500.0, 5000.0)
+
+    @model_validator(mode="after")
+    def _trading_mode_agrees_with_port(self) -> Self:
+        """Refuse to start when the settings that decide paper-vs-live contradict each other (#663).
+
+        Startup is the cheapest place to catch this. `ibkr_trading_mode` gates nothing, so a
+        contradiction is otherwise invisible until a fill tells you — and the dangerous direction
+        (label says paper, socket is live) is the one that *looks* fine on the dashboard.
+
+        Only ports with a published meaning are judged (`ibkr.mode.KNOWN_PORTS`); a tunnel or a
+        non-standard socat mapping returns `None` and is left alone, because guessing would make a
+        legitimate setup unstartable. The Gateway's own `TRADING_MODE` cannot be seen from here —
+        that one is checked against the broker's account ids on connect (`ibkr.mode`).
+        """
+        if self.ibkr_trading_mode not in MODES:
+            raise ValueError(
+                f"ibkr_trading_mode must be one of {list(MODES)}, got {self.ibkr_trading_mode!r}"
+            )
+        implied = mode_for_port(self.ibkr_port)
+        if implied is not None and implied != self.ibkr_trading_mode:
+            raise ValueError(
+                f"ibkr_trading_mode={self.ibkr_trading_mode!r} contradicts "
+                f"ibkr_port={self.ibkr_port} ({port_description(self.ibkr_port)}). "
+                "Change whichever is wrong — they are not independent settings."
+            )
+        return self
 
 
 @lru_cache

@@ -43,8 +43,16 @@ services:
       # session (kicks the other login); 'secondary' yields. Set per-host in .env.
       EXISTING_SESSION_DETECTED_ACTION: ${EXISTING_SESSION_DETECTED_ACTION:-manual}
     healthcheck:
-      # Gateway is up once the API socket accepts connections.
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/4002' || exit 1"]
+      # Gateway is up once the API socket accepts connections. The port MUST follow TRADING_MODE
+      # (#663): the API binds 4002 in paper and 4001 in live, so the hardcoded 4002 this replaced
+      # could never pass in live mode — and `depends_on: service_healthy` would then have kept the
+      # app from ever starting. A live-mode blocker sitting in committed config, invisible until
+      # the day it mattered. `$$` escapes compose's own interpolation so the shell sees `$`; the
+      # probe stays `bash -c` because /dev/tcp is a bashism and sh will not honour it.
+      test:
+        - CMD-SHELL
+        - 'if [ "$${TRADING_MODE}" = "live" ]; then p=4001; else p=4002; fi;
+          bash -c "echo > /dev/tcp/127.0.0.1/$$p"'
       interval: 30s
       timeout: 5s
       retries: 20

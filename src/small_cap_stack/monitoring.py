@@ -25,6 +25,14 @@ OPPORTUNITIES = Counter("scs_opportunities_total", "Opportunities opened")
 BARS_APPENDED = Counter("scs_bars_appended_total", "5-min bars appended")
 COLD_DISCONNECTS = Counter("scs_cold_disconnects_total", "Cold (unexpected) IBKR disconnects")
 IBKR_CONNECTED = Gauge("scs_ibkr_connected", "1 if connected to IBKR else 0")
+# A gauge, not a counter (#663): a mode mismatch is a standing condition until someone fixes the
+# config, not an event to accumulate. `IBKR_TRADING_MODE` labels the mode; the connected account's
+# id is the only authoritative answer, so this is the one signal that can tell you the dashboard is
+# saying "paper" over a live account.
+TRADING_MODE_MISMATCH = Gauge(
+    "scs_trading_mode_mismatch",
+    "1 when IBKR_TRADING_MODE disagrees with the connected account's real mode",
+)
 # Tick self-reporting (#321): three PRs missed a 36s/60s tick regression because nothing measured
 # the tick. These are also surfaced in status.json every tick, so they're readable on the
 # dashboard without SSH or a Prometheus scrape.
