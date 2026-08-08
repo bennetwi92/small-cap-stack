@@ -2,9 +2,9 @@
    small-cap-stack — cockpit design system (#288)
    Dense, monospace, terminal-flavoured UI for a small window.
    Modelled on the macro-beans web/v2 cockpit, with this app's
-   twists: the 04:00–11:59 ET session window lives in the chrome
-   (gold = pre-market, cyan = the open), R is the native colour
-   unit (diverging ramp anchored at 0R, stop at −1R), and box
+   twists: the 04:00–11:59 ET session window lives in the data colours,
+   R is the native colour unit (diverging ramp anchored at 0R, stop at
+   −1R), and box
    health sits in a bottom status bar instead of a card.
    Replaces Pico.css on converted pages.
    ============================================================ */
@@ -32,15 +32,12 @@
   --row-sel:       #172e36;
   --row-sel-hover: #19373f;
 
-  /* session accent: gold pre-market, cyan from the open (js/session.js
-     stamps data-session on <html>; chrome accents follow it) */
-  --acc: var(--cyan);
+  /* chrome accent: constant (gold) */
+  --acc: var(--gold);
 
   /* chrome heights (incl. hairlines): 27 appbar + 26 optbar + 23 statusbar */
   --chrome-v: 76px;
 }
-:root[data-session="pre"]{ --acc: var(--gold); }
-:root[data-session="open"]{ --acc: var(--cyan); }
 
 /* ---------- reset ---------- */
 *{ box-sizing:border-box; }
@@ -88,7 +85,6 @@ button{ font-family:var(--mono); }
 }
 .appbar-logo .w1{ color:var(--ink); }
 .appbar-logo .w2{ color:var(--dim); }
-/* the wordmark dot is a live session light: gold pre-market, cyan after the open */
 .appbar-logo .dot{ width:7px; height:7px; background:var(--acc); display:inline-block; }
 .appbar-logo:hover{ text-decoration:none; }
 .appbar-logo:hover .w2{ color:var(--ink); }
@@ -1302,8 +1298,7 @@ body.review{
    or from issue state; no panel here holds prose. On a desktop the grid is
    pinned to the viewport and never scrolls; the columns own their overflow.
    Below 1000px it becomes one stacked column and the body scrolls like a
-   normal page. The session accent runs through it: the live phase, the ring
-   and the heatmap all wear gold pre-market and cyan from the open. */
+   normal page. */
 .plan{
   display:grid;
   grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.1fr);

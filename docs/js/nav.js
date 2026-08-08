@@ -1,9 +1,7 @@
 // Shared top application bar (#288), macOS-menu-bar style: wordmark left, every
-// page listed horizontally, active page in the session accent. One source of
+// page listed horizontally, active page in the chrome accent. One source of
 // truth for the page list; each page mounts <header id="appbar" class="appbar">
 // and imports this module.
-
-import "./session.js"; // the wordmark dot + active link follow the session accent
 
 export const PAGES = [
   { label: "Dashboard", file: "index.html" },

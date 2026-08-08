@@ -793,3 +793,19 @@ def test_the_provenance_chip_has_exactly_one_renderer() -> None:
         "Date tile lost its tooltip:\n  " + "\n  ".join(offenders)
     )
     assert "reconChip" in (_exports(_js_sources()[FMT]) or set())
+
+
+def test_chrome_accent_is_constant() -> None:
+    """The chrome accent (`--acc`) used to flip gold/cyan at the 09:30 ET open, driven by
+    `data-session` stamped on `<html>` by `js/session.js` on a 10-second timer. It changed with
+    nothing on the page explaining it, so it read as a glitch rather than a signal (#683) — the
+    trader asked for a constant accent instead. Removed on request; not a decision that needs a
+    `D-nn` entry."""
+    css = (DOCS / "cockpit.css").read_text()
+    assert re.search(r"--acc:\s*var\(--gold\);", css), (
+        "the chrome accent must be a constant gold — `--acc: var(--gold);` in the base :root block"
+    )
+    assert "[data-session" not in css, (
+        "the session-driven accent swap was removed on request (#683) — no `[data-session…]` "
+        "selector should style the chrome again"
+    )
