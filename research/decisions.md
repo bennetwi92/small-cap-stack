@@ -62,6 +62,7 @@ down is reading forward in time within a topic.
 | [D-38](#d-38--the-adaptive-r-target-optimiser-is-retired-2026-08-08-644) | 2026-08-08 | The adaptive R-target optimiser is retired | #644 | LIVE — the layer is disabled by grid width, not deleted; re-enabling is one field |
 | [D-39](#d-39--the-selection-price-floor-rises-to-3-2026-08-08-643) | 2026-08-08 | The selection price floor rises to $3 | #643 | LIVE — completes the shrink D-37 said it intended; the cap is deliberately untouched |
 | [D-40](#d-40--a-minimum-stop-distance-of-25-2026-08-08-584) | 2026-08-08 | A minimum stop distance of 2.5% | #584 | LIVE — a selection rule in the engine, deliberately not a shape gate |
+| [D-41](#d-41--reconstructed-days-get-shares-outstanding-from-edgar-not-float-from-a-vendor-2026-08-08-563) | 2026-08-08 | Reconstructed days get shares outstanding from EDGAR, not float from a vendor | #563 | LIVE |
 
 <!-- END DECISION INDEX -->
 
@@ -1606,3 +1607,62 @@ win, +19.21R, $908.97, 18.8% max DD** — recon +10.59R and live +8.62R.
 **⚠️ The same caveats as D-39 apply and are not repeated in full:** a selection-bias null over the
 price × stop grid gives P = 0.018, walk-forward is thinner (+2.56R over 32 trades), and the
 **absolute** edge remains indistinguishable from zero. Only the improvement is significant.
+
+## D-41 — Reconstructed days get shares outstanding from EDGAR, not float from a vendor (2026-08-08, #563)
+
+**Status:** LIVE
+
+**Decision: fill the recon store's missing fundamentals from SEC EDGAR's cover-page share count,
+selected on the *filing* date, and keep it out of `float_shares`.**
+
+The harvest (§D-31) rebuilds a session's price history and nothing else, because the bar vendor
+sells no share data — so every `recon` trade in `books_all` has carried `float_shares: None` since
+it landed. #563 proposed FMP's `api/v4/historical/shares_float` as the fix. **That endpoint is
+closed to us**: probed 2026-08-08, it answers 403 — *"only available for legacy users who have
+valid subscriptions prior August 31, 2025"*. Not a plan tier more money fixes; the account is on the
+wrong side of a cutoff. The live `stable/shares-float` endpoint still answers, with **one row
+stamped now** — which is the "current float written backwards" the issue exists to prevent.
+
+**EDGAR needs no API key.** `data.sec.gov/api/xbrl/companyconcept/CIK…/dei/
+EntityCommonStockSharesOutstanding` is free and goes back years (CLSK: 61 observations, 2011→2026).
+What it needs is a `User-Agent` identifying the caller — SEC's fair-access policy — and a missing
+one is a 403 on every request. So `harvest_edgar_user_agent` has no default and the pass refuses to
+start without it: it is the only failure mode here that cannot be mistaken for an outage.
+
+**The rule that makes it point-in-time: filter on `filed`, not `end`.** Every observation carries
+both. `end` is the cover date the count describes (2026-08-04); `filed` is when it became public
+(2026-08-06). Selecting on `end` looks right and reads two days into the future — the same
+lookahead the selection rules are held to, applied to enrichment. Then the newest `end` wins, with
+`filed` breaking ties, so a `10-Q/A` restating an older period cannot displace a more recent count.
+
+**It writes `shares_outstanding` and leaves `float_shares` null, deliberately.** EDGAR states shares
+outstanding, which is a ceiling on free float, not free float. Copying it across would put a number
+no filing ever gave into the very column the live tracker fills from a real float source, where
+nothing afterwards could tell the two apart — and this repo has already paid for two reports that
+went on asserting a float gate which had never run (#551). **So this lands the data and changes
+nothing visible.** Surfacing "shares outstanding, as of \<filed\>" is a read-path change and is
+deliberately not part of it; #563's own scope says no read-path change.
+
+**Why this matters at all is the dilution case.** CLSK went 37,076,779 shares (2011) to 256,817,073
+(2026) — 7×. On a population of serially-diluting small caps, today's count stamped onto a 2024
+session is not a rounding error, and that population is what the recon book is full of.
+
+**Shape: a separate pass, resumable off the disk.** It is not a step inside a harvest session
+because the two are priced nothing alike — a session is ~217 vendor calls at a 13-second fixed
+sleep, while EDGAR is free and returns a company's *entire* history in one response, so a full
+backfill costs about one call per distinct **symbol**. It also means dates harvested before this
+existed can be filled in. There is no second checkpoint: a date is done when its `fundamentals`
+partition exists, and because that dataset is in `HARVEST_DATASETS`, re-harvesting a date's bars
+drops its share counts and the next pass rebuilds them against the new opportunity list.
+
+**A row is written for every opportunity, including the misses.** An absent row is indistinguishable
+from an unharvested date, so writing only the hits would re-ask about every un-findable name
+forever. That is only safe because a *transport* failure never takes that path: it is counted, and
+enough of them abandon the date whole (`runner.abandon_reason`, shared with the minute-bar pass) —
+otherwise one rejected `User-Agent` would pin a permanent null on every symbol of every date it
+touched.
+
+**Rejected: Polygon's `/v3/reference/tickers/{ticker}?date=`.** Genuinely point-in-time and the
+transport already exists — but it spends the *scarce* budget, the one that prices the whole harvest
+at ~45 nights, to buy the same shares-outstanding number EDGAR gives away. It stays the fallback for
+the thin tail SEC's ~10.4k-ticker map does not list.
