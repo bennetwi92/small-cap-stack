@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     # connect attempts so a reconnect sidesteps a still-held id (Phase-1 places no orders, so the id
     # need not be stable). Steady state uses ibkr_client_id; only a stuck id bumps up (#163-C2).
     ibkr_client_id_pool: int = 4
+    # ⚠️ **Must be True before the first order is placed (#677).** `connect()` rotates the client
+    # id after an unclean disconnect to sidestep error 326 (id still held), which is free while the
+    # app places no orders. IB scopes order events and cancellation rights to the **placing** client
+    # id, so rotating while an order is working orphans it: the app stops receiving `orderStatus`
+    # for its own stop and cannot cancel or modify it, and in a reconnect storm can place a
+    # replacement on top of an order it cannot pull — two live sells against one long.
+    # Left False so Phase-1 reconnect behaviour is unchanged; flipping it is a Gate 6 precondition.
+    ibkr_pin_client_id: bool = False
     ibkr_connect_timeout_sec: float = 15.0  # bound the connectAsync handshake
     ibkr_trading_mode: str = "paper"  # paper | live
 

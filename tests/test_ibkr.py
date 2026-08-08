@@ -291,3 +291,143 @@ def test_expected_restart_does_not_alert() -> None:
         assert cold == 0  # but no cold alert
 
     asyncio.run(scenario())
+
+
+# --- #677: the reconnect path must be able to recover state, feeds and its own orders ------------
+
+
+def test_resync_keeps_broker_state_instead_of_counting_it() -> None:
+    """The defect: `resync` fetched orders/positions and logged only `len()` of each.
+
+    That is a log line, not a reconciliation. After a crash between placing an order and persisting
+    it locally, the app has no record, re-derives the same setup (the engine is compute-on-read) and
+    places a SECOND entry. Keeping the state is what lets an OMS adopt instead of re-deriving.
+    """
+
+    class _Order:
+        def __init__(self, ref: str) -> None:
+            self.order = type("O", (), {"orderRef": ref})()
+
+    async def scenario() -> None:
+        t = IBKRTransport(_settings())
+        t._client_id = 7
+
+        async def fake_orders() -> list[object]:
+            return [_Order("2026-08-08:CANF|entry"), _Order("2026-08-08:CANF|stop")]
+
+        async def fake_positions() -> list[object]:
+            return ["POS"]
+
+        t.ib.reqAllOpenOrdersAsync = fake_orders  # type: ignore[method-assign]
+        t.ib.reqPositionsAsync = fake_positions  # type: ignore[method-assign]
+        await t.resync()
+
+        assert len(t.broker_state.open_orders) == 2
+        assert t.broker_state.positions == ("POS",)
+        assert t.broker_state.synced_at_client_id == 7
+        # Adoption is by BROKER-side identity — a local dict does not survive the crash.
+        assert t.broker_state.order_refs == (
+            "2026-08-08:CANF|entry",
+            "2026-08-08:CANF|stop",
+        )
+
+    asyncio.run(scenario())
+
+
+def test_resync_replays_registered_subscriptions() -> None:
+    """A reconnect that silently drops a position's feed is the worst failure in the path.
+
+    `is_connected()` stays true, no prices arrive, and an app-side stop can never fire — which looks
+    exactly like a quiet tape. Nothing registers today, so this pins the seam before Gate 5.
+    """
+
+    async def scenario() -> None:
+        t = IBKRTransport(_settings())
+        replayed: list[str] = []
+
+        async def fake_orders() -> list[object]:
+            return []
+
+        async def fake_positions() -> list[object]:
+            return []
+
+        t.ib.reqAllOpenOrdersAsync = fake_orders  # type: ignore[method-assign]
+        t.ib.reqPositionsAsync = fake_positions  # type: ignore[method-assign]
+
+        async def sub_a() -> None:
+            replayed.append("a")
+
+        async def boom() -> None:
+            raise RuntimeError("stream gone")
+
+        async def sub_c() -> None:
+            replayed.append("c")
+
+        t.register_subscription("a", sub_a)
+        t.register_subscription("b", boom)
+        t.register_subscription("c", sub_c)
+        await t.resync()
+        # One dead stream must not block the others — restoring 2 of 3 beats restoring none.
+        assert replayed == ["a", "c"]
+
+        t.unregister_subscription("b")
+        replayed.clear()
+        await t.resync()
+        assert replayed == ["a", "c"]
+
+    asyncio.run(scenario())
+
+
+def test_registering_the_same_subscription_twice_does_not_duplicate_it() -> None:
+    async def scenario() -> None:
+        t = IBKRTransport(_settings())
+        calls: list[int] = []
+
+        async def fake_empty() -> list[object]:
+            return []
+
+        t.ib.reqAllOpenOrdersAsync = fake_empty  # type: ignore[method-assign]
+        t.ib.reqPositionsAsync = fake_empty  # type: ignore[method-assign]
+
+        async def first() -> None:
+            calls.append(1)
+
+        async def second() -> None:
+            calls.append(2)
+
+        t.register_subscription("SPY", first)
+        t.register_subscription("SPY", second)  # re-arming the same stream replaces it
+        await t.resync()
+        assert calls == [2]
+
+    asyncio.run(scenario())
+
+
+def test_pinned_client_id_never_rotates() -> None:
+    """IB scopes order events and cancellation rights to the PLACING client id.
+
+    Rotating while an order is working orphans it: no `orderStatus` for our own stop, and no way to
+    cancel it. Rotation is only safe while the app places no orders, which is why the pin ships off
+    and must be flipped before Gate 6.
+    """
+
+    async def scenario() -> None:
+        s = _settings(ibkr_client_id=1, ibkr_client_id_pool=4, ibkr_pin_client_id=True)
+        t = IBKRTransport(s)
+        used: list[int] = []
+
+        async def fake_connect(host: str, port: int, *, clientId: int, timeout: float) -> None:
+            used.append(clientId)
+
+        t.ib.connectAsync = fake_connect  # type: ignore[method-assign]
+        await t.connect()
+        await t.connect()
+        await t.connect()
+        assert used == [1, 1, 1]  # never rotates, however many unclean disconnects
+
+    asyncio.run(scenario())
+
+
+def test_the_client_id_pin_ships_off_so_phase_1_reconnects_are_unchanged() -> None:
+    """It is a Gate 6 precondition, not a Phase-1 change: rotation still sidesteps error 326."""
+    assert _settings().ibkr_pin_client_id is False

@@ -216,7 +216,22 @@ class Application:
         # alive", so a wedged or persistently-failing tick kept pinging happily through the exact
         # failures this switch exists to catch. Pinging on completion makes Healthchecks alert when
         # ticks hang or keep raising.
-        await self.heartbeat.ping()
+        #
+        # A dead FEED inside the session is also a failure (#677). Error 1100 leaves the API socket
+        # open, so `is_connected()` goes false and the scan is skipped — but the tick itself
+        # completes, and pinging on a completed tick told Healthchecks everything was fine while the
+        # app saw no prices at all. That is survivable in Phase 1 (a gap in the record) and is not
+        # in Phase 2: an app-side stop cannot fire on a feed that is not delivering, and the failure
+        # looks exactly like a quiet tape.
+        #
+        # Scoped to the scan window on a trading day on purpose. The Gateway restarts daily at
+        # 23:45 ET and 1100s around it are expected; failing the switch for those would train the
+        # alert to be ignored, which is how a real outage gets missed.
+        if trading and in_window and not connected:
+            log.warning("tick.feed_down_in_session")
+            await self.heartbeat.fail()
+        else:
+            await self.heartbeat.ping()
 
     def _refresh_stats_charts(self, now: datetime) -> None:
         """Catch-up refresh of the EOD stats/charts on the tick (best-effort).
