@@ -297,6 +297,77 @@ def test_heartbeat_pings_on_completion_not_start(
     assert pings == [True]  # a completed tick pings
 
 
+def test_a_dead_feed_inside_the_session_fails_the_heartbeat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#677. Error 1100 leaves the API socket open, so `is_connected()` goes false and the scan is
+    skipped — but the tick itself completes, and pinging a completed tick told Healthchecks all was
+    well while the app was seeing no prices at all.
+
+    Survivable in Phase 1 (a gap in the record); not in Phase 2, where an app-side stop cannot fire
+    on a feed that is not delivering — and the failure looks exactly like a quiet tape.
+    """
+    monkeypatch.setattr(appmod, "now_et", lambda: datetime(2026, 7, 2, 10, 0, tzinfo=ET))
+    app = Application(_settings(data_dir=tmp_path, dashboard_enabled=False))
+    monkeypatch.setattr(app.transport, "is_connected", lambda: False)  # 1100: farm down
+    calls: list[str] = []
+
+    async def fake_ping() -> None:
+        calls.append("ping")
+
+    async def fake_fail() -> None:
+        calls.append("fail")
+
+    monkeypatch.setattr(app.heartbeat, "ping", fake_ping)
+    monkeypatch.setattr(app.heartbeat, "fail", fake_fail)
+    asyncio.run(app._on_tick())
+    assert calls == ["fail"]
+
+
+def test_a_dead_feed_outside_the_session_still_pings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scoped deliberately. The Gateway restarts daily at 23:45 ET and 1100s around it are expected;
+    failing the switch for those would train the alert to be ignored, which is how a real outage
+    gets missed. 20:00 ET on a trading day is outside the scan window."""
+    monkeypatch.setattr(appmod, "now_et", lambda: datetime(2026, 7, 2, 20, 0, tzinfo=ET))
+    app = Application(_settings(data_dir=tmp_path, dashboard_enabled=False))
+    monkeypatch.setattr(app.transport, "is_connected", lambda: False)
+    calls: list[str] = []
+
+    async def fake_ping() -> None:
+        calls.append("ping")
+
+    async def fake_fail() -> None:
+        calls.append("fail")
+
+    monkeypatch.setattr(app.heartbeat, "ping", fake_ping)
+    monkeypatch.setattr(app.heartbeat, "fail", fake_fail)
+    asyncio.run(app._on_tick())
+    assert calls == ["ping"]
+
+
+def test_a_dead_feed_on_a_non_trading_day_still_pings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Saturday inside the window — there is no session to miss, so a dead feed is not a failure."""
+    monkeypatch.setattr(appmod, "now_et", lambda: datetime(2026, 7, 4, 10, 0, tzinfo=ET))
+    app = Application(_settings(data_dir=tmp_path, dashboard_enabled=False))
+    monkeypatch.setattr(app.transport, "is_connected", lambda: False)
+    calls: list[str] = []
+
+    async def fake_ping() -> None:
+        calls.append("ping")
+
+    async def fake_fail() -> None:
+        calls.append("fail")
+
+    monkeypatch.setattr(app.heartbeat, "ping", fake_ping)
+    monkeypatch.setattr(app.heartbeat, "fail", fake_fail)
+    asyncio.run(app._on_tick())
+    assert calls == ["ping"]
+
+
 def test_the_morning_refresh_does_not_force_re_extract_today(monkeypatch: Any) -> None:
     """At 03:15 ET "today" has no bars, so the EOD's force-re-extract-today would re-extract an
     empty day. The EOD keeps it (its bars have just landed); the morning rebuild must not.
