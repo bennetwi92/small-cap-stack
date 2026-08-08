@@ -63,6 +63,7 @@ down is reading forward in time within a topic.
 | [D-39](#d-39--the-selection-price-floor-rises-to-3-2026-08-08-643) | 2026-08-08 | The selection price floor rises to $3 | #643 | LIVE — completes the shrink D-37 said it intended; the cap is deliberately untouched |
 | [D-40](#d-40--a-minimum-stop-distance-of-25-2026-08-08-584) | 2026-08-08 | A minimum stop distance of 2.5% | #584 | LIVE — a selection rule in the engine, deliberately not a shape gate |
 | [D-41](#d-41--reconstructed-days-get-shares-outstanding-from-edgar-not-float-from-a-vendor-2026-08-08-563) | 2026-08-08 | Reconstructed days get shares outstanding from EDGAR, not float from a vendor | #563 | LIVE |
+| [D-42](#d-42--prefix-stability-measured-the-live-detector-is-causal-2026-08-08-675) | 2026-08-08 | Prefix stability measured: the live detector is causal | #675 | LIVE — retires the roadmap's "sleeper" risk for the algorithm; the input question stands |
 
 <!-- END DECISION INDEX -->
 
@@ -1666,3 +1667,63 @@ touched.
 transport already exists — but it spends the *scarce* budget, the one that prices the whole harvest
 at ~45 nights, to buy the same shares-outstanding number EDGAR gives away. It stays the fallback for
 the thin tail SEC's ~10.4k-ticker map does not list.
+
+## D-42 — Prefix stability measured: the live detector is causal (2026-08-08, #675)
+
+**Status:** LIVE — retires the roadmap's "sleeper" risk for the algorithm; the input question stands
+
+`research/phase-2-roadmap.md` §"The three things that will actually bite" listed prefix stability
+second, and it is why Gate 5 (#312) detects **log-only** and precedes any order code: if the v2
+detector re-segmented as a day's bars accumulated, live and replay would disagree and **the paper
+book would silently stop being a predictor of the live one**.
+
+**Measured, and it does not.** Over 81 sessions — 51 recon (2026-04-17→06-30) and 30 live
+(2026-07-01→08-07), under the settings shipped the same day (D-38/D-39/D-40):
+
+| store | runs | fired at some prefix | first fire == full day | churned |
+|---|---|---|---|---|
+| recon | 1,220 | 909 | **909 (100%)** | **0** |
+| live | 1,454 | 1,109 | **1,109 (100%)** | **0** |
+| **total** | **2,674** | **2,018** | **2,018 (100%)** | **0** |
+
+Compared exactly — no tolerance — on `entry_trigger`, `entry_fill`, `stop`, the trigger bar's
+timestamp, the three segment indices, `passed`, `takeable`, `exhausted` and `score`. Prices are
+`round(x, 4)` off bar highs/lows, so there is no float drift a tolerance would need to absorb.
+
+Harder variant, using the recon store's `bars_1m` to synthesise in-progress 5-minute bars and fire
+on the earliest form that triggers: **762 of 909 fires (84%) occur on a bar that has not finished
+forming, and all 909 still match the full-day answer exactly.**
+
+**Why it holds — structural, not luck.** `bullflag/day.py`'s candidate loop takes the **earliest**
+cycle with a valid trigger and breaks; it does not search for the longest. `entry_trigger` /
+`entry_fill` derive from `bars[cons_end].high` and `stop` from the consolidation lows — closed bars
+strictly before the trigger — and the gates, the score, exhaustion and both selection rules read
+only bars ≤ trigger. The only full-day-dependent outputs are `total_significant_cycles` (context,
+gates nothing) and `bar_interval`'s modal spacing.
+
+The roadmap's "longest valid segmentation" phrasing described `segment_at_end`, the end-anchored
+segmenter. The **live** path is the greedy cycle walk. The concern was a correct reading of the
+documentation and not of the code — which is exactly why it was worth measuring rather than
+arguing about.
+
+**⚠️ This clears the algorithm, NOT the inputs.** Both arms use the *same bars, truncated*. Live bar
+formation and revision, missing or late bars, feed restarts, and run/`first_hit` segmentation from
+live scanner hits are all untested by it. **Gate 5's question therefore becomes "are the live bars
+the same bars", not "is the detector prefix-stable"** — which wants an input fingerprint (a hash of
+the bar series) carried with each live detection, so any disagreement is attributable to the data
+rather than the logic.
+
+**Gate 5 stays log-only and still precedes order code.** The reason changed; the sequence did not.
+
+Two design consequences for that gate, recorded here because they change what it measures:
+
+- Diff the **fired** population (~37/session), not the takeable one (~0.63/session). A defect
+  affecting 10% of setups shows ~3.7 times in the first session on the former and takes ~11 sessions
+  to appear once on the latter.
+- Key the diff on `(trading_date, opportunity_id, run_index)` and **never on `seg_id`**.
+  `report.py:321` makes `seg_id` = `oid` for a single-run opportunity and `oid#1` once a second run
+  appears, so the same event is keyed differently at 08:35 and at 16:00 — and **31.6% of runs sit
+  in multi-run opportunities**, so a `seg_id`-keyed diff would report ~30% spurious mismatches.
+
+The harness (`spikes/prefix_stability.py`) is kept **live rather than retired**: a future change to
+`bullflag/day.py` must re-prove this rather than inherit it. ~35 s per store, read-only.

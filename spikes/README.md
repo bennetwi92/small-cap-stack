@@ -34,6 +34,7 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`harvest_premarket.py`](#the-harvest-validation-harnesses) | #431 | The same comparison restricted to the pre-market population — the only one that means anything |
 | [`harvest_bookgap.py`](#the-harvest-validation-harnesses) | #431 | Which selection rule stops a well-formed setup becoming takeable |
 | [`window_0400.py`](#window_0400py) | #569 | Replay the book under the 05:30 vs 04:00 selection floor |
+| [`prefix_stability.py`](#prefix_stabilitypy) | #675 / #312 | Does the detector's answer change as the day's bars accumulate? (Gate 5's "sleeper") |
 
 ### `viz_engine.py`
 
@@ -457,6 +458,45 @@ Replays the virtual book under the 05:30 and 04:00 selection floors and prints b
 harness behind `decisions.md` §D-36: 14 trades / +9.62R at 05:30 against 18 / +4.93R at 04:00, the
 four unlocked trades all stopping out. Kept because the decision is explicitly revisitable once the
 reconstructed history makes the window measurable rather than watchable.
+
+### `prefix_stability.py`
+
+**Q:** `research/phase-2-roadmap.md` calls this **"the sleeper"** and makes it the reason Gate 5
+(#312) is log-only and precedes any order code — the v2 detector segments the *longest valid*
+pole+consolidation over a day's bars, so run live against a **growing prefix**, might the
+segmentation it picks at 08:35 differ from the one it picks at 16:00? If so, live and replay
+disagreeing would silently invalidate the paper book as a predictor of the live one.
+
+**A: no. 2,018 / 2,018 fired runs match the full-day answer exactly, with zero churn at any
+intermediate prefix.** Measured 2026-08-08 over 81 sessions (51 recon 2026-04-17→06-30 + 30 live
+2026-07-01→08-07) under post-#643/#584/#644 settings:
+
+| store | runs | fired | first fire == full day | churned |
+|---|---|---|---|---|
+| recon | 1,220 | 909 | **909** | 0 |
+| live | 1,454 | 1,109 | **1,109** | 0 |
+| `--minute` (recon) | 1,220 | 909 (762 on a *partial* bar) | **909** | 0 |
+
+Compared on `entry_trigger`, `entry_fill`, `stop`, the trigger bar's timestamp, the three segment
+indices, `passed`, `takeable`, `exhausted` and `score` — exact match, no tolerance.
+
+**Why it holds — structural, not luck.** `bullflag/day.py`'s candidate loop takes the *earliest*
+cycle with a valid trigger and breaks; `entry_trigger`/`entry_fill` come from `bars[cons_end].high`
+and `stop` from the consolidation lows, all closed bars strictly before the trigger; gates, score,
+exhaustion and both selection rules read only bars ≤ trigger. **The chosen setup is causal.**
+
+⚠️ **What it does NOT clear.** Both arms use the *same bars, truncated*. This clears the
+**algorithm** and says nothing about the **inputs** — live bar formation and revision, missing or
+late bars, feed restarts, or run/`first_hit` segmentation from live scanner hits. Gate 5's question
+is therefore **"are the live bars the same bars"**, not "is the detector prefix-stable".
+
+Kept live (not retired) so a future detector change has to re-prove this rather than inherit it.
+
+```bash
+python spikes/prefix_stability.py --store data/recon
+python spikes/prefix_stability.py --store data/live
+python spikes/prefix_stability.py --store data/recon --minute   # in-progress bars, needs bars_1m
+```
 
 ## Answered
 
