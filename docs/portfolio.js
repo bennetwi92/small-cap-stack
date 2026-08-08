@@ -834,8 +834,9 @@ function renderProjection(book) {
     pj.growth_implausible
       ? `Greyed out: the capital column divides by a median growth of ${fmtGrowth(pj.growth.p50)}, ` +
           `which ${pj.sample.trading_days} trading days can't support.`
-      : `Steady state: capital held flat, after CGT and running costs. Built from ` +
-          `${pj.sample.trading_days} trading days / ${pj.sample.trades} trades.`
+      : `Steady state: capital held flat, after CGT and running costs. Capital divides by a median ` +
+          `growth of ${fmtGrowth(pj.growth.p50)}, from ${pj.sample.trading_days} trading days / ` +
+          `${pj.sample.trades} trades.`
   );
 }
 
