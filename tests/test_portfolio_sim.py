@@ -314,6 +314,97 @@ def test_portfolio_no_skips_when_under_the_cap() -> None:
     assert res.skipped == () and res.skipped_total_r == 0.0
 
 
+# --- --- daily loss limit (#650, ships disabled) --------------------------------------
+
+
+def test_daily_loss_limit_is_off_by_default() -> None:
+    s = _s()
+    assert s.portfolio_daily_loss_limit_r == 0.0
+    loss = [_bar(10, 10.3, 8.8, 9.0)]  # stops at -1R
+    win = [_bar(10, 12.5, 9.95, 12.3)]  # +2R
+    cands = [_cand("AAA", 5, 10.0, 9.0, loss), _cand("BBB", 10, 10.0, 9.0, win)]
+    trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0)
+    assert {t.symbol for t in trades} == {"AAA", "BBB"}  # a loser never stops the (disabled) day
+    assert skipped == []
+
+
+def test_daily_loss_limit_stops_the_day_after_a_resolved_loss() -> None:
+    s = _s(portfolio_daily_loss_limit_r=1.0, portfolio_exit_slippage_ticks=0)
+    loss = [
+        _bar(10, 10.3, 9.9, 10.1, minute=0),
+        _bar(10.1, 10.2, 8.8, 9.0, minute=5),  # breaks the 9.0 stop on bar 2 -> exit_index 1
+    ]
+    win = [_bar(10, 12.5, 9.95, 12.3, minute=20)]
+    first = _cand("AAA", 5, 10.0, 9.0, loss)  # triggers 08:05
+    # AAA's exit bar starts 08:05 + a 5-min bar_interval -> exit_end 08:10, strictly before BBB.
+    second = _cand("BBB", 15, 10.0, 9.0, win)  # triggers 08:15
+    trades, skipped = _take_day([first, second], 500.0, s, 2.0, 0.0)
+    assert [t.symbol for t in trades] == ["AAA"]
+    assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [("BBB", "day_stopped")]
+
+
+def test_daily_loss_limit_ignores_a_trade_still_open_at_the_next_trigger() -> None:
+    # The no-lookahead case: same -1R AAA, but BBB triggers at 08:08 -- BEFORE AAA's 08:10 exit --
+    # so AAA's loss is not yet knowable and must not count against BBB.
+    s = _s(portfolio_daily_loss_limit_r=1.0, portfolio_exit_slippage_ticks=0)
+    loss = [
+        _bar(10, 10.3, 9.9, 10.1, minute=0),
+        _bar(10.1, 10.2, 8.8, 9.0, minute=5),  # exit_index 1 -> exit_end 08:10
+    ]
+    win = [_bar(10, 12.5, 9.95, 12.3, minute=8)]
+    first = _cand("AAA", 5, 10.0, 9.0, loss)  # triggers 08:05
+    second = _cand("BBB", 8, 10.0, 9.0, win)  # triggers 08:08, still concurrent with AAA
+    trades, skipped = _take_day([first, second], 500.0, s, 2.0, 0.0)
+    assert {t.symbol for t in trades} == {"AAA", "BBB"}
+    assert skipped == []
+
+
+def test_daily_loss_limit_leaves_the_taken_plus_skipped_invariant_intact() -> None:
+    # 3 candidates, cap raised to 3 so the cap isn't what stops the later two -- the day-loss rule
+    # is. len(trades) + len(skipped) == len(cands) must hold with the new fifth door in play.
+    s = _s(
+        portfolio_daily_loss_limit_r=1.0,
+        portfolio_exit_slippage_ticks=0,
+        portfolio_max_trades_per_day=3,
+    )
+    loss = [
+        _bar(10, 10.3, 9.9, 10.1, minute=0),
+        _bar(10.1, 10.2, 8.8, 9.0, minute=5),  # exit_end 08:10
+    ]
+    win = [_bar(10, 12.5, 9.95, 12.3, minute=20)]
+    cands = [
+        _cand("AAA", 5, 10.0, 9.0, loss),  # -1R, resolves 08:10
+        _cand("BBB", 15, 10.0, 9.0, win),  # triggers 08:15, after AAA resolved -> stopped
+        _cand("CCC", 20, 10.0, 9.0, win),  # triggers 08:20, still stopped
+    ]
+    trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0)
+    assert len(trades) + len(skipped) == len(cands)
+    assert [t.symbol for t in trades] == ["AAA"]
+    assert {sk.skip_reason for sk in skipped} == {"day_stopped"}
+
+
+def test_day_stopped_skips_do_not_count_toward_skipped_total_r() -> None:
+    s = _s(portfolio_daily_loss_limit_r=1.0, portfolio_exit_slippage_ticks=0)
+    loss = [
+        _bar(10, 10.3, 9.9, 10.1, minute=0),
+        _bar(10.1, 10.2, 8.8, 9.0, minute=5),  # exit_end 08:10
+    ]
+    win = [_bar(10, 12.5, 9.95, 12.3, minute=20)]
+    cands = [_cand("AAA", 5, 10.0, 9.0, loss), _cand("BBB", 15, 10.0, 9.0, win)]
+    res = simulate_portfolio([(date(2026, 7, 14), cands)], s, target_r=2.0)
+    assert [sk.skip_reason for sk in res.skipped] == ["day_stopped"]
+    assert res.skipped_total_r == 0.0  # skipped_total_r stays cap-only
+
+
+def test_a_winning_first_trade_does_not_stop_the_day() -> None:
+    s = _s(portfolio_daily_loss_limit_r=1.0, portfolio_exit_slippage_ticks=0)
+    win = [_bar(10, 12.5, 9.95, 12.3, minute=0)]
+    cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 15, 10.0, 9.0, win)]
+    trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0)
+    assert {t.symbol for t in trades} == {"AAA", "BBB"}
+    assert skipped == []
+
+
 def test_portfolio_both_trades_size_off_opening_equity() -> None:
     # $500 open. Entry 10 / stop 9 -> risk/sh $1 -> 5% risk floor(25/1)=25; 50% cap floor(250/10)=25
     # (they coincide here) -> 25 shares each, regardless of the first trade's outcome.
