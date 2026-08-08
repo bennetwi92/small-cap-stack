@@ -35,7 +35,9 @@ from ib_async import IB
 
 from ..config import Settings
 from ..logging import get_logger
+from ..monitoring import TRADING_MODE_MISMATCH
 from .errors import ConnAction, classify_connection_error
+from .mode import account_mismatch
 
 log = get_logger(__name__)
 
@@ -155,6 +157,7 @@ class IBKRTransport:
         # assumes the data farm is up until a 1100 says otherwise.
         self._connect_attempt = 0
         self._data_farm_ok = True
+        self._check_trading_mode()
         orders = await self.ib.reqAllOpenOrdersAsync()
         positions = await self.ib.reqPositionsAsync()
         # KEEP it (#677). Logging len() and dropping the rest is what made this a log line rather
@@ -181,6 +184,23 @@ class IBKRTransport:
                 log.warning("ibkr.resubscribe_failed", subscription=key, exc_info=True)
             else:
                 log.info("ibkr.resubscribed", subscription=key)
+
+    def _check_trading_mode(self) -> None:
+        """Compare the declared mode against the broker's own answer (#663).
+
+        The account ids are the only authoritative source: the settings validator can see
+        `IBKR_PORT` but not the Gateway container's `TRADING_MODE`, so the right port pointed at a
+        Gateway logged into the other mode passes startup and lands here.
+
+        Logged, deliberately not raised. `ConnectionSupervisor` retries `on_connect` failures
+        forever with backoff, so raising would turn a permanent misconfiguration into an unbounded
+        warning loop and take the tracker offline with it. The gauge is the durable signal; once
+        there is something to disarm (#674), a mismatch should refuse to arm.
+        """
+        detail = account_mismatch(self._s.ibkr_trading_mode, list(self.ib.managedAccounts()))
+        TRADING_MODE_MISMATCH.set(1.0 if detail else 0.0)
+        if detail:
+            log.critical("ibkr.trading_mode_mismatch", detail=detail)
 
     # --- event handlers -----------------------------------------------------------------
 

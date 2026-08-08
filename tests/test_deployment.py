@@ -25,6 +25,48 @@ def test_dockerfile_runs_the_module() -> None:
     assert "small_cap_stack" in df
 
 
+def test_gateway_healthcheck_follows_the_trading_mode() -> None:
+    """The probed port must track TRADING_MODE, not be hardcoded (#663).
+
+    The API binds 4002 in paper and 4001 in live. A hardcoded 4002 can never pass in live mode,
+    and `depends_on: {ibgateway: {condition: service_healthy}}` would then stop the app starting
+    at all — a live-mode blocker sitting in committed config, invisible until the day it matters.
+    """
+    # Parsed from the raw text rather than with PyYAML, which is not a dependency of this project
+    # and is not worth becoming one to read four lines. There is exactly one healthcheck in the
+    # compose file (the app's lives in the Dockerfile), so the split is unambiguous.
+    c = (ROOT / "docker-compose.yml").read_text()
+    block = c.split("healthcheck:")[1].split("interval:")[0]
+    probe = " ".join(
+        " ".join(ln for ln in block.splitlines() if not ln.strip().startswith("#")).split()
+    )
+    assert "TRADING_MODE" in probe, "the healthcheck must branch on the mode, not assume one"
+    assert "4001" in probe and "4002" in probe, "both the live and paper API ports must appear"
+    # /dev/tcp is a bashism; sh silently treats it as a normal path and the probe stops probing.
+    assert "bash -c" in probe
+
+    inner = re.search(r"CMD-SHELL\s*-\s*'(.*)'", probe)
+    assert inner, f"could not read the healthcheck command out of: {probe}"
+
+    def probed_port(mode: str) -> str:
+        # `$$` is compose escaping its own interpolation; the shell sees a single `$`. Stop before
+        # `bash -c` so this resolves the port without opening a socket.
+        script = inner.group(1).replace("$$", "$").split("bash -c")[0] + 'printf "%s" "$p"'
+        return subprocess.run(
+            ["sh", "-c", script],
+            env={**os.environ, "TRADING_MODE": mode},
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    assert probed_port("live") == "4001"
+    assert probed_port("paper") == "4002"
+    assert probed_port("") == "4002", (
+        "an unset mode must fall back to paper, like the compose default"
+    )
+
+
 def test_compose_wires_gateway_and_app() -> None:
     c = (ROOT / "docker-compose.yml").read_text()
     assert "ibgateway:" in c and "app:" in c

@@ -13,10 +13,12 @@ from small_cap_stack.ibkr import (
     RetryPolicy,
     classify_connection_error,
 )
+from small_cap_stack.ibkr.mode import account_mismatch, mode_for_accounts, mode_for_port
 from small_cap_stack.ibkr.transport import (
     IBKRTransport,
     client_id_for_attempt,
 )
+from small_cap_stack.monitoring import metric_value
 from tests.support import settings
 
 
@@ -84,6 +86,86 @@ async def _instant_sleep(_delay: float) -> None:
 def test_client_id_for_attempt_cycles_pool() -> None:
     assert [client_id_for_attempt(1, a, 4) for a in range(6)] == [1, 2, 3, 4, 1, 2]
     assert client_id_for_attempt(5, 7, 1) == 5  # a pool of 1 never rotates
+
+
+# --- paper-vs-live agreement (#663) -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("port", "expected"),
+    [
+        (4002, "paper"),
+        (4001, "live"),
+        (7497, "paper"),
+        (7496, "live"),
+        (4004, "paper"),
+        (4003, "live"),
+    ],
+)
+def test_mode_for_port_reads_every_published_port(port: int, expected: str) -> None:
+    assert mode_for_port(port) == expected
+
+
+def test_mode_for_port_declines_to_guess_an_unknown_port() -> None:
+    # None is "no opinion", not "paper". A tunnel must stay startable; see test_config.
+    assert mode_for_port(9999) is None
+
+
+@pytest.mark.parametrize(
+    ("accounts", "expected"),
+    [
+        (["DU1234567"], "paper"),  # individual paper
+        (["DF1234567"], "paper"),  # advisor paper
+        (["du1234567"], "paper"),  # IBKR is not case-consistent everywhere; neither are humans
+        (["U1234567"], "live"),
+        (["U1234567", "U7654321"], "live"),
+        ([], None),  # the handshake can report accounts late — empty must NEVER read as live
+        (["", "  "], None),
+        (["DU1234567", "U7654321"], None),  # mixed: contradictory evidence, so take no side
+    ],
+)
+def test_mode_for_accounts(accounts: list[str], expected: str | None) -> None:
+    assert mode_for_accounts(accounts) == expected
+
+
+def test_account_mismatch_is_silent_when_the_broker_agrees_or_cannot_say() -> None:
+    assert account_mismatch("paper", ["DU123"]) is None
+    assert account_mismatch("live", ["U123"]) is None
+    assert account_mismatch("live", []) is None  # nothing to judge yet
+
+
+def test_account_mismatch_names_both_sides_when_they_disagree() -> None:
+    """The dangerous case: settings say paper, the broker says this is real money."""
+    detail = account_mismatch("paper", ["U1234567"])
+    assert detail is not None
+    assert "'paper'" in detail and "'live'" in detail and "U1234567" in detail
+
+
+def test_resync_flags_a_mode_mismatch_without_raising() -> None:
+    """A mismatch must not raise: the supervisor retries `on_connect` forever, so raising would
+    turn a permanent misconfiguration into an endless reconnect loop and take the tracker down."""
+
+    async def scenario() -> None:
+        t = IBKRTransport(_settings(ibkr_trading_mode="paper"))
+
+        async def fake_orders() -> list[object]:
+            return []
+
+        async def fake_positions() -> list[object]:
+            return []
+
+        t.ib.reqAllOpenOrdersAsync = fake_orders  # type: ignore[method-assign]
+        t.ib.reqPositionsAsync = fake_positions  # type: ignore[method-assign]
+        t.ib.managedAccounts = lambda: ["U1234567"]  # type: ignore[method-assign]
+
+        await t.resync()  # must complete normally
+        assert metric_value("scs_trading_mode_mismatch") == 1.0
+
+        t.ib.managedAccounts = lambda: ["DU1234567"]  # type: ignore[method-assign]
+        await t.resync()
+        assert metric_value("scs_trading_mode_mismatch") == 0.0  # clears when it agrees again
+
+    asyncio.run(scenario())
 
 
 def test_data_farm_error_1100_makes_transport_not_connected(
