@@ -153,13 +153,19 @@ def test_extract_day_trades_rejects_entries_below_the_price_floor(tmp_path: Path
 
 
 def test_the_shipped_price_band_is_the_collection_phase_band(tmp_path: Path) -> None:
-    """#608 widened the band to the scanner's own $1–$50 for the collection phase.
+    """#643 raised the floor to $3.00, completing the shrink #608 said it intended.
 
-    Pinned because it is a deliberate, temporary strategy decision that costs the virtual book
-    (25 → 46 takeable, +0.60R → −8.96R over 31 recon sessions) and is meant to be reverted. A
-    silent drift back would erase the experiment; a silent drift wider would go unnoticed."""
+    #608 widened the band to the scanner's own $1–$50 on 2026-08-07 as a temporary collection-phase
+    choice, explicitly to be reverted once the record could say where the floor belonged. Over 61
+    sessions it now does: the $3 floor takes the book from −9.67R / $283.03 / 41.9% max DD to
+    +12.65R / $791.40 / 18.8%, positive in both stores. The **cap** stays at $50 and is deliberately
+    untouched — no candidate in the record has ever exceeded it, so it has never bound.
+
+    Pinned because both halves are deliberate strategy decisions. A silent drift in the floor would
+    erase the measured shrink; a silent narrowing of the cap would cost coverage for no measured
+    gain."""
     s = _s()
-    assert (s.select_price_min, s.select_price_max) == (1.0, 50.0)
+    assert (s.select_price_min, s.select_price_max) == (3.0, 50.0)
 
 
 def test_extract_day_trades_excludes_configured_symbols(tmp_path: Path) -> None:

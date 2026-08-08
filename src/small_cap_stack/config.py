@@ -335,25 +335,40 @@ class Settings(BaseSettings):
     # into `passed` would report it as a malformed setup and throw the data away.
     #
     # Price band, tested against `entry_fill` (the conservative 3-tick fill, so a name is judged on
-    # the price the book would actually pay). **Widened to match the $1–50 scan on 2026-08-07
-    # (#608)** — deliberately temporary, for the collection phase, and the owner intends to shrink
-    # it again once the record can say where it belongs.
+    # the price the book would actually pay).
     #
-    # Why: across 27 reviewed opportunities the band was the deciding rejection in 13 of them, more
-    # than every shape gate combined — including setups the trader read as clean trades (MGM ran
-    # +6.79R with MAE 0.48R and never stopped out; QTEX passes all eight shape gates at $1.26). A
-    # narrow band during collection means the record never learns whether those names were tradable.
+    # **Floor raised to $3.00 on 2026-08-08 (#643)**, completing the shrink #608 said it intended
+    # when it widened the band to $1–$50 for collection eight days earlier. The full record — 61
+    # sessions, 159 candidates — now says where the floor belongs, which is what #608 was waiting
+    # for. Over both stores it takes the book from −9.67R / $283.03 / 41.9% max DD to **+12.65R /
+    # $791.40 / 18.8%**, positive in recon (+7.15R) and live (+5.50R) alike, on a plateau where
+    # every floor from $2.50 to $6.00 is positive.
     #
-    # It costs the virtual book, and that is the accepted trade: over 31 recon sessions the takeable
-    # population goes 25 → 46 and realised R goes +0.60 → −8.96 (equity $484 → $312, max drawdown
-    # 30.8% → 45.7%). The admitted names are worse on average than the ones already selected, which
-    # is what a selection rule that was doing something looks like. Coverage was bought with
-    # performance on purpose — see research/decisions.md and #608 before reading the published book.
+    # ⚠️ **The mechanism is measurement, not edge.** The honest claim is *"below $3 we cannot
+    # measure the fill"*, not *"cheap stocks don't work"*. The +3-tick nominal fill is a fixed 3
+    # ticks, so as a share of price it explodes on cheap names, and the measurement-defect rate
+    # (`same_bar_stop` / `fill_above_entry_bar_high`) tracks it exactly: 7.7% above $7.50 against
+    # 46–50% below $3. On defect-free trades alone the floor's edge falls to +0.101R with a CI
+    # straddling zero. It is still the right rule — an entry price that never printed teaches the
+    # record nothing, and the same tick geometry is real slippage risk live — but do not cite it as
+    # evidence about cheap stocks. See research/decisions.md D-39.
     #
-    # History: floor was $1 until #386 raised it to $2 on 2026-07-31 (an owner's call on the book,
-    # NOT a cost argument — `research/broker-costs.md` §3 stands either way); the scan floor has
-    # been $1 throughout.
-    select_price_min: float = 1.0
+    # A "gate on the tick offset as a share of price" rule was considered and rejected as strictly
+    # equivalent: offset = 3 × tick / price is monotone in price, so `offset <= 0.010` *is*
+    # `price >= $3.00`. There is no sharper rule available on that axis.
+    #
+    # ⚠️ The **cap stays at $50 and should not be narrowed.** No candidate in the whole record has
+    # ever exceeded it, so it has never bound. The >$20 population is flat (n=21, avg −0.174R) and
+    # is 100% notional-cap-sized at ~1.3% actual risk, so it costs almost nothing in dollars
+    # (−$26.87 over 9 trades) — expensive names are nearly free to keep.
+    #
+    # The **scan** floor is unchanged at $1, so sub-$3 names keep being collected and scored; this
+    # only moves what is `takeable`. That split is the point of `passed` vs `takeable`.
+    #
+    # History: $1 until #386 raised it to $2 on 2026-07-31 (an owner's call on the book, NOT a cost
+    # argument — `research/broker-costs.md` §3 stands either way); #608 returned it to $1 on
+    # 2026-08-07 for collection; this is the shrink-back that decision anticipated.
+    select_price_min: float = 3.0
     select_price_max: float = 50.0
     # Trigger-time window: `start` <= trigger bar open < `end` (floor inclusive, cutoff strict).
     #
