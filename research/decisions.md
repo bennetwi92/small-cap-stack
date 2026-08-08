@@ -64,6 +64,7 @@ down is reading forward in time within a topic.
 | [D-40](#d-40--a-minimum-stop-distance-of-25-2026-08-08-584) | 2026-08-08 | A minimum stop distance of 2.5% | #584 | LIVE — a selection rule in the engine, deliberately not a shape gate |
 | [D-41](#d-41--reconstructed-days-get-shares-outstanding-from-edgar-not-float-from-a-vendor-2026-08-08-563) | 2026-08-08 | Reconstructed days get shares outstanding from EDGAR, not float from a vendor | #563 | LIVE |
 | [D-42](#d-42--prefix-stability-measured-the-live-detector-is-causal-2026-08-08-675) | 2026-08-08 | Prefix stability measured: the live detector is causal | #675 | LIVE — retires the roadmap's "sleeper" risk for the algorithm; the input question stands |
+| [D-43](#d-43--two-preconditions-for-live-data-live_bars-separation-and-fills-move-the-ledger-2026-08-08-676) | 2026-08-08 | Two preconditions for live data: `live_bars` separation, and fills move the ledger | #676 | LIVE — adopted before any streaming or order code exists, which is the only time it is free |
 
 <!-- END DECISION INDEX -->
 
@@ -1727,3 +1728,63 @@ Two design consequences for that gate, recorded here because they change what it
 
 The harness (`spikes/prefix_stability.py`) is kept **live rather than retired**: a future change to
 `bullflag/day.py` must re-prove this rather than inherit it. ~35 s per store, read-only.
+
+## D-43 — Two preconditions for live data: `live_bars` separation, and fills move the ledger (2026-08-08, #676)
+
+**Status:** LIVE — adopted before any streaming or order code exists, which is the only time it is free
+
+Two rules that cost nothing now and are **unrecoverable if missed**. Both were found reviewing the
+Phase-2 ramp; neither is implied by any gate issue. They are the contract Gates 5 and 6 get written
+against, not work in their own right.
+
+### Rule 1 — streamed bars NEVER enter the `bars` dataset
+
+A `keepUpToDate` bar is **unfinalised**: its high, low and close mutate until the bar closes. The
+obvious implementation appends streamed bars to `bars`, and then the streamed 08:35 bar and the EOD
+batch's finalised 08:35 bar both land with the same `opportunity_id` + `bar_start_utc`.
+
+Dedup is `report.py`'s `.unique(subset="bar_start_utc", keep="first", maintain_order=True)`.
+"First" means first in **store order**, and store order is `storage.py`'s
+`sorted(str(p) for p in root.glob("**/*.parquet"))` — **sorted by random UUID filename**.
+
+So which version of the bar survives is a coin flip that **can land differently on two consecutive
+reads of the same day**, and `compact.py` later freezes whichever won. Every R-metric, every golden
+fixture and every published book number becomes silently non-reproducible, retroactively, for every
+day the stream ran — against the one asset the whole project rests on. #381 already fought a milder
+version of this exact ordering bug.
+
+**Streamed bars go to a new `live_bars` dataset.** Same for quotes, ticks, orders and fills. And
+batch those writes one-file-per-interval the way `capture.py` already does for scanner hits (#247):
+per-event writes walk straight into the #318/#319/#321 file-count regression for the fourth time,
+because read cost tracks **file** count, not rows.
+
+`live_bars` is the live-vs-replay comparison **arm**. It must never feed the detector, the EOD
+report or the paper book — those replay `bars`, and the whole point is that the two can be diffed.
+
+**Enforced**, not merely documented: `tests/test_live_data_preconditions.py` pins the complete set
+of writers to `bars` (today `capture.py`'s EOD batch and `harvest/runner.py`'s reconstruction, both
+finalised) and fails on any new one, and separately fails if anything starts *reading* `live_bars`
+into the replay path. The test was verified against a seeded violation.
+
+### Rule 2 — the virtual ledger moves only on execution events
+
+The app-side stop *submits* a limit sell. If the ledger is updated on **submission** — the natural
+way to write it, and what `simulate_exit` returning an `ExitOutcome` with a price quietly encourages,
+since in simulation exiting *is* a computation — and the limit then rests unfilled, the trade is
+closed in the virtual ledger, the ≤2-concurrent slot frees, tomorrow's `opening_equity` is computed
+off a fictional exit, and the app is free to open a position on top of one it does not know it holds.
+
+That breaks **D-21's settled-cash invariant**, which assumes *"every trade closes same-day, so no
+unsettled position is carried"* — the assumption the entire no-settlement-model decision rests on.
+
+**The ledger moves only on `execDetails` / `commissionReport`.** Never on submission, never on an
+assumed fill. Any "did we exit" check asserts against `reqPositions`, not against internal state.
+Concretely, a green light for an exit is *"position is 0 per the broker and a fill event arrived"*,
+not *"the stop fired"*.
+
+**Documentation-enforced for now**, and honestly so: there is no order code to test against yet.
+The review step that checks it is the acceptance list on #313, which now carries this rule as its
+first item. When `execution.py` lands, this rule wants a test that a submitted-but-unfilled exit
+leaves the ledger untouched.
+
+Refs #308, #312, #313, #381, #247

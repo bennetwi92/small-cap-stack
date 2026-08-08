@@ -23,6 +23,20 @@ So `decisions.md` §D-21's framing — that only "simulate exit from bars" gets 
 bracket + capture fill" — is true of the *sizing/selection brain* but understates the gap. Gates 5–7
 below are greenfield.
 
+## Preconditions for live data (D-43)
+
+Two rules Gates 5 and 6 are written against, adopted 2026-08-08 before any streaming or order code
+existed — which is the only point at which they are free:
+
+- **Streamed bars never enter the `bars` dataset.** An unfinalised `keepUpToDate` bar colliding with
+  the EOD batch's finalised one is resolved by a dedup that keeps whichever file sorted first *by
+  random UUID*, making the surviving bar non-deterministic and retroactively so. Streamed bars go to
+  **`live_bars`**, which is the comparison arm and is never read by the detector, the EOD report or
+  the paper book. Pinned by `tests/test_live_data_preconditions.py`.
+- **The virtual ledger moves only on `execDetails` / `commissionReport`.** Updating it on submission
+  lets an unfilled resting exit close a trade that is still open, free a concurrency slot, and size
+  the next day off a fictional exit — which breaks D-21's settled-cash invariant.
+
 ## Locked premises
 
 - **Pre-market is limit-only** (#37, confirmed by the trader from live IBKR experience). The app
