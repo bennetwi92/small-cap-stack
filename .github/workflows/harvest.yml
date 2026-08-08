@@ -36,6 +36,7 @@ on:
           - prefilter # what one session would fetch, from stored rows
           - daily # phase 1: grouped-daily universe + previous closes (REQUIRED before `run`)
           - run # phase 2: minute bars, newest-first — capped by `limit` here
+          - fundamentals # point-in-time share counts from SEC EDGAR (#563) — free, no vendor budget
           - charts # publish reconstructed sessions to the dashboard (#488) — no API calls
       limit:
         description: "Sessions (daily/run) or dates (sweep/charts). Keep small — this holds the CI runner."
@@ -80,10 +81,15 @@ jobs:
           # timer — which fires outside GitHub and so cannot be handed a secret at run time. That
           # is what makes the whole harvest operable from a phone, with no SSH.
           MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
+          # A repository VARIABLE, not a secret (#563): SEC's fair-access policy asks callers to
+          # identify themselves, so this is a name and an address, published on every request. Same
+          # ambient-wins path as the key above, so `fundamentals` works on a box whose .env has
+          # never carried one. The nightly timer reads .env instead — set it there for that.
+          HARVEST_EDGAR_USER_AGENT: ${{ vars.HARVEST_EDGAR_USER_AGENT }}
         run: |
           set -euo pipefail
           case "$IN_COMMAND" in
-            status|install-key|install-units|sweep|prefilter|auto|daily|run|charts) ;;
+            status|install-key|install-units|sweep|prefilter|auto|daily|run|fundamentals|charts) ;;
             *) echo "unknown command: $IN_COMMAND" >&2; exit 1 ;;
           esac
           case "$IN_LIMIT" in
@@ -92,7 +98,7 @@ jobs:
 
           args=("$IN_COMMAND")
           case "$IN_COMMAND" in
-            sweep|auto|daily|run|charts) args+=(--limit "$IN_LIMIT") ;;
+            sweep|auto|daily|run|fundamentals|charts) args+=(--limit "$IN_LIMIT") ;;
           esac
           # The CHECKED-OUT copy, not the box's deployed one: dispatching a ref should run that
           # ref's wrapper. It also means the two bootstrap commands work before this lands on main

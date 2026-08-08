@@ -652,7 +652,7 @@ function projectionTiles(pj) {
     tile("Median return", fmtPct(ret, 0), grew ? "pf-pos" : "pf-neg", "Median year's total return on today's balance, after costs, tax reserve and payouts.") +
     tile("Bad year (5th %ile)", usd(e.p5), "pf-neg", "5th percentile ending balance — one year in twenty ends at or below it.") +
     tile("Good year (95th %ile)", usd(e.p95), "pf-pos", "95th percentile ending balance — one year in twenty ends at or above it.") +
-    tile("Ends up", (pj.p_profit * 100).toFixed(0) + "%", pj.p_profit >= 0.5 ? "pf-pos" : "pf-neg", "Share of simulated years finishing above today's balance.") +
+    tile("Year finishes up", (pj.p_profit * 100).toFixed(0) + "%", pj.p_profit >= 0.5 ? "pf-pos" : "pf-neg", "Share of simulated years finishing above today's balance.") +
     tile("Growth", fmtGrowth(pj.growth.p50), grew ? "pf-pos" : "pf-neg", `Median compound annual growth, reinvesting everything. Quartiles ${fmtGrowth(pj.growth.p25)} to ${fmtGrowth(pj.growth.p75)}.`)
   );
 }

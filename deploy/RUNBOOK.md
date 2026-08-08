@@ -498,6 +498,51 @@ already-stored phase-1 rows, costing **no API calls**, and reports candidates/da
 at each. If a tighter floor halves the candidate set, ~27 days becomes ~14. Change it by setting
 `HARVEST_MIN_DAY_VOLUME` in `.env` — and record the measurement on the issue before you do.
 
+### 13.2 Point-in-time share counts from SEC EDGAR (#563)
+
+The bar vendor sells no share data, so a reconstructed day carried **no float at all** until this.
+`harvest fundamentals` fills `/data/recon/fundamentals/dt=…` from SEC EDGAR's cover-page
+`dei:EntityCommonStockSharesOutstanding` series, keyed by the same `opportunity_id` the live tracker
+uses — so `portfolio.extract` picks it up with no read-path change.
+
+**Setup is one repository *variable*, not a secret.** SEC needs no API key; its fair-access policy
+asks callers to identify themselves with a contact string, and a missing one is a **403 on every
+request**. So:
+
+1. **[YOU, once]** Add `HARVEST_EDGAR_USER_AGENT` as a repository **variable** (github.com → repo →
+   Settings → Secrets and variables → Actions → **Variables** tab), value `small-cap-stack
+   <your-email>`. It is published on every request, so it is not secret — but it must be a real
+   address; a made-up one is what gets an IP blocked.
+2. For the **nightly** path it also has to be in the box's `.env` (`HARVEST_EDGAR_USER_AGENT=…`),
+   same as the vendor key — the timer fires outside GitHub. There is no `install-…` command for it;
+   it is not a secret, so editing `.env` or letting a deploy carry it is fine.
+
+Dispatch it with the **`harvest`** workflow, `command: fundamentals` (`limit` caps the dates). Or on
+the box: `./scripts/harvest.sh fundamentals`. Both take the **same lock** as `run`/`auto` — the
+`fundamentals` dataset is in `HARVEST_DATASETS`, so a re-harvest deletes it, and the two must not
+interleave.
+
+**Cost is nothing like the bar harvest.** EDGAR is free at 10 req/s, and a company's *entire* filing
+history arrives in one response, memoised per symbol for the run — so a full backfill of every
+harvested date is roughly one call per **distinct symbol**, minutes rather than nights. `auto` also
+fills in the sessions it harvested that night, best-effort; a failure there (including an unset
+contact string) is printed and swallowed, never allowed to fail a night that spent vendor budget.
+
+Reading the output:
+
+- **`harvest status` → `fundamentals_pending`** — harvested dates with no share counts. There is no
+  checkpoint flag: "done" is the partition on disk, so a re-harvested date reappears here by itself.
+- **`shares=` vs `none=`** on the per-date line — a count found, versus EDGAR answering and having
+  nothing (a filer SEC does not list, or one that had not filed by that session). Both are written;
+  `none` rows carry a null, which is what stops the pass re-asking forever.
+- **`failed=`** is different and is the one to look at: symbols EDGAR could not be *reached* for. A
+  date with enough of them is **abandoned whole** — nothing written, still pending — so a rejected
+  `User-Agent` can never pin a permanent null. Five failures in a row stops the date immediately.
+- ⚠️ **The number is shares *outstanding*, not free float.** `float_shares` stays null on purpose:
+  EDGAR never states a float, and writing outstanding into that column would make a recon day quote
+  a float number no filing ever gave. So this does **not** yet change anything visible on the
+  dashboard — it lands the data; surfacing it is a separate read-path change.
+
 ## 15. On-demand box jobs — backfill and data-export (#545)
 
 `backfill-dashboard`, `deploy-backfill-publish`'s backfill stage, and `data-export` all run through
