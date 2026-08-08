@@ -30,9 +30,16 @@ below are greenfield.
   native stops/brackets in the regular session.
 - Engine **v2** is the live engine.
 - **≤2 concurrent positions, ≤2 entries/day**, $500 virtual book (`decisions.md` §D-21/#237).
-- Box is **Ashburn, VA** (`deploy/RUNBOOK.md:17`) — ~10ms to IBKR's NY/NJ servers. App-side
-  triggering can realistically react in ~10–25ms; **milliseconds are not achievable** from any
-  app-side loop, so a faster feed means learning sooner, not acting sooner.
+- ⚠️ **The box is in Falkenstein, Germany (`fsn1`) — ~95 ms transatlantic, NOT Ashburn (#323).**
+  This bullet asserted "Ashburn, VA … ~10ms" until 2026-08-08 and reasoned about reaction time from
+  it; a Phase-2 ramp drafted that day inherited the wrong number straight from here. #323 recommends
+  measuring, then rebuilding in `ash` **before** Phase 2 goes live — and that ordering is
+  load-bearing rather than advisory, because every fill measured in paper trading before a move is
+  measured on a box you are then going to replace.
+  The conclusion the old bullet drew still holds and is worth keeping: **milliseconds are not
+  achievable from any app-side loop**, so a faster feed means learning sooner, not acting sooner.
+  From `fsn1` the floor is ~95 ms rather than ~10 ms, which widens the gap but does not change the
+  kind of thing app-side triggering can do.
 
 ## The gates
 
@@ -87,6 +94,31 @@ not feed latency — is where "accuracy at the stop matters more than at the tar
 Gate 1's spread data is what lets us set it from evidence instead of guesswork.
 
 ### 2. Prefix stability (Gate 5) — the sleeper
+
+> ## ✅ MEASURED 2026-08-08 (#675) — the detector is causal; this risk is retired
+>
+> **2,018 of 2,018 fired runs match the full-day answer exactly, with zero churn at any
+> intermediate prefix**, over 81 sessions (1,220 recon runs / 909 fired; 1,454 live runs / 1,109
+> fired). At minute resolution **762 of 909 fires happen on a partially formed bar** and all 909
+> still match. Harness: `spikes/prefix_stability.py`. Report:
+> `docs/reports/2026-08-08-prefix-stability.md`.
+>
+> It is structural. `day.py`'s candidate loop takes the **earliest** cycle with a valid trigger and
+> breaks; `entry_trigger`/`entry_fill` come from `bars[cons_end].high` and `stop` from the
+> consolidation lows — closed bars strictly before the trigger — and gates, score, exhaustion and
+> both selection rules read only bars ≤ trigger. The paragraph below describes `segment_at_end`, the
+> end-anchored segmenter; the **live** path is the greedy cycle walk, which does not re-segment.
+>
+> ⚠️ **It clears the algorithm, not the inputs.** Both arms use the same bars, truncated. Live bar
+> formation and revision, missing or late bars, feed restarts, and run/`first_hit` segmentation from
+> live scanner hits are all untested. **So Gate 5's question becomes "are the live bars the same
+> bars", not "is the detector prefix-stable"** — which wants a hash of the bar series carried with
+> each live detection, so a disagreement can be attributed to data rather than logic.
+>
+> **Gate 5 stays log-only and still precedes order code.** The reason moved; the sequence did not.
+>
+> The original concern is kept below rather than deleted: it was correct to hold before anyone had
+> measured it, and it is why the gate was ordered this way in the first place.
 
 The v2 detector segments the **longest valid** pole+consolidation over a day's bars. Run live
 against a *growing prefix*, the segmentation it picks at 08:35 may differ from the one it picks at

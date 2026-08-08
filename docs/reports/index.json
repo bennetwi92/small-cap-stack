@@ -1,6 +1,21 @@
 {
-  "generated_utc": "2026-08-07T10:52:19+00:00",
+  "generated_utc": "2026-08-08T20:59:58+00:00",
   "reports": [
+    {
+      "slug": "2026-08-08-prefix-stability",
+      "file": "2026-08-08-prefix-stability.md",
+      "title": "\"The sleeper that wasn't: the detector is causal\"",
+      "published": "2026-08-08",
+      "summary": "Gate 5 is log-only because the detector might re-segment as a day's bars accumulate, silently invalidating the paper book as a predictor of the live one. Measured over 81 sessions: 2,018 of 2,018 fired runs match the full-day answer exactly, with zero churn. The concern was correct to hold and is now retired — but it clears the algorithm, not the inputs.",
+      "tags": [
+        "[phase-2",
+        "engine",
+        "validation]"
+      ],
+      "author": "Claude",
+      "words": 892,
+      "correction": ""
+    },
     {
       "slug": "2026-08-06-does-past-behaviour-predict-future-performance",
       "file": "2026-08-06-does-past-behaviour-predict-future-performance.md",
