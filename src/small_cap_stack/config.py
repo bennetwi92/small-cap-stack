@@ -370,6 +370,34 @@ class Settings(BaseSettings):
     # 2026-08-07 for collection; this is the shrink-back that decision anticipated.
     select_price_min: float = 3.0
     select_price_max: float = 50.0
+    # Minimum stop distance, as a fraction of `entry_fill` (#584, 2026-08-08). A flag compressed to
+    # a few ticks is one the entry model and the spread decide, not the setup: AIIO 2026-05-18 run 2
+    # stops 2.32% from entry (10.9 ticks), so the engine's own 3-tick fill offset is 27% of planned
+    # R before any spread or slippage; for SEGG (4 ticks) and MTEN (5 ticks) it is 75% and 60%.
+    #
+    # Over 61 sessions the sub-2.5% population wins **2 of 18** and averages −0.80R, against
+    # +0.074R for the 61 kept. Book effect on its own: −9.67R → +3.78R, win 30.8% → 37.9%,
+    # $283.03 → $398.20, max DD 41.9% → 33.2%. A plateau, not a peak — every value from 2.5% to
+    # 6.5% is positive.
+    #
+    # **2.5% rather than 3%** (the figure #584 first proposed under the old $2–$20 band): it is the
+    # only threshold clearing both bootstrap tests — kept-vs-removed on disjoint populations
+    # (Δ +0.878R, 95% CI [+0.253, +1.446]) *and* a day-block bootstrap on daily book R (+13.45R,
+    # 95% CI [+0.21, +27.26]). It also sits in a natural gap: sorted stop distances run 2.407% →
+    # 2.548%, so any cut in between gives the identical partition. **Do not raise it to 5%** despite
+    # the bigger headline — its disjoint CI lower bound is +0.004, its day-block CI includes zero,
+    # and it leans on an n=6 bucket.
+    #
+    # ⚠️ **This is selection, not sizing — the distinction was tested, not assumed.** All nine
+    # (`position_fraction` × `risk_fraction`) combinations give *identical* total R, because R is
+    # size-independent; and raising `position_fraction` to 1.0 so tight stops get their full 5% risk
+    # makes the book strictly worse ($283.03 → $262.65). The notional cap is currently a **shield**
+    # against this population, not the cause of it. Two rival explanations were also ruled out: the
+    # effect survives dropping every measurement-defective trade (Δ +0.978, t=2.36), and it holds
+    # inside all five price bands while a max-price rule fails outright.
+    #
+    # 0.0 disables it. See research/decisions.md D-40.
+    select_min_stop_pct: float = 0.025
     # Trigger-time window: `start` <= trigger bar open < `end` (floor inclusive, cutoff strict).
     #
     # ⚠️ This is NOT the scan window. `scan_start`/`scan_end` (04:00–11:59) bound when the scanner

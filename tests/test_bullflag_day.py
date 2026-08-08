@@ -199,6 +199,69 @@ def test_selection_defaults_are_permissive() -> None:
     assert d is not None and d.in_price_band is True and d.in_window is True
 
 
+# --- #584: the minimum stop distance -------------------------------------------------------
+#
+# `_PASS` has entry_fill 10.93 and stop 10.70, so its stop sits 2.104% below the fill — chosen here
+# because that is just UNDER the shipped 2.5%, so these exercise the rule rather than assert it.
+
+
+def test_the_shipped_minimum_stop_distance_is_two_and_a_half_percent() -> None:
+    """2.5% and not the 3% #584 first proposed: it is the only threshold clearing both bootstrap
+    tests, and it sits in a natural gap (sorted stop distances run 2.407% → 2.548%, so any cut
+    between them gives the identical partition)."""
+    assert settings().select_min_stop_pct == 0.025
+
+
+def test_a_stop_too_close_to_the_fill_is_not_selected_but_still_passes() -> None:
+    """The #584 population: a well-formed flag whose stop is a few ticks away, not a level.
+
+    Selection and NOT a shape gate — four of the 25 signed-off golden fixtures have sub-3% stops as
+    `passed=True` (MARA 1.30%, FWDI 1.82%, FATE 2.13%, OKLL 2.25%), so gating the shape here would
+    contradict the trader's own sign-offs. If this ever starts asserting `passed is False`, the rule
+    has been put in the wrong tier.
+    """
+    tight = detect_day(_PASS, min_stop_pct=0.025)
+    assert tight is not None
+    assert round((tight.entry_fill - tight.stop) / tight.entry_fill, 5) == 0.02104
+    assert tight.passed is True  # the flag is well-formed...
+    assert [g.name for g in tight.gates if not g.passed] == []  # ...every shape gate agrees
+    assert tight.has_stop_room is False  # ...the stop is simply too close to be a level
+    assert tight.takeable is False
+
+
+def test_a_stop_with_room_is_selected() -> None:
+    assert detect_day(_PASS, min_stop_pct=0.02).has_stop_room is True  # type: ignore[union-attr]
+    assert detect_day(_PASS, min_stop_pct=0.02).takeable is True  # type: ignore[union-attr]
+
+
+def test_the_minimum_stop_bound_is_inclusive() -> None:
+    """A stop at exactly the threshold has room — a distance floor, not a deadline (cf. #586)."""
+    exact = 0.02104  # _PASS's own stop distance
+    assert detect_day(_PASS, min_stop_pct=exact).has_stop_room is True  # type: ignore[union-attr]
+    assert detect_day(_PASS, min_stop_pct=exact + 0.0001).has_stop_room is False  # type: ignore[union-attr]
+
+
+def test_the_minimum_stop_rule_is_off_by_default() -> None:
+    """`min_stop_pct=0.0` reproduces the pre-#584 engine, which spikes and the fixtures rely on."""
+    assert detect_day(_PASS).has_stop_room is True
+    assert detect_day(_PASS).takeable is True
+
+
+def test_the_minimum_stop_is_measured_against_the_fill_not_the_breakout() -> None:
+    """The book pays `entry_fill`, so the planned risk it would actually carry is what to judge.
+
+    Measured off `breakout_level` (10.90) the same setup reads 1.835% rather than 2.104% — a
+    different answer either side of some thresholds, and the wrong one: nothing risks the breakout
+    price. This is the same reason the price band is tested against the fill (#567).
+    """
+    d = detect_day(_PASS)
+    assert d is not None
+    assert round((d.entry_fill - d.stop) / d.entry_fill, 5) == 0.02104
+    assert round((d.breakout_level - d.stop) / d.breakout_level, 5) == 0.01835
+    # A threshold between the two must follow the fill, i.e. accept.
+    assert detect_day(_PASS, min_stop_pct=0.019).has_stop_room is True  # type: ignore[union-attr]
+
+
 def test_the_shipped_floor_is_three_dollars_and_the_cap_is_fifty() -> None:
     """#643. The floor completes the shrink #608 promised; the cap has never bound and stays put."""
     s = settings()

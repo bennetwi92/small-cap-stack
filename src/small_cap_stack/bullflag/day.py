@@ -56,6 +56,14 @@ class DaySetup:
     # doesn't configure a band or a window (a unit test, a spike) selects on shape alone.
     in_price_band: bool = True  # entry_fill within [select_price_min, select_price_max]
     in_window: bool = True  # trigger bar opens within [select_window_start, select_window_end)
+    # Minimum stop distance (#584): (entry_fill - stop) / entry_fill >= select_min_stop_pct.
+    # A flag compressed to a few ticks is one the entry model and the spread decide, not the setup:
+    # AIIO 2026-05-18 run 2 stops 2.32% from entry (10.9 ticks), so the engine's own 3-tick fill
+    # offset is 27% of planned R before any spread or slippage; for SEGG (4 ticks) and MTEN (5) it
+    # is 75% and 60%. Selection and NOT a shape gate — four of the 25 signed-off golden fixtures
+    # have sub-3% stops as `passed=True` (MARA 1.30%, FWDI 1.82%, FATE 2.13%, OKLL 2.25%), so a
+    # shape gate would contradict the trader's own sign-offs. Decidable at trigger time.
+    has_stop_room: bool = True
     # Data quality (#604). A consolidation that traded through NO range at all has no stop: the
     # "risk" is then exactly the fill offset, an artifact of the measurement convention rather than
     # a level anything defended. AHMA 2026-06-09's whole consolidation is one zero-volume bar, so
@@ -81,6 +89,7 @@ class DaySetup:
             and not self.exhausted
             and self.in_price_band
             and self.in_window
+            and self.has_stop_room
             and self.cons_has_range
         )
 
@@ -111,6 +120,7 @@ def detect_day(
     window_end: time = time(11, 59),
     price_min: float | None = None,
     price_max: float | None = None,
+    min_stop_pct: float = 0.0,
 ) -> DaySetup | None:
     """The setup the trader would take over ``bars`` (a whole day), or ``None`` if no pole forms.
 
@@ -287,6 +297,10 @@ def detect_day(
         # Floor inclusive, cutoff strict — a bar opening exactly at the cutoff is out.
         trigger_time = bars[trigger_idx].start.astimezone(ET).time()
         in_window = window_start <= trigger_time < window_end
+    # Stop room (#584). Measured against `entry_fill` for the same reason the price band is: the
+    # book pays that price, so the planned risk it would actually carry is the one to judge.
+    # `min_stop_pct = 0.0` disables the rule, which is what a shape-only caller wants.
+    has_stop_room = entry_fill <= 0 or (entry_fill - round(stop, 4)) / entry_fill >= min_stop_pct
 
     return DaySetup(
         segment=seg,
@@ -305,6 +319,7 @@ def detect_day(
         exhausted=cycle_num > exhaustion_cap,
         in_price_band=in_price_band,
         in_window=in_window,
+        has_stop_room=has_stop_room,
         cons_has_range=round(breakout, 4) > round(stop, 4),
         untraded_cons_bars=len(untraded),
         halted_consolidation=halted,
@@ -346,4 +361,5 @@ def detect_day_with_settings(
         window_end=settings.select_window_end,
         price_min=settings.select_price_min,
         price_max=settings.select_price_max,
+        min_stop_pct=settings.select_min_stop_pct,
     )

@@ -216,6 +216,11 @@ def render_engine(s: Settings) -> str:
             _field("select_price_min / select_price_max"),
         ),
         _row(
+            "**Selection** — minimum stop distance",
+            f"(`entry_fill` − `stop`) / `entry_fill` ≥ {s.select_min_stop_pct:.2%}",
+            _field("select_min_stop_pct"),
+        ),
+        _row(
             "**Selection** — consolidation range",
             "the flag must trade through some range (`breakout` > `stop`)",
             "— structural; rejects a halted flag, whose stop is unusable",
