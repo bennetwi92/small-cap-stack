@@ -1,0 +1,20 @@
+[Unit]
+Description=Probe published-dashboard freshness every 5 minutes
+
+[Timer]
+# `publish-dashboard` runs every ~15 min, so a 5-minute probe resolves the age to within a third of
+# one publish cycle — enough to tell "the last cycle was slow" from "nothing has published for an
+# hour", which is the distinction the alert is made of. Faster buys nothing and costs GitHub rate
+# limit; slower makes a stale-dashboard alert take longer to fire than a person takes to notice.
+OnBootSec=3min
+OnUnitActiveSec=5min
+# Spread the fire so it never lands exactly with publish-dashboard's :00/:15/:30/:45 and reads a
+# tree mid-force-push.
+RandomizedDelaySec=45
+AccuracySec=30s
+# Persistent=false: there is nothing to catch up. The metric is "how stale is it RIGHT NOW", and a
+# boot-time replay would write an age computed against a payload that has since been republished.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

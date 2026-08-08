@@ -13,6 +13,7 @@ import time
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 
+from . import __version__
 from .canary import build_canary
 from .capture import CaptureService
 from .clock import ET_NAME, now_et, within_window
@@ -42,16 +43,28 @@ from .market_calendar import is_trading_day
 from .marketdata import IBKRMarketData
 from .monitoring import (
     COLD_DISCONNECTS,
+    DATASET_BYTES,
     DATASET_FILES,
+    DISK_USED_PCT,
     IBKR_CONNECTED,
+    IN_SCAN_WINDOW,
+    MEM_AVAILABLE_MB,
     SCAN_TICKS,
     STATUS_BUILD_SECONDS,
+    TICK_DURATION,
+    TICK_PHASE_SECONDS,
     TICK_SECONDS,
     TICKS_OVER_BUDGET,
+    TRADING_DAY,
     Heartbeat,
+    dataset_bytes,
     disk_used_pct,
+    export_canary_metrics,
     mem_available_mb,
     metric_value,
+    observe,
+    record_dashboard_write,
+    set_build_info,
     start_metrics_server,
 )
 from .portfolio import (
@@ -119,6 +132,14 @@ class Application:
         self._install_signal_handlers()
         if self.settings.metrics_enabled:
             start_metrics_server(self.settings.metrics_port)
+        # Published unconditionally, not behind `metrics_enabled`: the registry is process-global
+        # and this is the only route the deployed SHA takes to Grafana. Overlaying it on any other
+        # panel is how "the tick got slow" becomes "the tick got slow at that deploy".
+        set_build_info(
+            version=__version__,
+            commit=self.settings.deployed_commit,
+            mode=self.settings.ibkr_trading_mode,
+        )
         self.scheduler.start()
         self._conn_task = asyncio.create_task(self.supervisor.run(), name="ibkr-supervisor")
         log.info(
@@ -193,21 +214,39 @@ class Application:
         # live 24/7.
         trading = self._is_trading_day(now.date())
         in_window = within_window(now, self.settings.scan_start, self.settings.scan_end)
+        # The two gauges every session-scoped alert multiplies by (#688). Almost every symptom
+        # worth alerting on — no scan results, no opportunities, a disconnected Gateway — is
+        # CORRECT at 02:00 on a Sunday, and an alert that can't tell the difference gets muted,
+        # which is the same as not existing. Published from the same variables the tick branches
+        # on, so the alert and the app can never disagree about whether it is a session.
+        TRADING_DAY.set(1 if trading else 0)
+        IN_SCAN_WINDOW.set(1 if in_window else 0)
         if connected and trading and in_window:
-            candidates = await self.scanner.scan(self.transport.ib)
+            # Phase-timed separately because `_on_tick` is one function doing four unrelated
+            # things: "the tick took 47s" (#321) does not say which, and the answer has been
+            # different each time — the scan in #321, the status export as history grew (#273).
+            with observe(TICK_PHASE_SECONDS, phase="scan"):
+                candidates = await self.scanner.scan(self.transport.ib)
             log.info(
                 "scan.candidates", count=len(candidates), symbols=[c.symbol for c in candidates]
             )
-            await self.capture.on_scan_tick(candidates, now)
+            with observe(TICK_PHASE_SECONDS, phase="capture"):
+                await self.capture.on_scan_tick(candidates, now)
         if self.settings.dashboard_enabled:
-            self._export_status(now)
+            with observe(TICK_PHASE_SECONDS, phase="status"):
+                self._export_status(now)
             if trading:
-                self._refresh_stats_charts(now)
+                with observe(TICK_PHASE_SECONDS, phase="stats_charts"):
+                    self._refresh_stats_charts(now)
         # Tick self-reporting (#321): `tick` runs with max_instances=1, so an over-budget tick makes
         # the scheduler silently skip the next one — a scanner gap in the Phase-1 dataset. Measure
         # every tick and shout while there's still headroom, instead of discovering it via OOM.
         elapsed = time.perf_counter() - t0
         TICK_SECONDS.set(elapsed)
+        # Both, not either. The gauge is the LAST tick and is what `status.json` reports; the
+        # histogram is the distribution, and only a p95 distinguishes "one slow tick after a
+        # deploy" from "every tick is now 40s" — a last-value gauge scraped once a minute cannot.
+        TICK_DURATION.observe(elapsed)
         budget = self.settings.tick_interval_sec
         if elapsed > 0.5 * budget:
             TICKS_OVER_BUDGET.inc()
@@ -276,7 +315,10 @@ class Application:
         try:
             write_json_if_changed(out / "stats.json", build_stats(report, now_utc))
         except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
+            record_dashboard_write("stats", ok=False)
             log.warning("dashboard.stats_write_failed", exc_info=True)
+        else:
+            record_dashboard_write("stats", ok=True)
         try:
             charts = build_charts(self.store, self.settings, report.trading_date, now_utc)
             write_json_if_changed(charts_path(out, report.trading_date), charts)
@@ -287,7 +329,12 @@ class Application:
                 ),
             )
         except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
+            record_dashboard_write("charts", ok=False)
+            record_dashboard_write("index", ok=False)
             log.warning("dashboard.charts_write_failed", exc_info=True)
+        else:
+            record_dashboard_write("charts", ok=True)
+            record_dashboard_write("index", ok=True)
 
     def _export_status(self, now: datetime) -> None:
         """Write the dashboard status snapshot (#68). Best-effort — never breaks a tick."""
@@ -311,6 +358,12 @@ class Application:
             STATUS_BUILD_SECONDS.set(build_seconds)
             for dataset, c in payload.get("data", {}).items():
                 DATASET_FILES.labels(dataset=dataset).set(c.get("files", 0))
+            # File count is what prices a READ here (CLAUDE.md); bytes is what prices the disk, and
+            # the disk is what the nightly harvest aborts on (`harvest_min_disk_free_mb`). Knowing
+            # which dataset is growing is the difference between "delete something" and "delete the
+            # right thing" at 03:00.
+            for dataset, size in dataset_bytes(self.settings.data_dir).items():
+                DATASET_BYTES.labels(dataset=dataset).set(size)
             # Tick health, readable on the dashboard without SSH (#321) — but COARSE (#340/#344):
             # this payload is public, so publish verdicts, never raw seconds or headroom numbers
             # (those stay in Prometheus/SSH). tick reflects the PREVIOUS completed tick — this
@@ -319,6 +372,15 @@ class Application:
             tick_last = metric_value("scs_tick_seconds")
             mem_mb = mem_available_mb()
             disk_pct = disk_used_pct(self.settings.data_dir)
+            # The RAW numbers go to Prometheus; only the verdicts below reach status.json
+            # (#340/#344). Alloy also scrapes node_exporter for the same two facts, deliberately:
+            # these are what the APP saw when it made a decision, node's are the truth about the
+            # box, and the two disagreeing means the app is reading the wrong filesystem — which
+            # is itself the finding.
+            if mem_mb is not None:
+                MEM_AVAILABLE_MB.set(mem_mb)
+            if disk_pct is not None:
+                DISK_USED_PCT.set(disk_pct)
             payload["health"] = {
                 "tick": (
                     "over_budget"
@@ -338,7 +400,10 @@ class Application:
             }
             write_json(self.settings.data_dir / "dashboard" / "status.json", payload)
         except Exception:  # noqa: BLE001 — a dashboard write must never break the tick
+            record_dashboard_write("status", ok=False)
             log.warning("dashboard.status_write_failed", exc_info=True)
+        else:
+            record_dashboard_write("status", ok=True)
         # Data-quality canary (#346), throttled: positive-confirmation assertions over today's
         # partitions. Kept outside the status try-block so one failing never hides the other.
         try:
@@ -346,8 +411,15 @@ class Application:
             if self._canary_next is None or now_utc >= self._canary_next:
                 canary = build_canary(self.store, self.settings, now_utc, now.date())
                 write_json(self.settings.data_dir / "dashboard" / "canary.json", canary)
+                # #346 wrote these verdicts to a file and the CI watchdog that asserted them was
+                # rolled back with the automation layer (#377) — so since then nothing has read
+                # them automatically. As gauges they are alertable without resurrecting that
+                # layer: the alert lives in Grafana, which is not this repo's CI.
+                export_canary_metrics(canary)
+                record_dashboard_write("canary", ok=True)
                 self._canary_next = now_utc + timedelta(minutes=self.settings.canary_interval_min)
         except Exception:  # noqa: BLE001 — a canary failure must never break the tick
+            record_dashboard_write("canary", ok=False)
             log.warning("dashboard.canary_write_failed", exc_info=True)
 
     async def _on_scan_start(self) -> None:
@@ -504,7 +576,13 @@ class Application:
             )
             write_json(self.settings.data_dir / "dashboard" / "portfolio.json", payload)
         except Exception:  # noqa: BLE001 — a dashboard write must never break the caller
+            record_dashboard_write("portfolio", ok=False)
             log.warning("dashboard.portfolio_write_failed", exc_info=True)
+        else:
+            # The freshness half matters most for this one: `portfolio.json` is rebuilt exactly
+            # twice a day (16:30 and 03:15, #458), so it can go a week stale without a single
+            # exception being raised — a failure the counter above is blind to by construction.
+            record_dashboard_write("portfolio", ok=True)
 
     def _write_report_markdown(self, report: EodReport) -> None:
         out = self.settings.data_dir / "reports"

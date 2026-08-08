@@ -65,6 +65,7 @@ down is reading forward in time within a topic.
 | [D-41](#d-41--reconstructed-days-get-shares-outstanding-from-edgar-not-float-from-a-vendor-2026-08-08-563) | 2026-08-08 | Reconstructed days get shares outstanding from EDGAR, not float from a vendor | #563 | LIVE |
 | [D-42](#d-42--prefix-stability-measured-the-live-detector-is-causal-2026-08-08-675) | 2026-08-08 | Prefix stability measured: the live detector is causal | #675 | LIVE — retires the roadmap's "sleeper" risk for the algorithm; the input question stands |
 | [D-43](#d-43--two-preconditions-for-live-data-live_bars-separation-and-fills-move-the-ledger-2026-08-08-676) | 2026-08-08 | Two preconditions for live data: `live_bars` separation, and fills move the ledger | #676 | LIVE — adopted before any streaming or order code exists, which is the only time it is free |
+| [D-44](#d-44--observability-is-a-repo-artefact-and-the-alert-set-is-session-gated-2026-08-08-688) | 2026-08-08 | Observability is a repo artefact, and the alert set is session-gated | #688 | LIVE |
 
 <!-- END DECISION INDEX -->
 
@@ -1788,3 +1789,88 @@ first item. When `execution.py` lands, this rule wants a test that a submitted-b
 leaves the ledger untouched.
 
 Refs #308, #312, #313, #381, #247
+
+---
+
+## D-44 — Observability is a repo artefact, and the alert set is session-gated (2026-08-08, #688)
+
+**Status:** LIVE
+
+Three decisions, taken together because each is only defensible with the other two.
+
+### 1. The collector, the dashboards and the alerts live in the repo
+
+Before this, the Grafana half of the system existed **only on the box** — an Alloy install nobody
+had written down, dashboards someone had clicked together, no alert rules at all, and one optional
+line in `RUNBOOK.md` §7 naming four metrics. It could not be reviewed, diffed, or rebuilt after a
+box loss, and there was no way to notice that a metric renamed in `monitoring.py` had emptied a
+panel.
+
+So `deploy/alloy/config.alloy`, `deploy/grafana/dashboards/*.json` and
+`deploy/grafana/alerts/scs-rules.yaml` are committed, and `tests/test_observability_contract.py`
+binds them to the code in **both** directions: every `scs_*` a panel or rule names must exist in
+the registry, and every `scs_*` the app defines must be named by a panel or a rule.
+
+The first direction is the important one and it is the same failure `tests/test_dashboard_dom.py`
+prevents for `docs/` (#406) — except worse, because the two halves are not in the same system.
+Grafana does not fail on an unknown metric; it draws **No data**, which is indistinguishable from
+"the thing being measured is quiet". That is the worst failure a monitoring system can have: it
+looks exactly like health, on the screen you use to decide whether things are healthy.
+
+The second direction is about cost. Grafana Cloud's free tier bills 10k active series, so a metric
+nobody graphs is series paid for forever plus a wiring site to keep correct.
+
+**Not generated.** Dashboards are edited in Grafana and exported back; a `make dashboards`
+generator would fight the workflow it exists to serve. The contract test is the gate instead.
+
+### 2. What is measured is chosen from the swallowed exceptions, not from what is easy
+
+The application is deliberately built so that it never falls over when it stops doing its job:
+every dashboard write, every per-symbol capture and every canary rebuild is wrapped in
+`except: log.warning(...)` so one failure cannot break a tick (#254). That is right for a
+data-collection phase, and it means a persistently failing artefact writer, a dead float source or
+a stalling store append produced a warning line nobody read and **no other signal at all**.
+
+Every counter ending `_failures_total` in `monitoring.py` exists because there is a swallowed
+exception behind it. Alongside them, two patterns that were missing:
+
+- **`*_last_success_timestamp_seconds`** for anything whose failure mode is *silence*. A counter
+  that stops incrementing is invisible to `rate()` once the event ages past the lookback — it sits
+  flat, which reads as healthy-and-idle. `eod_bars` is the only thing that fetches a day's bars;
+  "it has not run" is exactly the failure that matters, and only a timestamp expresses it.
+- **Per-phase and per-job histograms.** "The tick took 47s" (#321) never said *which* of the four
+  things the tick does got slow, and the answer has been different each time.
+
+### 3. Session gating, because a muted alert is worse than no alert
+
+Almost every symptom worth alerting on is *correct* outside a session: the Gateway restarts nightly
+at 23:45 by design, the scanner returns nothing at 21:00, there are no opportunities on a Sunday.
+An alert that fires then gets muted — and a muted alert is worse than none, because it looks like
+coverage.
+
+So the app publishes `scs_trading_day` and `scs_in_scan_window` **from the same variables the tick
+branches on**, so the alert and the app can never disagree about whether it is a session, and every
+symptom rule multiplies by both. `test_in_session_symptoms_are_gated_on_the_session` checks it
+rather than trusting it.
+
+### Two consequences worth recording separately
+
+**The canary gets an alert back without re-creating the automation layer.** #346's verdicts have
+been written to a file every five minutes since the CI watchdog asserting them was rolled back with
+everything else (§D-27, #377) — read by nobody. `SCSCanaryFailing` reads them now. This does not
+reverse §D-27: Grafana is not this repo's CI, opens no issues, comments on no PRs and dispatches no
+work. It notifies one person. §D-27 rejected an autonomous layer *acting on the repo*; it did not
+reject being told when the data is wrong.
+
+**A metric the app structurally cannot produce.** `publish-dashboard` is a GitHub cron, and GitHub
+silently disables scheduled workflows after ~60 days of repo inactivity — the documented way the
+dashboard freezes while the app is perfectly healthy. `scripts/dashboard-freshness.sh` probes the
+URL the browser actually fetches and writes node_exporter textfile metrics. A textfile rather than
+a Pushgateway: a oneshot is gone before the next scrape, and a Pushgateway is a second service on a
+4 GB box that famously keeps publishing the last value of a job that no longer exists.
+
+**Deliberately deferred:** Loki log shipping. The structured JSON is already there and the Alloy
+seam is one component, but nothing in the alert set depends on logs and 50 GB/month of free ingest
+is the kind of allowance that quietly stops being free.
+
+Refs #5, #247, #254, #255, #264, #273, #318, #319, #321, #346, #377, #406, #663, #677

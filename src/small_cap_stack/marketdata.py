@@ -20,6 +20,7 @@ from .capture import Bar, NewsItem
 from .clock import ET
 from .config import Settings
 from .logging import get_logger
+from .monitoring import ibkr_request
 from .scanner import Candidate
 
 log = get_logger(__name__)
@@ -49,17 +50,21 @@ class IBKRMarketData:
         day's extended-session close so the 1-day window lands on the right session (#100).
         """
         contract = self._contract(candidate)
-        async with asyncio.timeout(self.settings.ibkr_request_timeout_sec):
-            rows = await self.ib.reqHistoricalDataAsync(
-                contract,
-                endDateTime=end if end is not None else "",  # default now (session settled)
-                durationStr=self.settings.eod_bars_duration,
-                barSizeSetting="5 mins",
-                whatToShow="TRADES",
-                useRTH=False,
-                formatDate=2,  # UTC timestamps
-                keepUpToDate=False,
-            )
+        # The one rate-limited call in the system (<60 requests / 10 min): `capture.py` paces the
+        # batch with `ibkr_hist_pacing_sec`, and a pacing violation surfaces here as a timeout
+        # rather than as an error, which is why `ibkr_request` separates the two.
+        with ibkr_request("historical_bars"):
+            async with asyncio.timeout(self.settings.ibkr_request_timeout_sec):
+                rows = await self.ib.reqHistoricalDataAsync(
+                    contract,
+                    endDateTime=end if end is not None else "",  # default now (session settled)
+                    durationStr=self.settings.eod_bars_duration,
+                    barSizeSetting="5 mins",
+                    whatToShow="TRADES",
+                    useRTH=False,
+                    formatDate=2,  # UTC timestamps
+                    keepUpToDate=False,
+                )
         out: list[Bar] = []
         for b in rows:
             start = cast(datetime, b.date)
@@ -84,17 +89,18 @@ class IBKRMarketData:
     ) -> list[NewsItem]:
         end = datetime.now(UTC)
         start = end - timedelta(days=lookback_days)
-        async with asyncio.timeout(self.settings.ibkr_request_timeout_sec):
-            rows = cast(
-                "list[Any]",
-                await self.ib.reqHistoricalNewsAsync(
-                    candidate.con_id,
-                    self.settings.news_providers,
-                    start.strftime(_NEWS_FMT),
-                    end.strftime(_NEWS_FMT),
-                    limit,
-                ),
-            )
+        with ibkr_request("news"):
+            async with asyncio.timeout(self.settings.ibkr_request_timeout_sec):
+                rows = cast(
+                    "list[Any]",
+                    await self.ib.reqHistoricalNewsAsync(
+                        candidate.con_id,
+                        self.settings.news_providers,
+                        start.strftime(_NEWS_FMT),
+                        end.strftime(_NEWS_FMT),
+                        limit,
+                    ),
+                )
         return [
             NewsItem(
                 time=str(n.time),

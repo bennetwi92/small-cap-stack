@@ -1,0 +1,387 @@
+# Alert rules for the Phase-1 tracker (#688). Prometheus rule format; load with:
+#
+#   mimirtool rules load deploy/grafana/alerts/scs-rules.yaml \
+#     --address="$GRAFANA_CLOUD_PROM_BASE" --id="$GRAFANA_CLOUD_PROM_USER" --key="$GRAFANA_CLOUD_API_KEY"
+#
+# ── The rule every rule here follows ────────────────────────────────────────────────────────
+# An alert that fires when nothing is wrong gets muted, and a muted alert is worse than no alert:
+# it looks like coverage. So:
+#
+#   * Anything that is NORMAL outside a session is multiplied by `scs_trading_day` and
+#     `scs_in_scan_window`. The Gateway is down every night at 23:45 by design; there are no
+#     opportunities on a Sunday; the scanner returns nothing at 21:00. None of those is an incident.
+#   * `for:` is set to longer than the thing's normal recovery. The supervisor reconnects with
+#     backoff, `publish-dashboard` runs every 15 min and GitHub's cron lags — a 2-minute window
+#     would page on all three routinely.
+#   * Every alert names what to DO, not just what is true. `deploy/RUNBOOK.md` sections are cited
+#     because at 04:00 the answer needs to be one link away.
+#
+# ── Severities ─────────────────────────────────────────────────────────────────────────────
+#   critical  data is being lost right now, or money is at risk. Notify immediately.
+#   warning   something is degraded and will cost data if ignored for a day.
+#   info      worth knowing at the next look; never notifies.
+#
+# Healthchecks.io stays the primary liveness signal (`monitoring.py`) — it is off-box and does not
+# depend on Alloy, this file, or Grafana being up. These rules are the layer that answers "is it
+# still doing its job CORRECTLY", which a dead-man's switch structurally cannot.
+
+namespace: scs
+
+groups:
+  # ───────────────────────────────────────────────────────────────────── is anything reporting?
+  - name: scs-liveness
+    interval: 1m
+    rules:
+      - alert: SCSCollectorSilent
+        # FIRST, because it is the alert that makes the others trustworthy. If Alloy dies, every
+        # rule below stops evaluating and Grafana goes quiet — which reads exactly like health.
+        # `absent()` is the only form that fires on the absence of a series rather than its value.
+        expr: absent(up{job="scs-app"})
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: No metrics from the box at all
+          description: >-
+            Nothing has scraped `scs-app` for 10 minutes, so every other rule in this file is
+            currently blind. Either Alloy is down, its remote_write credentials expired, or the box
+            is off the network. Check `systemctl status alloy` and `journalctl -u alloy -n 50`
+            (RUNBOOK §7). Healthchecks.io is unaffected and remains the liveness answer.
+
+      - alert: SCSAppDown
+        expr: up{job="scs-app"} == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: The tracker process is not serving /metrics
+          description: >-
+            The container is gone, wedged, or the metrics server never started. `docker compose ps`
+            and `docker compose logs app` on the box. If it OOMed, confirm the Actions runner came
+            back too — a failed runner makes CI queue silently forever (RUNBOOK §9/§9.1).
+
+      - alert: SCSTickStalled
+        expr: increase(scs_scan_ticks_total[15m]) < 1
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: The tick has not run in 15 minutes
+          description: >-
+            The tick is a 60s interval job that self-gates by time window — it runs 24/7, so this
+            is unconditional. A stalled tick means the event loop is blocked or the scheduler died.
+            Healthchecks.io should already have alerted; if it has not, that is a second finding.
+
+  # ─────────────────────────────────────────────────────── in-session: is it seeing the market?
+  - name: scs-session
+    interval: 1m
+    rules:
+      - alert: SCSFeedDownInSession
+        # The #677 failure, which is the reason this rule is separate from the connection one.
+        # Error 1100 leaves the API socket OPEN: the process is connected, the tick completes, and
+        # the app sees no prices at all. In Phase 1 that is a gap in the record. In Phase 2 an
+        # app-side stop cannot fire on a feed that is not delivering, and it looks like a quiet tape.
+        expr: scs_ibkr_data_farm_ok == 0 and scs_in_scan_window == 1 and scs_trading_day == 1
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: IBKR market-data farm is down during the scan window
+          description: >-
+            Error 1100 with no 1101/1102 recovery for 5 minutes inside a live session. The socket
+            is up and no data is arriving. Check the Gateway container and IBKR's own status page;
+            `docker compose logs ibgateway`.
+
+      - alert: SCSDisconnectedInSession
+        expr: scs_ibkr_connected == 0 and scs_in_scan_window == 1 and scs_trading_day == 1
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: Not connected to IBKR during the scan window
+          description: >-
+            10 minutes of a live session with no connection — every one of those ticks skipped the
+            scan, so the day's record has a hole in it. The supervisor retries with backoff, so
+            this firing means the retries are not succeeding. Common cause is the session being
+            taken over by another login (`EXISTING_SESSION_DETECTED_ACTION`).
+
+      - alert: SCSScannerReturningNothing
+        # Deliberately long. A genuinely quiet pre-market morning can return zero rows for a while,
+        # and this must not be the alert that teaches you to ignore the others.
+        expr: scs_scan_candidates == 0 and scs_in_scan_window == 1 and scs_trading_day == 1
+        for: 60m
+        labels: { severity: warning }
+        annotations:
+          summary: Scanner has returned zero candidates for an hour of a live session
+          description: >-
+            The scanner is answering but the universe filter is matching nothing — a stale
+            subscription, or a filter change that is stricter than intended. This is invisible to
+            anything that only counts successes, because the requests are all succeeding.
+
+  # ─────────────────────────────────────────────────── correctness of what we are about to trade
+  - name: scs-integrity
+    interval: 1m
+    rules:
+      - alert: SCSTradingModeMismatch
+        # The one alert here that is about MONEY rather than data. The settings validator can see
+        # IBKR_PORT but not the Gateway container's TRADING_MODE, so the right port pointed at a
+        # Gateway logged into the other mode passes startup silently (#663). The connected
+        # account's id is the only authoritative answer.
+        expr: scs_trading_mode_mismatch == 1
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: IBKR_TRADING_MODE disagrees with the connected account
+          description: >-
+            The app is labelled `{{ $labels.mode }}` and the broker says otherwise. Everything —
+            the dashboard, the ledger, the reports — is currently attributing activity to the wrong
+            account. Stop before anything is armed. Check `IBKR_TRADING_MODE` and `IBKR_PORT` in
+            the box's `.env` against the Gateway container's own `TRADING_MODE`.
+
+      - alert: SCSClientIdRotatedWithWorkingOrders
+        # Silent until Phase 2 by construction, and unrecoverable when it happens. IB scopes order
+        # events and cancellation rights to the PLACING client id, so a rotation while an order is
+        # working orphans it: no `orderStatus` for our own stop, and no way to cancel it. The fix
+        # is `ibkr_pin_client_id=true` BEFORE the first order (#677) — this catches the case where
+        # that was forgotten, which nothing else can.
+        expr: changes(scs_ibkr_client_id[1h]) > 0 and scs_ibkr_open_orders > 0
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: The IBKR client id rotated while orders were working
+          description: >-
+            A resting order placed under the previous client id is now ORPHANED — the app will not
+            receive its status and cannot cancel it. Reconcile against the broker by `orderRef`
+            immediately, and set `IBKR_PIN_CLIENT_ID=true`.
+
+  # ───────────────────────────────────────────────────────────── throughput and the Phase-1 record
+  - name: scs-throughput
+    interval: 1m
+    rules:
+      - alert: SCSTickSlow
+        # 30s is half the 60s interval — the same threshold the app itself warns at, chosen because
+        # `tick` runs with max_instances=1, so an over-budget tick makes APScheduler silently SKIP
+        # the next one. Alerting at half budget is alerting while there is still headroom, which is
+        # the whole point of #321: the previous discovery route was an OOM.
+        expr: histogram_quantile(0.95, sum(rate(scs_tick_duration_seconds_bucket[15m])) by (le)) > 30
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: Tick p95 is over half the 60s budget
+          description: >-
+            At 60s the scheduler starts skipping ticks outright, which is a scanner gap in the
+            Phase-1 dataset. Open "SCS — Tracker" and read the by-phase panel: it has been the scan
+            (#321) and the status export as history grew (#273), and the fix differs.
+
+      - alert: SCSJobsMissed
+        expr: increase(scs_jobs_missed_total[1h]) > 0
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: The scheduler skipped a job entirely
+          description: >-
+            A skipped job is not a slow job — it never ran. If it was `eod_bars`, that day's bars
+            were not fetched and the morning back-fill is now the only thing that will recover them.
+
+      - alert: SCSEodJobStale
+        # 36h, not 24: a long weekend is not a failure, and the daily jobs legitimately do not run
+        # on a Sunday. 36h means "it missed a scheduled run on a day it should have run".
+        expr: (time() - scs_job_last_success_timestamp_seconds{job=~"eod_bars|eod_report"}) > 129600
+        for: 30m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.job }} has not succeeded in 36 hours"
+          description: >-
+            `eod_bars` is the ONLY thing that fetches a day's 5-min bars, and the day's bars are the
+            product. Check whether the morning back-fill (`eod_backfill`) has been recovering the
+            gap or failing alongside it.
+
+      - alert: SCSJobFailing
+        expr: sum by (job) (increase(scs_job_runs_total{outcome="error"}[6h])) > 2
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.job }} raised on more than two runs in 6 hours"
+          description: >-
+            Jobs that ran and raised, as distinct from jobs the scheduler skipped. Both end with
+            work not done; only this one leaves a traceback in `docker compose logs app`.
+
+      - alert: SCSSmallFileExplosion
+        # `delta`, not `increase`: this is a gauge that both rises and falls (compaction rewrites a
+        # closed partition into one file), and `increase` on a gauge is meaningless.
+        expr: delta(scs_dataset_files[1h]) > 1500
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "`{{ $labels.dataset }}` gained {{ $value | humanize }} Parquet files in an hour"
+          description: >-
+            For this store read cost tracks FILE count, not rows: 32k one-row files read ~40x
+            slower than the same rows in a few hundred. This is the batching regression of
+            #247/#318/#319 recurring, and it shows up here days before it shows up as a slow tick.
+
+      - alert: SCSStoreReadsSlow
+        expr: histogram_quantile(0.95, sum(rate(scs_store_read_seconds_bucket[30m])) by (le, dataset)) > 5
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "Store reads of `{{ $labels.dataset }}` are over 5s at p95"
+          description: >-
+            The leading indicator for the file-count cost model. Check the file-count panel first;
+            if the count is flat and reads are slow, the disk is the suspect instead.
+
+  # ─────────────────────────────────────────────── is the data we are collecting actually correct?
+  - name: scs-data-quality
+    interval: 5m
+    rules:
+      - alert: SCSCanaryFailing
+        # The verdicts #346 wrote to a JSON file that, since the automation rollback (#377), nothing
+        # has read automatically. This is what reads them — in Grafana, which is not this repo's CI
+        # and does not open issues, so it does not re-create the layer that was rolled back.
+        expr: scs_canary_ok == 0 and on() scs_trading_day == 1
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "Canary assertion `{{ $labels.assertion }}` has been failing for 30 minutes"
+          description: >-
+            A positive-confirmation assertion over today's raw captures is false. This is the
+            failure mode of a store-raw/compute-on-read system: a dead float source, a dead news
+            feed or glitched bars produce confident WRONG opportunities while every liveness signal
+            stays green. `float_coverage` failing means low-float runners are being disqualified
+            from analysis permanently (#255).
+
+      - alert: SCSCaptureFailing
+        expr: sum by (stage) (increase(scs_capture_failures_total[1h])) > 20
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value | humanize }} capture failures at stage `{{ $labels.stage }}` in an hour"
+          description: >-
+            These are deliberately swallowed so one symbol cannot stall the batch (#254). A steady
+            rate means a source is down rather than a symbol being odd. Read the tracebacks in
+            `docker compose logs app`.
+
+      - alert: SCSDashboardWriteFailing
+        expr: sum by (artifact) (increase(scs_dashboard_write_failures_total[1h])) > 5
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "The `{{ $labels.artifact }}` payload has failed to write repeatedly"
+          description: >-
+            Best-effort by design — a dashboard write must never break a tick — which is exactly
+            why it needs an alert rather than a log line.
+
+      - alert: SCSPublishedDashboardStale
+        # 90 min against a 15-minute cron: three missed cycles, which clears GitHub's own scheduling
+        # lag (acknowledged in publish-dashboard.yml) without waiting half a day.
+        expr: scs_published_status_age_seconds > 5400
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: The published dashboard is over 90 minutes stale
+          description: >-
+            The app can be perfectly healthy while this fires — publishing is a GitHub cron on the
+            self-hosted runner. Check `publish-dashboard` under Actions for a DISABLED banner
+            first: GitHub auto-disables scheduled workflows after ~60 days of repo inactivity and
+            it is the only schedule left (RUNBOOK §7). Otherwise check the runner is not
+            `offline (busy)` after an OOM.
+
+      - alert: SCSPublishProbeFailing
+        expr: scs_published_probe_success == 0
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: Cannot fetch or parse the published status payload
+          description: >-
+            Either the branch is gone / empty, or something served a 200 that is not our JSON.
+            Try the URL by hand; `scripts/dashboard-freshness.sh` is what produces this metric.
+
+      - alert: SCSPagesDown
+        expr: probe_success{instance=~".*github\\.io.*"} == 0
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: The Pages dashboard is not returning 200
+          description: >-
+            Pages is published by our own `pages.yml` (#486). Note that a post-deploy JavaScript
+            null-property error is NOT this alert and is not an outage — assets are cached for 10
+            minutes and unversioned, so a returning visitor can run the previous JS against the
+            current HTML (CLAUDE.md). This fires only when the site itself does not answer.
+
+  # ────────────────────────────────────────────────────────────────── the box (2 vCPU / 4 GB)
+  - name: scs-box
+    interval: 1m
+    rules:
+      - alert: SCSMemoryLow
+        # 400 MB is `health_min_mem_available_mb`, so the alert and the app's own health verdict
+        # agree by construction rather than by coincidence.
+        expr: node_memory_MemAvailable_bytes < 400e6
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: Under 400 MB available on the box
+          description: >-
+            This is the precursor to the failure that cost 5h37m of CI (#264): sshd stops
+            answering, the runner drops to `offline (busy)`, and you can then neither cancel the
+            job nor SSH in. Act NOW while SSH still works. Recovery and the out-of-band `hcloud`
+            path are RUNBOOK §9/§9.1.
+
+      - alert: SCSMemoryPressureSustained
+        # PSI leads the kill and it leads it by minutes — it is the only signal that fires while
+        # there is still time to do something.
+        expr: rate(node_pressure_memory_waiting_seconds_total[5m]) > 0.10
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: The box has been stalling on memory for 10 minutes
+          description: >-
+            Something is thrashing. Most likely a dashboard backfill or a harvest running larger
+            than its envelope — never run `backfill-dashboard --all` (RUNBOOK §9).
+
+      - alert: SCSOOMKill
+        expr: increase(node_vmstat_oom_kill[10m]) > 0
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: The kernel OOM-killed something on the box
+          description: >-
+            A HOST-level kill, as opposed to a container dying inside its own cgroup (which is the
+            intended outcome and is a separate panel). Confirm what died, and confirm the Actions
+            runner came back — a failed runner makes CI queue silently forever (RUNBOOK §9).
+
+      - alert: SCSDiskFilling
+        expr: 100 - (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} * 100) > 88
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: Root filesystem is over 88% used
+          description: >-
+            The nightly harvest ABORTS below `harvest_min_disk_free_mb` (2 GB) rather than filling
+            the disk, so the first symptom of this is a harvest that silently stops running.
+
+      - alert: SCSDiskWillHitHarvestFloor
+        # The threshold is `harvest_min_disk_free_mb` (2 GB) and the horizon is one night, so this
+        # fires while there is still a night to save rather than after a harvest has been skipped.
+        expr: predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[6h], 24 * 3600) < 2e9
+        for: 1h
+        labels: { severity: warning }
+        annotations:
+          summary: Free disk is trending below the harvest's 2 GB floor within 24h
+          description: >-
+            At the current rate the overnight harvest will refuse to start. Read the per-dataset
+            bytes panel on "SCS — Data pipeline" to see what is growing, then prune docker images
+            or compact closed partitions.
+
+      - alert: SCSContainerRestartLoop
+        expr: changes(container_start_time_seconds{name=~".+"}[30m]) > 2
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "`{{ $labels.name }}` has restarted more than twice in 30 minutes"
+          description: >-
+            `restart: unless-stopped` brings containers back on their own, so a crash loop is
+            otherwise invisible — the container is "up" every time you look at it.
+
+      - alert: SCSSystemdUnitFailed
+        expr: node_systemd_unit_state{state="failed"} == 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "systemd unit `{{ $labels.name }}` is failed"
+          description: >-
+            Only our four units are scraped. A failed `actions.runner.*` is the sneaky one: CI
+            queues silently forever rather than failing, so every workflow looks merely slow.

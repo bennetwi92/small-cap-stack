@@ -23,7 +23,7 @@ from .clock import ET
 from .config import Settings
 from .fundamentals import MultiFundamentals, fundamentals_record
 from .logging import get_logger
-from .monitoring import BARS_APPENDED, OPPORTUNITIES
+from .monitoring import BARS_APPENDED, CAPTURE_FAILURES, OPPORTUNITIES
 from .scanner import Candidate
 from .storage import Store
 
@@ -200,6 +200,7 @@ class CaptureService:
                 try:
                     await self._open_opportunity(oid, c, now, trading_date)
                 except Exception:  # noqa: BLE001 — one candidate must not stall the rest
+                    CAPTURE_FAILURES.labels(stage="open_opportunity").inc()
                     log.warning(
                         "capture.open_opportunity_failed", opportunity_id=oid, exc_info=True
                     )
@@ -216,6 +217,7 @@ class CaptureService:
         try:
             await self.store.append_async("scanner_hits", hits, partition_date=trading_date)
         except Exception:  # noqa: BLE001 — a hit-log failure must not abort the tick
+            CAPTURE_FAILURES.labels(stage="scanner_hits").inc()
             log.warning("capture.scanner_hits_append_failed", count=len(hits), exc_info=True)
 
     async def _open_opportunity(
@@ -240,6 +242,7 @@ class CaptureService:
                 c, lookback_days=self.settings.news_lookback_days, limit=self.settings.news_max
             )
         except Exception:  # noqa: BLE001 — news is best-effort; never block opening the record
+            CAPTURE_FAILURES.labels(stage="news").inc()
             log.warning("capture.news_fetch_failed", opportunity_id=oid, exc_info=True)
             items = []
         if items:
@@ -287,6 +290,7 @@ class CaptureService:
             try:
                 bars = await self.bars.fetch_day_bars(cand, trading_date=trading_date, end=end)
             except Exception:  # noqa: BLE001 — one symbol's failure must not stall the batch
+                CAPTURE_FAILURES.labels(stage="day_bars").inc()
                 log.warning("capture.day_bars_failed", opportunity_id=oid, exc_info=True)
                 continue
             if not bars:
@@ -356,6 +360,7 @@ class CaptureService:
                 if await self.capture_missing_bars(d):
                     filled.append(d)
             except Exception:  # noqa: BLE001 — one day's failure must not stall the rest
+                CAPTURE_FAILURES.labels(stage="backfill").inc()
                 log.warning("capture.backfill_failed", date=d.isoformat(), exc_info=True)
         return filled
 
@@ -383,6 +388,7 @@ class CaptureService:
                     limit=self.settings.news_max,
                 )
             except Exception:  # noqa: BLE001 — one symbol's failure must not stall the batch
+                CAPTURE_FAILURES.labels(stage="day_news").inc()
                 log.warning("capture.day_news_failed", opportunity_id=oid, exc_info=True)
                 continue
             if items:
@@ -444,6 +450,7 @@ class CaptureService:
             try:
                 funds = await self.fundamentals.fetch_all(cand)
             except Exception:  # noqa: BLE001 — one symbol's failure must not stall the batch
+                CAPTURE_FAILURES.labels(stage="fundamentals").inc()
                 log.warning("capture.day_fundamentals_failed", opportunity_id=oid, exc_info=True)
                 continue
             if not funds:

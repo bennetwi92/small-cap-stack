@@ -1,0 +1,227 @@
+// Grafana Alloy — the box's collector (#688). Install per deploy/RUNBOOK.md §7.
+//
+// Everything Grafana Cloud knows about this system arrives through this file. Before #688 it was
+// not in the repo at all: the setup lived only on the box, which meant it could not be reviewed,
+// diffed or rebuilt after a box loss, and a metric renamed in `monitoring.py` broke a dashboard
+// nobody could find the definition of.
+//
+// FOUR sources, in descending order of how often they answer a question:
+//
+//   1. the app itself      127.0.0.1:9090/metrics   — src/small_cap_stack/monitoring.py
+//   2. the host            node_exporter            — the #264/#273 OOMs, disk, CPU steal
+//   3. the containers      cadvisor                 — restarts, OOM kills, per-cgroup memory
+//   4. the outside world   blackbox                 — is the published dashboard actually up
+//
+// ⚠️ Credentials come from /etc/alloy/scs.env and are NEVER written here. That file is
+// root-owned 0600 on the box and is not in git; `deploy/alloy/scs.env.example` is the template.
+//
+// ⚠️ Series budget. Grafana Cloud's free tier bills 10k ACTIVE SERIES, and the app is the cheap
+// part of that (~450). node_exporter ships ~800 with everything on and cadvisor will happily emit
+// thousands of per-container filesystem and per-interface series, so both are trimmed at the
+// source (`set_collectors`) and again in `prometheus.relabel.trim` below. research/observability.md
+// carries the arithmetic. If you add a collector, re-check the total in Grafana's
+// `grafana_slo/usage` panel before assuming it fits.
+//
+// ⚠️ Requires **Alloy >= 1.5** for `sys.env(...)`. Older builds spell it `env(...)`; if
+// `alloy fmt` rejects this file on a box that predates the rename, upgrade the package rather than
+// downgrading the config — the credentials must stay out of it either way.
+//
+// Deliberately NOT here: Loki log shipping. The app already logs structured JSON (JSON_LOGS=true)
+// and `loki.source.docker` + `loki.process` would parse it into labelled streams — but nothing in
+// the alert rules depends on logs today, and shipping them is the kind of thing that quietly
+// becomes the reason the free tier stops being free. The seam is one component; add it when a
+// dashboard panel actually wants to link to the lines behind a spike.
+
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+// ---------------------------------------------------------------- 1. the app's own metrics
+
+prometheus.scrape "scs_app" {
+  targets = [{
+    __address__ = "127.0.0.1:9090",
+    instance    = constants.hostname,
+  }]
+  job_name = "scs-app"
+  // The tick runs every 60s (`tick_interval_sec`), so a 60s scrape can straddle two ticks and
+  // alias the last-value gauges — `scs_tick_seconds` would visibly skip ticks. 30s costs nothing
+  // at this series count and makes the gauges honest.
+  scrape_interval = "30s"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.relabel.trim.receiver]
+}
+
+// ---------------------------------------------------------------- 2. the host
+
+prometheus.exporter.unix "host" {
+  // Explicit list rather than the defaults: the defaults include collectors this box has no use
+  // for (hwmon, infiniband, nfs, zfs, thermal_zone) and each one is series we pay for forever.
+  set_collectors = [
+    "cpu",
+    "diskstats",
+    "filefd",
+    "filesystem",
+    "loadavg",
+    "meminfo",
+    "netdev",
+    "pressure",
+    "stat",
+    "systemd",
+    "textfile",
+    "vmstat",
+  ]
+
+  filesystem {
+    // The docker overlay2 layers are one mount per container layer and churn on every deploy —
+    // hundreds of short-lived series that say nothing. The volume holding /data is what matters,
+    // and it is on the root filesystem.
+    mount_points_exclude = "^/(dev|proc|sys|run|var/lib/docker/.+|var/lib/containers/.+)($|/)"
+    fs_types_exclude     = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|securityfs|selinuxfs|squashfs|sysfs|tracefs)$"
+  }
+
+  systemd {
+    // Only OUR units. Without this every systemd unit on the box gets three series apiece, which
+    // is most of a free tier spent on `man-db.timer`. These four are the ones whose failure is a
+    // real incident: the tracker, the nightly harvest (#431), the off-box backup (#48), and the
+    // Actions runner — a `failed` runner makes CI queue silently forever (CLAUDE.md).
+    unit_include = "^(small-cap-stack|scs-harvest|scs-backup|actions\\.runner\\..+)\\.(service|timer)$"
+  }
+
+  textfile {
+    // How a job that is NOT a long-lived process reports. A systemd oneshot cannot be scraped —
+    // it is gone before the next scrape — so the harvest, the backup and the dashboard-freshness
+    // probe write a `.prom` file here and node_exporter serves it. The alternative is a
+    // Pushgateway, which is a second thing to run on a 4 GB box and famously keeps publishing the
+    // last value of a job that has been deleted.
+    directory = "/var/lib/node_exporter/textfile_collector"
+  }
+}
+
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  job_name        = "scs-host"
+  scrape_interval = "30s"
+  forward_to      = [prometheus.relabel.trim.receiver]
+}
+
+// ---------------------------------------------------------------- 3. the containers
+
+prometheus.exporter.cadvisor "containers" {
+  docker_host = "unix:///var/run/docker.sock"
+  // Docker containers only — otherwise every systemd scope on the box is a "container".
+  docker_only = true
+  // Container LABELS as metric labels is the classic free-tier accident: compose stamps a dozen
+  // labels on each container (project, service, config-hash, oneoff…) and the config-hash changes
+  // on every deploy, so each deploy mints a fresh set of series that never expire.
+  store_container_labels = false
+  storage_duration       = "5m"
+}
+
+prometheus.scrape "containers" {
+  targets         = prometheus.exporter.cadvisor.containers.targets
+  job_name        = "scs-containers"
+  scrape_interval = "60s"
+  forward_to      = [prometheus.relabel.trim.receiver]
+}
+
+// ---------------------------------------------------------------- 4. the outside world
+
+prometheus.exporter.blackbox "public" {
+  config = "{ modules: { http_2xx: { prober: http, timeout: 10s, http: { valid_status_codes: [200], preferred_ip_protocol: \"ip4\", fail_if_body_not_matches_regexp: [] } } } }"
+
+  // The Pages frontend. It is served by our own pages.yml (#486) from `docs/`, and its failure
+  // mode is a deploy that publishes a broken tree — which no in-app metric can see, because the
+  // app is not involved in serving it at all.
+  target {
+    name    = "pages_dashboard"
+    address = "https://bennetwi92.github.io/small-cap-stack/"
+    module  = "http_2xx"
+  }
+
+  // The published payload the frontend actually reads. A 404 here means `publish-dashboard`
+  // stopped running or force-pushed an empty tree — and GitHub silently DISABLES scheduled
+  // workflows after ~60 days of repo inactivity (RUNBOOK §7), which is the documented way this
+  // breaks. Probing the URL the browser fetches is the only check that covers the whole chain.
+  target {
+    name    = "published_status_payload"
+    address = "https://raw.githubusercontent.com/bennetwi92/small-cap-stack/dashboard-data/status.json"
+    module  = "http_2xx"
+  }
+}
+
+prometheus.scrape "blackbox" {
+  targets  = prometheus.exporter.blackbox.public.targets
+  job_name = "scs-blackbox"
+  // Slow on purpose: this leaves the box and hits someone else's rate limits. The failure it
+  // catches is measured in hours (a disabled cron), not seconds.
+  scrape_interval = "5m"
+  scrape_timeout  = "30s"
+  forward_to      = [prometheus.relabel.trim.receiver]
+}
+
+// ---------------------------------------------------------------- trim, then ship
+
+prometheus.relabel "trim" {
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+
+  // cadvisor's per-container filesystem series are one set per device per container and answer a
+  // question node_exporter already answers for the only disk this box has.
+  rule {
+    source_labels = ["__name__"]
+    regex         = "container_fs_(inodes|io_current|io_time_seconds_total|io_time_weighted_seconds_total|read_seconds_total|sector_(reads|writes)_total|write_seconds_total).*"
+    action        = "drop"
+  }
+
+  // Per-container tcp/udp socket state: ~40 series a container, all zero on this box.
+  rule {
+    source_labels = ["__name__"]
+    regex         = "container_(network_tcp|network_udp|network_advance_tcp)_usage_total"
+    action        = "drop"
+  }
+
+  // Go runtime internals of the exporters themselves. We are not debugging Alloy's GC.
+  rule {
+    source_labels = ["__name__", "job"]
+    separator     = "@"
+    regex         = "go_(gc|memstats|sched)_.*@scs-(host|containers|blackbox)"
+    action        = "drop"
+  }
+
+  // Every series carries where it came from. One box today — and the day there are two, this is
+  // what stops the dashboards silently summing them.
+  rule {
+    target_label = "box"
+    replacement  = constants.hostname
+    action       = "replace"
+  }
+}
+
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_PROM_URL")
+
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_PROM_USER")
+      password = sys.env("GRAFANA_CLOUD_PROM_KEY")
+    }
+
+    // The box is 2 vCPU / 4 GB and has been taken down hard by memory pressure three times
+    // (#264/#273/#320). A remote_write queue is unbounded by default in the sense that matters:
+    // when Grafana Cloud is unreachable, samples accumulate in memory. Capping the shards and the
+    // WAL means a Grafana outage costs us a gap in the graphs — which is the correct thing for it
+    // to cost, versus the collector becoming the reason the tracker gets OOM-killed.
+    queue_config {
+      capacity             = 2500
+      max_shards           = 4
+      max_samples_per_send = 1000
+      batch_send_deadline  = "5s"
+    }
+  }
+
+  wal {
+    truncate_frequency = "30m"
+    max_keepalive_time = "2h"
+  }
+}

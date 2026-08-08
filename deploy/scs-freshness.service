@@ -1,0 +1,21 @@
+[Unit]
+# Measures how stale the PUBLISHED dashboard payload is, from outside the app (#688).
+# See scripts/dashboard-freshness.sh for why this cannot be an in-app metric.
+Description=small-cap-stack published-dashboard freshness probe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/small-cap-stack/scripts/dashboard-freshness.sh
+# Deliberately no Restart=: the timer is the retry, and a restart loop against
+# raw.githubusercontent.com is how an IP gets rate-limited for the box's real traffic.
+# Bounded so a hung TLS handshake cannot leave a unit running until the next fire.
+TimeoutStartSec=60
+# It curls one URL and writes one small file — this is not the job that needs the box's memory.
+Slice=scs-jobs.slice
+MemoryMax=64M
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

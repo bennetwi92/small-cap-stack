@@ -28,6 +28,14 @@ from uuid import uuid4
 import duckdb
 import polars as pl
 
+from .monitoring import (
+    STORE_APPEND_FAILURES,
+    STORE_APPEND_ROWS,
+    STORE_APPEND_SECONDS,
+    STORE_READ_SECONDS,
+    observe,
+)
+
 
 class Store:
     """Append-only, date-partitioned Parquet datasets with DuckDB query-on-read."""
@@ -69,19 +77,25 @@ class Store:
         part_dir.mkdir(parents=True, exist_ok=True)
         path = part_dir / f"part-{uuid4().hex}.parquet"
         tmp = path.with_name(path.name + ".tmp")
+        # Measured from here, after the empty-frame short-circuit above: a no-op append is
+        # instantaneous by construction, and counting thousands of them would drag every percentile
+        # down until a genuinely slow write no longer moved p95 at all.
         try:
-            pl.DataFrame(rows).write_parquet(tmp)
-            with open(tmp, "rb") as fh:  # flush the data blocks before the rename commits
-                os.fsync(fh.fileno())
-            os.replace(tmp, path)  # atomic within the partition dir (same filesystem)
-            dir_fd = os.open(part_dir, os.O_RDONLY)  # ...and persist the rename itself
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
+            with observe(STORE_APPEND_SECONDS, dataset=dataset):
+                pl.DataFrame(rows).write_parquet(tmp)
+                with open(tmp, "rb") as fh:  # flush the data blocks before the rename commits
+                    os.fsync(fh.fileno())
+                os.replace(tmp, path)  # atomic within the partition dir (same filesystem)
+                dir_fd = os.open(part_dir, os.O_RDONLY)  # ...and persist the rename itself
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
         except BaseException:
+            STORE_APPEND_FAILURES.labels(dataset=dataset).inc()
             tmp.unlink(missing_ok=True)  # don't leave partials behind on a recoverable failure
             raise
+        STORE_APPEND_ROWS.labels(dataset=dataset).inc(len(rows))
         return path
 
     async def append_async(
@@ -125,17 +139,22 @@ class Store:
         files = sorted(str(p) for p in root.glob("**/*.parquet"))
         if not files:
             return pl.DataFrame()
-        con = duckdb.connect()
-        try:
-            con.execute("SET TimeZone='UTC'")  # deterministic, host-tz-independent
-            # union_by_name tolerates schema drift across append files (e.g. a nullable column
-            # that's all-null on some days), matching columns by name rather than position.
-            result: pl.DataFrame = con.execute(
-                "SELECT * FROM read_parquet(?, hive_partitioning=1, union_by_name=1)", [files]
-            ).pl()
-            return result
-        finally:
-            con.close()
+        # The leading indicator for the cost model this store is built around (CLAUDE.md): read
+        # cost tracks FILE count, so a small-file explosion shows up as read latency long before it
+        # shows up as a 36s tick or an OOM. #318/#319/#321 were all diagnosed backwards from the
+        # symptom because this number did not exist.
+        with observe(STORE_READ_SECONDS, dataset=dataset):
+            con = duckdb.connect()
+            try:
+                con.execute("SET TimeZone='UTC'")  # deterministic, host-tz-independent
+                # union_by_name tolerates schema drift across append files (e.g. a nullable column
+                # that's all-null on some days), matching columns by name rather than position.
+                result: pl.DataFrame = con.execute(
+                    "SELECT * FROM read_parquet(?, hive_partitioning=1, union_by_name=1)", [files]
+                ).pl()
+                return result
+            finally:
+                con.close()
 
     def query(self, sql: str) -> pl.DataFrame:
         """Run SQL with each populated dataset exposed as a view of its raw Parquet."""

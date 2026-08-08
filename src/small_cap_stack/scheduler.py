@@ -14,7 +14,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from .clock import ET_NAME
 from .config import Settings
 from .logging import get_logger
-from .monitoring import JOBS_MISSED
+from .monitoring import JOBS_MISSED, instrument_job
 
 log = get_logger(__name__)
 
@@ -50,32 +50,45 @@ def build_scheduler(
     def cron(t: time) -> CronTrigger:
         return CronTrigger(hour=t.hour, minute=t.minute, timezone=ET_NAME)
 
+    def add(
+        job: Job, trigger: CronTrigger | IntervalTrigger, *, job_id: str, **kwargs: Any
+    ) -> None:
+        """Register a job, instrumented (#688).
+
+        Every job goes through here rather than calling ``scheduler.add_job`` directly, so a job
+        added later is measured by construction — the same reasoning as
+        ``tests/test_settings_wiring.py`` deriving its requirement from a signature rather than
+        from a list someone maintains.
+
+        ``JOBS_MISSED`` already counted the jobs APScheduler *skipped*. This counts the ones that
+        ran and raised, which is a different failure with the same symptom — a day's bars that never
+        landed — and until now was one log line.
+        """
+        scheduler.add_job(instrument_job(job_id, job), trigger, id=job_id, **kwargs)
+
     # Daily jobs get a generous misfire grace so a transient event-loop block doesn't skip the
     # day's bar batch / report (APScheduler's default is 1s). The interval tick keeps the tight
     # default — a late tick is harmless and coalesce=True prevents pile-up.
     grace = settings.cron_misfire_grace_sec
-    scheduler.add_job(on_tick, IntervalTrigger(seconds=settings.tick_interval_sec), id="tick")
-    scheduler.add_job(
-        on_scan_start, cron(settings.scan_start), id="scan_start", misfire_grace_time=grace
-    )
-    scheduler.add_job(on_scan_end, cron(settings.scan_end), id="scan_end", misfire_grace_time=grace)
-    scheduler.add_job(
-        on_eod_bars, cron(settings.eod_bars_fetch), id="eod_bars", misfire_grace_time=grace
-    )
-    scheduler.add_job(
-        on_eod_report, cron(settings.eod_report), id="eod_report", misfire_grace_time=grace
-    )
+    add(on_tick, IntervalTrigger(seconds=settings.tick_interval_sec), job_id="tick")
+    add(on_scan_start, cron(settings.scan_start), job_id="scan_start", misfire_grace_time=grace)
+    add(on_scan_end, cron(settings.scan_end), job_id="scan_end", misfire_grace_time=grace)
+    add(on_eod_bars, cron(settings.eod_bars_fetch), job_id="eod_bars", misfire_grace_time=grace)
+    add(on_eod_report, cron(settings.eod_report), job_id="eod_report", misfire_grace_time=grace)
     # Morning catch-up: back-fill bars for any recent day the EOD batch missed (#100).
-    scheduler.add_job(
-        on_eod_backfill, cron(settings.eod_backfill), id="eod_backfill", misfire_grace_time=grace
+    add(
+        on_eod_backfill,
+        cron(settings.eod_backfill),
+        job_id="eod_backfill",
+        misfire_grace_time=grace,
     )
     # Publish the overnight harvest before the open (#458). Deliberately BEFORE `eod_backfill`
     # rather than after: the two are the only things awake between 03:00 and 04:00, and this one
     # is what the operator reads at breakfast. A missed refresh costs a day's visibility, not data.
-    scheduler.add_job(
+    add(
         on_portfolio_refresh,
         cron(settings.portfolio_refresh_et),
-        id="portfolio_refresh",
+        job_id="portfolio_refresh",
         misfire_grace_time=grace,
     )
     scheduler.add_listener(record_missed_job, EVENT_JOB_MISSED)

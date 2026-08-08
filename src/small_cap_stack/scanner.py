@@ -14,6 +14,7 @@ check runs later still, compute-on-read, and decides ``takeable`` rather than wh
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Protocol
 
 from ib_async import ScannerSubscription, TagValue
@@ -21,6 +22,7 @@ from pydantic import BaseModel
 
 from .config import Settings
 from .logging import get_logger
+from .monitoring import SCAN_CANDIDATES, SCAN_LAST_SUCCESS, ibkr_request
 
 log = get_logger(__name__)
 
@@ -94,8 +96,15 @@ class Scanner:
         sub, filters = build_subscription(self.settings)
         # Bound the request like every other IBKR call: a hung scanner would otherwise wedge the
         # tick forever and (max_instances=1) silently skip all later ticks (#163-C2).
-        async with asyncio.timeout(self.settings.ibkr_request_timeout_sec):
-            rows = await client.reqScannerDataAsync(sub, [], filters)
+        with ibkr_request("scanner"):
+            async with asyncio.timeout(self.settings.ibkr_request_timeout_sec):
+                rows = await client.reqScannerDataAsync(sub, [], filters)
         candidates = [_to_candidate(r) for r in rows[: self.settings.scan_max_rows]]
+        # A gauge and a timestamp, not a counter: "the scanner returned 0 rows for 40 minutes on a
+        # trading morning" is the symptom of a dead universe filter or a stale subscription, and it
+        # is invisible to anything that only counts successes. The timestamp separates that from
+        # the scanner not having been *called* — outside the window, or because the tick died.
+        SCAN_CANDIDATES.set(len(candidates))
+        SCAN_LAST_SUCCESS.set(time.time())
         log.info("scan.results", count=len(candidates))
         return candidates

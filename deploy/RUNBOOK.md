@@ -61,24 +61,122 @@ Expect `app.started` → `ibkr.connected` → during 04:00–11:59 ET, `scan.can
 `capture.opportunity_opened`; an `eod_<date>.md` report appears under the data volume after 16:00.
 
 ## 7. Monitoring
-- **Healthchecks.io**: create a check, paste its ping URL into `.env` (`HEALTHCHECKS_PING_URL`).
-  The app pings each tick; you get alerted if it goes silent. Set the period to a few minutes.
-- **Grafana Cloud** (optional): run Grafana Alloy/agent on the host to scrape `localhost:9090/metrics`
-  (`scs_ibkr_connected`, `scs_scan_ticks_total`, `scs_opportunities_total`, `scs_cold_disconnects_total`).
+**Why it is split in two:** Healthchecks answers *is the process alive* and Grafana answers *is it
+still doing its job correctly*. A dead-man's switch structurally cannot answer the second, and this
+app is built so that it never falls over when it stops doing its job — every dashboard write and
+every per-symbol capture is deliberately swallowed so it cannot break a tick. The reasoning, the
+alert philosophy and the series budget are **[`research/observability.md`](../research/observability.md)**.
+
+- **Healthchecks.io** (the primary liveness signal — off-box, independent of everything below):
+  create a check, paste its ping URL into `.env` (`HEALTHCHECKS_PING_URL`). The app pings on each
+  *completed* tick; you get alerted if it goes silent. Set the period to a few minutes.
+
+### 7.1 Grafana Cloud + Alloy
+Everything below is committed, so this is a re-runnable install rather than a thing that exists
+only in one person's browser. Free tier; no card. See §7.4 for what it costs in series.
+
+```bash
+# [YOU] one-time in Grafana Cloud: create a stack, then an access policy token scoped to
+# `metrics:write` ONLY. The URL/user come from the stack's "Prometheus → Send Metrics" panel.
+# Nothing else here needs a human.
+
+# 1. Alloy (Grafana's own apt repo)
+apt-get install -y gpg
+mkdir -p /etc/apt/keyrings
+wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor > /etc/apt/keyrings/grafana.gpg
+echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" \
+  > /etc/apt/sources.list.d/grafana.list
+apt-get update && apt-get install -y alloy
+
+# 2. Credentials — root-only, never in git
+install -d -m 700 /etc/alloy
+cp /opt/small-cap-stack/deploy/alloy/scs.env.example /etc/alloy/scs.env
+chmod 600 /etc/alloy/scs.env && nano /etc/alloy/scs.env        # fill in the three values
+
+# 3. Config + the textfile directory the oneshot jobs write to
+cp /opt/small-cap-stack/deploy/alloy/config.alloy /etc/alloy/config.alloy
+install -d -m 755 /var/lib/node_exporter/textfile_collector
+
+# 4. Let Alloy read the env file and the Docker socket (cadvisor)
+mkdir -p /etc/systemd/system/alloy.service.d
+printf '[Service]\nEnvironmentFile=/etc/alloy/scs.env\nSupplementaryGroups=docker\n' \
+  > /etc/systemd/system/alloy.service.d/scs.conf
+
+systemctl daemon-reload && systemctl enable --now alloy
+systemctl status alloy && journalctl -u alloy -n 30            # expect no remote_write errors
+```
+
+> ⚠️ **Re-copy `config.alloy` after every deploy that changes it.** The deploy pulls a container
+> image; it does not touch `/etc/alloy`. `systemctl reload alloy` picks up a config change without
+> dropping the WAL.
+
+**The published-dashboard freshness probe** (§7.3 explains why it cannot be an app metric):
+
+```bash
+cp /opt/small-cap-stack/deploy/scs-freshness.{service,timer} /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now scs-freshness.timer
+systemctl start scs-freshness.service
+cat /var/lib/node_exporter/textfile_collector/scs_published.prom   # expect success 1 + an age
+```
+
+**Dashboards** — import `deploy/grafana/dashboards/*.json` (Dashboards → New → Import → Upload),
+picking your Prometheus datasource for the `ds` variable. Three: **SCS — Tracker** (start here),
+**SCS — Data pipeline**, **SCS — Box**.
+
+**Alerts** — `deploy/grafana/alerts/scs-rules.yaml`, loaded with `mimirtool`:
+
+```bash
+mimirtool rules load /opt/small-cap-stack/deploy/grafana/alerts/scs-rules.yaml \
+  --address="https://prometheus-prod-XX-prod-eu-west-N.grafana.net" \
+  --id="$GRAFANA_CLOUD_PROM_USER" --key="$GRAFANA_CLOUD_API_KEY"
+mimirtool rules print --address=... --id=... --key=...    # verify what landed
+```
+Then point the `scs` namespace at a contact point in Grafana → Alerting → Notification policies.
+Route `severity=critical` to something that wakes you; `warning` to email.
+
+> ⚠️ **Editing dashboards.** Edit them in Grafana, then export and **commit the JSON**
+> (Share → Export, leave "export for sharing externally" OFF so the `ds` variable survives).
+> `tests/test_observability_contract.py` fails when a panel or an alert names a metric the app no
+> longer publishes — a renamed metric otherwise draws *No data*, which reads exactly like the thing
+> being measured being quiet.
+
+### 7.2 Reading it when something is wrong
+| symptom | look at |
+|---|---|
+| "is it up?" | **SCS — Tracker**, top row. `App`, `IBKR socket`, `Data farm`, `Mode mismatch` |
+| the tick got slow | **Tracker** → *Tick, by phase* — it has been the scan (#321) and the status export (#273), and the fix differs |
+| a day's bars are missing | **Tracker** → *Time since each job last succeeded* → `eod_bars` |
+| reads feel slow / disk growing | **Data pipeline** → *Parquet files per dataset* first, *bytes* second |
+| the numbers look wrong | **Data pipeline** → *Canary assertions* |
+| the web dashboard is stale | **Data pipeline** → *How stale is the PUBLISHED dashboard?* then §7.3 |
+| the box is struggling | **SCS — Box** → memory pressure leads the OOM kill by minutes |
+
+### 7.3 The rest of the publishing chain
 - **Dashboard data** (#68/#69): the app writes `status.json`/`stats.json` under `/data/dashboard`; the
   `publish-dashboard` workflow (self-hosted runner, every ~15 min + manual dispatch) force-pushes them
   to the orphan **`dashboard-data`** branch for the Pages frontend (#70) to poll via `raw.githubusercontent.com`.
 - **Data-quality canary** (#346): the app writes `canary.json` (float coverage / news recency /
-  bar sanity verdicts, ~5-min throttle) alongside `status.json`, for the dashboard and for manual
-  inspection. Nothing asserts it automatically — the CI watchdog that used to was rolled back
-  (#377); read it when you want a second opinion on whether a day's capture looks sane.
+  bar sanity verdicts, ~5-min throttle) alongside `status.json`. The CI watchdog that used to
+  assert it was rolled back with the automation layer (#377), so for a year nothing read it —
+  **`SCSCanaryFailing` is what reads it now** (#688). Grafana is not this repo's CI: it notifies
+  one person and cannot act on the repo, so this is not the rolled-back layer returning.
 - ⚠️ **GitHub auto-disables `schedule` workflows after ~60 days of repo inactivity** (public repos).
   `publish-dashboard` is the one schedule left, so if the dashboard stops refreshing, check its
   page under Actions for a "disabled" banner first — re-enable and dispatch a manual run. (The
   monthly `workflow-keepalive` that used to reset this timer was rolled back with the rest of the
-  automation layer, #377.)
+  automation layer, #377.) **This is why the freshness probe exists**: the app cannot see any of
+  this — it is perfectly healthy while the published dashboard is frozen — so
+  `scripts/dashboard-freshness.sh` measures it from outside, against the URL the browser fetches.
 - (Oracle only) it reclaims idle Always-Free VMs after ~30 days — add a weekly keep-alive cron.
   Hetzner has no such reclamation.
+
+### 7.4 What it costs
+~1.4k of Grafana Cloud's free **10k active series** (app ~450, node ~700, cadvisor ~250, blackbox
+~30) and 14-day retention. Three cardinality traps are already defused in `config.alloy` with the
+reasoning inline — container labels as metric labels (compose's config-hash changes on every
+deploy), every systemd unit on the box, and one overlay2 mount per container layer. Re-check
+Grafana's usage panel before adding a collector; the arithmetic is in
+[`research/observability.md`](../research/observability.md) §5.
 
 ## 8. Data + backups
 - Data lives in the `scs-data` Docker volume (`/data` in the container): Parquet datasets + EOD

@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 from ..logging import get_logger
+from ..monitoring import IBKR_DISCONNECTS
 from .retry import RetryPolicy
 
 log = get_logger(__name__)
@@ -119,7 +120,13 @@ class ConnectionSupervisor:
             if self._stopped:
                 break
 
-            if self._is_expected_restart():
+            # Counted on BOTH branches, labelled (#688). Only the cold branch alerts, and that is
+            # right — but the expected ones are the baseline that makes a cold one legible: "one
+            # expected drop a day at 23:45" is the shape of a healthy week, and an expected-restart
+            # window that starts firing five times a night is a Gateway problem nothing else names.
+            expected = self._is_expected_restart()
+            IBKR_DISCONNECTS.labels(expected=str(expected).lower()).inc()
+            if expected:
                 log.info("ibkr.disconnected", expected=True)
             else:
                 log.warning("ibkr.disconnected", expected=False)

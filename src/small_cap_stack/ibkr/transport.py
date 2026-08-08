@@ -35,7 +35,17 @@ from ib_async import IB
 
 from ..config import Settings
 from ..logging import get_logger
-from ..monitoring import TRADING_MODE_MISMATCH
+from ..monitoring import (
+    IBKR_CLIENT_ID,
+    IBKR_CONNECT_ATTEMPTS,
+    IBKR_CONNECT_FAILURES,
+    IBKR_CONNECTIVITY_EVENTS,
+    IBKR_DATA_FARM_OK,
+    IBKR_OPEN_ORDERS,
+    IBKR_POSITIONS,
+    IBKR_RESYNCS,
+    TRADING_MODE_MISMATCH,
+)
 from .errors import ConnAction, classify_connection_error
 from .mode import account_mismatch
 
@@ -118,12 +128,21 @@ class IBKRTransport:
             )
         self._connect_attempt += 1
         self._client_id = client_id
-        await self.ib.connectAsync(
-            self._s.ibkr_host,
-            self._s.ibkr_port,
-            clientId=client_id,
-            timeout=self._s.ibkr_connect_timeout_sec,
-        )
+        # Published because the id is not a constant and the consequences of it moving are severe
+        # (see point 3 in the module docstring): a rotation while an order is working orphans it.
+        # With `ibkr_pin_client_id` true this series must be FLAT, and a step in it is the alert.
+        IBKR_CLIENT_ID.set(client_id)
+        IBKR_CONNECT_ATTEMPTS.inc()
+        try:
+            await self.ib.connectAsync(
+                self._s.ibkr_host,
+                self._s.ibkr_port,
+                clientId=client_id,
+                timeout=self._s.ibkr_connect_timeout_sec,
+            )
+        except BaseException:
+            IBKR_CONNECT_FAILURES.inc()
+            raise
 
     def disconnect(self) -> None:
         self.ib.disconnect()
@@ -157,9 +176,23 @@ class IBKRTransport:
         # assumes the data farm is up until a 1100 says otherwise.
         self._connect_attempt = 0
         self._data_farm_ok = True
+        IBKR_DATA_FARM_OK.set(1)
         self._check_trading_mode()
-        orders = await self.ib.reqAllOpenOrdersAsync()
-        positions = await self.ib.reqPositionsAsync()
+        try:
+            orders = await self.ib.reqAllOpenOrdersAsync()
+            positions = await self.ib.reqPositionsAsync()
+        except BaseException:
+            # The supervisor catches this, disconnects and retries with backoff — so a resync that
+            # keeps failing is an infinite reconnect loop that never gets past `ibkr.connected`.
+            # Counting the outcome is what makes that distinguishable from a healthy connection.
+            IBKR_RESYNCS.labels(outcome="error").inc()
+            raise
+        IBKR_RESYNCS.labels(outcome="ok").inc()
+        # Zero in Phase 1 by construction. They are published anyway so the first order placed in
+        # Phase 2 is visible without a code change, and so "the broker says we hold something the
+        # app doesn't" is answerable from the same place as everything else (#313, §D-43).
+        IBKR_OPEN_ORDERS.set(len(orders))
+        IBKR_POSITIONS.set(len(positions))
         # KEEP it (#677). Logging len() and dropping the rest is what made this a log line rather
         # than a reconciliation; the OMS adopts from here.
         self.broker_state = BrokerState(
@@ -224,3 +257,10 @@ class IBKRTransport:
         elif action is ConnAction.DATA_OK:
             self._data_farm_ok = True  # 1102: link restored, subscriptions maintained
             log.info("ibkr.connectivity_restored", code=code)
+        else:
+            return  # a per-request error (bad contract, no permissions) — not a connectivity event
+        # Labelled by code, and bounded to exactly these three because everything else returned
+        # above. IBKR emits a distinct code per rejected request, so labelling the RAW code would
+        # mint a series for every bad symbol the scanner ever surfaces.
+        IBKR_CONNECTIVITY_EVENTS.labels(code=str(code)).inc()
+        IBKR_DATA_FARM_OK.set(1 if self._data_farm_ok else 0)

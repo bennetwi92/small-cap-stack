@@ -296,6 +296,31 @@ issue, whatever its labels, and it gets built.
   `HEALTHCHECKS_PING_URL`) — it pings each tick and `/fail`s if the tick dies. It predates the
   automation layer and is the signal to trust.
 
+## Observability (#688) — read [`research/observability.md`](./research/observability.md)
+Healthchecks answers *is the process alive*; **Grafana Cloud + Alloy** answers *is it still doing
+its job correctly*, which a dead-man's switch structurally cannot. The split matters because the
+app is built so it never falls over when it stops working: every dashboard write and every
+per-symbol capture is deliberately swallowed (#254), so a persistently failing writer or a dead
+float source used to produce a warning line and **nothing else**. Structurally:
+- **The collector half is in the repo** — `deploy/alloy/config.alloy`,
+  `deploy/grafana/dashboards/*.json`, `deploy/grafana/alerts/scs-rules.yaml`. It used to exist only
+  on the box. Install/read/edit procedure: `deploy/RUNBOOK.md` §7. Reasoning + the series budget:
+  `research/observability.md`. Why it is shaped this way: `decisions.md` §D-44.
+- ⚠️ **`tests/test_observability_contract.py` binds metrics ↔ panels ↔ alerts, both ways.** Rename a
+  metric without touching `deploy/grafana/` and CI fails. That is deliberate: Grafana does *not*
+  error on an unknown metric, it draws **No data** — indistinguishable from the thing being
+  measured being quiet, on the screen you use to judge health. It also fails on a metric nobody
+  watches, because 10k free series is a budget.
+- ⚠️ **Alert rules gate on `scs_trading_day` / `scs_in_scan_window`.** Almost every symptom worth
+  paging on is *correct* at 02:00 on a Sunday, and an alert that can't tell gets muted — which is
+  worse than none, because it looks like coverage. Both gauges are published from the same
+  variables `_on_tick` branches on, so the alert and the app cannot disagree.
+- **Labels come from closed sets** (`TICK_PHASES`, `CAPTURE_STAGES`, `DASHBOARD_ARTIFACTS`,
+  `IBKR_REQUEST_KINDS`), checked against their call sites by that same test. A symbol or a raw IBKR
+  error code as a label spends the free tier in a day.
+- **Adding a metric is three edits, not one**: define + wire it in `monitoring.py`, then give it a
+  panel or an alert. The test tells you which half you forgot.
+
 ## Working remotely (Claude Code on mobile / web)
 The cloud environment has GitHub access (issues, PRs, board, CI all work) and can run `make setup`/`make check`, but it does **NOT** have: the local `.venv`, the local `gh` keyring token, the `.env` file, or any **live IBKR connection**. Therefore:
 - ✅ Safe remotely: code, tests, docs, issues, PRs, reviewing CI.
