@@ -1,0 +1,94 @@
+{
+  "generated_utc": "2026-08-08T19:55:39.419492+00:00",
+  "trading_date": "2026-08-08",
+  "service": {
+    "connected": true,
+    "trading_mode": "paper",
+    "in_scan_window": false,
+    "deployed_commit": "2775689",
+    "jobs": [
+      {
+        "id": "tick",
+        "next_run_utc": "2026-08-08T15:56:39.387163-04:00"
+      },
+      {
+        "id": "eod_bars",
+        "next_run_utc": "2026-08-08T16:20:00-04:00"
+      },
+      {
+        "id": "eod_report",
+        "next_run_utc": "2026-08-08T16:30:00-04:00"
+      },
+      {
+        "id": "portfolio_refresh",
+        "next_run_utc": "2026-08-09T03:15:00-04:00"
+      },
+      {
+        "id": "eod_backfill",
+        "next_run_utc": "2026-08-09T03:45:00-04:00"
+      },
+      {
+        "id": "scan_start",
+        "next_run_utc": "2026-08-09T04:00:00-04:00"
+      },
+      {
+        "id": "scan_end",
+        "next_run_utc": "2026-08-09T11:59:00-04:00"
+      }
+    ]
+  },
+  "scanner": {
+    "last_scan_utc": null,
+    "scan_ticks_total": 586,
+    "latest_candidates": []
+  },
+  "opportunities": {
+    "open_today": 0,
+    "symbols": []
+  },
+  "data": {
+    "opportunities": {
+      "today": 0,
+      "total": 1211,
+      "files": 1225
+    },
+    "scanner_hits": {
+      "today": 0,
+      "total": 78131,
+      "files": 7569
+    },
+    "bars": {
+      "today": 0,
+      "total": 166541,
+      "files": 1262
+    },
+    "news": {
+      "today": 0,
+      "total": 10025,
+      "files": 1951
+    },
+    "fundamentals": {
+      "today": 0,
+      "total": 1211,
+      "files": 1236
+    }
+  },
+  "harvest": {
+    "sessions_done": 52,
+    "daily_done": 469,
+    "sessions_in_window": 501,
+    "calls_spent": 10567,
+    "entitlement_floor": null,
+    "oldest": "2026-04-16",
+    "newest": "2026-06-30",
+    "updated_utc": "2026-08-08T19:19:22.518006+00:00",
+    "hours_since_progress": 0.6
+  },
+  "health": {
+    "tick": "ok",
+    "ticks_over_budget_total": 0,
+    "jobs_missed_total": 0,
+    "mem_ok": true,
+    "disk_ok": true
+  }
+}
