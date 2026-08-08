@@ -59,7 +59,21 @@ it on every task.
 - Commit/PR titles: conventional prefixes (`feat:`, `fix:`, `chore:`, `spike:`, `docs:`).
 - Link issues in the PR body: `Closes #N` when the PR completes the issue, else `Refs #N`; always reference the epic (`Refs #1`) for Phase-1 work.
 - End commit messages with the `Co-Authored-By:` trailer for Claude.
-- Squash-merge and delete the branch after merge.
+- Squash-merge and delete the branch after merge. "Automatically delete head branches" is **on**, so
+  this looks after itself for anything merged through a PR.
+- ⚠️ **Four branches are long-lived and must never be pruned as stale.** They are data, not work:
+
+  | branch | carries | written by |
+  |---|---|---|
+  | `main` | the code | PRs |
+  | `dashboard-data` | the published payloads | `publish-dashboard`, force-pushed fresh every 15 min |
+  | `review-data` | **the trader's saved reviews + chart annotations** — ~167 hand-made JSON files, the ground truth the 25 golden fixtures came from | `docs/review.js`, straight from the browser |
+  | `data-export` | on-demand `/data` slices for a cloud session | `data-export.yml` (recreates it; may not exist between runs) |
+
+  `review-data` is the one to be careful with: it is **irreplaceable** — hand-made, not regenerable
+  from anything — and nothing in this file named it until #522, which is exactly why an audit
+  proposed deleting it as "a stale full-tree copy". It *looks* like one, because `review.js` creates
+  it off `main`'s HEAD on first save and then commits `reviews/*.json` on top.
 
 ## CI / quality gates (run locally before pushing)
 Toolchain lives in `.venv`. CI runs ruff + mypy + pytest on every PR.
