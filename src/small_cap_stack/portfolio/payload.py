@@ -22,6 +22,7 @@ from ..logging import get_logger
 from ..storage import Store
 from .adaptive import risk_ladder
 from .extract import extract_day_trades
+from .metrics import daily_returns, sharpe, sortino, ulcer_index
 from .models import CandidateTrade, PaperTrade, PortfolioResult, SkippedTrade
 from .projection import build_projection, day_rate_net_annual_gbp
 from .sim import AdaptiveState, TargetFit, simulate_portfolio, simulate_portfolio_adaptive
@@ -167,6 +168,12 @@ def _book_json(
     # mean is over taken trades only — a skipped setup risked nothing and would drag it toward 0.
     trades = res.trades
     avg_risk_pct = round(sum(t.risk_pct for t in trades) / len(trades), 6) if trades else None
+    # Risk-adjusted smoothness (#648) — daily returns rebuilt from trade P&L, not diffed off
+    # `equity_curve` (see `metrics.daily_returns` for why: month-rollover admin costs would
+    # otherwise read as strategy volatility).
+    rs = daily_returns(res)
+    sh = sharpe(rs)
+    so = sortino(rs)
     book: dict[str, object] = {
         "stats": {
             "n_trades": res.n_trades,
@@ -183,6 +190,9 @@ def _book_json(
             "end_equity": res.end_equity,
             "return_pct": res.return_pct,
             "max_drawdown_pct": res.max_drawdown_pct,
+            "sharpe": round(sh, 4) if sh is not None else None,
+            "sortino": round(so, 4) if so is not None else None,
+            "ulcer_index": ulcer_index(rs),
             "commission_usd": res.commission_usd,
             "fees_usd": res.fees_usd,
             "data_fees_usd": res.data_fees_usd,

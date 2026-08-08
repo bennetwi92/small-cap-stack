@@ -471,6 +471,8 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     assert adaptive["stats"]["n_trades"] == 1
     assert "daily_targets" in adaptive  # only the adaptive book carries the per-day target
     assert "daily_targets" not in payload["books"]["2"]  # fixed books do not
+    # Risk-adjusted smoothness (#648) — published alongside the other headline stats.
+    assert {"sharpe", "sortino", "ulcer_index"} <= adaptive["stats"].keys()
     # Getting-paid layer flows through the payload: stats, a cash-flow schedule, and config knobs.
     assert "net_take_home_gbp" in adaptive["stats"]
     assert "withdrawals_gbp" in adaptive["stats"] and "tax_paid_gbp" in adaptive["stats"]
