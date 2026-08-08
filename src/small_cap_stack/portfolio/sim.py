@@ -9,8 +9,9 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
+from ..capture import bar_interval
 from ..config import Settings
 from .adaptive import _day_signal_r, best_target, expectancy_curve, risk_ladder, step_risk_rung
 from .costs import size_position, trade_costs
@@ -73,13 +74,22 @@ def _take_day(
     each with the outcome it would have had at the same (target, breakeven) plus a ``skip_reason``
     (#251): ``"cap"`` for everything past the first N by trigger time — the "what did the cap cost
     me" log (#230) — ``"unaffordable"`` for a selected setup that couldn't be sized to a single
-    share at full risk, and ``"throttled"`` when the kill-switch is what stopped it (#465). Callers
-    wanting only the cap population must filter; ``_finalize`` and ``_book_json`` do.
+    share at full risk, ``"throttled"`` when the kill-switch is what stopped it (#465), and
+    ``"day_stopped"`` when ``portfolio_daily_loss_limit_r`` is what stopped it (#650, ships
+    disabled). Callers wanting only the cap population must filter; ``_finalize`` and ``_book_json``
+    do.
 
-    Every candidate the day was handed now leaves through exactly one of those four doors — taken,
-    cap, unaffordable, throttled — so ``len(trades) + len(skipped) == len(cands)`` holds on any
-    day. That is the invariant #465 restored: a rung-0 day used to return neither, which is how
-    three live setups vanished from the combined book with nothing on the page to explain it.
+    Every candidate the day was handed now leaves through exactly one of those five doors — taken,
+    cap, unaffordable, throttled, day_stopped — so ``len(trades) + len(skipped) == len(cands)``
+    holds on any day. That is the invariant #465 restored: a rung-0 day used to return neither,
+    which is how three live setups vanished from the combined book with nothing on the page to
+    explain it.
+
+    ``portfolio_daily_loss_limit_r`` (0 disables) stops the day once the realised R of trades
+    ALREADY KNOWN TO HAVE CLOSED reaches the limit — no look-ahead. Both concurrent positions size
+    off the same opening equity per the paragraph above, so a later trigger cannot know an earlier
+    trade's outcome unless that trade's exit bar closed strictly before the later trigger; see the
+    ``exit_end`` computation below.
 
     ``risk_fraction`` defaults to the configured value; the adaptive kill-switch passes the day's
     throttled fraction, and a 0 fraction sizes every position to 0 (the day takes no trades)."""
@@ -106,7 +116,17 @@ def _take_day(
         _skipped(c, s, target_r, breakeven_r, "cap" if rf > 0 else "throttled") for c in dropped
     ]
     out: list[PaperTrade] = []
+    # Trades taken so far that have RESOLVED (exit_end, realized_r) — the running loss total below
+    # only counts a trade once its exit bar closed strictly before the candidate under test triggers
+    # (#650). A concurrent trade still open at that moment isn't knowable yet, so it contributes
+    # nothing; that is what keeps this rule causal rather than a look-ahead.
+    closed: list[tuple[datetime, float]] = []
     for c in taken:
+        if s.portfolio_daily_loss_limit_r > 0:
+            known_r = sum(r for exit_end, r in closed if exit_end <= c.trigger_at)
+            if known_r <= -s.portfolio_daily_loss_limit_r:
+                skipped.append(_skipped(c, s, target_r, breakeven_r, "day_stopped"))
+                continue
         sized = size_position(
             opening_equity,
             c.entry_price,
@@ -128,6 +148,9 @@ def _take_day(
             skipped.append(_skipped(c, s, target_r, breakeven_r, reason))
             continue
         outcome = c.exit_under(s, target_r, breakeven_r)
+        if s.portfolio_daily_loss_limit_r > 0:
+            exit_end = c.bars[outcome.exit_index].start + bar_interval(c.bars)
+            closed.append((exit_end, outcome.realized_r))
         gross = round(qty * (outcome.exit_price - c.entry_price), 4)
         costs = trade_costs(qty, c.entry_price, outcome.exit_price, s)
         net = round(gross - costs.total_usd, 4)

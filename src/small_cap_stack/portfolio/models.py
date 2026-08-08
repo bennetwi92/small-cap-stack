@@ -120,7 +120,7 @@ class PaperTrade:
 class SkippedTrade:
     """A qualifying setup the book did **not** take — issue #230 follow-up.
 
-    Three reasons, kept apart by ``skip_reason``:
+    Four reasons, kept apart by ``skip_reason``:
 
     - ``"cap"`` — the day's ``max_trades_per_day`` was already filled by earlier (lower
       trigger-time) trades. This is the population the "what did the 2/day cap cost me?" R-log
@@ -137,6 +137,11 @@ class SkippedTrade:
       the ladder's decision. What was wrong was leaving them out of the log *entirely* (#465): a
       qualifying setup then appeared nowhere on the page, and the combined book silently lost three
       live setups the live-only book trades.
+    - ``"day_stopped"`` — ``portfolio_daily_loss_limit_r`` (#650, ships disabled at 0.0) is why it
+      wasn't taken: the realised R of trades already known to have closed before this one's trigger
+      had already reached the limit. No-lookahead: a concurrent trade still open at this trigger
+      contributes nothing to that total, so this reason can only fire once an earlier trade's exit
+      is knowable in real time.
 
     Carries what the trade *would* have returned at that day's (target, breakeven), simulated over
     the same bars with the same exit model as a taken trade. It is unsized on purpose: R is
@@ -156,7 +161,8 @@ class SkippedTrade:
     realized_r: float  # what it would have made/lost at the day's target (size-independent)
     reason: str  # exit reason: "target" | "stop" | "breakeven" | "close"
     exit_price: float
-    skip_reason: str = "cap"  # why it wasn't taken: "cap" | "unaffordable" | "throttled"
+    # why it wasn't taken: "cap" | "unaffordable" | "throttled" | "day_stopped"
+    skip_reason: str = "cap"
     # Carried from the candidate (#390) — same meaning as on PaperTrade.
     float_shares: int | None = None
     max_r: float | None = None

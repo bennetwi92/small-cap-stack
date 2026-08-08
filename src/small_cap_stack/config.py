@@ -469,6 +469,12 @@ class Settings(BaseSettings):
     portfolio_risk_fraction: float = 0.05  # target risk per trade, as a fraction of opening equity
     portfolio_position_fraction: float = 0.50  # max position notional, as a fraction of opening eq.
     portfolio_max_trades_per_day: int = 2  # cap 50% × 2 = at most fully deployed → 2 concurrent
+    # Capacity/execution rule (#650), not a selection one: how much the account will lose in a
+    # session, not which setups are good — so it lives in the book beside the trade cap, not in the
+    # engine. Stop taking new trades once the realised R of trades ALREADY KNOWN TO HAVE CLOSED
+    # (no look-ahead — a still-open concurrent position can't count) reaches this many R against the
+    # day. Ships at 0.0 (disabled, `> 0` gates it); enabling it is a separate, costed decision.
+    portfolio_daily_loss_limit_r: float = 0.0
     # ⚠️ The entry price band and the takeable trigger window used to live here. They are
     # SELECTION rules, not execution ones, so #567 moved them to `select_price_min/max` and
     # `select_window_start/end` beside the shape gates. The book no longer decides which
