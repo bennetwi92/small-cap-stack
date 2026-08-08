@@ -30,6 +30,7 @@ from small_cap_stack.clock import ET
 from small_cap_stack.config import Settings
 from small_cap_stack.harvest import (
     HARVEST_DATASETS,
+    SESSION_DATASETS,
     Checkpoint,
     DailyRow,
     HarvestConfigError,
@@ -523,7 +524,9 @@ def test_harvest_session_writes_exactly_one_file_per_dataset(tmp_path: Path) -> 
     result = harvest_session(source, store, s, DAY, rows)
 
     assert result.complete and result.opportunities == 2
-    for dataset in HARVEST_DATASETS:
+    # SESSION_DATASETS, not HARVEST_DATASETS: `fundamentals` is on the latter so a re-harvest
+    # clears it, but it is written by a separate pass (#563) and a session never touches it.
+    for dataset in SESSION_DATASETS:
         files = list((store.data_dir / dataset / f"dt={DAY.isoformat()}").glob("*.parquet"))
         assert len(files) == 1, f"{dataset} landed {len(files)} files"
 
@@ -862,9 +865,16 @@ def test_discard_partial_only_touches_the_named_date(tmp_path: Path) -> None:
     source = FakeSource(minutes={("AAAA", d): _runner_minutes(d) for d in (DAY, PREV)})
     for d in (DAY, PREV):
         harvest_session(source, store, s, d, [_daily("AAAA")])
+        # Written by the separate EDGAR pass (#563), but keyed to this date's opportunities — so a
+        # re-harvest takes it too, or the date keeps counts for symbols it no longer has.
+        store.append(
+            "fundamentals", [{"opportunity_id": "x", "float_shares": None}], partition_date=d
+        )
     assert discard_partial(store, DAY) == len(HARVEST_DATASETS)
     assert store.read("bars", dt=DAY).is_empty()
+    assert store.read("fundamentals", dt=DAY).is_empty()
     assert not store.read("bars", dt=PREV).is_empty()
+    assert not store.read("fundamentals", dt=PREV).is_empty()
 
 
 # ================================================================================================

@@ -84,6 +84,11 @@ env_value() {
 
 # An ambient key (the workflow's Actions secret) beats the stored one — see the header.
 AMBIENT_KEY="${MASSIVE_API_KEY:-}"
+# Same idea for the EDGAR contact string (#563), except it is NOT a secret — it is a name and an
+# address SEC's fair-access policy asks callers to identify themselves with. So it rides on an
+# Actions *variable* rather than a secret, and there is no `install-…` command for it: the nightly
+# timer picks it up from .env, a workflow dispatch from here.
+AMBIENT_EDGAR_UA="${HARVEST_EDGAR_USER_AGENT:-}"
 
 # ------------------------------------------------------------------------------------------------
 # install-key: put the vendor key where the systemd timer can find it, without SSH
@@ -172,6 +177,11 @@ if [ -f "$ENV_FILE" ]; then
       RECON_* | CALENDAR_CLOSED_DATES | LOG_LEVEL | JSON_LOGS | TZ)
         PASSTHROUGH+=(-e "$key=$value")
         ;;
+      # Same ambient-wins rule as the vendor key above, so a dispatch can carry the contact string
+      # to a box whose .env has never had one.
+      HARVEST_EDGAR_USER_AGENT)
+        [ -n "$AMBIENT_EDGAR_UA" ] || PASSTHROUGH+=(-e "$key=$value")
+        ;;
       HARVEST_* | SCAN_*) PASSTHROUGH+=(-e "$key=$value") ;;
       *) : ;; # everything else — broker credentials included — stays out of this container
     esac
@@ -181,6 +191,9 @@ fi
 # Appended last so it wins: the .env branch above skips its own passthrough when this is set.
 if [ -n "$AMBIENT_KEY" ]; then
   PASSTHROUGH+=(-e "MASSIVE_API_KEY=$AMBIENT_KEY")
+fi
+if [ -n "$AMBIENT_EDGAR_UA" ]; then
+  PASSTHROUGH+=(-e "HARVEST_EDGAR_USER_AGENT=$AMBIENT_EDGAR_UA")
 fi
 
 # Same tag compose is pinned to, so the harvest runs the deployed code rather than drifting to
@@ -221,9 +234,15 @@ MEM_LIMIT="${MEM_LIMIT:-1g}"
 # `run`/`auto`. Interleave the two and one of them writes an index built from a stale snapshot,
 # dropping a row and orphaning its payload. This name IS the only cross-process mutex on the box,
 # so `charts` takes it too: the lock guards the checkpoint and the dashboard artifacts alike.
+# `fundamentals` (#563) spends no vendor budget either — SEC EDGAR is free — but it writes
+# `fundamentals` partitions into the recon store, and `run`/`auto` both DELETE those (the dataset is
+# in HARVEST_DATASETS, so `discard_partial` clears it before re-harvesting a date). Run the two
+# together and the enrichment can land rows for a date whose bars are being rebuilt underneath it.
+# It also does real per-date work — a DuckDB read plus an HTTPS call per distinct symbol — so like
+# `charts` it takes the lock and the harvest's own memory envelope rather than the read-only one.
 SPENDING=""
 for arg in "$@"; do
-  case "$arg" in auto | daily | run | charts) SPENDING=1 ;; esac
+  case "$arg" in auto | daily | run | charts | fundamentals) SPENDING=1 ;; esac
 done
 
 declare -a NAME=()
@@ -257,10 +276,11 @@ fi
 # so joining it would mean a `sweep` during a 900 MB harvest could push the slice over and have the
 # kernel OOM-kill the night it was only meant to look at.
 #
-# `charts` is deliberately NOT in that set. It holds the lock (see above) so it can never run beside
-# a harvest, and unlike the other three it does real work — DuckDB + polars + the detector over a
-# day's bars, per date. 512 MB with no slice, during market hours, on a 4 GB box already carrying
-# the app (2 GB) and the Gateway, is the shape of #264. It gets the harvest's own envelope instead.
+# `charts` and `fundamentals` are deliberately NOT in that set. They hold the lock (see above) so
+# they can never run beside a harvest, and unlike the other three they do real work — DuckDB +
+# polars + the detector over a day's bars, per date. 512 MB with no slice, during market hours, on a
+# 4 GB box already carrying the app (2 GB) and the Gateway, is the shape of #264. They get the
+# harvest's own envelope instead.
 declare -a CGROUP=(--cgroup-parent=scs-harvest.slice)
 RO_MEM_LIMIT="512m"
 if [ -z "$SPENDING" ]; then

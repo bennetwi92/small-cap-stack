@@ -8,6 +8,15 @@ interest) later without re-collecting.
 ⚠️ ``float_shares`` is **context, not a filter.** Its only consumer is ``gates.py::float_gate``,
 whose only caller is the EOD report's ``float_ok`` count — nothing in the selection path or the
 paper book reads it (#551, ``research/strategy.md`` §4). Short interest has no source wired at all.
+
+Two protocols live here, and the difference between them is the whole of #563:
+
+- :class:`FundamentalsSource` answers *what is it now* — the live capture path, called at flag time.
+- :class:`PointInTimeFundamentals` answers *what was it on this session* — the reconstructed-history
+  path (:mod:`.harvest.edgar`). A recon day is months or years old, and for a serially-diluting
+  small cap today's answer is not a rounding error on it: CLSK went 37M shares (2011) to 257M
+  (2026). Anything implementing it must be decidable **at the session date**, which is a stronger
+  requirement than "dated before it" — see :func:`.harvest.edgar.shares_asof`.
 """
 
 from __future__ import annotations
@@ -19,7 +28,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Protocol
 
 from .logging import get_logger
@@ -39,6 +48,51 @@ class Fundamentals:
 
 class FundamentalsSource(Protocol):
     async def fetch(self, candidate: Candidate) -> Fundamentals | None: ...
+
+
+@dataclass(frozen=True)
+class AsOfShares:
+    """A share count as it stood on one session, carrying the filing that established it (#563).
+
+    ``as_of`` and ``filed`` are **not** interchangeable and keeping both is the point. ``as_of`` is
+    what the number describes (a 10-Q's cover date); ``filed`` is when it became public, and it is
+    the one a point-in-time query must select on — see :func:`.harvest.edgar.shares_asof`. Storing
+    them means a row can be audited afterwards rather than taken on trust.
+
+    ⚠️ ``float_shares`` is **None** for every SEC-derived row and that is deliberate, not a gap.
+    EDGAR publishes ``dei:EntityCommonStockSharesOutstanding`` — shares *outstanding*, which is a
+    ceiling on free float, not free float. Copying it into ``float_shares`` would make a recon day
+    quote a float number no filing ever stated, and would do so in the very column the live tracker
+    fills from a real float source. A source that sells historical float proper sets both.
+    """
+
+    symbol: str
+    float_shares: int | None
+    shares_outstanding: int | None
+    source: str
+    #: The cover date the count describes.
+    as_of: date
+    #: When the filing carrying it was published — what makes it knowable on the session.
+    filed: date
+    #: The filing type (``10-Q``, ``10-K``, ``10-Q/A``…), kept so a restatement is legible.
+    form: str
+
+
+class PointInTimeFundamentals(Protocol):
+    """What a reconstructed session needs: the share count *as of* a past date.
+
+    Deliberately not :class:`FundamentalsSource` with a date bolted on. That one takes a
+    :class:`~.scanner.Candidate` (an IBKR contract) and is async because it runs on the capture
+    loop; this one is called from the overnight harvest, off any loop, and a symbol is all it has —
+    a reconstructed candidate carries ``con_id=0``.
+    """
+
+    @property
+    def calls(self) -> int:
+        """Requests issued so far — the same cost meter :class:`~.harvest.source.HarvestSource`
+        exposes, so a pass can report what it spent without knowing which source it holds."""
+
+    def shares_asof(self, symbol: str, on: date) -> AsOfShares | None: ...
 
 
 class NullFundamentals:

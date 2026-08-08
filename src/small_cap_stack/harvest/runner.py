@@ -58,10 +58,11 @@ budget — and the budget is the scarce thing. That makes the grids independent 
   day into one run.
 - ``opportunities`` — one row per symbol-day that produced an appearance.
 - ``daily_universe`` — phase 1's stored output (harvest bookkeeping, not a live-store dataset).
-
-There is deliberately no ``fundamentals`` row: the vendor sells no share float, and float is
-context rather than a filter in the book's extraction path (``portfolio.extract``), so a
-reconstructed candidate carries ``float_shares=None`` instead of a fabricated number.
+- ``fundamentals`` — written by a **separate pass** (:mod:`.fundamentals`, #563), not by a session.
+  The bar vendor sells no share data at all, so it comes from SEC EDGAR on its own schedule and its
+  own (free, non-scarce) rate limit. It is in :data:`HARVEST_DATASETS` all the same, so a re-harvest
+  drops it too — and the fundamentals pass, which plans off the partitions on disk rather than off
+  the checkpoint, then simply rebuilds it.
 """
 
 from __future__ import annotations
@@ -89,9 +90,16 @@ from .source import HarvestEntitlementError, HarvestError, HarvestSource
 
 log = get_logger(__name__)
 
-#: Every dataset the harvest writes. :func:`discard_partial` clears exactly these for a date, so a
+#: What :func:`harvest_session` itself writes, each in a single append at the end of the date.
+SESSION_DATASETS = ("opportunities", "scanner_hits", "bars", "bars_1m")
+
+#: Every dataset the harvest writes for a date. :func:`discard_partial` clears exactly these, so a
 #: new one added here is automatically covered by the "a half-written day is never merged" rule.
-HARVEST_DATASETS = ("opportunities", "scanner_hits", "bars", "bars_1m")
+#: ``fundamentals`` is written by a *different* pass (:mod:`.fundamentals`, #563) and so is not in
+#: :data:`SESSION_DATASETS` — but it belongs here, because its rows are keyed to this date's
+#: opportunities and a re-harvest that changes which symbols appeared must not leave the previous
+#: run's share counts behind.
+HARVEST_DATASETS = (*SESSION_DATASETS, "fundamentals")
 
 #: The reconstructed candidate's ``con_id``. Live rows carry the IBKR contract id; the vendor has no
 #: such thing and inventing one would make a reconstructed row indistinguishable from a captured one
@@ -103,6 +111,29 @@ RECON_CON_ID = 0
 #: and a real session carries ~217. Deliberately not a setting: nobody would tune it, and the
 #: total-failure clause covers the small-session case at any size.
 _MIN_CANDIDATES_FOR_RATIO = 10
+
+
+def abandon_reason(total: int, failed: int, s: Settings) -> str | None:
+    """Why a batch of per-symbol fetches should be thrown away rather than stored, or ``None``.
+
+    Checked once at the end of a batch. Scattered failures never trip the in-loop consecutive
+    breaker but can still leave a date sampled from a fraction of its universe — which extracts
+    perfectly well and is indistinguishable, afterwards, from a genuinely thin day (#446).
+
+    Two clauses, because a ratio is meaningless on a tiny list: on a two-name batch one ordinary
+    delisted ticker is 50%, and abandoning that would throw away good work. Total failure is the
+    signal that survives at any size — it is the shape a revoked key (or a rejected User-Agent)
+    makes.
+
+    Shared by the minute-bar pass and the EDGAR fundamentals pass (#563) so the two cannot drift:
+    both walk a symbol list against a remote that can fail wholesale, and "how much trouble is a
+    stored date allowed to have absorbed" should have exactly one answer.
+    """
+    if total and failed == total:
+        return "every symbol failed"
+    if total >= _MIN_CANDIDATES_FOR_RATIO and failed > total * s.harvest_max_failure_ratio:
+        return f"{failed}/{total} symbols failed"
+    return None
 
 
 class HarvestConfigError(RuntimeError):
@@ -536,18 +567,10 @@ def harvest_session(
         if consecutive >= s.harvest_max_consecutive_failures:
             return abandon(f"{consecutive} consecutive symbol failures")
 
-    # The quality floor, checked once at the end: scattered failures never trip the breaker but can
-    # still leave a session sampled from a fraction of its universe — which extracts perfectly well
-    # and is indistinguishable, afterwards, from a genuinely thin day.
-    #
-    # Two clauses, because a ratio is meaningless on a tiny candidate list: on a two-name session
-    # one ordinary delisted ticker is 50%, and abandoning that would throw away good work. Total
-    # failure is the signal that survives at any size — it is the shape a revoked key makes.
-    if cands and failed == len(cands):
-        return abandon("every symbol failed")
-    budget = len(cands) * s.harvest_max_failure_ratio
-    if len(cands) >= _MIN_CANDIDATES_FOR_RATIO and failed > budget:
-        return abandon(f"{failed}/{len(cands)} symbols failed")
+    # The quality floor, checked once at the end — see `abandon_reason` for both clauses.
+    why = abandon_reason(len(cands), failed, s)
+    if why is not None:
+        return abandon(why)
 
     store.append("opportunities", opps, partition_date=trading_date)
     store.append("scanner_hits", hits, partition_date=trading_date)
