@@ -831,6 +831,58 @@ def test_make_check_still_mirrors_ci_after_adding_the_shell_lint() -> None:
     )
 
 
+# rglob over the whole tree, not three hardcoded directories: the first version of the guard below
+# globbed `scripts/`, `deploy/` and `.claude/hooks/`, which just moved the staleness from the
+# Makefile into the test. A script added under `deploy/scripts/` passed the guard AND
+# `make lint-sh`.
+_SKIP_DIRS = frozenset(
+    {".venv", ".git", "node_modules", ".mypy_cache", ".ruff_cache", ".pytest_cache"}
+)
+# `.claude/worktrees/` holds whole CHECKOUTS of this repo, so every script below reappears once per
+# worktree and the guard fails for a reason that has nothing to do with the Makefile (#680). CI
+# checks out clean and never has one, so this broke ONLY `make check` — the gate whose entire job is
+# to predict CI. A local red that a push turns green teaches you to read past it, which is the same
+# failure #530 fixed for coverage flags in `addopts`.
+_WORKTREE_ROOT = (".claude", "worktrees")
+
+
+def shell_scripts_on_disk(root: Path) -> set[str]:
+    """Every `*.sh` under `root` that `make lint-sh` is expected to cover, as relative paths.
+
+    The worktree exclusion is a path PREFIX rather than a bare directory name on purpose:
+    `.claude/hooks/session-setup.sh` is a real `SHELL_FILES` entry and has to stay covered, and a
+    directory merely *named* `worktrees` elsewhere in the tree must not be silently skipped.
+    """
+    found: set[str] = set()
+    for path in root.rglob("*.sh"):
+        rel = path.relative_to(root)
+        if _SKIP_DIRS & set(rel.parts) or rel.parts[: len(_WORKTREE_ROOT)] == _WORKTREE_ROOT:
+            continue
+        found.add(str(rel))
+    return found
+
+
+def test_shell_script_discovery_ignores_nested_worktrees(tmp_path: Path) -> None:
+    """A git worktree under `.claude/worktrees/` is a second checkout, not tree content (#680)."""
+
+    def touch(*parts: str) -> None:
+        p = tmp_path.joinpath(*parts)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("#!/usr/bin/env bash\n")
+
+    touch("scripts", "real.sh")
+    touch(".claude", "hooks", "session-setup.sh")  # a real SHELL_FILES entry — must stay covered
+    touch("worktrees", "odd.sh")  # merely NAMED worktrees — must stay covered
+    touch(".claude", "worktrees", "wt", "scripts", "real.sh")  # a checkout — must be ignored
+    touch(".venv", "bin", "activate.sh")  # cache/tooling — must be ignored
+
+    assert shell_scripts_on_disk(tmp_path) == {
+        "scripts/real.sh",
+        ".claude/hooks/session-setup.sh",
+        "worktrees/odd.sh",
+    }
+
+
 def test_every_shell_script_in_the_tree_is_linted() -> None:
     """The Makefile lists the scripts rather than globbing them, so this is what stops the list
     going stale. A glob would have been worse, not better: `shellcheck $(wildcard scripts/*.sh)`
@@ -840,15 +892,7 @@ def test_every_shell_script_in_the_tree_is_linted() -> None:
     mk = (ROOT / "Makefile").read_text()
     block = mk.split("SHELL_FILES :=")[1].split("\n\n")[0]
     listed = set(re.findall(r"[\w./-]+\.sh", block))
-    # rglob over the whole tree, not three hardcoded directories: my first version globbed
-    # `scripts/`, `deploy/` and `.claude/hooks/`, which just moved the staleness from the Makefile
-    # into the test. A script added under `deploy/scripts/` passed the guard AND `make lint-sh`.
-    skip = {".venv", ".git", "node_modules", ".mypy_cache", ".ruff_cache", ".pytest_cache"}
-    on_disk = {
-        str(p.relative_to(ROOT))
-        for p in ROOT.rglob("*.sh")
-        if not skip & set(p.relative_to(ROOT).parts)
-    }
+    on_disk = shell_scripts_on_disk(ROOT)
     assert on_disk, "no shell scripts found — has the layout changed?"
     assert listed == on_disk, (
         f"SHELL_FILES and the tree disagree. Only in the tree: {sorted(on_disk - listed)}; "
