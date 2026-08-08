@@ -148,3 +148,43 @@ def test_the_corpus_is_not_empty() -> None:
     files = _spike_files()
     assert len(files) > 5
     assert any(_imported_callables(ast.parse(p.read_text(encoding="utf-8"))) for p in files)
+
+
+# --- every spike is documented, which CLAUDE.md asserts (#543) ------------------------------------
+
+README = SPIKES / "README.md"
+
+
+def test_every_spike_is_named_in_the_readme() -> None:
+    """CLAUDE.md says spikes are "documented in `spikes/README.md`". #543 found that false —
+    **15 of 19** were, and the four undocumented ones were also **untracked**, so nothing linted
+    them either. One of those (`harvest_bookgap.py`) had rotted into an `AttributeError` against
+    settings #567 renamed, and nobody could have known.
+
+    Named-anywhere rather than has-its-own-`###`-section on purpose: four of these share one section
+    because they are one harness family, and forcing a heading each would be documentation theatre.
+    What must not happen is a spike existing that the README never mentions.
+    """
+    present = {p.name for p in _spike_files()}
+    text = README.read_text()
+    missing = sorted(n for n in present if n not in text)
+    assert not missing, (
+        f"{missing} are in spikes/ but named nowhere in spikes/README.md. Add them to the Active "
+        "table (with their issue), or retire them to Answered — CLAUDE.md promises the README "
+        "covers them."
+    )
+
+
+def test_no_spike_is_listed_as_both_active_and_answered() -> None:
+    """`portfolio_slot_split.py` was in both tables until #543 — its detail section sat under
+    Answered while a stale row kept it in Active, so the README disagreed with itself about whether
+    the question was closed."""
+    text = README.read_text()
+    active, _, answered = text.partition("\n## Answered")
+    assert answered, "the README's `## Answered` section is gone — restore it or drop this test"
+    both = sorted(
+        p.name
+        for p in _spike_files()
+        if p.name in active.partition("## Active")[2] and f"`{p.name}`" in answered
+    )
+    assert not both, f"{both} are listed under BOTH Active and Answered"

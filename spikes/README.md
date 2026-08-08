@@ -25,11 +25,15 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`review_meta_sweep.py`](#review_meta_sweeppy) | #173 | Replay candidate gate/param changes over the reviewed day-set |
 | [`warrior_library.py`](#warrior_librarypy) | #304 | Warrior Trading transcript corpus for rule provenance |
 | [`portfolio_cutoff_sweep.py`](#portfolio_cutoff_sweeppy) | #379 | Replay the virtual book under different selection filters |
-| [`portfolio_slot_split.py`](#portfolio_slot_splitpy) | #416 | Replay the virtual book under different per-slot notional caps |
 | [`open_drive_sweep.py`](#open_drive_sweeppy) | #418 | Quantify a second strategy: a 10-min ORB with a consolidation requirement |
-| [`scanner_reconstruct.py`](#scanner_reconstructpy) | #428 | Rebuild a scanner appearance from bars alone, and calibrate it against what we actually saw |
-| [`massive_replay.py`](#massive_replaypy) | #428 | Massive (ex-Polygon) adapter: vendor minute bars → 5-min grid → detector → R |
-| [`massive_calibration.py`](#massive_calibrationpy) | #428 | Does Massive data alone recreate the pre-market opportunities we actually saw? |
+| [`scanner_reconstruct.py`](#scanner_reconstructpy) | #428 | Rebuild a scanner appearance from bars alone, and calibrate it against what we actually saw · **shipped as `harvest/reconstruct.py`** |
+| [`massive_replay.py`](#massive_replaypy) | #428 | Massive (ex-Polygon) adapter: vendor minute bars → 5-min grid → detector → R · **shipped as `harvest/source.py`** |
+| [`massive_calibration.py`](#massive_calibrationpy) | #428 | Does Massive data alone recreate the pre-market opportunities we actually saw? · **shipped as `harvest/prefilter.py`** |
+| [`harvest_analysis.py`](#the-harvest-validation-harnesses) | #431 | The recon store's own funnel, per session |
+| [`harvest_compare.py`](#the-harvest-validation-harnesses) | #431 | Recon vs live, stage by stage |
+| [`harvest_premarket.py`](#the-harvest-validation-harnesses) | #431 | The same comparison restricted to the pre-market population — the only one that means anything |
+| [`harvest_bookgap.py`](#the-harvest-validation-harnesses) | #431 | Which selection rule stops a well-formed setup becoming takeable |
+| [`window_0400.py`](#window_0400py) | #569 | Replay the book under the 05:30 vs 04:00 selection floor |
 
 ### `viz_engine.py`
 
@@ -180,6 +184,19 @@ ssh -i ~/.ssh/oracle_scs root@<box> \
 ```
 
 ---
+
+> ⚠️ **The three `#428` harnesses below are superseded but NOT retired, and that is a decision
+> (#543).** Their code shipped — `MassiveClient` → `harvest/source.py::MassiveSource`, `aggregate`
+> and the rolling volume → `harvest/reconstruct.py`, the universe prefilter →
+> `harvest/prefilter.py::candidates`, the appearance reconstruction →
+> `harvest/reconstruct.py::reconstruct_hit`. But **#428 is still open**, and its question — does the
+> reconstruction faithfully recreate what the live scanner saw — is the *trust* question Gate 3
+> depends on (`research/phase-2-roadmap.md`). That has to be re-asked as the sample deepens, so
+> **`.github/workflows/spike-massive.yml` stays** as the calibration harness and retires with #428,
+> not before. It is `workflow_dispatch`-only on a hosted runner, so it costs nothing idle.
+>
+> They are listed under *Active* rather than *Answered* for that reason: the code is done, the
+> question is not.
 
 ### `scanner_reconstruct.py` — issue #428
 
@@ -399,6 +416,47 @@ Two traps the dashboard path handles explicitly, both of which quietly corrupt t
 `vendor_hits_without_live_premarket_hit` count for a ~13× smaller call budget.
 
 ---
+
+### The harvest validation harnesses — issue #431
+
+Four thin recon-vs-live harnesses written 2026-08-07, committed in #543. They import production
+code only (`portfolio.extract.extract_day_trades`, `rmetrics.compute_r_metrics`,
+`bullflag.detect_day_with_settings`, `report.day_opportunities`) — no duplicated logic, so they
+cannot drift from the engine the way a copied gate would.
+
+⚠️ **All four are read-only against the stores.** They construct `Store(...)` and call `read`;
+`Store.append` is the only writer and none of them calls it.
+
+⚠️ **They expect the Mac's local analysis layout**, `data/live` alongside `data/recon` — *not* the
+box's, where the live root is `data/` itself and `data/recon/` sits inside it.
+
+| harness | asks |
+|---|---|
+| `harvest_analysis.py` | the recon store's own funnel, per session, dumped to `data/spikes/harvest_runs.parquet` |
+| `harvest_compare.py` | recon vs live, stage by stage |
+| `harvest_premarket.py` | the same, restricted to runs whose appearance is before 09:30 ET |
+| `harvest_bookgap.py` | which selection rule stops a well-formed, fired setup becoming takeable |
+
+**`harvest_premarket.py` carries the load-bearing methodological point.** The harvest reconstructs
+the scanner for 04:00–09:30 ET only (`reconstruct.PREMARKET`), by design — the book's window sits
+inside it — while the live tracker scans to 11:59. So a raw cross-store funnel compares 5.5 hours of
+live scanning against 5.5 hours of pre-market reconstruction and **makes recon look thin when it
+isn't**. Restricting both sides to pre-market appearances is the only comparison that means
+anything.
+
+`harvest_bookgap.py` was **ported in #543**: it originally attributed drops to a price band and a
+time window the *book* applied on top of `takeable`, and #567 moved both into the engine. On the
+post-#567 code those tests are True by construction for any takeable setup, so it would have
+reported a meaningless 100% conversion — and it read four `Settings` fields the same PR renamed, so
+it raised `AttributeError` first. It now attributes at the stage where the answer lives:
+`passed + fired → takeable`, split by exhaustion / price band / window off `DaySetup`.
+
+### `window_0400.py` — issue #569
+
+Replays the virtual book under the 05:30 and 04:00 selection floors and prints both. This is the
+harness behind `decisions.md` §D-36: 14 trades / +9.62R at 05:30 against 18 / +4.93R at 04:00, the
+four unlocked trades all stopping out. Kept because the decision is explicitly revisitable once the
+reconstructed history makes the window measurable rather than watchable.
 
 ## Answered
 
