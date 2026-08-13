@@ -1,6 +1,20 @@
 {
-  "generated_utc": "2026-08-08T20:59:58+00:00",
+  "generated_utc": "2026-08-13T13:32:59+00:00",
   "reports": [
+    {
+      "slug": "2026-08-13-the-adaptive-model-what-it-should-be-and-what-the-data-will-support",
+      "file": "2026-08-13-the-adaptive-model-what-it-should-be-and-what-the-data-will-support.md",
+      "title": "The adaptive model: what it should be, and what the data will support",
+      "published": "2026-08-13",
+      "summary": "Day-level regime has no measurable signal; the intelligence belongs in a per-opportunity probability model. What that model should be, and the 20-point hit-rate gap it has to close.",
+      "tags": [
+        "strategy",
+        "data"
+      ],
+      "author": "Claude",
+      "words": 3376,
+      "correction": ""
+    },
     {
       "slug": "2026-08-08-prefix-stability",
       "file": "2026-08-08-prefix-stability.md",
