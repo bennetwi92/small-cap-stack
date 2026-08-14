@@ -18,8 +18,7 @@
     "passed": false,
     "failing_gates": [
       "peak_green",
-      "cons_retracement",
-      "cons_holds_base"
+      "cons_retracement"
     ],
     "cycle_num": 1,
     "total_significant_cycles": 13,

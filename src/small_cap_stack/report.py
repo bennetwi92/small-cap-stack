@@ -58,7 +58,6 @@ class OpportunityAnalysis:
     passed: bool | None = None  # all engine-v2 gates passed (shape quality)
     cycle_num: int | None = None  # 1 = fresh; N = Nth contiguous pump of the day
     failing_gates: tuple[str, ...] = ()  # engine-v2 gate rejections (Phase-1 learning signal)
-    score: float | None = None  # 0..1 quality score
     news_recent: bool = False  # a news story dated today or yesterday (ET) for the symbol (#101)
     first_hit: datetime | None = None  # first scanner appearance (gates entry); shown in the UI
     run: int = 1  # 1-based run index within the symbol's day (#36 re-entry segmentation)
@@ -382,7 +381,6 @@ def _analyze_run(
         passed=rm.passed,
         cycle_num=rm.cycle_num,
         failing_gates=rm.failing_gates,
-        score=rm.score,
         news_recent=news_recent,
         first_hit=first_hit,
         run=run,

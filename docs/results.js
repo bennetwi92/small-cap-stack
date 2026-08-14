@@ -4,7 +4,7 @@
 // same row/filter semantics as before the redesign; only the rendering changed.
 //
 // The grid is the engine's scatter-plot in table form: the COLUMNS toggle folds
-// in every engine-v2 feature the detector gated and scored on (charts.py
+// in every engine-v2 feature the detector gated on (charts.py
 // `engine.features`), grouped by feature area, so sorting one column against Max
 // R / Max % is enough to see whether that feature separates runners from duds.
 //
@@ -165,7 +165,6 @@ function toRow(date, c, source = "live") {
     maxRPrice: maxRPrice(c),
 
     // engine verdict context
-    score: e.score ?? null,
     cycleNum: e.cycle_num ?? null,
     totalCycles: e.total_significant_cycles ?? null,
     exhausted: e.exhausted ?? null,
@@ -281,7 +280,7 @@ function buildOptbar() {
           "stop-first); Max % is that same peak as a plain move off the fill, so a wide stop can't hide a " +
           "big run. Stop % is the other half of that: the stop distance as a share of the fill, so Max % ÷ " +
           "Stop % is Max R. Time is the first scanner appearance (sorts by time of day, across dates). " +
-          "“+ Engine” adds every feature the detector gated and scored on, by area — sort one against " +
+          "“+ Engine” adds every feature the detector gated on, by area — sort one against " +
           "Max R to see whether it separates anything. Score contributions are omitted: each is just " +
           "weight × the feature beside it. Reads the same published data as the review workbench. " +
           "Chart: click a row (or press ↑/↓) to draw it below; Enter opens the review workbench, Esc " +
@@ -494,7 +493,6 @@ const FEATURE_GROUPS = [
   {
     title: "VERDICT",
     columns: [
-      num("SCORE", "score", "0–1 quality score — ranks passing setups, never rejects one", { w: 76, dp: 3 }),
       num("CYC", "cycleNum", "1 = a fresh move; N = the Nth contiguous pump of the day", { w: 58, dp: 0 }),
       num("CYCS", "totalCycles", "Significant cycles across the whole day (context, not a gate)", { w: 62, dp: 0 }),
       flag("EXH", "exhausted", "Cycle number over the exhaustion cap — a late entry into a worn move", 58),

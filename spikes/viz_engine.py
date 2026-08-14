@@ -4,7 +4,7 @@ For one symbol/date/run, replay the v2 detector over the run's bars, pick the se
 (first passing setup that triggers within the appearance/staleness window, else the first valid
 one), and render a **standalone HTML** candlestick chart with the segmentation overlaid: pole bars,
 consolidation bars, base/peak markers, entry/stop lines, the trigger bar, per-bar H/L/E tokens, and
-a gate/score panel. Open it in a browser and iterate one opportunity at a time.
+a gate panel. Open it in a browser and iterate one opportunity at a time.
 
     python spikes/viz_engine.py --data-dir /tmp/scs-data --symbol VRAX --date 2026-07-09
     open data/spikes/viz_VRAX_2026-07-09.html
@@ -27,7 +27,6 @@ from small_cap_stack.bullflag import (
     Segment,
     evaluate,
     extract,
-    score,
     tokenize,
     trailing_atr,
 )
@@ -133,7 +132,7 @@ def pick_setup(
     Cycles are walked in chronological order; the first one whose peak is visible (hadn't fully
     closed before first_hit, #99/#122) and whose peak is a genuine green thrust becomes the setup —
     mirroring the entry appearance gate's bar-close granularity. Entry trigger = last-consolidation-
-    candle high + 1 tick; fill (slippage) = + 3 ticks; stop = consolidation low. Gates/score are
+    candle high + 1 tick; fill (slippage) = + 3 ticks; stop = consolidation low. Gates are
     evaluated honestly — an appearance-anchored pole can have a much deeper retracement than the
     "unseen" original, and may legitimately fail gates (e.g. cons_retracement).
 
@@ -190,9 +189,7 @@ def pick_setup(
     fv = extract(day_bars, seg, atr=trailing_atr(day_bars, base, window=14))
     gates = evaluate(
         fv,
-        max_pole=max_pole,
         max_cons=max_cons,
-        max_peak_wick=float(params.get("max_peak_wick", 0.5)),  # type: ignore[arg-type]
         min_pole_pct=float(params.get("min_pole_pct", 0.02)),  # type: ignore[arg-type]
         max_retracement=float(params.get("max_retracement", 0.5)),  # type: ignore[arg-type]
     )
@@ -200,7 +197,7 @@ def pick_setup(
     # stage 2), so it's already in `gates` (was appended here before the port; appending again would
     # double-count it). refine_pole keeps a red/flat-peaked pole so the trader sees the setup; the
     # gate rejects it (identify-and-reject, #196/OPEN).
-    sc, contrib = score(fv, max_pole=max_pole)
+    sc, contrib = 0.0, {}  # score removed in #690 (§D-44); the panel renders an empty block
     last_high = day_bars[cons_end].high
     stop = min(b.low for b in day_bars[peak + 1 : cons_end + 1])
     # `Setup` was the end-anchored detector's result type and went with it in #518. `DaySetup` is

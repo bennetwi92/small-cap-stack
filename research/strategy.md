@@ -84,7 +84,6 @@ between §1 and §2.
 | Pole step minimum | each extension bar carries ≥ 8% of the pole | `bull_flag_pole_min_step_share` |
 | Consolidation | ≤ 4 candles | `bull_flag_max_cons` |
 | Retracement | ≤ 50% of the pole | `bull_flag_max_retracement` |
-| Peak upper wick | ≤ 50% of the bar's range | `bull_flag_max_peak_wick` |
 | Peak colour | must close green | — the `peak_green` gate |
 | Peak volume | ≥ 95% of the consolidation's highest bar | `bull_flag_min_vol_ratio` |
 | Consolidation low | > the pole base | — the `cons_holds_base` gate |
@@ -97,7 +96,7 @@ between §1 and §2.
 | Exhaustion | reject the 3rd+ contiguous cycle of the day | `bull_flag_exhaustion_cap` |
 | Cycle volume floor | 50,000 (any bar in the cycle, pole or fade) | `scan_min_5m_volume` // 2 |
 | Tick size | $0.01 | `tick_size` |
-| ATR window | 14 bars (score only, gates nothing) | `bull_flag_atr_window` |
+| ATR window | 14 bars (a published feature; gates nothing) | `bull_flag_atr_window` |
 | **Selection** — price band | $3.00 ≤ `entry_fill` ≤ $50.00 | `select_price_min / select_price_max` |
 | **Selection** — minimum stop distance | (`entry_fill` − `stop`) / `entry_fill` ≥ 2.50% | `select_min_stop_pct` |
 | **Selection** — consolidation range | the flag must trade through some range (`breakout` > `stop`) | — structural; rejects a halted flag, whose stop is unusable |
@@ -125,7 +124,6 @@ between §1 and §2.
 | Float (`float_max_shares` = 20,000,000) | `fundamentals` dataset; the EOD report's `float_ok` **count**; the results/portfolio pages as context | **No.** `gates.py::float_gate` has one caller, `report.py` |
 | News (`has_recent_news`) | `news` dataset; the EOD report's `with_recent_news` **count** | **No.** `gates.py::news_gate` has the same single caller |
 | Short interest | not collected in Phase 1 | **No.** No source is wired |
-| Quality score (0–1) | published on the results page and the inspector | **No.** It ranks passing setups; it never rejects one |
 
 <!-- END GENERATED -->
 

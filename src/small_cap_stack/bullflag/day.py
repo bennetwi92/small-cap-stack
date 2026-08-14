@@ -9,13 +9,13 @@ opportunities (#194).
 Pipeline: a greedy H/E/L **cycle walk** (:func:`.cycles.segment_cycles`) proposes each candidate
 pole; :func:`.segment.refine_pole` refines it (colour/thrust, red peak allowed); the **entry** is
 the first ≥1-tick break of the last consolidation candle, gated by **appearance** (the entry bar
-must open at/after ``first_hit``) and **staleness**; the shape is featured/gated/scored (the
+must open at/after ``first_hit``) and **staleness**; the shape is featured and gated (the
 ``peak_green`` gate rejects a red peak); and **exhaustion** (:mod:`.cycles`) flags the 3rd+ cycle.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 
@@ -27,14 +27,13 @@ from .features import FeatureVector, extract, trailing_atr
 from .gates import GateResult, evaluate
 from .gates import passed as gates_passed
 from .primitives import is_big_green
-from .score import DEFAULT_WEIGHTS, score
 from .segment import Segment, refine_pole
 from .tokens import token_eps, tokenize
 
 
 @dataclass(frozen=True)
 class DaySetup:
-    """The full-day detection result: the setup, its gates/score, and its exhaustion standing."""
+    """The full-day detection result: the setup, its gates, and its exhaustion standing."""
 
     segment: Segment
     features: FeatureVector
@@ -44,8 +43,6 @@ class DaySetup:
     stop: float  # consolidation (flag) low (rounded 4)
     gates: tuple[GateResult, ...]  # includes peak_green (#196)
     passed: bool  # all gates passed (a shape-valid, quality setup) — NOT yet the take decision
-    score: float  # 0..1 quality
-    contributions: Mapping[str, float]  # per-feature score contribution (explainability)
     trigger_idx: int | None  # bar index of the breakout; None if it never fired or is stale
     cycle_num: int  # 1-based: 1 = a fresh move; N = the Nth contiguous pump of the day
     total_significant_cycles: int  # significant cycles across the whole day (context, not a gate)
@@ -81,7 +78,7 @@ class DaySetup:
 
         Deliberately distinct from ``passed``, which asks only whether the bull flag is well-formed.
         A $1.50 name or an 11:00 break can be a textbook flag we simply don't select — it stays
-        visible and scoreable on the results page, which is what a data-collection phase needs.
+        visible and reviewable on the results page, which is what a data-collection phase needs.
         """
         return (
             self.passed
@@ -106,7 +103,6 @@ def detect_day(
     max_retracement: float = 0.50,
     min_vol_ratio: float = 1.0,
     halt_neighbour_volume: float = 0.0,
-    max_peak_wick: float = 0.50,
     min_pole_pct: float = 0.02,
     trigger_offset: float = 0.01,
     fill_offset: float = 0.03,
@@ -115,7 +111,6 @@ def detect_day(
     exhaustion_cap: int = 2,
     gap_pole: bool = False,
     atr_window: int = 14,
-    weights: Mapping[str, float] = DEFAULT_WEIGHTS,
     window_start: time = time(4, 0),
     window_end: time = time(11, 59),
     price_min: float | None = None,
@@ -144,7 +139,7 @@ def detect_day(
     (#567) — they set ``in_window`` / ``in_price_band`` and therefore ``takeable``, and leave
     ``passed`` alone. ``None`` prices disable the band, which is what a shape-only caller wants.
     Note the window here is the *selection* window, NOT the scanner's: names outside it are still
-    detected, scored and published, they simply aren't takeable.
+    detected and published, they simply aren't takeable.
     """
     tokens = tokenize(bars, eps=eps)
     all_cycles = segment_cycles(tokens)
@@ -227,15 +222,10 @@ def detect_day(
     )
     gates = evaluate(
         fv,
-        max_pole=max_pole,
         max_cons=max_cons,
-        max_peak_wick=max_peak_wick,
         min_pole_pct=min_pole_pct,
         max_retracement=max_retracement,
         min_vol_ratio=min_vol_ratio,
-    )
-    sc, contributions = score(
-        fv, weights=weights, max_pole=max_pole, max_retracement=max_retracement
     )
 
     breakout = bars[cons_end].high
@@ -311,8 +301,6 @@ def detect_day(
         stop=round(stop, 4),
         gates=gates,
         passed=gates_passed(gates),
-        score=sc,
-        contributions=contributions,
         trigger_idx=trigger_idx,
         cycle_num=cycle_num,
         total_significant_cycles=len(sig),
@@ -349,7 +337,6 @@ def detect_day_with_settings(
         max_retracement=settings.bull_flag_max_retracement,
         min_vol_ratio=settings.bull_flag_min_vol_ratio,
         halt_neighbour_volume=settings.data_quality_halt_neighbour_volume,
-        max_peak_wick=settings.bull_flag_max_peak_wick,
         trigger_offset=settings.bull_flag_trigger_offset_ticks * tick,
         fill_offset=settings.bull_flag_fill_offset_ticks * tick,
         staleness_min=settings.entry_staleness_min,

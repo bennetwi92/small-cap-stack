@@ -134,9 +134,7 @@ def test_peak_green_gate_fails_on_a_red_peak() -> None:
     )
     fv = extract(bars, seg)
     assert fv.peak_is_green is False
-    gates = evaluate(
-        fv, max_pole=4, max_cons=4, max_peak_wick=0.5, min_pole_pct=0.0, max_retracement=0.5
-    )
+    gates = evaluate(fv, max_cons=4, min_pole_pct=0.0, max_retracement=0.5)
     peak_green = next(g for g in gates if g.name == "peak_green")
     assert peak_green.passed is False
     assert passed(gates) is False  # a red-peaked shape is not takeable

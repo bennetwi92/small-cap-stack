@@ -15,10 +15,8 @@
     "entry_trigger": 22.5899,
     "entry_fill": 22.6099,
     "stop": 22.19,
-    "passed": false,
-    "failing_gates": [
-      "wick_peak"
-    ],
+    "passed": true,
+    "failing_gates": [],
     "cycle_num": 2,
     "total_significant_cycles": 14,
     "exhausted": false
