@@ -639,7 +639,47 @@ profitable rules costs money ($475 vs $576), because it starts cutting winners.
 ```bash
 python spikes/rule_sweep.py single
 python spikes/rule_sweep.py stack --min-keep 60
+python spikes/rule_sweep.py combos --shuffles 200
 ```
+
+#### `combos` — and why `single`/`stack` were the wrong shape
+
+Both of those test rules **in isolation**, and `stack` only ever adds rules that already looked good
+alone. Neither can find a feature that is flat by itself and matters in company — which is the
+question that matters, because filtering is systemic. `combos` searches the pool exhaustively
+(15,434 combinations of up to 4 rules keeping ≥100 setups) and the pool **deliberately includes the
+individually-flat conditions** (`cons==2`, `pole>=2`, `retr>=100%`, the "avoid the 50-75% middle"
+condition that no one-sided threshold can express).
+
+⚠️ **Searching 15,434 combinations against a 25% base rate will always find something that looks
+excellent.** So the search is also run on **shuffled outcomes**, which destroys every real
+relationship while preserving sample size, base rate and the correlation structure between the
+rules. That measures what this much searching buys from luck alone:
+
+| | best combination found |
+|---|---|
+| shuffled outcomes, median of 200 runs | **36.7 in 100** |
+| shuffled, 90th percentile | 40.0 |
+| shuffled, best of 200 | 43.7 |
+| real data (fitted on the 166 old sessions) | 51.0 |
+
+So a combination scoring in the low 40s on the fitting data is **indistinguishable from luck**, and
+only the top of the real distribution clears the bar. This is the number to quote at anyone
+proposing another threshold sweep.
+
+Carried to the 31 recent sessions, which never informed the choice:
+
+| | in 100 |
+|---|---|
+| recent base rate | 25.2 |
+| single best-on-old combination (the only unbiased estimate) | **29.3** (41 setups) |
+| average of the top 20 on recent | **34.7** |
+
+Reading down the recent column and keeping what held up would be a second round of selection and
+is exactly how §D-39/§D-40 started, so don't. The stable read is **which ingredients the search
+keeps choosing**: `<=4 scan hits before the break` appears in **18 of the top 20** and
+`already ran >=25% before the scan saw it` in **15 of 20** — the latter being a condition that
+*reversed between halves on its own*, which is the trader's systemic point demonstrated.
 
 ## Answered
 

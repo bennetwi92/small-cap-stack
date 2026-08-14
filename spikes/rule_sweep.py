@@ -35,6 +35,7 @@ how the last two rules got shipped.
 from __future__ import annotations
 
 import argparse
+import itertools
 from pathlib import Path
 
 import numpy as np
@@ -211,9 +212,162 @@ def cmd_stack(args: argparse.Namespace) -> None:
     print(f"hit {hit:.3f}, R/trade {r:+.3f}, after costs {r - COST_DRAG_R:+.3f}")
 
 
+# The pool the combination search draws from. **Deliberately includes conditions that are flat or
+# negative on their own** — that is the entire point of searching combinations rather than stacking
+# individual winners. `cmd_stack` only ever added rules that already looked good alone, so it could
+# not find a feature that matters only in company (2 consolidation bars *given* a fresh scan, say).
+POOL: list[tuple[str, pl.Expr]] = [
+    ("price>=3", pl.col("entry_fill") >= 3.0),
+    ("price>=5", pl.col("entry_fill") >= 5.0),
+    ("price<=20", pl.col("entry_fill") <= 20.0),
+    ("stop>=2.5%", pl.col("stop_pct") >= 0.025),
+    ("stop>=4%", pl.col("stop_pct") >= 0.04),
+    ("stop<=10%", pl.col("stop_pct") <= 0.10),
+    ("break<08:00", pl.col("trigger_et_min") < 480),
+    ("break<09:15", pl.col("trigger_et_min") < 555),
+    ("1st pump", pl.col("cycle_num") <= 1),
+    ("<=15m stale", pl.col("staleness_delay_min") <= 15),
+    ("<=30m stale", pl.col("staleness_delay_min") <= 30),
+    ("<=4 hits", pl.col("hits_before_trigger") <= 4),
+    ("<=10 hits", pl.col("hits_before_trigger") <= 10),
+    # --- the shape features the trader asked about: flat alone, kept in on purpose ---
+    ("cons==2", pl.col("cons_len") == 2),
+    ("cons<=2", pl.col("cons_len") <= 2),
+    ("cons>=2", pl.col("cons_len") >= 2),
+    ("pole==1", pl.col("pole_len") == 1),
+    ("pole>=2", pl.col("pole_len") >= 2),
+    ("retr>=100%", pl.col("retracement") >= 1.0),
+    ("retr<50%", pl.col("retracement") < 0.50),
+    # The U-shape: the 50-75% band is the worst bucket in the record, so "avoid the middle" is a
+    # different rule from any one-sided threshold and no threshold can express it.
+    ("not retr 50-75%", ~pl.col("retracement").is_between(0.50, 0.75, closed="left")),
+    ("shape gates pass", pl.col("passed")),
+    ("score>=0.5", pl.col("score") >= 0.5),
+    # --- tape ---
+    ("ran>=25% pre-scan", pl.col("runup_pre_appearance") >= 0.25),
+    ("<75% up at break", pl.col("ext_at_trigger") < 0.75),
+    ("pole>=40% of vol", pl.col("vol_share_pole") >= 0.40),
+    ("$1M+ by break", pl.col("cum_dollar_vol_to_trigger") >= 1_000_000),
+]
+
+
+def cmd_combos(args: argparse.Namespace) -> None:
+    """Search every combination of up to N rules — and measure how good "lucky" looks.
+
+    The trader's objection to ``single``/``stack`` is correct: a feature can be flat alone and
+    matter in company, and neither of those commands could ever find one. This searches the pool
+    exhaustively instead.
+
+    That creates the obvious problem. Searching ~20,000 combinations against a 25% base rate will
+    turn up something that looks excellent whether or not anything real is there — which is exactly
+    how §D-38's 150-variant sweep and the §D-39/§D-40 collapse happened. Two defences, and the
+    second is the one that matters:
+
+    1. **Fit on the old data, score on the recent data.** Combinations are ranked on the 166 recon
+       sessions; the live sessions are never consulted while choosing, only reported afterwards.
+    2. **Run the identical search on shuffled outcomes.** Permuting max R across setups destroys
+       every real relationship while preserving the sample size, the base rate and the correlation
+       structure *between the rules themselves*. The best combination found on shuffled data is
+       therefore a direct measurement of what this much searching buys from luck alone. If the real
+       winner does not clear that bar, it is not a finding — and no amount of care in how the rules
+       were chosen changes that.
+
+    The shuffled benchmark is reported as a distribution, not a single number, so "the best real
+    combination beat 90% of lucky ones" can be read off directly.
+    """
+    df = _load(Path(args.panel))
+    old = df.filter(pl.col("source") == "recon")
+    new = df.filter(pl.col("source") == "live")
+    y_old = old["max_r"].to_numpy().astype(float)
+    y_new = new["max_r"].to_numpy().astype(float)
+    hit_old_base = float(np.mean(y_old >= TARGET_R))
+    hit_new_base = float(np.mean(y_new >= TARGET_R))
+
+    names = [n for n, _ in POOL]
+    m_old = np.array([old.select(e.alias("m"))["m"].fill_null(False).to_numpy() for _, e in POOL])
+    m_new = np.array([new.select(e.alias("m"))["m"].fill_null(False).to_numpy() for _, e in POOL])
+
+    combos: list[tuple[tuple[int, ...], np.ndarray]] = []
+    for k in range(1, args.max_rules + 1):
+        for idx in itertools.combinations(range(len(POOL)), k):
+            mask = np.logical_and.reduce(m_old[list(idx)], axis=0)
+            if int(mask.sum()) >= args.min_old:
+                combos.append((idx, mask))
+    print(f"\nold data: {old.height} setups ({hit_old_base * 100:.1f} in 100)")
+    print(f"recent data: {new.height} setups ({hit_new_base * 100:.1f} in 100)")
+    print(f"combinations searched (up to {args.max_rules} rules, >={args.min_old} setups kept): "
+          f"{len(combos)}")
+
+    hits = np.array([float(np.mean(y_old[m] >= TARGET_R)) for _, m in combos])
+
+    # The luck benchmark: same combinations, same sample, outcomes shuffled.
+    rng = np.random.default_rng(690)
+    best_lucky = np.empty(args.shuffles)
+    for s in range(args.shuffles):
+        ys = rng.permutation(y_old)
+        best_lucky[s] = max(float(np.mean(ys[m] >= TARGET_R)) for _, m in combos)
+    print(f"\nBEST BY LUCK — same search on shuffled outcomes, {args.shuffles} runs:")
+    print(f"   median {np.median(best_lucky) * 100:.1f} in 100, "
+          f"90th pct {np.percentile(best_lucky, 90) * 100:.1f}, "
+          f"best {best_lucky.max() * 100:.1f}")
+
+    order = np.argsort(-hits)[: args.top]
+    print(f"\nTOP {args.top} COMBINATIONS (chosen on old data only)")
+    print(f"{'rules':<56}{'old n':>6}{'old':>7}{'rec n':>7}{'recent':>8}")
+    print("-" * 84)
+    recents: list[float] = []
+    for i in order:
+        idx, mask = combos[i]
+        label = " + ".join(names[j] for j in idx)
+        nm = np.logical_and.reduce(m_new[list(idx)], axis=0)
+        n_rec = int(nm.sum())
+        rec = float(np.mean(y_new[nm] >= TARGET_R)) * 100 if n_rec >= args.min_new else None
+        if rec is not None:
+            recents.append(rec)
+        print(
+            f"{label:<56}{int(mask.sum()):>6}{hits[i] * 100:>7.1f}{n_rec:>7}"
+            f"{(f'{rec:.1f}' if rec is not None else '—'):>8}"
+        )
+
+    # The two numbers that are actually defensible. The single best-on-old combination carried to
+    # the recent data is the only *unbiased* estimate here — nothing about the recent data informed
+    # the choice. The top-K average is the same idea made less brittle: reading down the recent
+    # column and keeping the ones that held up would be a second round of selection, and would put
+    # the search straight back where §D-39/§D-40 started.
+    best_i = int(order[0])
+    bnm = np.logical_and.reduce(m_new[list(combos[best_i][0])], axis=0)
+    print(f"\nbase rate on recent data: {hit_new_base * 100:.1f} in 100")
+    print(
+        f"single best-on-old combination, carried to recent: "
+        f"{float(np.mean(y_new[bnm] >= TARGET_R)) * 100:.1f} in 100 on {int(bnm.sum())} setups"
+    )
+    if recents:
+        print(
+            f"average of the top {len(recents)} on recent: {np.mean(recents):.1f} in 100 "
+            f"(vs {hit_new_base * 100:.1f} base)"
+        )
+    # Which single conditions the search actually keeps choosing — a far more stable read than any
+    # one winning combination, and it cannot be cherry-picked from the recent column.
+    print("\nhow often each rule appears in the top 20 (the search's own preference):")
+    counts: dict[str, int] = {}
+    for i in order:
+        for j in combos[i][0]:
+            counts[names[j]] = counts.get(names[j], 0) + 1
+    for nm_, c in sorted(counts.items(), key=lambda kv: -kv[1])[:10]:
+        print(f"   {nm_:<24}{c:>3} / {len(order)}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    c = sub.add_parser("combos", help="search all rule combinations, against a luck benchmark")
+    c.add_argument("--panel", default=str(PANEL_DEFAULT))
+    c.add_argument("--max-rules", type=int, default=4)
+    c.add_argument("--min-old", type=int, default=100)
+    c.add_argument("--min-new", type=int, default=20)
+    c.add_argument("--shuffles", type=int, default=200)
+    c.add_argument("--top", type=int, default=20)
+    c.set_defaults(func=cmd_combos)
     s = sub.add_parser("single", help="score every candidate rule on its own")
     s.add_argument("--panel", default=str(PANEL_DEFAULT))
     s.set_defaults(func=cmd_single)
