@@ -639,7 +639,90 @@ profitable rules costs money ($475 vs $576), because it starts cutting winners.
 ```bash
 python spikes/rule_sweep.py single
 python spikes/rule_sweep.py stack --min-keep 60
+python spikes/rule_sweep.py combos --shuffles 200
 ```
+
+#### `combos` — and why `single`/`stack` were the wrong shape
+
+Both of those test rules **in isolation**, and `stack` only ever adds rules that already looked good
+alone. Neither can find a feature that is flat by itself and matters in company — which is the
+question that matters, because filtering is systemic. `combos` searches the pool exhaustively
+(15,434 combinations of up to 4 rules keeping ≥100 setups) and the pool **deliberately includes the
+individually-flat conditions** (`cons==2`, `pole>=2`, `retr>=100%`, the "avoid the 50-75% middle"
+condition that no one-sided threshold can express).
+
+⚠️ **Searching 15,434 combinations against a 25% base rate will always find something that looks
+excellent.** So the search is also run on **shuffled outcomes**, which destroys every real
+relationship while preserving sample size, base rate and the correlation structure between the
+rules. That measures what this much searching buys from luck alone:
+
+| | best combination found |
+|---|---|
+| shuffled outcomes, median of 200 runs | **36.7 in 100** |
+| shuffled, 90th percentile | 40.0 |
+| shuffled, best of 200 | 43.7 |
+| real data (fitted on the 166 old sessions) | 51.0 |
+
+So a combination scoring in the low 40s on the fitting data is **indistinguishable from luck**, and
+only the top of the real distribution clears the bar. This is the number to quote at anyone
+proposing another threshold sweep.
+
+Carried to the 31 recent sessions, which never informed the choice:
+
+| | in 100 |
+|---|---|
+| recent base rate | 25.2 |
+| single best-on-old combination (the only unbiased estimate) | **29.3** (41 setups) |
+| average of the top 20 on recent | **34.7** |
+
+Reading down the recent column and keeping what held up would be a second round of selection and
+is exactly how §D-39/§D-40 started, so don't. The stable read is **which ingredients the search
+keeps choosing**: `<=4 scan hits before the break` appears in **18 of the top 20** and
+`already ran >=25% before the scan saw it` in **15 of 20** — the latter being a condition that
+*reversed between halves on its own*, which is the trader's systemic point demonstrated.
+
+#### `system` — filter and target together, at a declared capacity
+
+`combos` still scored every filter at a **fixed 2R target**, which quietly selects for filters that
+produce 2R-shaped trades and discards any filter whose edge is that its setups run *further*. A
+filter reaching 2R only 30% of the time but 4R on most of those beats one that hits 2R 40% of the
+time and stops dead — and at a fixed 2R the first one loses. Filter and target are one decision, so
+`system` searches them jointly. Two consequences:
+
+- **The objective is R per session, not hit rate.** Hit rate cannot compare a 2R filter against a
+  4R one; R per session can, and it is what compounds.
+- **Capacity is a pre-declared constraint** — the trader wants ~0.8 trades/day, so only filters
+  keeping 0.6–1.0/day are admissible. That stops the search drifting to the 38-trade corner that
+  looked best under a hit-rate objective and is not a strategy. Being declared in advance, it costs
+  no evidence.
+
+Risk is deliberately **not** searched here: at a fixed risk fraction R per session is invariant to
+it, so risk cannot be chosen against this objective at all. It is chosen against the *shape* of the
+equity curve (drawdown, ruin), which needs the real book — see `adaptive_book_sweep.py`.
+
+**Result (2026-08-14): the edge does not survive out of sample.** 2,933 admissible filters × 7
+targets = 20,531 systems.
+
+| | R per session |
+|---|---|
+| best by luck (shuffled outcomes, median of 100 runs) | +0.084 |
+| best by luck, best of 100 | +0.247 |
+| **best real system, on the old sessions it was fitted to** | **+0.328** |
+| **the same system carried to the recent sessions** | **−0.194** |
+| average of the top 20, on recent | **−0.170** |
+
+It clears the luck bar on the fitting data and then loses money on data it has not seen — **19 of
+the top 20 systems are negative on the recent sessions.** The two ingredients the search leans on
+hardest, `retr>=100%` (19/20) and `ran>=25% pre-scan` (19/20), are precisely the two that fail to
+carry. Note also that the filters keep 0.6–1.0/day on the old sessions and **1.3/day on the recent
+ones**, so they are not even equally selective across periods.
+
+The target choice is the one stable finding: across the top 50 systems the search picked **2.0R
+29 times**, 2.5R 11 and 3.0R 10 — agreeing with §D-38 and with `adaptive_book_sweep.py` from a
+third direction.
+
+⚠️ **This is why the `$576` book in #694 looked good** — it was fitted on the old half. Read the
+two together.
 
 ## Answered
 
