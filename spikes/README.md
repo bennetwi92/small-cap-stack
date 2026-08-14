@@ -38,6 +38,7 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`regime_panel.py`](#regime_panelpy) | #690 | The **wide** setup-level panel: every opportunity-run over both stores, with the fitted selection rules carried as columns rather than applied |
 | [`regime_scan.py`](#regime_scanpy) | #690 | Is there a regime? Trailing aggregates vs today, block structure, and whether the filter should differ per regime |
 | [`adaptive_book_sweep.py`](#adaptive_book_sweeppy) | #690 | Switch the retired adaptive target (§D-38) and risk ladder (§D-23) back on, over 197 sessions |
+| [`rule_sweep.py`](#rule_sweeppy) | #690 | Which single selection rules actually pick better setups, judged on old and recent data separately |
 
 ### `viz_engine.py`
 
@@ -593,6 +594,135 @@ Re-test it **after** the rules, not before.
 python spikes/adaptive_book_sweep.py --store data/live --recon-store data/recon \
     --json data/spikes/adaptive_sweep.json
 ```
+
+### `rule_sweep.py`
+
+A scorecard for the rules that decide **which setups to take**, over the 3,740 pre-market setups in
+the wide panel. §D-38 records >150 threshold variants swept over 79 sessions and §D-39/§D-40 were
+fitted on 61 and collapsed out of sample, so the defence here is not a bigger sweep but a **cheaper
+verdict**: a rule counts only if it beats its own half's base rate in the **old** data (166 recon
+sessions) *and* the **recent** data (31 live) separately. That is a weak test on purpose — it cannot
+confirm a rule, only refuse one.
+
+**Findings (2026-08-14).** Base rate is 0.249 at a 2R target; break-even is 0.333 before costs and
+~0.429 after what a $500 account pays. **14 of 35 candidate rules survive both halves, and not one
+of them clears break-even on its own.** The strongest family is *freshness* — scanner attention
+before the break: ≤1 hit gives 0.309 (+0.059), ≤4 gives 0.279, and a 15-minute staleness cutoff
+gives 0.265. Then price ≥ $3 (+0.028) and ≥ $5 (+0.025), and stop ≥ 4% (+0.012).
+
+Two shipped rules do **nothing** on this record and fail the both-halves test:
+
+| shipped rule | keeps | hit | vs base |
+|---|---|---|---|
+| all shape gates pass | 271 | 0.247 | **−0.002** |
+| break before 09:15 | 3481 | 0.248 | **−0.001** |
+
+The bull-flag shape gates — the machinery the whole engine is built around — select no better than
+taking everything. Worth a decision of its own; this spike only measures it.
+
+⚠️ **The stacked result is not out-of-sample evidence and must not be read as any.** Running the
+real book with the three rules that map to `Settings` knobs (price ≥ $5, stop ≥ 4%, staleness ≤ 15m)
+takes $500 → **$576** over 197 sessions against $204 shipped, with max drawdown 41% → 16%. But split
+it and the gain is **entirely in the fitted half**:
+
+| | old (166 recon sessions) | recent (31 live sessions) |
+|---|---|---|
+| shipped | 77 trades, 36.4% win, +3.11R | 23 trades, 39.1% win, +3.36R |
+| three rules | 25 trades, 56.0% win, **+16.72R** | 13 trades, 38.5% win, **+1.81R** |
+
+Better in the old data, slightly *worse* in the recent — the exact signature §D-39/§D-40 showed
+before they broke. 13 recent trades cannot refute it either; it is simply not settled.
+
+Also confirms the ordering the adaptive sweep predicted: adding the risk ladder **on top of**
+profitable rules costs money ($475 vs $576), because it starts cutting winners.
+
+```bash
+python spikes/rule_sweep.py single
+python spikes/rule_sweep.py stack --min-keep 60
+python spikes/rule_sweep.py combos --shuffles 200
+```
+
+#### `combos` — and why `single`/`stack` were the wrong shape
+
+Both of those test rules **in isolation**, and `stack` only ever adds rules that already looked good
+alone. Neither can find a feature that is flat by itself and matters in company — which is the
+question that matters, because filtering is systemic. `combos` searches the pool exhaustively
+(15,434 combinations of up to 4 rules keeping ≥100 setups) and the pool **deliberately includes the
+individually-flat conditions** (`cons==2`, `pole>=2`, `retr>=100%`, the "avoid the 50-75% middle"
+condition that no one-sided threshold can express).
+
+⚠️ **Searching 15,434 combinations against a 25% base rate will always find something that looks
+excellent.** So the search is also run on **shuffled outcomes**, which destroys every real
+relationship while preserving sample size, base rate and the correlation structure between the
+rules. That measures what this much searching buys from luck alone:
+
+| | best combination found |
+|---|---|
+| shuffled outcomes, median of 200 runs | **36.7 in 100** |
+| shuffled, 90th percentile | 40.0 |
+| shuffled, best of 200 | 43.7 |
+| real data (fitted on the 166 old sessions) | 51.0 |
+
+So a combination scoring in the low 40s on the fitting data is **indistinguishable from luck**, and
+only the top of the real distribution clears the bar. This is the number to quote at anyone
+proposing another threshold sweep.
+
+Carried to the 31 recent sessions, which never informed the choice:
+
+| | in 100 |
+|---|---|
+| recent base rate | 25.2 |
+| single best-on-old combination (the only unbiased estimate) | **29.3** (41 setups) |
+| average of the top 20 on recent | **34.7** |
+
+Reading down the recent column and keeping what held up would be a second round of selection and
+is exactly how §D-39/§D-40 started, so don't. The stable read is **which ingredients the search
+keeps choosing**: `<=4 scan hits before the break` appears in **18 of the top 20** and
+`already ran >=25% before the scan saw it` in **15 of 20** — the latter being a condition that
+*reversed between halves on its own*, which is the trader's systemic point demonstrated.
+
+#### `system` — filter and target together, at a declared capacity
+
+`combos` still scored every filter at a **fixed 2R target**, which quietly selects for filters that
+produce 2R-shaped trades and discards any filter whose edge is that its setups run *further*. A
+filter reaching 2R only 30% of the time but 4R on most of those beats one that hits 2R 40% of the
+time and stops dead — and at a fixed 2R the first one loses. Filter and target are one decision, so
+`system` searches them jointly. Two consequences:
+
+- **The objective is R per session, not hit rate.** Hit rate cannot compare a 2R filter against a
+  4R one; R per session can, and it is what compounds.
+- **Capacity is a pre-declared constraint** — the trader wants ~0.8 trades/day, so only filters
+  keeping 0.6–1.0/day are admissible. That stops the search drifting to the 38-trade corner that
+  looked best under a hit-rate objective and is not a strategy. Being declared in advance, it costs
+  no evidence.
+
+Risk is deliberately **not** searched here: at a fixed risk fraction R per session is invariant to
+it, so risk cannot be chosen against this objective at all. It is chosen against the *shape* of the
+equity curve (drawdown, ruin), which needs the real book — see `adaptive_book_sweep.py`.
+
+**Result (2026-08-14): the edge does not survive out of sample.** 2,933 admissible filters × 7
+targets = 20,531 systems.
+
+| | R per session |
+|---|---|
+| best by luck (shuffled outcomes, median of 100 runs) | +0.084 |
+| best by luck, best of 100 | +0.247 |
+| **best real system, on the old sessions it was fitted to** | **+0.328** |
+| **the same system carried to the recent sessions** | **−0.194** |
+| average of the top 20, on recent | **−0.170** |
+
+It clears the luck bar on the fitting data and then loses money on data it has not seen — **19 of
+the top 20 systems are negative on the recent sessions.** The two ingredients the search leans on
+hardest, `retr>=100%` (19/20) and `ran>=25% pre-scan` (19/20), are precisely the two that fail to
+carry. Note also that the filters keep 0.6–1.0/day on the old sessions and **1.3/day on the recent
+ones**, so they are not even equally selective across periods.
+
+The target choice is the one stable finding: across the top 50 systems the search picked **2.0R
+29 times**, 2.5R 11 and 3.0R 10 — agreeing with §D-38 and with `adaptive_book_sweep.py` from a
+third direction.
+
+⚠️ **This is why the `$576` book in #694 looked good** — it was fitted on the old half. Read the
+two together.
 
 ## Answered
 
