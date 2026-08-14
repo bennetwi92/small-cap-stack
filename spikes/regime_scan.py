@@ -556,6 +556,205 @@ def _between_share(y: np.ndarray, assign: np.ndarray, total_ss: float) -> float:
     return float(between / total_ss)
 
 
+# The morning's own cross-section, read at a cutoff. Each entry is (label, panel column, how to
+# aggregate) over the setups that had already TRIGGERED by the cutoff — every one of these is a
+# property of a bar at or before that setup's own trigger, so all of it is observable at the cutoff.
+ASOF_STATS: tuple[tuple[str, str, str], ...] = (
+    ("n_appeared", "first_hit_et_min", "count"),
+    ("n_triggered", "trigger_et_min", "count"),
+    ("med_ext_trigger", "ext_at_trigger", "median"),
+    ("med_runup_pre", "runup_pre_appearance", "median"),
+    ("med_rvol_pole", "rvol_pole", "median"),
+    ("med_stop_pct", "stop_pct", "median"),
+    ("med_price", "entry_fill", "median"),
+    ("med_first_rank", "first_rank", "median"),
+    ("med_dollar_vol", "cum_dollar_vol_to_trigger", "median"),
+    ("med_range_pre_pole", "range_before_pole_pct", "median"),
+)
+
+
+def cmd_asof(args: argparse.Namespace) -> None:
+    """A **concurrent** regime: this morning's own cross-section, not last fortnight's outcomes.
+
+    Every regime feature tested by ``scan`` and ``persist`` is built from **outcomes** — Max-R
+    percentiles, hit rates, counts of what worked. That is a lagging indicator by construction, and
+    it is the likeliest reason the direction reversed across the store boundary: it estimates "was
+    the last fortnight good" and hopes that carries.
+
+    This asks the other question. At a cutoff time C, what the morning already looks like is
+    observable: how many names have appeared, how many have broken out, how extended they were when
+    they did, what their volume was doing. None of it needs an outcome, and none of it needs a
+    trailing window — so it sidesteps both the lag and the power problem (a trailing-20 window
+    leaves ~10 independent blocks in this record; this uses every session).
+
+    **Causality is the whole design.** The cross-section at C is built only from setups whose
+    trigger is at or before C, using features measured at or before their own trigger; the outcome
+    is measured only over setups triggering strictly **after** C on the same session. A setup never
+    contributes to the regime it is scored against.
+    """
+    df, _days, _ = _load(args)
+    rows = []
+    for cutoff in args.cutoffs:
+        for d in sorted(df["dt"].unique().to_list()):
+            g = df.filter(pl.col("dt") == d)
+            before = g.filter(pl.col("trigger_et_min") <= cutoff)
+            after = g.filter(pl.col("trigger_et_min") > cutoff)
+            if after.height < args.min_after or before.height < args.min_before:
+                continue
+            rec: dict[str, object] = {"dt": d, "cutoff": cutoff, "n_after": after.height}
+            appeared = g.filter(pl.col("first_hit_et_min") <= cutoff)
+            for label, col, how in ASOF_STATS:
+                src = appeared if label == "n_appeared" else before
+                if how == "count":
+                    rec[label] = float(src.height)
+                else:
+                    v = src[col].drop_nulls()
+                    rec[label] = float(v.median()) if v.len() else None
+            mr = after["max_r"].to_numpy()
+            rec["fwd_p2r"] = float(np.mean(mr >= 2.0))
+            rec["fwd_mean_max_r"] = float(np.mean(mr))
+            rec["fwd_p50_max_r"] = float(np.median(mr))
+            rows.append(rec)
+    panel = pl.DataFrame(rows, infer_schema_length=None)
+
+    print("\nCONCURRENT REGIME — this morning's cross-section vs the rest of the same morning")
+    print("(cross-section from setups triggered by the cutoff; outcome from setups after it)\n")
+    for cutoff in args.cutoffs:
+        sub = panel.filter(pl.col("cutoff") == cutoff)
+        if sub.height < 15:
+            print(
+                f"cutoff {int(cutoff) // 60:02d}:{int(cutoff) % 60:02d} — only {sub.height} "
+                f"sessions qualify, skipped"
+            )
+            continue
+        n_setups = int(sub["n_after"].sum())
+        print(
+            f"--- cutoff {int(cutoff) // 60:02d}:{int(cutoff) % 60:02d} ET — {sub.height} "
+            f"sessions, {n_setups} scored setups ---"
+        )
+        print(f"{'feature':<20}" + "".join(f"{t:>22}" for t in ("fwd_p2r", "fwd_mean_max_r")))
+        for label, _col, _how in ASOF_STATS:
+            line = f"{label:<20}"
+            for target in ("fwd_p2r", "fwd_mean_max_r"):
+                pair = sub.select([label, target]).drop_nulls()
+                if pair.height < 12:
+                    line += f"{'—':>22}"
+                    continue
+                x = pair[label].to_numpy().astype(float)
+                y = pair[target].to_numpy().astype(float)
+                if args.detrend:
+                    x, y = _detrend_ranks(x), _detrend_ranks(y)
+                rho, p = circular_shift_p(x, y)
+                line += f"{rho:>+15.3f} ({p:.2f})"
+            print(line)
+        print()
+
+
+# The tape features added in stage 3 — what the name was DOING, as opposed to what the flag looked
+# like. Tested at the opportunity level, which is where this record has power: day effects are ~zero
+# (see `persist`), so 3,740 setups are near-independent against ~197 sessions or ~10 blocks.
+TAPE_FEATURES: dict[str, list[tuple[str, str]]] = {
+    "ext_at_trigger": [
+        ("<10%", "ext_at_trigger < 0.10"),
+        ("10-30%", "0.10 <= ext_at_trigger < 0.30"),
+        ("30-75%", "0.30 <= ext_at_trigger < 0.75"),
+        (">=75%", "ext_at_trigger >= 0.75"),
+    ],
+    "runup_pre_appearance": [
+        ("<5%", "runup_pre_appearance < 0.05"),
+        ("5-25%", "0.05 <= runup_pre_appearance < 0.25"),
+        ("25-60%", "0.25 <= runup_pre_appearance < 0.60"),
+        (">=60%", "runup_pre_appearance >= 0.60"),
+    ],
+    "rvol_pole": [
+        ("<1x", "rvol_pole < 1.0"),
+        ("1-3x", "1.0 <= rvol_pole < 3.0"),
+        ("3-10x", "3.0 <= rvol_pole < 10.0"),
+        (">=10x", "rvol_pole >= 10.0"),
+    ],
+    "vol_share_pole": [
+        ("<20%", "vol_share_pole < 0.20"),
+        ("20-40%", "0.20 <= vol_share_pole < 0.40"),
+        ("40-70%", "0.40 <= vol_share_pole < 0.70"),
+        (">=70%", "vol_share_pole >= 0.70"),
+    ],
+    "hits_before_trigger": [
+        ("1", "hits_before_trigger <= 1"),
+        ("2-4", "1 < hits_before_trigger <= 4"),
+        ("5-15", "4 < hits_before_trigger <= 15"),
+        (">15", "hits_before_trigger > 15"),
+    ],
+    "first_rank": [
+        ("top 5", "first_rank <= 5"),
+        ("6-15", "5 < first_rank <= 15"),
+        ("16-30", "15 < first_rank <= 30"),
+        (">30", "first_rank > 30"),
+    ],
+    "bars_before_pole": [
+        ("<3", "bars_before_pole < 3"),
+        ("3-10", "3 <= bars_before_pole < 10"),
+        ("10-25", "10 <= bars_before_pole < 25"),
+        (">=25", "bars_before_pole >= 25"),
+    ],
+    "cum_dollar_vol_to_trigger": [
+        ("<$1M", "cum_dollar_vol_to_trigger < 1000000"),
+        ("$1-5M", "1000000 <= cum_dollar_vol_to_trigger < 5000000"),
+        ("$5-25M", "5000000 <= cum_dollar_vol_to_trigger < 25000000"),
+        (">=$25M", "cum_dollar_vol_to_trigger >= 25000000"),
+    ],
+}
+
+
+def cmd_tape(args: argparse.Namespace) -> None:
+    """Do the stage-3 tape features separate outcomes at the OPPORTUNITY level?
+
+    The regime tests all came back weak, so this asks the question where the sample actually has
+    power. Because the day effect is ~zero, setups are near-independent: 3,740 observations against
+    the ~10 independent blocks a trailing-20 regime window leaves.
+
+    Reported with day-block bootstrap CIs and **recon and live side by side** — the split that
+    caught the trailing-quality reversal, and the only cheap defence against reading a bucket that
+    happens to be lucky in one store. The base rate is printed so a bucket can be read as a lift
+    rather than as a level.
+    """
+    df, _days, _ = _load(args)
+    rng = np.random.default_rng(RNG_SEED)
+    base = float(np.mean(df["max_r"].to_numpy() >= 2.0))
+    print(f"\nbase rate P(2R) = {base:.4f} over {df.height} pre-market setups\n")
+    for feat, buckets in TAPE_FEATURES.items():
+        print(f"--- {feat} ---")
+        print(
+            f"{'bucket':<10} {'n':>6} {'P(2R)':>8} {'95% CI':>18} {'lift':>7}   "
+            f"{'recon':>14} {'live':>14}"
+        )
+        for lab, spec in buckets:
+            b = df.filter(_bucket_expr(spec))
+            if b.height < 30:
+                print(f"{lab:<10} {b.height:>6}   (too few)")
+                continue
+            mr = b["max_r"].to_numpy()
+            p2 = float(np.mean(mr >= 2.0))
+            groups = [
+                g["max_r"].to_numpy()
+                for _k, g in b.group_by("dt")
+                if g.height  # type: ignore[misc]
+            ]
+            ci = day_block_bootstrap_ci(groups, lambda a: float(np.mean(a >= 2.0)), args.draws, rng)
+            cells = []
+            for src in ("recon", "live"):
+                s = b.filter(pl.col("source") == src)
+                cells.append(
+                    f"{float(np.mean(s['max_r'].to_numpy() >= 2.0)):.3f} [{s.height}]"
+                    if s.height >= 30
+                    else "—"
+                )
+            print(
+                f"{lab:<10} {b.height:>6} {p2:>8.4f} [{ci[0]:>6.4f},{ci[1]:>6.4f}] "
+                f"{p2 - base:>+7.3f}   {cells[0]:>14} {cells[1]:>14}"
+            )
+        print()
+
+
 # The filter features the eventual selection rule would be built from. Bucketed, not thresholded:
 # the question is whether the ORDER of the buckets changes with regime, which a threshold hides.
 FILTER_FEATURES: dict[str, list[tuple[str, str]]] = {
@@ -690,6 +889,21 @@ def main() -> None:
     pe.add_argument("--draws", type=int, default=2000)
     pe.add_argument("--premarket-cut", type=float, default=555.0)
     pe.set_defaults(func=cmd_persist)
+
+    a = sub.add_parser("asof", help="concurrent regime: this morning's cross-section")
+    a.add_argument("--panel", default=str(PANEL_DEFAULT))
+    a.add_argument("--premarket-cut", type=float, default=555.0)
+    a.add_argument("--cutoffs", type=float, nargs="+", default=[390.0, 420.0, 450.0, 480.0])
+    a.add_argument("--min-after", type=int, default=3)
+    a.add_argument("--min-before", type=int, default=3)
+    a.add_argument("--detrend", action="store_true")
+    a.set_defaults(func=cmd_asof)
+
+    tp = sub.add_parser("tape", help="do the tape features separate outcomes per opportunity?")
+    tp.add_argument("--panel", default=str(PANEL_DEFAULT))
+    tp.add_argument("--premarket-cut", type=float, default=555.0)
+    tp.add_argument("--draws", type=int, default=3000)
+    tp.set_defaults(func=cmd_tape)
 
     i = sub.add_parser("interact", help="does the best filter bucket move with regime?")
     i.add_argument("--panel", default=str(PANEL_DEFAULT))
