@@ -251,6 +251,137 @@ POOL: list[tuple[str, pl.Expr]] = [
 ]
 
 
+TARGET_GRID = (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0)
+
+
+def cmd_system(args: argparse.Namespace) -> None:
+    """Search the filter AND the target together, at the capacity the trader actually wants.
+
+    The remaining flaw in ``combos``, and it is a real one. Every filter there was scored at a
+    **fixed 2R target**, which quietly selects for filters that produce 2R-shaped trades and throws
+    away any filter whose edge is that its setups run *further*. A filter that hits 2R only 30% of
+    the time but reaches 4R on most of those is better than one that hits 2R 40% of the time and
+    stops dead — and scored at a fixed 2R the first one loses. Filter and target are one decision.
+
+    Two changes follow:
+
+    - **The objective is total R per session, not hit rate.** Hit rate cannot compare a 2R filter
+      with a 4R one; R per session can, and it is what compounds.
+    - **Capacity is a constraint, not an outcome.** The trader wants ~0.8 trades a day, so a
+      combination is only admissible if it keeps roughly that many. That is what stops the search
+      drifting to the 38-trade corner that looked best under a hit-rate objective and is not a
+      strategy — and it is a *pre-declared* constraint, so it costs no evidence.
+
+    Risk is left out on purpose and is not an oversight. At a fixed risk fraction, R per session is
+    invariant to it, so risk cannot be chosen here — it is chosen against the *shape* of the
+    resulting equity curve (drawdown, ruin), which needs the real book. That is the next step, not
+    this one.
+
+    Same discipline as ``combos``: fitted on the old sessions, scored on the recent ones, and the
+    whole search re-run on shuffled outcomes so the luck benchmark moves with the larger grid —
+    which it must, because searching filters x targets is a bigger search than filters alone.
+    """
+    df = _load(Path(args.panel))
+    old = df.filter(pl.col("source") == "recon")
+    new = df.filter(pl.col("source") == "live")
+    n_old_days, n_new_days = old["dt"].n_unique(), new["dt"].n_unique()
+    y_old = old["max_r"].to_numpy().astype(float)
+    y_new = new["max_r"].to_numpy().astype(float)
+
+    names = [n for n, _ in POOL]
+    m_old = np.array([old.select(e.alias("m"))["m"].fill_null(False).to_numpy() for _, e in POOL])
+    m_new = np.array([new.select(e.alias("m"))["m"].fill_null(False).to_numpy() for _, e in POOL])
+
+    lo = args.per_day_min * n_old_days
+    hi = args.per_day_max * n_old_days
+    combos: list[tuple[tuple[int, ...], np.ndarray]] = []
+    for k in range(1, args.max_rules + 1):
+        for idx in itertools.combinations(range(len(POOL)), k):
+            mask = np.logical_and.reduce(m_old[list(idx)], axis=0)
+            if lo <= int(mask.sum()) <= hi:
+                combos.append((idx, mask))
+
+    print(f"\nold: {old.height} setups over {n_old_days} sessions "
+          f"({old.height / n_old_days:.1f}/day)")
+    print(f"recent: {new.height} setups over {n_new_days} sessions "
+          f"({new.height / n_new_days:.1f}/day)")
+    print(f"capacity constraint: {args.per_day_min}-{args.per_day_max} trades/day "
+          f"-> {lo:.0f}-{hi:.0f} setups kept")
+    print(f"searching {len(combos)} filters x {len(TARGET_GRID)} targets = "
+          f"{len(combos) * len(TARGET_GRID)} systems")
+
+    def best_system(y: np.ndarray, ms: list[np.ndarray]) -> tuple[float, int, float]:
+        """Best (R per session, combo index, target) over the whole grid."""
+        best = (-1e9, -1, 0.0)
+        for i, m in enumerate(ms):
+            yy = y[m]
+            for t in TARGET_GRID:
+                r_per_session = float(np.sum(np.where(yy >= t, t, -1.0))) / n_old_days
+                if r_per_session > best[0]:
+                    best = (r_per_session, i, t)
+        return best
+
+    masks = [m for _, m in combos]
+    rng = np.random.default_rng(690)
+    best_lucky = np.empty(args.shuffles)
+    for s in range(args.shuffles):
+        best_lucky[s] = best_system(rng.permutation(y_old), masks)[0]
+    print(f"\nBEST BY LUCK — same search on shuffled outcomes, {args.shuffles} runs:")
+    print(f"   median {np.median(best_lucky):+.3f} R/session, "
+          f"90th pct {np.percentile(best_lucky, 90):+.3f}, best {best_lucky.max():+.3f}")
+
+    scored = []
+    for i, (_idx, m) in enumerate(combos):
+        yy = y_old[m]
+        for t in TARGET_GRID:
+            scored.append((float(np.sum(np.where(yy >= t, t, -1.0))) / n_old_days, i, t))
+    scored.sort(reverse=True)
+
+    print(f"\nTOP {args.top} SYSTEMS (filter + target, chosen on old data only)")
+    print(f"{'filter':<50}{'targ':>5}{'/day':>6}{'R/sess':>8}{'rec/day':>8}{'rec R/sess':>11}")
+    print("-" * 88)
+    rec_rs: list[float] = []
+    for r_sess, i, t in scored[: args.top]:
+        idx, m = combos[i]
+        nm = np.logical_and.reduce(m_new[list(idx)], axis=0)
+        n_rec = int(nm.sum())
+        rec = (
+            float(np.sum(np.where(y_new[nm] >= t, t, -1.0))) / n_new_days if n_rec >= 8 else None
+        )
+        if rec is not None:
+            rec_rs.append(rec)
+        print(
+            f"{' + '.join(names[j] for j in idx):<50}{t:>5.1f}"
+            f"{int(m.sum()) / n_old_days:>6.2f}{r_sess:>+8.3f}{n_rec / n_new_days:>8.2f}"
+            f"{(f'{rec:+.3f}' if rec is not None else '—'):>11}"
+        )
+
+    top = scored[0]
+    idx0, _m0 = combos[top[1]]
+    nm0 = np.logical_and.reduce(m_new[list(idx0)], axis=0)
+    rec0 = float(np.sum(np.where(y_new[nm0] >= top[2], top[2], -1.0))) / n_new_days
+    print(f"\nbest-on-old system carried to recent: {rec0:+.3f} R/session "
+          f"on {int(nm0.sum())} trades ({int(nm0.sum()) / n_new_days:.2f}/day)")
+    if rec_rs:
+        print(f"average of the top {len(rec_rs)} on recent: {np.mean(rec_rs):+.3f} R/session")
+    print(f"beats the luck median? {'YES' if top[0] > np.median(best_lucky) else 'no'} "
+          f"({top[0]:+.3f} vs {np.median(best_lucky):+.3f})")
+
+    print("\nwhich target the search chose, across the top 50:")
+    tc: dict[float, int] = {}
+    for _r, _i, t in scored[:50]:
+        tc[t] = tc.get(t, 0) + 1
+    for t, c in sorted(tc.items()):
+        print(f"   {t:.1f}R: {c}")
+    print("\nhow often each rule appears in the top 20:")
+    counts: dict[str, int] = {}
+    for _r, i, _t in scored[: args.top]:
+        for j in combos[i][0]:
+            counts[names[j]] = counts.get(names[j], 0) + 1
+    for nm_, c in sorted(counts.items(), key=lambda kv: -kv[1])[:10]:
+        print(f"   {nm_:<24}{c:>3} / {args.top}")
+
+
 def cmd_combos(args: argparse.Namespace) -> None:
     """Search every combination of up to N rules — and measure how good "lucky" looks.
 
@@ -360,6 +491,14 @@ def cmd_combos(args: argparse.Namespace) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    y = sub.add_parser("system", help="search filter AND target together, at a capacity constraint")
+    y.add_argument("--panel", default=str(PANEL_DEFAULT))
+    y.add_argument("--max-rules", type=int, default=4)
+    y.add_argument("--per-day-min", type=float, default=0.6)
+    y.add_argument("--per-day-max", type=float, default=1.0)
+    y.add_argument("--shuffles", type=int, default=100)
+    y.add_argument("--top", type=int, default=20)
+    y.set_defaults(func=cmd_system)
     c = sub.add_parser("combos", help="search all rule combinations, against a luck benchmark")
     c.add_argument("--panel", default=str(PANEL_DEFAULT))
     c.add_argument("--max-rules", type=int, default=4)
