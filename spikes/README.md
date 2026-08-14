@@ -35,6 +35,8 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`harvest_bookgap.py`](#the-harvest-validation-harnesses) | #431 | Which selection rule stops a well-formed setup becoming takeable |
 | [`window_0400.py`](#window_0400py) | #569 | Replay the book under the 05:30 vs 04:00 selection floor |
 | [`prefix_stability.py`](#prefix_stabilitypy) | #675 / #312 | Does the detector's answer change as the day's bars accumulate? (Gate 5's "sleeper") |
+| [`regime_panel.py`](#regime_panelpy) | #690 | The **wide** setup-level panel: every opportunity-run over both stores, with the fitted selection rules carried as columns rather than applied |
+| [`regime_scan.py`](#regime_scanpy) | #690 | Is there a regime? Trailing aggregates vs today, block structure, and whether the filter should differ per regime |
 
 ### `viz_engine.py`
 
@@ -496,6 +498,64 @@ Kept live (not retired) so a future detector change has to re-prove this rather 
 python spikes/prefix_stability.py --store data/recon
 python spikes/prefix_stability.py --store data/live
 python spikes/prefix_stability.py --store data/recon --minute   # in-progress bars, needs bars_1m
+```
+
+### `regime_panel.py`
+
+Builds the modelling set the regime work runs on: one row per (session, store, symbol, run) that
+the flag grammar resolves to a setup, replayed over the raw bars of **both** stores — 5,024 setups
+over 197 sessions (166 reconstructed, 31 live).
+
+⚠️ **It is deliberately built with the fitted selection rules switched OFF.** The price band, the
+minimum stop distance, the exhaustion cap, the entry-staleness cutoff and every book rule are
+recorded as **columns**, never applied, because they were fitted on 61 sessions and are exactly what
+this investigation may replace. What is kept is the flag grammar (R is *defined* against the entry
+and stop it produces) and the scanner-appearance gate (the no-lookahead constraint, not a tuned
+threshold).
+
+The panel is a strict **superset** of the shipped population, not a different measurement:
+`detect_day`'s greedy cycle walk picks a run's setup on the pole/trigger/appearance chain alone and
+never consults a gate, a price, a window or a stop distance. `verify` proves it by re-deriving the
+shipped `takeable` set from the wide panel's columns and checking it against a real run of the
+shipped detector — **40 sampled sessions, 0 mismatches**.
+
+```bash
+python spikes/regime_panel.py build --store data/live --recon-store data/recon
+python spikes/regime_panel.py verify --panel data/spikes/regime_panel.parquet \
+    --store data/live --recon-store data/recon
+python spikes/regime_panel.py summary
+```
+
+### `regime_scan.py`
+
+The regime question itself, over the panel. Population is pre-market only (scanner appearance before
+09:15 ET) — which is also what makes the two stores comparable: on the raw population recon shows
+19.7 setups/session against live's 56.5, but that gap is almost entirely **in-market appearances**
+(recon reconstructs pre-market only), and restricted to pre-market they sit at 18.5 and 21.4 with no
+step across the 2026-06-30 → 07-01 boundary. So the record is one continuous 197-session series.
+
+Four readings, each answering a different form of "is there a regime":
+
+- `scan` — every trailing aggregate (windows 1/3/5/10/20) against every same-day target, with an
+  **exact** circular-shift permutation test, BH FDR over the whole grid, the hypothesis count
+  printed, and recon as discovery / live as holdout. `--detrend` residualises both series on
+  calendar order, which is not optional: activity drifts upward across the record, so a trailing
+  count and today's count correlate for reasons that have nothing to do with regime.
+- `persist` — the block test. A hot/cold period is a *block* effect, so compare the between-block
+  share of setup-level variance against blocks assembled from the same sessions **shuffled**. Run
+  raw and detrended, because the shuffled null destroys ordering and a slow drift would otherwise
+  read as a period. Plus the forward-horizon table (trailing-H vs forward-H) and lag-1..5.
+- `terciles` — the pooled setup-level outcome per regime third, with day-block bootstrap CIs. The
+  table a risk rule would actually read.
+- `interact` — "should the filter differ per regime?", in the only form this sample can answer:
+  does the **ordering** of a filter feature's buckets change across regime terciles? A per-regime
+  threshold grid is the unpooled extreme and is the D-39/D-40 failure mode at a third of the data.
+
+```bash
+python spikes/regime_scan.py scan --detrend
+python spikes/regime_scan.py persist --draws 3000
+python spikes/regime_scan.py terciles --feature p2r_w10
+python spikes/regime_scan.py interact --feature p2r_w10
 ```
 
 ## Answered
