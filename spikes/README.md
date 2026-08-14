@@ -39,6 +39,7 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`regime_scan.py`](#regime_scanpy) | #690 | Is there a regime? Trailing aggregates vs today, block structure, and whether the filter should differ per regime |
 | [`adaptive_book_sweep.py`](#adaptive_book_sweeppy) | #690 | Switch the retired adaptive target (§D-38) and risk ladder (§D-23) back on, over 197 sessions |
 | [`rule_sweep.py`](#rule_sweeppy) | #690 | Which single selection rules actually pick better setups, judged on old and recent data separately |
+| [`engine_lab/`](#engine_lab) | #690 | Three parallel investigations — selection rules, risk/capacity, stop-and-target — over one shared pre-market population, with the holdout spent once |
 
 ### `viz_engine.py`
 
@@ -794,3 +795,42 @@ git show origin/dashboard-data:portfolio.json > data/spikes/portfolio.json
 python spikes/portfolio_slot_split.py --payload data/spikes/portfolio.json \
     --charts data/spikes/charts --validate --json data/spikes/slot-split.json
 ```
+
+### `engine_lab/`
+
+Three questions asked in parallel over **one** population, each agent owning one and holding the
+other two fixed, so the answers compose instead of colliding: `rules/` (which setups to take),
+`risk/` (how much to bet, how many a day, which trades cost too much to be worth taking) and
+`exits/` (where the stop and target go). `synthesis.py` composes them and spends the holdout.
+
+**`common.py` is the contract and must not be forked.** It defines the population (live + recon as
+one dataset, pre-market triggers only, both halves cut the same way — 3,639 rows over 197
+sessions), the chronological splits, the bar-level bracket replay, the time-ordered capacity book,
+the IBKR cost model at $500, and the scoring. Three agents sharing one definition is the only
+reason their numbers can be read side by side.
+
+What it is for, beyond the one answer it produced (§D-44): it is the **measuring apparatus**. Any
+future claim about a rule, a stop or a position size should be made through it rather than through
+a fresh harness that redefines the population and quietly answers a different question.
+
+Four things it enforces, each of which had already gone wrong once:
+
+- **The replay is verified**, not assumed — `verify_paths()` reproduces all 3,639 published `max_r`
+  values exactly, so a moved stop can be re-measured honestly. `max_r` is denominated in the
+  *shipped* stop's risk and means nothing against a different one.
+- **No lookahead.** `assert_no_lookahead()` rejects outcome columns and whole-session aggregates;
+  `build_book()` takes the earliest N triggers of a day and never the best N.
+- **The holdout is spent once.** The live period is opened in `synthesis.py`, on a pre-declared set
+  of configurations. `synthesis.py`'s docstring records that four ran where three were declared,
+  because the count is part of the evidence.
+- **Net, not gross.** Costs turn the shipped book's +11.0R into +0.9R, so a rule that improves
+  gross and worsens net is the failure to watch for.
+
+⚠️ **A recon-vs-live split is not runnable inside dev+val**: recon *is* dev+val and live *is* the
+holdout, so the two are perfectly collinear and the cross-source check the README asks for costs
+the holdout to run. Substitute dev-vs-val and odd-vs-even sessions.
+
+⚠️ **Judge a rule on the number you would bank.** Mean Max R and booked R at a fixed target rank the
+shape gates *differently* — Max R is fat-tailed, so a gate can raise average excursion while
+lowering the hit rate that pays. Ranking on Max R produced a confident recommendation to delete
+`cons_retracement`, which would have cost 48R.

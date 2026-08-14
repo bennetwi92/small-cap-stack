@@ -152,11 +152,6 @@ def render_engine(s: Settings) -> str:
             f"≤ {_pct(s.bull_flag_max_retracement)} of the pole",
             _field("bull_flag_max_retracement"),
         ),
-        _row(
-            "Peak upper wick",
-            f"≤ {_pct(s.bull_flag_max_peak_wick)} of the bar's range",
-            _field("bull_flag_max_peak_wick"),
-        ),
         _row("Peak colour", "must close green", "— the `peak_green` gate"),
         _row(
             "Peak volume",
@@ -207,7 +202,7 @@ def render_engine(s: Settings) -> str:
         _row("Tick size", _money(s.tick_size), _field("tick_size")),
         _row(
             "ATR window",
-            f"{s.bull_flag_atr_window} bars (score only, gates nothing)",
+            f"{s.bull_flag_atr_window} bars (a published feature; gates nothing)",
             _field("bull_flag_atr_window"),
         ),
         _row(
@@ -314,8 +309,6 @@ def render_not_gated(s: Settings) -> str:
         "| News (`has_recent_news`) | `news` dataset; the EOD report's `with_recent_news` "
         "**count** | **No.** `gates.py::news_gate` has the same single caller |",
         "| Short interest | not collected in Phase 1 | **No.** No source is wired |",
-        "| Quality score (0–1) | published on the results page and the inspector | "
-        "**No.** It ranks passing setups; it never rejects one |",
     ]
     return "\n".join(rows)
 

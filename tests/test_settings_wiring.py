@@ -61,7 +61,6 @@ _SHARED = {
     "max_cons": "bull_flag_max_cons",
     "min_pole_pct": "bull_flag_min_pole_pct",
     "max_retracement": "bull_flag_max_retracement",
-    "max_peak_wick": "bull_flag_max_peak_wick",
     "atr_window": "bull_flag_atr_window",
 }
 
@@ -74,7 +73,6 @@ def _distinct_settings() -> Settings:
         bull_flag_max_cons=5,
         bull_flag_min_pole_pct=0.09,
         bull_flag_max_retracement=0.42,
-        bull_flag_max_peak_wick=0.37,
         bull_flag_atr_window=11,
         bull_flag_trigger_offset_ticks=2,
         bull_flag_fill_offset_ticks=6,
@@ -144,7 +142,6 @@ def test_locked_v2_defaults() -> None:
     assert s.bull_flag_max_cons == 4
     assert s.bull_flag_min_pole_pct == 0.02
     assert s.bull_flag_max_retracement == 0.50
-    assert s.bull_flag_max_peak_wick == 0.50
     assert s.bull_flag_trigger_offset_ticks == 1
     assert s.bull_flag_fill_offset_ticks == 3
     assert s.bull_flag_exhaustion_cap == 2
@@ -177,7 +174,8 @@ _RETIRED_SETTINGS_NAMES = {
         "never a Settings field — the live value is derived in bullflag/tokens.py::token_eps, but "
         "the getattr that referenced this name in setup.py was removed in #513"
     ),
-    "bull_flag_score_weights": "never existed — bullflag/score.py::DEFAULT_WEIGHTS (#534)",
+    "bull_flag_score_weights": "never existed; the score itself was removed in #690 (§D-44)",
+    "bull_flag_max_peak_wick": "deleted with the wick_peak gate in #690 (§D-44)",
     "bull_flag_min_pole": (
         "read only by the end-anchored detect_setup, which #518 deleted; detect_day's pole "
         "comes from its cycle walk and has no such parameter"
@@ -403,8 +401,8 @@ def test_the_gate_name_parser_would_notice_a_new_gate() -> None:
     """The AST reader is only a guard if it actually finds the gates — a parser that silently
     returns nothing makes the comparison above vacuous on both sides."""
     names = _implemented_gate_names()
-    assert "peak_green" in names and "cons_holds_base" in names
-    assert len(names) >= 8
+    assert "peak_green" in names and "cons_retracement" in names
+    assert len(names) >= 5
 
 
 # --- the wrapper must forward EVERY parameter, derived not hand-kept (#525) --------------------
@@ -413,10 +411,6 @@ def test_the_gate_name_parser_would_notice_a_new_gate() -> None:
 #: an exemption list is how `_SHARED` above quietly stopped covering half the surface.
 _NOT_FROM_SETTINGS = {
     "bars": "the input",
-    "weights": (
-        "the score weights are `bullflag/score.py::DEFAULT_WEIGHTS`, deliberately not a Settings "
-        "field — `bull_flag_score_weights` never existed and is in _RETIRED_SETTINGS_NAMES (#534)"
-    ),
 }
 
 

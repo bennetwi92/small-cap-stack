@@ -18,7 +18,6 @@
     "stop": 22.21,
     "passed": false,
     "failing_gates": [
-      "wick_peak",
       "pole_height",
       "cons_retracement"
     ],

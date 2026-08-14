@@ -14,9 +14,7 @@ _BARS = [
     _bar(2, 6.0, 6.1, 5.6, 5.7, vol=800),
 ]
 _DEFAULTS = {
-    "max_pole": 4,
     "max_cons": 4,
-    "max_peak_wick": 0.50,
     "min_pole_pct": 0.02,
     "max_retracement": 0.50,
 }
@@ -45,15 +43,14 @@ def _fv() -> FeatureVector:
 def test_clean_setup_passes_all() -> None:
     gates = evaluate(_fv(), **_DEFAULTS)
     assert passed(gates) is True
+    # Five gates, down from eight — `pole_len`, `wick_peak` and `cons_holds_base` were measured
+    # against the 197-session record and removed (§D-44, #690).
     assert {g.name for g in gates} == {
-        "pole_len",
         "cons_len",
         "vol_peak_gt_cons",
-        "wick_peak",
         "peak_green",
         "pole_height",
         "cons_retracement",
-        "cons_holds_base",
     }
 
 
@@ -68,8 +65,15 @@ def test_retracement_gate_boundary() -> None:
     assert passed(evaluate(_fv(), **{**_DEFAULTS, "max_retracement": 0.10})) is False
 
 
-def test_wick_gate_boundary() -> None:
-    assert passed(evaluate(_fv(), **{**_DEFAULTS, "max_peak_wick": 0.05})) is False
+def test_there_is_no_wick_gate() -> None:
+    """The pole-wick reject (§D-13) was removed in §D-44 — it rejected the better setups.
+
+    Pinned as an absence rather than deleted: "too wicky -> no trade" came from the trader's own
+    notes and reads as an obviously-correct rule, so a future reader is likely to re-add it. Measure
+    it first — across 1,433 rejections the setups it dropped outperformed the ones it kept in all
+    three periods tested.
+    """
+    assert "wick_peak" not in {g.name for g in evaluate(_fv(), **_DEFAULTS)}
 
 
 def test_there_is_no_window_gate() -> None:

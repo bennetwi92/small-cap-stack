@@ -39,6 +39,25 @@ run**, so the row count is bounded by run segmentation rather than by every flag
 **float is live-only** (the recon store carries EDGAR share counts, §D-41), so it cannot be a
 regime input across the full record — `float_shares` is null on 83% of rows by construction.
 
+## ⚠️ Two columns are day aggregates and must never be used as filters
+
+Both looked like context and are not. The engine-lab rules pass found each one topping every
+feature ranking it ran — which is exactly what a lookahead column looks like from the inside.
+
+**`n_scanner_hits_day`** — every scanner appearance across the *whole session*, hits after the
+break included. Was `n_scanner_hits`; renamed so the trap is visible in the name. Use
+`hits_before_trigger`, which is the same count truncated at the trigger bar.
+
+**`first_rank`** — **live rows only now, null on every recon row.** The live value is the
+scanner's genuine rank at first hit and is fine. The recon value came from `prefilter._ranked`,
+which sorts on `day_change_pct` — the whole day's move — so "rank 1" meant "biggest mover of the
+day", a fact of 16:00 and not of 07:00. `prefilter.candidates` warns about exactly this in its own
+docstring ("NOT here to seed a future rank-cap model"); the panel recorded it as trigger-time
+context anyway. There is no trigger-time rank in the recon half, so there is no replacement.
+
+Rebuild the panel after pulling this change; a parquet built before it carries the old names and
+the fabricated recon ranks.
+
     python spikes/regime_panel.py build --store data/live --recon-store data/recon
     python spikes/regime_panel.py verify --panel data/spikes/regime_panel.parquet
     python spikes/regime_panel.py summary --panel data/spikes/regime_panel.parquet
@@ -237,8 +256,13 @@ def _row_for_run(
         "first_seen_utc": first_seen,
         "first_hit_utc": first_hit,
         "first_hit_et_min": _et_minutes(first_hit) if first_hit is not None else None,
-        "n_scanner_hits": n_scanner_hits,
-        "first_rank": first_rank,
+        # ⚠️ NOT decidable at trigger time — see the module docstring's lookahead note (#690).
+        # Both columns sat under the "available at trigger time" comment above until the engine-lab
+        # rules pass found them topping every feature ranking it ran, which is what a lookahead
+        # column always looks like. Renamed and narrowed rather than deleted, because both are
+        # legitimate *descriptions* of a day; neither is a legitimate *filter*.
+        "n_scanner_hits_day": n_scanner_hits,
+        "first_rank": first_rank if source == "live" else None,
         "n_day_bars": len(day_bars),
         # the setup
         "entry_trigger": setup.entry_trigger,
@@ -253,7 +277,6 @@ def _row_for_run(
         "retracement": round(fv.retracement, 4),
         "cons_vol_reducing": fv.cons_vol_reducing,
         "pole_has_big_green": fv.pole_has_big_green,
-        "score": round(setup.score, 4),
         "passed": setup.passed,
         "failing_gates": ",".join(g.name for g in setup.gates if not g.passed),
         "cycle_num": setup.cycle_num,

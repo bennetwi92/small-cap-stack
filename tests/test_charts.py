@@ -221,7 +221,7 @@ def test_engine_block_present_for_a_setup() -> None:
     # Levels mirror the surfaced entry trigger; the breakout bar (index 3) is the trigger.
     assert eng["levels"]["entry_trigger"] == 6.11
     assert eng["trigger_t"] == _ts(3)
-    assert isinstance(eng["passed"], bool) and isinstance(eng["score"], float)
+    assert isinstance(eng["passed"], bool)
     assert eng["gates"] and all({"name", "passed"} <= g.keys() for g in eng["gates"])
     # Per-bar tokens: one per bar after the first (the step INTO that bar).
     assert eng["tokens"] == [

@@ -228,14 +228,17 @@ Regenerate this table from `gates.evaluate` if it is ever in doubt — it drifte
 
 | Gate | Feature | Condition |
 |------|---------|------------------------|
-| `pole_len` | `pole_len` | `≤ bull_flag_max_pole` (4) |
 | `cons_len` | `cons_len` | `≤ bull_flag_max_cons` (4) |
 | `vol_peak_gt_cons` | `peak_gt_cons` | strict `>` |
-| `wick_peak` | `peak_upper_wick` | `≤ max_peak_wick` (0.50) |
 | `peak_green` | `peak_is_green` | the peak must close green (#196) |
 | `pole_height` | `pole_height_pct` | `≥ min_pole_pct` (**2%**) |
 | `cons_retracement` | `retracement` | `≤ 0.50` |
-| `cons_holds_base` | `holds_base` | `cons_low > pole_base` |
+
+⚠️ **Five gates, down from eight (§D-44, #690).** `pole_len` (never fired), `cons_holds_base`
+(changed no verdict) and `wick_peak` (rejected setups that outperformed the ones it kept, in all
+three periods) were measured against 3,639 pre-market setups and removed. `cons_retracement` looks
+like the next one to go and is not — it rations trades under the capacity cap, and removing it costs
+48R. Measure before re-adding or removing another.
 
 There is no `shape_valid` gate: a shape that doesn't segment produces no `Segment`, so there is
 nothing to gate. `peak_green` (§13) is a real gate and was missing from this table.
@@ -320,7 +323,8 @@ def detect_with_settings(bars, settings) -> Setup | None: ...   # same name rmet
 | ~~`bull_flag_eps_ticks`~~ | — | — | ⚠️ **never existed** — see below |
 | ~~`bull_flag_score_weights`~~ | — | — | ⚠️ **never existed** — see below |
 
-`bull_flag_max_retracement` (0.50) and `bull_flag_max_peak_wick` (0.50) unchanged.
+`bull_flag_max_retracement` (0.50) unchanged. `bull_flag_max_peak_wick` was deleted with the
+`wick_peak` gate (§D-44).
 
 ⚠️ **The two struck-through rows were never `Settings` fields** (#534). Both values are real, but
 neither is a knob — writing them here as settings sent readers looking for a config key that has

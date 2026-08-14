@@ -17,7 +17,9 @@
     "entry_fill": 8.56,
     "stop": 8.44,
     "passed": false,
-    "failing_gates": ["cons_holds_base", "cons_retracement"],
+    "failing_gates": [
+      "cons_retracement"
+    ],
     "cycle_num": 1,
     "total_significant_cycles": 7,
     "exhausted": false

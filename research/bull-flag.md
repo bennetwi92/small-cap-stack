@@ -292,10 +292,15 @@ alongside the score so a low-ranked setup is explainable on the review page, not
 Gates (reject) vs. score (rank), starting point:
 
 - **Gates** — as shipped, one name per entry:
-  `pole_len ≤ cap`, `cons_len ≤ cap`, `vol_peak_gt_cons`, `wick_peak`, `peak_green`,
-  `pole_height ≥ min`, `cons_retracement ≤ 0.50`, `cons_holds_base`.
-- **Score:** everything else, plus the graded sides of `SHAPE_pole_len` / `CONS_retracement` /
-  `POLE_height_pct`.
+  `cons_len ≤ cap`, `vol_peak_gt_cons`, `peak_green`, `pole_height ≥ min`,
+  `cons_retracement ≤ 0.50`.
+- **Score:** removed (§D-44). It gated nothing and its best and worst deciles were
+  indistinguishable, so the features below marked `score` are published context, not a ranking.
+
+⚠️ Five gates, down from eight (§D-44, #690). Three were measured against 3,639 pre-market setups
+and removed: one never fired, one changed no verdict, and the pole-wick rule rejected setups that
+outperformed the ones it kept in all three periods. Commentary lives here rather than in the bullet
+above, which is parsed by `tests/test_settings_wiring.py` and must stay one name per entry.
 
 That list drifted and was corrected in #534; it is now checked against `bullflag/gates.py`'s
 `evaluate` on every run, as is the fuller table in `engine-v2.md §7`. Two notes about it, kept

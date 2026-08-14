@@ -34,7 +34,7 @@ down is reading forward in time within a topic.
 | [D-10](#d-10--scanner-price-range-widened-to-150-2026-07-02-126) | 2026-07-02 | Scanner price range widened to $1–$50 | #126 | LIVE |
 | [D-11](#d-11--entry-appearance-gate-is-bar-close-granular-2026-07-03-122) | 2026-07-03 | Entry appearance-gate is bar-close granular | #122 | SUPERSEDED — engine v2 reverted to bar-start on 2026-07-10 and the stricter shipped rule is kept, recorded 2026-08-07 (#605). Revises #99. |
 | [D-12](#d-12--entry-staleness-bound-2026-07-03-130) | 2026-07-03 | Entry staleness bound | #130 | LIVE — from `notes.md` (D-05) |
-| [D-13](#d-13--pole-wick-filter--big-green-signal-2026-07-03-132) | 2026-07-03 | Pole wick filter + big-green signal | #132 | LIVE — from `notes.md` (D-05) |
+| [D-13](#d-13--pole-wick-filter--big-green-signal-2026-07-03-132) | 2026-07-03 | Pole wick filter + big-green signal | #132 | REVERSED — in part, 2026-08-14 (§D-44): the wick gate is removed, the `pole_has_big_green` soft signal it also introduced is unaffected. |
 | [D-14](#d-14--bull-flag-redefined-pole-flag-retracement-volume-2026-07-03-127) | 2026-07-03 | Bull-flag redefined: pole, flag, retracement, volume | #127 | LIVE — the colour-agnostic pole is superseded by D-16 and the 5-tick entry by D-17 |
 | [D-15](#d-15--engine-v2-volume-gate--peak-bar-2026-07-10-176) | 2026-07-10 | Engine v2 volume gate = peak-bar | #176 | LIVE — reaffirms D-14 |
 | [D-16](#d-16--engine-v2-pole-is-colour-gated-2026-07-10-182190) | 2026-07-10 | Engine v2 pole is colour-gated | #182/#190 | LIVE — supersedes D-14's colour-agnostic pole; v2 is the only engine since #296 |
@@ -65,6 +65,7 @@ down is reading forward in time within a topic.
 | [D-41](#d-41--reconstructed-days-get-shares-outstanding-from-edgar-not-float-from-a-vendor-2026-08-08-563) | 2026-08-08 | Reconstructed days get shares outstanding from EDGAR, not float from a vendor | #563 | LIVE |
 | [D-42](#d-42--prefix-stability-measured-the-live-detector-is-causal-2026-08-08-675) | 2026-08-08 | Prefix stability measured: the live detector is causal | #675 | LIVE — retires the roadmap's "sleeper" risk for the algorithm; the input question stands |
 | [D-43](#d-43--two-preconditions-for-live-data-live_bars-separation-and-fills-move-the-ledger-2026-08-08-676) | 2026-08-08 | Two preconditions for live data: `live_bars` separation, and fills move the ledger | #676 | LIVE — adopted before any streaming or order code exists, which is the only time it is free |
+| [D-44](#d-44--three-shape-gates-and-the-quality-score-are-removed-2026-08-14-690) | 2026-08-14 | Three shape gates and the quality score are removed | #690 | LIVE |
 
 <!-- END DECISION INDEX -->
 
@@ -290,7 +291,10 @@ chartered to decide, rather than a half-baked distinct-setup heuristic now.
 
 ## D-13 — Pole wick filter + big-green signal (2026-07-03, #132)
 
-**Status:** LIVE — from `notes.md` (D-05)
+**Status:** REVERSED — in part, 2026-08-14 (§D-44): the wick gate is removed, the `pole_has_big_green` soft signal it also introduced is unaffected.
+
+Measured against 3,639 pre-market setups across 197 sessions, the wick gate rejected setups that
+went on to *outperform* the ones it kept, in all three periods tested. See §D-44 for the numbers.
 
 "Too wicky → no trade" (AHMA/VRXA) is a hard reject on **pole quality**: the pole's **peak
 (highest-high) bar must close strong** — its upper wick (`high − max(open, close)`) must be
@@ -1788,3 +1792,51 @@ first item. When `execution.py` lands, this rule wants a test that a submitted-b
 leaves the ledger untouched.
 
 Refs #308, #312, #313, #381, #247
+
+## D-44 — Three shape gates and the quality score are removed (2026-08-14, #690)
+
+**Status:** LIVE
+
+The eight shape gates and the 0–1 quality score were hand-set intuition, never measured against
+outcomes. Measuring them against the combined live+recon record — 3,639 pre-market setups over 197
+sessions, booked at a 2R target — retires four of the nine things in that layer.
+
+**Removed: the `score`.** It gated nothing (`strategy_doc` said so in its own words) and it did not
+rank: its best and worst deciles were indistinguishable. A number published on three surfaces that
+no decision reads is a maintenance cost and an invitation to trust it. Gone from `bullflag/score.py`
+(deleted), `RMetrics`, `charts.py`, the results grid and the inspector.
+
+**Removed: `pole_len`.** 0 rejections in 3,639 setups. Segmentation already caps pole length with
+the same parameter, so the gate re-asked a question already answered. It existed for callers gating
+against a *tighter* cap than segmentation used — the #181 divergence spike, long gone.
+
+**Removed: `cons_holds_base`.** Rejects 1,452 setups on its own, but every one of them is already
+rejected by another gate, so removing it flips `passed` on exactly **0** rows. Where it did
+discriminate it pointed the wrong way in 2 of the 3 periods.
+
+**Removed: `wick_peak` — and this one reverses a trader's own rule (§D-13).** "Too wicky → no trade"
+came straight from `notes.md`, from watching AHMA and VRXA. It does not survive measurement: across
+1,433 rejections the setups it *rejected* outperformed the ones it *kept* in **all three** periods —
+dev −0.321 vs −0.344, val −0.011 vs −0.111, holdout −0.175 vs −0.278 R per trade. Dropping it takes
+the shipped book from 103 trades at +0.9R net to 122 at +7.1R. The direction is consistent; the
+magnitude is one-period-driven and should not be relied on.
+
+One golden fixture flips: **WULF 2026-07-08** goes `passed: False → True`, and it is a knife-edge —
+its peak upper wick measured 0.50010, rejected by one part in ten thousand against a 0.50 limit.
+Six other fixtures keep their verdict and only lose a name from `failing_gates`.
+
+**Kept, against first appearances: `cons_retracement`.** On its own it barely discriminates (−0.264
+kept vs −0.245 rejected) while rejecting **87%** of everything seen, which reads as a gate to
+delete — and an earlier pass on mean Max R said exactly that. It is wrong. Under the 2-a-day
+capacity cap this gate is the binding constraint on how many trades reach the book, and removing it
+takes the book from 103 trades at +0.9R to 236 at **−48.0R**, negative in all three periods. It
+**rations** rather than selects, and on a negative-expectancy pool rationing is worth real money.
+⚠️ Its value therefore has the opposite sign to the pool's: if the base rate ever turns positive,
+re-measure it rather than assuming it still earns its place.
+
+**The methodological lesson, which cost a wrong recommendation to catch:** mean Max R and booked R
+at a fixed target rank these gates *differently*, because Max R is fat-tailed and a gate can raise
+the average excursion while lowering the hit rate that actually pays. Judge a gate on the number
+you would bank, per period, or not at all.
+
+Refs #690

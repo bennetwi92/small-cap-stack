@@ -136,7 +136,7 @@ function volChip(c) {
   return `<span class="mk rv-vol" title="volume of the 5-min bar when the scanner triggered">5m vol ${fmtShares(bar.v)}</span>`;
 }
 
-// The engine verdict chip that leads the readout: PASS/REJECT · score · cycle (or "no setup"),
+// The engine verdict chip that leads the readout: PASS/REJECT · cycle (or "no setup"),
 // tappable to open the engine detail. Empty when the layer is off or the chart has no engine block
 // (a chart published before #216). Kept in sync with the on-chart overlay via the same toggle.
 export function engineBadgeHtml(c, engineOn = true) {
@@ -146,11 +146,10 @@ export function engineBadgeHtml(c, engineOn = true) {
     return '<span class="mk rv-eng-badge muted" title="engine: no v2 setup formed">v2 no setup</span>';
   const verdict = e.passed ? "PASS" : "REJECT";
   const cyc = e.cycle_num != null ? ` · cyc ${e.cycle_num}${e.exhausted ? "⚠" : ""}` : "";
-  const score = e.score != null ? ` · ${round2(e.score)}` : "";
   return (
     `<span class="mk rv-eng-badge rv-eng-${verdict.toLowerCase()}"` +
-    ' title="tap for engine gates + score">' +
-    `v2 ${verdict}${score}${cyc}</span>`
+    ' title="tap for engine gates">' +
+    `v2 ${verdict}${cyc}</span>`
   );
 }
 
@@ -185,7 +184,7 @@ export function readoutHtml(c, { engineOn = true, noTrigger = false } = {}) {
 
 /* ---------- engine detail ---------- */
 
-// The detector's verdict, per-gate reasons, score contributions and cycle/exhaustion context — the
+// The detector's verdict, per-gate reasons and cycle/exhaustion context — the
 // explainable ranking (#182, folded into #216) behind the on-chart overlay.
 export function engineDetailHtml(c) {
   const e = c && c.engine;
@@ -216,7 +215,6 @@ export function engineDetailHtml(c) {
     .join("");
   return (
     `<div class="rv-eng-head">${verdict}` +
-    `<span class="rv-eng-score">score ${e.score != null ? round2(e.score) : "—"}</span>` +
     `<span class="muted">${cyc}</span></div>` +
     '<dl class="rv-eng-kv">' +
     `<dt>segment</dt><dd>pole ${seg.pole_len ?? "—"} · cons ${seg.cons_len ?? "—"} · <code>${esc(seg.token_string ?? "")}</code></dd>` +
@@ -457,7 +455,7 @@ class BandPrimitive {
 /* ---------- engine-v2 detection overlay (#216) ----------
    The detector's read of the SAME full-day series the chart draws, published in charts/<date>.json's
    `engine` block (charts.py::_engine_block): per-bar H/L/E tokens, the pole/consolidation segment,
-   the contiguous prior-cycle (exhaustion) run, gates/score and cycle context. Two primitives share
+   the contiguous prior-cycle (exhaustion) run, gates and cycle context. Two primitives share
    one state object — a primitive has a single z-order, so the readable text can't share a layer
    with the translucent fills. Degrades to nothing when a chart predates the engine block. */
 

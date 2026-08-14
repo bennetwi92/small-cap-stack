@@ -963,7 +963,6 @@ body.review{
   gap:8px;
   margin-bottom:6px;
 }
-.rv-eng-score{ font-weight:600; }
 .rv-eng-exh{ color:var(--loss); font-weight:600; }
 .rv-eng-kv{
   display:grid;

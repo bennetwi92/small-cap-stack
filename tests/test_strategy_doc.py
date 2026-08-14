@@ -110,7 +110,9 @@ def test_float_and_news_are_rendered_as_not_gated() -> None:
     not_gated = block.split("### 4. Collected, never gated")[1]
     assert "float_gate" in not_gated
     assert "news_gate" in not_gated
-    assert not_gated.count("**No.**") == 4
+    # Three, not four: the quality score was removed entirely in #690 (§D-44), so it is no
+    # longer something to describe as "collected but not gated".
+    assert not_gated.count("**No.**") == 3
 
 
 def test_the_scan_and_selection_windows_are_rendered_as_separate_rules() -> None:

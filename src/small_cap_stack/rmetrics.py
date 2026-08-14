@@ -76,7 +76,6 @@ class RMetrics:
     exhausted: bool = False  # cycle_num over the exhaustion cap (a late entry into a worn move)
     passed: bool | None = None  # all gates passed (shape quality)
     failing_gates: tuple[str, ...] = ()  # names of the gates that rejected the shape
-    score: float | None = None  # 0..1 quality score
 
     @property
     def same_bar_stop(self) -> bool:
@@ -172,7 +171,6 @@ def compute_r_metrics(
         "exhausted": setup.exhausted,
         "passed": setup.passed,
         "failing_gates": tuple(g.name for g in setup.gates if not g.passed),
-        "score": round(setup.score, 4),
         "untraded_cons_bars": setup.untraded_cons_bars,
         "halted_consolidation": setup.halted_consolidation,
     }
