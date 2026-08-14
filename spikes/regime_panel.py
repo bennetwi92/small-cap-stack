@@ -105,6 +105,97 @@ def _et_minutes(ts: datetime) -> float:
     return t.hour * 60 + t.minute + t.second / 60.0
 
 
+def _tape_features(
+    day_bars: list[Bar],
+    *,
+    base_idx: int,
+    peak_idx: int,
+    trigger_idx: int | None,
+    entry_fill: float,
+    first_hit: datetime | None,
+    hit_times: list[datetime],
+) -> dict[str, object]:
+    """What the TAPE was doing, as opposed to what the flag looked like (#690 stage 3).
+
+    Every feature the panel carried before this was flag geometry — pole, consolidation,
+    retracement, wick, stop distance. None of it describes *why the name is running*: how far it had
+    already travelled before the scanner saw it, what its volume was doing against its own baseline,
+    how extended it was at the break. For a small-cap momentum strategy that is plausibly the more
+    informative half, and it is new information rather than another pass over the same features.
+
+    ⚠️ **Every value here is computed from bars strictly at or before the trigger**, so the whole
+    block is decidable at trigger time. `day_bars` spans the entire session, which makes reaching
+    past the trigger a one-character mistake — hence the explicit slices rather than aggregate calls
+    over the whole series.
+
+    ⚠️ **Bars only, by necessity.** The obvious feature — gap versus the previous close — cannot go
+    here: `daily_universe` carries `prev_close` for all 166 recon sessions and **none** of the 34
+    live ones, so a gap feature would be recon-only and could never be validated across the
+    boundary. Same shape of limitation as float (§D-41). Everything below needs nothing but the
+    day's own bars, so it is measured identically in both stores. The day's 04:00 open stands in as
+    the reference price.
+    """
+    if not day_bars:
+        return {}
+    day_open = day_bars[0].open
+    upto = day_bars[: (trigger_idx + 1)] if trigger_idx is not None else day_bars[: peak_idx + 1]
+    pre_pole = day_bars[:base_idx]
+    pole = day_bars[base_idx : peak_idx + 1]
+    peak_high = max(b.high for b in pole) if pole else None
+
+    def _pct(v: float | None) -> float | None:
+        return None if v is None or day_open <= 0 else round((v - day_open) / day_open, 5)
+
+    out: dict[str, object] = {
+        # How far the name had already travelled — the "is this early or late" question.
+        "ext_at_peak": _pct(peak_high),
+        "ext_at_trigger": _pct(entry_fill),
+        "bars_before_pole": base_idx,
+        # What it had done before we ever saw it. A name that ran 80% pre-appearance is a different
+        # proposition from one breaking out on its first move, and nothing measured that before.
+        "runup_pre_appearance": (
+            _pct(
+                max(
+                    (b.high for b in day_bars if first_hit is not None and b.start < first_hit),
+                    default=None,
+                )
+            )  # noqa: E501
+            if first_hit is not None
+            else None
+        ),
+        # Volume against the name's OWN baseline that session, not against a cross-sectional one —
+        # a 2M-share pole means nothing without knowing what the name was doing at 04:30.
+        "rvol_pole": (
+            round(
+                (sum(b.volume for b in pole) / len(pole))
+                / (sum(b.volume for b in pre_pole) / len(pre_pole)),
+                4,
+            )
+            if pole and pre_pole and sum(b.volume for b in pre_pole) > 0
+            else None
+        ),
+        "vol_share_pole": (
+            round(sum(b.volume for b in pole) / sum(b.volume for b in upto), 4)
+            if upto and sum(b.volume for b in upto) > 0
+            else None
+        ),
+        "range_before_pole_pct": (
+            round((max(b.high for b in pre_pole) - min(b.low for b in pre_pole)) / day_open, 5)
+            if pre_pole and day_open > 0
+            else None
+        ),
+        "cum_volume_to_trigger": sum(b.volume for b in upto),
+        "cum_dollar_vol_to_trigger": sum(b.volume * b.close for b in upto),
+        # Scanner attention before the break: how insistently the name was being surfaced.
+        "hits_before_trigger": (
+            sum(1 for t in hit_times if t <= day_bars[trigger_idx].start)
+            if trigger_idx is not None
+            else 0
+        ),
+    }
+    return out
+
+
 def _row_for_run(
     *,
     trading_date: date,
@@ -117,6 +208,8 @@ def _row_for_run(
     first_seen: datetime | None,
     first_hit: datetime | None,
     n_scanner_hits: int,
+    first_rank: int | None,
+    hit_times: list[datetime],
     day_bars: list[Bar],
     settings: Settings,
     float_shares: int | None,
@@ -145,6 +238,7 @@ def _row_for_run(
         "first_hit_utc": first_hit,
         "first_hit_et_min": _et_minutes(first_hit) if first_hit is not None else None,
         "n_scanner_hits": n_scanner_hits,
+        "first_rank": first_rank,
         "n_day_bars": len(day_bars),
         # the setup
         "entry_trigger": setup.entry_trigger,
@@ -193,6 +287,17 @@ def _row_for_run(
     row["day_open"] = day_bars[0].open if day_bars else None
     row["day_high"] = max(b.high for b in day_bars) if day_bars else None
     row["day_low"] = min(b.low for b in day_bars) if day_bars else None
+    row.update(
+        _tape_features(
+            day_bars,
+            base_idx=seg.base_idx,
+            peak_idx=seg.peak_idx,
+            trigger_idx=setup.trigger_idx,
+            entry_fill=setup.entry_fill,
+            first_hit=first_hit,
+            hit_times=hit_times,
+        )
+    )
 
     if not triggered:
         return row
@@ -237,9 +342,11 @@ def build_store(store: Store, source: str, settings: Settings) -> list[dict[str,
             if not day_bars:
                 continue
             float_shares, short_percent = _funds_for(funds, oid)
-            hits = (
-                0 if scans.is_empty() else scans.filter(pl.col("opportunity_id") == oid).height  # noqa: PD011
+            osub = (
+                scans.filter(pl.col("opportunity_id") == oid) if not scans.is_empty() else scans  # noqa: PD011
             )
+            hits = 0 if osub.is_empty() else osub.height
+            hit_times = [] if osub.is_empty() else sorted(osub["ts_utc"].to_list())
             for run in symbol_runs(orow, bars_df, scans, settings):
                 row = _row_for_run(
                     trading_date=d,
@@ -252,6 +359,8 @@ def build_store(store: Store, source: str, settings: Settings) -> list[dict[str,
                     first_seen=orow.get("first_seen_utc"),
                     first_hit=run.first_hit,
                     n_scanner_hits=hits,
+                    first_rank=orow.get("first_rank"),
+                    hit_times=hit_times,
                     day_bars=day_bars,
                     settings=settings,
                     float_shares=float_shares,
