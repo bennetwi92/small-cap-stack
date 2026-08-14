@@ -37,6 +37,7 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`prefix_stability.py`](#prefix_stabilitypy) | #675 / #312 | Does the detector's answer change as the day's bars accumulate? (Gate 5's "sleeper") |
 | [`regime_panel.py`](#regime_panelpy) | #690 | The **wide** setup-level panel: every opportunity-run over both stores, with the fitted selection rules carried as columns rather than applied |
 | [`regime_scan.py`](#regime_scanpy) | #690 | Is there a regime? Trailing aggregates vs today, block structure, and whether the filter should differ per regime |
+| [`adaptive_book_sweep.py`](#adaptive_book_sweeppy) | #690 | Switch the retired adaptive target (§D-38) and risk ladder (§D-23) back on, over 197 sessions |
 
 ### `viz_engine.py`
 
@@ -556,6 +557,41 @@ python spikes/regime_scan.py scan --detrend
 python spikes/regime_scan.py persist --draws 3000
 python spikes/regime_scan.py terciles --feature p2r_w10
 python spikes/regime_scan.py interact --feature p2r_w10
+```
+
+### `adaptive_book_sweep.py`
+
+Both adaptive layers **already exist and are switched off** — the target optimiser by
+`portfolio_target_grid = (2.0,)` (a one-value grid makes `best_target` a no-op, §D-38), the risk
+ladder by `portfolio_risk_rungs = 1` (§D-23). Each was retired on 61 sessions. This turns them back
+on over **197** and replays, running the **real** `build_portfolio_payload` under `Settings`
+overrides so sizing, costs, the notional cap and the exit model can never drift from what ships.
+
+⚠️ Reads `books_all`, not `books`. `books` is deliberately live-only, because the book is
+path-dependent twice over (the daily re-fit reads a trailing window; every position sizes off
+running equity), so splicing the reconstructed days in front *replaces* the live record rather than
+extending it. `books_all` is the combined simulation and the only view that sees all 197 sessions.
+
+⚠️ **Do not run on the box.** Each variant is a full pass and `build_portfolio_payload` holds every
+collected day's bars — the CX23 OOMs on one `--all` backfill, let alone eleven.
+
+**Findings (2026-08-14, 197 sessions).** The adaptive target is neutral at best: given a
+1R–5R menu it re-picked **2.0 on 100 of 100 trades** when fitted on all prior trades, and every
+shorter window made it worse (trailing-20 moved the target 8 times → $188; trailing-40 moved it 24
+times → $112, against $204 for the shipped fixed 2R). The fixed-target sweep says the same thing
+from the other side — 1R ends at $86, **2R at $204**, 3R at $72, and 4R/5R end **negative**. Only
+~15 in 100 setups reach 4R, which nowhere near pays for the misses. §D-38 holds at 3× the sample.
+
+The risk ladder is a different story: three rungs stepping every decisive day takes 58 trades
+instead of 100 and ends at **$303 with a 20% max drawdown**, against $204 and **41%** flat. It
+roughly halves the worst stretch. ⚠️ But it helps *because the book currently loses money* — over
+these sessions $500 → $204 — so trading less of it loses less. That is braking, not regime
+detection, and the same ladder would likely cut winners once the selection rules are profitable.
+Re-test it **after** the rules, not before.
+
+```bash
+python spikes/adaptive_book_sweep.py --store data/live --recon-store data/recon \
+    --json data/spikes/adaptive_sweep.json
 ```
 
 ## Answered
