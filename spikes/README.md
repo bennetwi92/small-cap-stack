@@ -38,6 +38,7 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`regime_panel.py`](#regime_panelpy) | #690 | The **wide** setup-level panel: every opportunity-run over both stores, with the fitted selection rules carried as columns rather than applied |
 | [`regime_scan.py`](#regime_scanpy) | #690 | Is there a regime? Trailing aggregates vs today, block structure, and whether the filter should differ per regime |
 | [`adaptive_book_sweep.py`](#adaptive_book_sweeppy) | #690 | Switch the retired adaptive target (§D-38) and risk ladder (§D-23) back on, over 197 sessions |
+| [`rule_sweep.py`](#rule_sweeppy) | #690 | Which single selection rules actually pick better setups, judged on old and recent data separately |
 
 ### `viz_engine.py`
 
@@ -592,6 +593,52 @@ Re-test it **after** the rules, not before.
 ```bash
 python spikes/adaptive_book_sweep.py --store data/live --recon-store data/recon \
     --json data/spikes/adaptive_sweep.json
+```
+
+### `rule_sweep.py`
+
+A scorecard for the rules that decide **which setups to take**, over the 3,740 pre-market setups in
+the wide panel. §D-38 records >150 threshold variants swept over 79 sessions and §D-39/§D-40 were
+fitted on 61 and collapsed out of sample, so the defence here is not a bigger sweep but a **cheaper
+verdict**: a rule counts only if it beats its own half's base rate in the **old** data (166 recon
+sessions) *and* the **recent** data (31 live) separately. That is a weak test on purpose — it cannot
+confirm a rule, only refuse one.
+
+**Findings (2026-08-14).** Base rate is 0.249 at a 2R target; break-even is 0.333 before costs and
+~0.429 after what a $500 account pays. **14 of 35 candidate rules survive both halves, and not one
+of them clears break-even on its own.** The strongest family is *freshness* — scanner attention
+before the break: ≤1 hit gives 0.309 (+0.059), ≤4 gives 0.279, and a 15-minute staleness cutoff
+gives 0.265. Then price ≥ $3 (+0.028) and ≥ $5 (+0.025), and stop ≥ 4% (+0.012).
+
+Two shipped rules do **nothing** on this record and fail the both-halves test:
+
+| shipped rule | keeps | hit | vs base |
+|---|---|---|---|
+| all shape gates pass | 271 | 0.247 | **−0.002** |
+| break before 09:15 | 3481 | 0.248 | **−0.001** |
+
+The bull-flag shape gates — the machinery the whole engine is built around — select no better than
+taking everything. Worth a decision of its own; this spike only measures it.
+
+⚠️ **The stacked result is not out-of-sample evidence and must not be read as any.** Running the
+real book with the three rules that map to `Settings` knobs (price ≥ $5, stop ≥ 4%, staleness ≤ 15m)
+takes $500 → **$576** over 197 sessions against $204 shipped, with max drawdown 41% → 16%. But split
+it and the gain is **entirely in the fitted half**:
+
+| | old (166 recon sessions) | recent (31 live sessions) |
+|---|---|---|
+| shipped | 77 trades, 36.4% win, +3.11R | 23 trades, 39.1% win, +3.36R |
+| three rules | 25 trades, 56.0% win, **+16.72R** | 13 trades, 38.5% win, **+1.81R** |
+
+Better in the old data, slightly *worse* in the recent — the exact signature §D-39/§D-40 showed
+before they broke. 13 recent trades cannot refute it either; it is simply not settled.
+
+Also confirms the ordering the adaptive sweep predicted: adding the risk ladder **on top of**
+profitable rules costs money ($475 vs $576), because it starts cutting winners.
+
+```bash
+python spikes/rule_sweep.py single
+python spikes/rule_sweep.py stack --min-keep 60
 ```
 
 ## Answered
