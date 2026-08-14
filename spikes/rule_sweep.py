@@ -301,14 +301,21 @@ def cmd_system(args: argparse.Namespace) -> None:
             if lo <= int(mask.sum()) <= hi:
                 combos.append((idx, mask))
 
-    print(f"\nold: {old.height} setups over {n_old_days} sessions "
-          f"({old.height / n_old_days:.1f}/day)")
-    print(f"recent: {new.height} setups over {n_new_days} sessions "
-          f"({new.height / n_new_days:.1f}/day)")
-    print(f"capacity constraint: {args.per_day_min}-{args.per_day_max} trades/day "
-          f"-> {lo:.0f}-{hi:.0f} setups kept")
-    print(f"searching {len(combos)} filters x {len(TARGET_GRID)} targets = "
-          f"{len(combos) * len(TARGET_GRID)} systems")
+    print(
+        f"\nold: {old.height} setups over {n_old_days} sessions ({old.height / n_old_days:.1f}/day)"
+    )
+    print(
+        f"recent: {new.height} setups over {n_new_days} sessions "
+        f"({new.height / n_new_days:.1f}/day)"
+    )
+    print(
+        f"capacity constraint: {args.per_day_min}-{args.per_day_max} trades/day "
+        f"-> {lo:.0f}-{hi:.0f} setups kept"
+    )
+    print(
+        f"searching {len(combos)} filters x {len(TARGET_GRID)} targets = "
+        f"{len(combos) * len(TARGET_GRID)} systems"
+    )
 
     def best_system(y: np.ndarray, ms: list[np.ndarray]) -> tuple[float, int, float]:
         """Best (R per session, combo index, target) over the whole grid."""
@@ -327,8 +334,10 @@ def cmd_system(args: argparse.Namespace) -> None:
     for s in range(args.shuffles):
         best_lucky[s] = best_system(rng.permutation(y_old), masks)[0]
     print(f"\nBEST BY LUCK — same search on shuffled outcomes, {args.shuffles} runs:")
-    print(f"   median {np.median(best_lucky):+.3f} R/session, "
-          f"90th pct {np.percentile(best_lucky, 90):+.3f}, best {best_lucky.max():+.3f}")
+    print(
+        f"   median {np.median(best_lucky):+.3f} R/session, "
+        f"90th pct {np.percentile(best_lucky, 90):+.3f}, best {best_lucky.max():+.3f}"
+    )
 
     scored = []
     for i, (_idx, m) in enumerate(combos):
@@ -345,9 +354,7 @@ def cmd_system(args: argparse.Namespace) -> None:
         idx, m = combos[i]
         nm = np.logical_and.reduce(m_new[list(idx)], axis=0)
         n_rec = int(nm.sum())
-        rec = (
-            float(np.sum(np.where(y_new[nm] >= t, t, -1.0))) / n_new_days if n_rec >= 8 else None
-        )
+        rec = float(np.sum(np.where(y_new[nm] >= t, t, -1.0))) / n_new_days if n_rec >= 8 else None
         if rec is not None:
             rec_rs.append(rec)
         print(
@@ -360,12 +367,16 @@ def cmd_system(args: argparse.Namespace) -> None:
     idx0, _m0 = combos[top[1]]
     nm0 = np.logical_and.reduce(m_new[list(idx0)], axis=0)
     rec0 = float(np.sum(np.where(y_new[nm0] >= top[2], top[2], -1.0))) / n_new_days
-    print(f"\nbest-on-old system carried to recent: {rec0:+.3f} R/session "
-          f"on {int(nm0.sum())} trades ({int(nm0.sum()) / n_new_days:.2f}/day)")
+    print(
+        f"\nbest-on-old system carried to recent: {rec0:+.3f} R/session "
+        f"on {int(nm0.sum())} trades ({int(nm0.sum()) / n_new_days:.2f}/day)"
+    )
     if rec_rs:
         print(f"average of the top {len(rec_rs)} on recent: {np.mean(rec_rs):+.3f} R/session")
-    print(f"beats the luck median? {'YES' if top[0] > np.median(best_lucky) else 'no'} "
-          f"({top[0]:+.3f} vs {np.median(best_lucky):+.3f})")
+    print(
+        f"beats the luck median? {'YES' if top[0] > np.median(best_lucky) else 'no'} "
+        f"({top[0]:+.3f} vs {np.median(best_lucky):+.3f})"
+    )
 
     print("\nwhich target the search chose, across the top 50:")
     tc: dict[float, int] = {}
@@ -426,8 +437,10 @@ def cmd_combos(args: argparse.Namespace) -> None:
                 combos.append((idx, mask))
     print(f"\nold data: {old.height} setups ({hit_old_base * 100:.1f} in 100)")
     print(f"recent data: {new.height} setups ({hit_new_base * 100:.1f} in 100)")
-    print(f"combinations searched (up to {args.max_rules} rules, >={args.min_old} setups kept): "
-          f"{len(combos)}")
+    print(
+        f"combinations searched (up to {args.max_rules} rules, >={args.min_old} setups kept): "
+        f"{len(combos)}"
+    )
 
     hits = np.array([float(np.mean(y_old[m] >= TARGET_R)) for _, m in combos])
 
@@ -438,9 +451,11 @@ def cmd_combos(args: argparse.Namespace) -> None:
         ys = rng.permutation(y_old)
         best_lucky[s] = max(float(np.mean(ys[m] >= TARGET_R)) for _, m in combos)
     print(f"\nBEST BY LUCK — same search on shuffled outcomes, {args.shuffles} runs:")
-    print(f"   median {np.median(best_lucky) * 100:.1f} in 100, "
-          f"90th pct {np.percentile(best_lucky, 90) * 100:.1f}, "
-          f"best {best_lucky.max() * 100:.1f}")
+    print(
+        f"   median {np.median(best_lucky) * 100:.1f} in 100, "
+        f"90th pct {np.percentile(best_lucky, 90) * 100:.1f}, "
+        f"best {best_lucky.max() * 100:.1f}"
+    )
 
     order = np.argsort(-hits)[: args.top]
     print(f"\nTOP {args.top} COMBINATIONS (chosen on old data only)")
