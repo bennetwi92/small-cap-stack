@@ -83,8 +83,9 @@ RULES: list[tuple[str, str, pl.Expr]] = [
     ("shape", "pole >= 2 bars", pl.col("pole_len") >= 2),
     ("shape", "pullback >= 25% of pole", pl.col("retracement") >= 0.25),
     ("shape", "pullback >= 50% of pole", pl.col("retracement") >= 0.50),
-    ("shape", "quality score >= 0.5", pl.col("score") >= 0.5),
-    ("shape", "quality score >= 0.6", pl.col("score") >= 0.6),
+    # The two `score >= x` rules that used to sit here were removed with the score itself
+    # (§D-44, #690): it gated nothing and its best and worst deciles were indistinguishable, so
+    # these two candidates were measuring a column that no longer exists on the panel.
     # --- the tape ---
     ("tape", "pole is >=40% of day's volume", pl.col("vol_share_pole") >= 0.40),
     ("tape", "already ran >=25% before scan", pl.col("runup_pre_appearance") >= 0.25),
@@ -242,7 +243,6 @@ POOL: list[tuple[str, pl.Expr]] = [
     # different rule from any one-sided threshold and no threshold can express it.
     ("not retr 50-75%", ~pl.col("retracement").is_between(0.50, 0.75, closed="left")),
     ("shape gates pass", pl.col("passed")),
-    ("score>=0.5", pl.col("score") >= 0.5),
     # --- tape ---
     ("ran>=25% pre-scan", pl.col("runup_pre_appearance") >= 0.25),
     ("<75% up at break", pl.col("ext_at_trigger") < 0.75),
