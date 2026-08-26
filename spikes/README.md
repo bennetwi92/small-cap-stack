@@ -815,6 +815,31 @@ python spikes/portfolio_slot_split.py --payload data/spikes/portfolio.json \
     --charts data/spikes/charts --validate --json data/spikes/slot-split.json
 ```
 
+### `exit_structural_target.py` — issue #713
+
+**Q:** Instead of the flat `portfolio_target_r = 2.0`, would a target set once at entry as a dollar
+multiple of the flag's own **pole height** (a measured-move projection from the breakout level)
+beat the fixed target? Target only — stop untouched, no intrabar recalculation.
+
+**A: no.** Walked all 117 `takeable` opportunities (43 live + 375 recon sessions) paired against
+the fixed-2.0R book with the exact `portfolio/exit.py::simulate_exit` conventions. `m=0.5 x pole`
+is statistically indistinguishable from baseline (paired mean +0.035R/trade, SE 0.088 — 10 of 117
+outcomes flip); every larger multiple is progressively worse, credibly so by `m=2.0` (-0.58R/trade,
+SE 0.17). Two things fall out of the shape: **2.0R is already about half the typical pole** (m=0.5
+barely moves anything, because it's close to where the shipped target already sits), and **trades
+that miss a wider target don't land short of it — they round-trip all the way back to the stop**
+(the loser bucket's average size never moves off ~-1.03R no matter how many ex-winners get dumped
+into it as `m` rises). This independently corroborates the deeper `engine_lab/exits/` finding
+below ("the pole is a bad ruler for the target") from a different harness and population
+definition. **No config change** — `portfolio_target_r` stays at 2.0. The give-back finding points
+at the next test instead: `portfolio_breakeven_r` (currently 0, disabled) is the cheap first thing
+to sweep, since it targets exactly those round-trips without touching the target.
+
+```bash
+python spikes/exit_structural_target.py --live data/live --recon data/recon \
+    --json data/spikes/exit_structural_target.json
+```
+
 ### `engine_lab/`
 
 Three questions asked in parallel over **one** population, each agent owning one and holding the
