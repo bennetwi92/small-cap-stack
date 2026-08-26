@@ -15,7 +15,8 @@ COV := --cov --cov-report=term-missing --cov-fail-under=90
 # exits 0, which is a lint step that lints nothing. `tests/test_deployment.py` checks this list
 # against the scripts actually in the tree.
 SHELL_FILES := scripts/backup.sh scripts/board.sh scripts/box-job.sh scripts/fetch_fixtures.sh \
-	scripts/harvest.sh deploy/setup-swap.sh .claude/hooks/session-setup.sh
+	scripts/harvest.sh scripts/pull-box-data.sh deploy/setup-swap.sh \
+	.claude/hooks/session-setup.sh
 
 # The interpreter `setup` builds the venv from. Bare `python3` is whatever is first on PATH,
 # which on a machine with several installed is not necessarily the 3.11 `requires-python` asks for
