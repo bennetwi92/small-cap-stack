@@ -2,9 +2,13 @@
 
 One-time provisioning + deploy for the unattended IBKR tracker. Steps marked **[YOU]** need a
 human (cloud console, IBKR account, secrets); everything else is `docker compose` + systemd.
-The Docker images are multi-arch, so any always-on Linux host works — the default is **Hetzner
-Cloud** (instant provisioning, no capacity queue). Oracle Ampere Always-Free is a $0 alternative
-(appendix §12).
+Any always-on Linux **x86_64** host works — the default is **Hetzner Cloud** (instant provisioning,
+no capacity queue). Oracle Ampere Always-Free is a $0 alternative (appendix §12).
+
+⚠️ **The app image is amd64-only.** `build-image.yml` sets `platforms: linux/amd64`, so an ARM host
+needs `linux/arm64` added there first (and a check that `requirements.lock`'s `--require-hashes`
+install resolves on aarch64). The *Gateway* image (`gnzsnz/ib-gateway`) genuinely is multi-arch.
+Corrected 2026-08-23 — three docs asserted "our images are multi-arch" and none of them were.
 
 ## 0. Prerequisites (the human-only blockers)
 - **[YOU] A host:** a Hetzner Cloud account (or any always-on Linux VPS / a Pi you own).
@@ -304,9 +308,9 @@ See `research/decisions.md` → "Phone-driven control plane".
 
 ## 12. Alternative host — Oracle Ampere Always Free ($0, if you can get capacity)
 Same steps, different provisioning: create a **VM.Standard.A1.Flex** (aarch64, 1–4 OCPU / 6–24 GB),
-Ubuntu 22.04 **aarch64** image; login user is `ubuntu` (use `sudo`). Our images are multi-arch so ARM
-is fine — but if you use the pull-based image path, build **`linux/arm64`** and label the runner to
-match. Caveats: free A1 capacity is heavily contended ("Out of host capacity" — upgrading to
+Ubuntu 22.04 **aarch64** image; login user is `ubuntu` (use `sudo`). ⚠️ **The app image does not
+build for ARM today** — add `linux/arm64` to `build-image.yml`'s `platforms:` before attempting this,
+and label the runner to match. Caveats: free A1 capacity is heavily contended ("Out of host capacity" — upgrading to
 **Pay-As-You-Go**, still $0 within limits, plus a smaller shape / cycling Availability Domains usually
 clears it), and Oracle reclaims idle free VMs (add a weekly keep-alive cron).
 

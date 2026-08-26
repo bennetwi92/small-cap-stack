@@ -166,7 +166,7 @@ Sources:
 |---|---|---|
 | **VPS (Gateway host)** | **Oracle Cloud Always Free — Ampere A1 ARM, 2–4 OCPU / 12–24 GB** | Only no-expiry free offer with enough RAM; IB Gateway runs on aarch64. |
 | VPS fallback | GCP e2-micro (x86, 1 GB + swap) | If Oracle signup/capacity fails. RAM-tight. |
-| Runtime | IB Gateway + IBC (auto-login) + app, via Docker (gnzsnz/ib-gateway-docker, multi-arch) | Reproducible, ARM-ready, auto-restart/login. |
+| Runtime | IB Gateway + IBC (auto-login) + app, via Docker (gnzsnz/ib-gateway-docker, multi-arch) | Reproducible, auto-restart/login. ⚠️ *Corrected 2026-08-23: the **Gateway** image is multi-arch; **our app image is amd64-only** (`build-image.yml`), so "ARM-ready" needs a one-line change first.* |
 | **CI/CD** | GitHub Actions, **private repo (2,000 free min/mo)**; optional self-hosted runner on the VPS | Build/test + deploy-over-SSH; keep trading code private. |
 | **Heartbeat alerting** | **Healthchecks.io (20 checks)** → Telegram + email | Dead-man's-switch catches Gateway disconnects / crashes / reclamation. |
 | **Metrics/logs/dashboards** | **Grafana Cloud free** (10k series, 50 GB logs, 14-day) | No card, Prometheus/Loki compatible, alerting built in. |
