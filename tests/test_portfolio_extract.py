@@ -68,65 +68,76 @@ def test_extract_day_trades_rejects_in_session(tmp_path: Path) -> None:
     assert extract_day_trades(store, _s(), day) == []  # same setup, but the trigger is in-session
 
 
-def test_extract_day_trades_rejects_after_0915_cutoff(tmp_path: Path) -> None:
-    """The final pre-open ramp 09:15–09:30 trades like the open and is excluded (#383).
+def test_extract_day_trades_rejects_after_entry_cutoff(tmp_path: Path) -> None:
+    """The entry cutoff (#694, D-45) — the bell, 09:30 ET — rejects a trigger opening after it.
 
-    Reproduces the 2026-07-20 VMAR case: a setup whose trigger bar opens at 09:15 ET qualified
-    under the old 09:30 cutoff but is rejected by the tightened 09:15 default (strict `<`). The
-    `first_hit` bar (index 0) is seeded at 09:00 ET so the run's trigger (idx 3) lands at 09:15."""
+    Supersedes the #383 09:15 window-end test: selection moved off the trigger-time window onto
+    scanner appearance (`select_appearance_windows`), leaving `select_entry_cutoff` as the only
+    trigger-time bound. `first_hit` is seeded at 09:16 ET so the run's trigger (idx 3) lands at
+    09:31 — one minute past the cutoff. The appearance window is widened so only the cutoff is
+    under test."""
     from small_cap_stack.portfolio import extract_day_trades
     from small_cap_stack.storage import Store
 
     day = date(2026, 6, 29)
     store = Store(tmp_path)
-    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 13, 0, tzinfo=ET_UTC))  # 09:00 ET
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 13, 16, tzinfo=ET_UTC))  # 09:16 ET
+    wide = ((time(4, 0), time(12, 0)),)
 
-    # Trigger opens 09:15 ET — at the cutoff, so rejected by the 09:15 default (not < 09:15).
-    assert extract_day_trades(store, _s(), day) == []
-    # ...but it is a valid setup: relaxing the cutoff back to 09:30 lets it through.
-    cands = extract_day_trades(store, _s(select_window_end=time(9, 30)), day)
+    # Trigger opens 09:31 ET — one minute after the 09:30 cutoff, so rejected by default.
+    assert extract_day_trades(store, _s(select_appearance_windows=wide), day) == []
+    # ...but it is a valid setup: disabling the cutoff lets it through.
+    cands = extract_day_trades(
+        store, _s(select_appearance_windows=wide, select_entry_cutoff=None), day
+    )
     assert [c.symbol for c in cands] == ["AZI"]
-    assert cands[0].trigger_at.astimezone(ET).time() == time(9, 15)
+    assert cands[0].trigger_at.astimezone(ET).time() == time(9, 31)
 
 
-def test_extract_day_trades_takes_the_earliest_premarket_tape(tmp_path: Path) -> None:
-    """The floor is OPEN — a 05:15 ET trigger is takeable (#569, reversing #405's 05:30).
+def test_extract_day_trades_takes_the_earliest_premarket_appearance(tmp_path: Path) -> None:
+    """The floor is OPEN — a 04:15 ET first_hit is takeable under the default `[04:00, 05:00)`
+    band (#569, reversing #405's 05:30; the floor moved from the trigger bar onto the scanner
+    appearance at #694/D-45, but the same floor value carries forward unmoved).
 
-    Measured before the reversal: the earlier floor adds 4 trades over 30 sessions, all stop-outs,
-    for −4.69R. Taken anyway — n=4 is not evidence, and the floor it replaces was not a measured
-    edge either. A floor dialled back in still rejects it, so it is the setting doing the work and
-    not a broken fixture."""
+    Measured before #569's reversal: the earlier floor adds 4 trades over 30 sessions, all
+    stop-outs, for −4.69R. Taken anyway — n=4 is not evidence, and the floor it replaced was not a
+    measured edge either. A floor dialled back in still rejects it, so it is the setting doing the
+    work and not a broken fixture."""
     from small_cap_stack.portfolio import extract_day_trades
     from small_cap_stack.storage import Store
 
     day = date(2026, 6, 29)
     store = Store(tmp_path)
-    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 9, 0, tzinfo=ET_UTC))  # 05:00 ET
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 8, 15, tzinfo=ET_UTC))  # 04:15 ET
 
-    cands = extract_day_trades(store, _s(), day)  # trigger lands 05:15
+    cands = extract_day_trades(store, _s(), day)  # first_hit 04:15, trigger lands 04:30
     assert [c.symbol for c in cands] == ["AZI"]
-    assert cands[0].trigger_at.astimezone(ET).time() == time(5, 15)
+    assert cands[0].trigger_at.astimezone(ET).time() == time(4, 30)
 
-    # The control: re-impose a floor above it and the same setup drops out.
-    assert extract_day_trades(store, _s(select_window_start=time(5, 30)), day) == []
+    # The control: move the earliest band's floor above the appearance and the setup drops out.
+    raised = ((time(4, 30), time(5, 0)), (time(6, 0), time(7, 0)), (time(8, 0), time(9, 0)))
+    assert extract_day_trades(store, _s(select_appearance_windows=raised), day) == []
 
 
-def test_extract_day_trades_floor_is_inclusive(tmp_path: Path) -> None:
-    """The window is [start, end): a trigger opening exactly ON the floor is takeable.
+def test_extract_day_trades_appearance_floor_is_inclusive(tmp_path: Path) -> None:
+    """The window is [start, end): an appearance exactly ON a band's floor is takeable.
 
-    Pins the boundary convention against the cutoff's strict `<`. Uses an explicit floor rather
-    than the default, so it keeps testing the convention if the default moves again.
+    Pins the boundary convention against a band's strict `<` cutoff (see
+    test_bullflag_day.py for the unit-level version). Uses an explicit band rather than the
+    default, so it keeps testing the convention if the default moves again.
     """
     from small_cap_stack.portfolio import extract_day_trades
     from small_cap_stack.storage import Store
 
     day = date(2026, 6, 29)
     store = Store(tmp_path)
-    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 9, 15, tzinfo=ET_UTC))  # 05:15 ET
+    _seed_premarket(store, oid_time_utc=datetime(2026, 6, 29, 9, 30, tzinfo=ET_UTC))  # 05:30 ET
 
-    cands = extract_day_trades(store, _s(select_window_start=time(5, 30)), day)
+    cands = extract_day_trades(
+        store, _s(select_appearance_windows=((time(5, 30), time(6, 0)),)), day
+    )
     assert [c.symbol for c in cands] == ["AZI"]
-    assert cands[0].trigger_at.astimezone(ET).time() == time(5, 30)  # exactly on the floor
+    assert cands[0].trigger_at.astimezone(ET).time() == time(5, 45)  # first_hit 05:30, on the floor
 
 
 def test_extract_day_trades_rejects_entries_below_the_price_floor(tmp_path: Path) -> None:
@@ -158,14 +169,15 @@ def test_the_shipped_price_band_is_the_collection_phase_band(tmp_path: Path) -> 
     #608 widened the band to the scanner's own $1–$50 on 2026-08-07 as a temporary collection-phase
     choice, explicitly to be reverted once the record could say where the floor belonged. Over 61
     sessions it now does: the $3 floor takes the book from −9.67R / $283.03 / 41.9% max DD to
-    +12.65R / $791.40 / 18.8%, positive in both stores. The **cap** stays at $50 and is deliberately
-    untouched — no candidate in the record has ever exceeded it, so it has never bound.
+    +12.65R / $791.40 / 18.8%, positive in both stores.
+
+    The **cap** narrowed $50 → $20 on 2026-08-26 (#694, D-45) — see config.py for why that reverses
+    the earlier "never bound, leave it alone" finding rather than contradicting it silently.
 
     Pinned because both halves are deliberate strategy decisions. A silent drift in the floor would
-    erase the measured shrink; a silent narrowing of the cap would cost coverage for no measured
-    gain."""
+    erase the measured shrink; a silent drift in the cap would erase D-45."""
     s = _s()
-    assert (s.select_price_min, s.select_price_max) == (3.0, 50.0)
+    assert (s.select_price_min, s.select_price_max) == (3.0, 20.0)
 
 
 def test_extract_day_trades_excludes_configured_symbols(tmp_path: Path) -> None:
@@ -282,7 +294,11 @@ def test_the_book_takes_a_high_float_name(tmp_path: Path) -> None:
 
     store = Store(tmp_path)
     _seed_premarket(
-        store, oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC), float_shares=246_000_000
+        store,
+        oid_time_utc=datetime(2026, 6, 29, 12, 0, tzinfo=ET_UTC),
+        float_shares=246_000_000,
+        shares_outstanding=9_000_000,  # independent of float (#694, D-45) — kept under the cap so
+        # this test isolates the float invariant from the (unrelated, separately tested) shares cap
     )
     cands = extract_day_trades(store, _s(), date(2026, 6, 29))
 

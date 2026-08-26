@@ -52,7 +52,13 @@ class DaySetup:
     # `portfolio_` prefix implied they were execution rules. Both default True so a caller that
     # doesn't configure a band or a window (a unit test, a spike) selects on shape alone.
     in_price_band: bool = True  # entry_fill within [select_price_min, select_price_max]
-    in_window: bool = True  # trigger bar opens within [select_window_start, select_window_end)
+    # in_window (#694, D-45): scanner appearance (first_hit) falls in one of `appearance_windows`
+    # AND the trigger bar opens at/before `entry_cutoff`. Was a single continuous window on the
+    # trigger bar alone; see config.py's select_appearance_windows/select_entry_cutoff.
+    in_window: bool = True
+    # A ceiling on shares outstanding (#694, D-45) — None (no cap configured, or no datum for this
+    # run) reads True, same convention as in_price_band.
+    in_shares_band: bool = True
     # Minimum stop distance (#584): (entry_fill - stop) / entry_fill >= select_min_stop_pct.
     # A flag compressed to a few ticks is one the entry model and the spread decide, not the setup:
     # AIIO 2026-05-18 run 2 stops 2.32% from entry (10.9 ticks), so the engine's own 3-tick fill
@@ -86,6 +92,7 @@ class DaySetup:
             and not self.exhausted
             and self.in_price_band
             and self.in_window
+            and self.in_shares_band
             and self.has_stop_room
             and self.cons_has_range
         )
@@ -116,6 +123,10 @@ def detect_day(
     price_min: float | None = None,
     price_max: float | None = None,
     min_stop_pct: float = 0.0,
+    appearance_windows: Sequence[tuple[time, time]] | None = None,
+    entry_cutoff: time | None = None,
+    shares_outstanding: float | None = None,
+    max_shares_outstanding: float | None = None,
 ) -> DaySetup | None:
     """The setup the trader would take over ``bars`` (a whole day), or ``None`` if no pole forms.
 
@@ -124,21 +135,29 @@ def detect_day(
     explain the rejection.
 
     ⚠️ **The defaults here are a shape-only baseline, NOT a copy of the shipped values** — a
-    distinction #525 was filed against and measurement corrected. Of 21 mappable parameters, 13
-    coincide with ``Settings`` (the structural caps, where neutral *is* shipped) and **8
+    distinction #525 was filed against and measurement corrected. Of 24 mappable parameters, 13
+    coincide with ``Settings`` (the structural caps, where neutral *is* shipped) and **11
     deliberately do not**: ``gap_pole`` False, ``price_min``/``price_max`` None,
     ``halt_neighbour_volume`` 0.0, ``min_vol_ratio`` 1.0, ``pole_min_step_share`` 0.0,
-    ``pole_extension_min_body`` 0.5, ``window_end`` 11:59. Every one is the *rule-off* value, so a
+    ``pole_extension_min_body`` 0.5, ``window_end`` 11:59, ``appearance_windows`` None,
+    ``entry_cutoff`` None, ``max_shares_outstanding`` None. Every one is the *rule-off* value, so a
     bare ``detect_day(bars)`` gives you the grammar with no selection and no tolerances — which is
-    what the unit tests and the spikes want.
+    what the unit tests and the spikes want. (``shares_outstanding``, like ``first_hit``, is
+    per-run external data rather than a ``Settings``-derived knob, so it isn't one of the 24.)
     **The live path is :func:`detect_day_with_settings` and only that**; it
     passes every parameter explicitly, and ``test_settings_wiring.py`` derives that requirement from
     this signature so a knob added here is covered without anyone updating a list.
 
-    ``window_start``/``window_end`` and ``price_min``/``price_max`` are the **selection** rules
-    (#567) — they set ``in_window`` / ``in_price_band`` and therefore ``takeable``, and leave
-    ``passed`` alone. ``None`` prices disable the band, which is what a shape-only caller wants.
-    Note the window here is the *selection* window, NOT the scanner's: names outside it are still
+    ``price_min``/``price_max`` set ``in_price_band``; ``appearance_windows``/``entry_cutoff`` set
+    ``in_window`` (#694, D-45 — first_hit's ET time-of-day in one of ``appearance_windows``, AND
+    the trigger bar opening at/before ``entry_cutoff``); ``shares_outstanding``/
+    ``max_shares_outstanding`` set ``in_shares_band``. All three are **selection** rules (#567)
+    that feed ``takeable`` and leave ``passed`` alone. ``None`` disables the corresponding
+    band/window, which is what a shape-only caller wants; a ``None`` ``shares_outstanding`` (no
+    datum for this run) is treated as *passing*
+    ``in_shares_band``, not failing it. ``window_start``/``window_end`` remain the bound for the
+    ``trigger_in_window`` **feature** only (scored, not gated — see ``gates.py``); they no longer
+    drive ``in_window``. Note none of these are the scanner's window: names outside them are still
     detected and published, they simply aren't takeable.
     """
     tokens = tokenize(bars, eps=eps)
@@ -282,11 +301,29 @@ def detect_day(
     in_price_band = (price_min is None or entry_fill >= price_min) and (
         price_max is None or entry_fill <= price_max
     )
+    # Selection window, take 2 (#694, D-45): appearance (first_hit) in one of `appearance_windows`
+    # (floor inclusive, cutoff strict per band) AND the trigger bar opening at/before
+    # `entry_cutoff` (inclusive — a bar opening exactly on the cutoff is still in). Both read True
+    # when unconfigured (shape-only caller) or with no datum to test (no first_hit -> passes).
     in_window = True
     if trigger_idx is not None:
-        # Floor inclusive, cutoff strict — a bar opening exactly at the cutoff is out.
         trigger_time = bars[trigger_idx].start.astimezone(ET).time()
-        in_window = window_start <= trigger_time < window_end
+        appearance_time = first_hit.astimezone(ET).time() if first_hit is not None else None
+        in_appearance_window = (
+            not appearance_windows
+            or appearance_time is None
+            or any(w_start <= appearance_time < w_end for w_start, w_end in appearance_windows)
+        )
+        in_entry_cutoff = entry_cutoff is None or trigger_time <= entry_cutoff
+        in_window = in_appearance_window and in_entry_cutoff
+    # Shares outstanding (#694, D-45): a missing datum KEEPS the row (see config.py's
+    # select_max_shares_outstanding) rather than failing it, matching in_price_band's None-disables
+    # convention.
+    in_shares_band = (
+        max_shares_outstanding is None
+        or shares_outstanding is None
+        or shares_outstanding <= max_shares_outstanding
+    )
     # Stop room (#584). Measured against `entry_fill` for the same reason the price band is: the
     # book pays that price, so the planned risk it would actually carry is the one to judge.
     # `min_stop_pct = 0.0` disables the rule, which is what a shape-only caller wants.
@@ -307,6 +344,7 @@ def detect_day(
         exhausted=cycle_num > exhaustion_cap,
         in_price_band=in_price_band,
         in_window=in_window,
+        in_shares_band=in_shares_band,
         has_stop_room=has_stop_room,
         cons_has_range=round(breakout, 4) > round(stop, 4),
         untraded_cons_bars=len(untraded),
@@ -315,7 +353,10 @@ def detect_day(
 
 
 def detect_day_with_settings(
-    bars: Sequence[Bar], settings: Settings, first_hit: datetime | None
+    bars: Sequence[Bar],
+    settings: Settings,
+    first_hit: datetime | None,
+    shares_outstanding: float | None = None,
 ) -> DaySetup | None:
     """Settings-driven :func:`detect_day` — **the live detection path** (``rmetrics``, ``charts``).
 
@@ -323,6 +364,11 @@ def detect_day_with_settings(
     (``max_pole`` / ``max_cons`` / ``min_pole_pct``) were silently left to :func:`detect_day`'s
     defaults, so ``config`` could — and did — disagree with the engine. Pass them explicitly: a new
     knob must be wired here or it does nothing.
+
+    ``shares_outstanding`` is per-run external data, not a ``Settings`` field (like ``first_hit``)
+    — callers source it from the stored fundamentals (``report._funds_for``) and pass it through.
+    ``None`` (no datum yet, or none configured) keeps the row; see
+    ``select_max_shares_outstanding``.
     """
     tick = settings.tick_size
     return detect_day(
@@ -349,4 +395,8 @@ def detect_day_with_settings(
         price_min=settings.select_price_min,
         price_max=settings.select_price_max,
         min_stop_pct=settings.select_min_stop_pct,
+        appearance_windows=settings.select_appearance_windows,
+        entry_cutoff=settings.select_entry_cutoff,
+        shares_outstanding=shares_outstanding,
+        max_shares_outstanding=settings.select_max_shares_outstanding,
     )

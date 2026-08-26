@@ -273,20 +273,25 @@ def test_commission_respects_minimum() -> None:
 
 
 def test_portfolio_caps_at_two_trades_per_day_by_trigger_time() -> None:
+    # Cap explicit, not the shipped default (D-45 shrank that to 1) — this test is about the
+    # mechanism at N=2, not about what currently ships.
+    s = _s(portfolio_max_trades_per_day=2)
     win = [_bar(10, 12.5, 9.95, 12.3)]  # hits 2R
     cands = [
         _cand("AAA", 5, 10.0, 9.0, win),
         _cand("BBB", 6, 10.0, 9.0, win),
         _cand("CCC", 7, 10.0, 9.0, win),  # 3rd by time -> dropped (capacity 2)
     ]
-    res = simulate_portfolio([(date(2026, 7, 14), cands)], _s(), target_r=2.0)
+    res = simulate_portfolio([(date(2026, 7, 14), cands)], s, target_r=2.0)
     assert res.n_trades == 2
     assert {t.symbol for t in res.trades} == {"AAA", "BBB"}
 
 
 def test_portfolio_records_setups_dropped_by_the_daily_cap() -> None:
-    # Three qualifying setups, cap 2 -> the 3rd (by trigger time) is skipped, and the book records
-    # what it *would* have made at the day's target so the page can show what the cap cost.
+    # Three qualifying setups, cap 2 (explicit — see the test above) -> the 3rd (by trigger time)
+    # is skipped, and the book records what it *would* have made at the day's target so the page
+    # can show what the cap cost.
+    s = _s(portfolio_max_trades_per_day=2)
     win = [_bar(10, 12.5, 9.95, 12.3)]  # hits +2R
     loss = [_bar(10, 10.3, 8.8, 9.0)]  # stops at 9.0 -> -1R
     cands = [
@@ -294,12 +299,12 @@ def test_portfolio_records_setups_dropped_by_the_daily_cap() -> None:
         _cand("BBB", 6, 10.0, 9.0, win),
         _cand("CCC", 7, 10.0, 9.0, loss),  # 3rd by time -> skipped, would have been -1R
     ]
-    res = simulate_portfolio([(date(2026, 7, 14), cands)], _s(), target_r=2.0)
+    res = simulate_portfolio([(date(2026, 7, 14), cands)], s, target_r=2.0)
     assert res.n_trades == 2
     assert [sk.symbol for sk in res.skipped] == ["CCC"]
     sk = res.skipped[0]
     # Simulated with the exact same exit model a taken trade would use (target + 2-tick stop slip).
-    would_be = cands[2].exit_under(_s(), 2.0, 0.0)
+    would_be = cands[2].exit_under(s, 2.0, 0.0)
     assert sk.reason == "stop" and sk.realized_r == would_be.realized_r < 0
     assert sk.target_r == 2.0  # simulated at the same target the day was taken at
     assert res.skipped_total_r == sk.realized_r
@@ -308,9 +313,10 @@ def test_portfolio_records_setups_dropped_by_the_daily_cap() -> None:
 
 
 def test_portfolio_no_skips_when_under_the_cap() -> None:
+    s = _s(portfolio_max_trades_per_day=2)
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
-    res = simulate_portfolio([(date(2026, 7, 14), cands)], _s(), target_r=2.0)
+    res = simulate_portfolio([(date(2026, 7, 14), cands)], s, target_r=2.0)
     assert res.skipped == () and res.skipped_total_r == 0.0
 
 
@@ -318,7 +324,8 @@ def test_portfolio_no_skips_when_under_the_cap() -> None:
 
 
 def test_daily_loss_limit_is_off_by_default() -> None:
-    s = _s()
+    s = _s(portfolio_max_trades_per_day=2)  # explicit: both candidates must be takeable to prove
+    # a loser doesn't stop the (disabled) day, independent of the D-45 daily-cap default
     assert s.portfolio_daily_loss_limit_r == 0.0
     loss = [_bar(10, 10.3, 8.8, 9.0)]  # stops at -1R
     win = [_bar(10, 12.5, 9.95, 12.3)]  # +2R
@@ -329,7 +336,11 @@ def test_daily_loss_limit_is_off_by_default() -> None:
 
 
 def test_daily_loss_limit_stops_the_day_after_a_resolved_loss() -> None:
-    s = _s(portfolio_daily_loss_limit_r=1.0, portfolio_exit_slippage_ticks=0)
+    s = _s(
+        portfolio_daily_loss_limit_r=1.0,
+        portfolio_exit_slippage_ticks=0,
+        portfolio_max_trades_per_day=2,
+    )
     loss = [
         _bar(10, 10.3, 9.9, 10.1, minute=0),
         _bar(10.1, 10.2, 8.8, 9.0, minute=5),  # breaks the 9.0 stop on bar 2 -> exit_index 1
@@ -346,7 +357,11 @@ def test_daily_loss_limit_stops_the_day_after_a_resolved_loss() -> None:
 def test_daily_loss_limit_ignores_a_trade_still_open_at_the_next_trigger() -> None:
     # The no-lookahead case: same -1R AAA, but BBB triggers at 08:08 -- BEFORE AAA's 08:10 exit --
     # so AAA's loss is not yet knowable and must not count against BBB.
-    s = _s(portfolio_daily_loss_limit_r=1.0, portfolio_exit_slippage_ticks=0)
+    s = _s(
+        portfolio_daily_loss_limit_r=1.0,
+        portfolio_exit_slippage_ticks=0,
+        portfolio_max_trades_per_day=2,
+    )
     loss = [
         _bar(10, 10.3, 9.9, 10.1, minute=0),
         _bar(10.1, 10.2, 8.8, 9.0, minute=5),  # exit_index 1 -> exit_end 08:10
@@ -384,7 +399,11 @@ def test_daily_loss_limit_leaves_the_taken_plus_skipped_invariant_intact() -> No
 
 
 def test_day_stopped_skips_do_not_count_toward_skipped_total_r() -> None:
-    s = _s(portfolio_daily_loss_limit_r=1.0, portfolio_exit_slippage_ticks=0)
+    s = _s(
+        portfolio_daily_loss_limit_r=1.0,
+        portfolio_exit_slippage_ticks=0,
+        portfolio_max_trades_per_day=2,
+    )
     loss = [
         _bar(10, 10.3, 9.9, 10.1, minute=0),
         _bar(10.1, 10.2, 8.8, 9.0, minute=5),  # exit_end 08:10
@@ -397,7 +416,11 @@ def test_day_stopped_skips_do_not_count_toward_skipped_total_r() -> None:
 
 
 def test_a_winning_first_trade_does_not_stop_the_day() -> None:
-    s = _s(portfolio_daily_loss_limit_r=1.0, portfolio_exit_slippage_ticks=0)
+    s = _s(
+        portfolio_daily_loss_limit_r=1.0,
+        portfolio_exit_slippage_ticks=0,
+        portfolio_max_trades_per_day=2,
+    )
     win = [_bar(10, 12.5, 9.95, 12.3, minute=0)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 15, 10.0, 9.0, win)]
     trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0)
@@ -410,7 +433,8 @@ def test_portfolio_both_trades_size_off_opening_equity() -> None:
     # (they coincide here) -> 25 shares each, regardless of the first trade's outcome.
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
-    res = simulate_portfolio([(date(2026, 7, 14), cands)], _s(), target_r=2.0)
+    s = _s(portfolio_max_trades_per_day=2)
+    res = simulate_portfolio([(date(2026, 7, 14), cands)], s, target_r=2.0)
     assert [t.qty for t in res.trades] == [25, 25]
 
 
@@ -581,7 +605,7 @@ def test_step_risk_rung_step_days_one_is_eager() -> None:
 def test_day_signal_r_is_size_independent() -> None:
     from small_cap_stack.portfolio import _day_signal_r
 
-    s = _s(portfolio_exit_slippage_ticks=0)
+    s = _s(portfolio_exit_slippage_ticks=0, portfolio_max_trades_per_day=2)
     win = _cand("AAA", 5, 10.0, 9.0, [_bar(10, 12.0, 9.95, 12.0)])  # +2R at target 2.0
     loss = _cand("BBB", 6, 10.0, 9.0, [_bar(10, 10.3, 8.8, 9.0)])  # -1R
     taken = _select_day([win, loss], s)

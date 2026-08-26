@@ -221,9 +221,30 @@ def render_engine(s: Settings) -> str:
             "— structural; rejects a halted flag, whose stop is unusable",
         ),
         _row(
-            "**Selection** — trigger window",
-            f"{_et(s.select_window_start)} ≤ trigger open < {_et(s.select_window_end)}",
-            _field("select_window_start / select_window_end"),
+            "**Selection** — appearance window",
+            "scanner first-hit ET time in "
+            + " or ".join(
+                f"[{_et(w_start)}, {_et(w_end)})" for w_start, w_end in s.select_appearance_windows
+            )
+            if s.select_appearance_windows
+            else "— disabled",
+            _field("select_appearance_windows"),
+        ),
+        _row(
+            "**Selection** — entry cutoff",
+            f"trigger bar opens ≤ {_et(s.select_entry_cutoff)}"
+            if s.select_entry_cutoff is not None
+            else "— disabled",
+            _field("select_entry_cutoff"),
+        ),
+        _row(
+            "**Selection** — shares outstanding",
+            (
+                f"≤ {s.select_max_shares_outstanding:,.0f} (a missing datum is kept, not dropped)"
+                if s.select_max_shares_outstanding is not None
+                else "— disabled"
+            ),
+            _field("select_max_shares_outstanding"),
         ),
     ]
     return "\n".join([_HEADER, *rows])

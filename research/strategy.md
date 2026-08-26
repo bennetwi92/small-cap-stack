@@ -97,17 +97,19 @@ between §1 and §2.
 | Cycle volume floor | 50,000 (any bar in the cycle, pole or fade) | `scan_min_5m_volume` // 2 |
 | Tick size | $0.01 | `tick_size` |
 | ATR window | 14 bars (a published feature; gates nothing) | `bull_flag_atr_window` |
-| **Selection** — price band | $3.00 ≤ `entry_fill` ≤ $50.00 | `select_price_min / select_price_max` |
-| **Selection** — minimum stop distance | (`entry_fill` − `stop`) / `entry_fill` ≥ 2.50% | `select_min_stop_pct` |
+| **Selection** — price band | $3.00 ≤ `entry_fill` ≤ $20.00 | `select_price_min / select_price_max` |
+| **Selection** — minimum stop distance | (`entry_fill` − `stop`) / `entry_fill` ≥ 2.00% | `select_min_stop_pct` |
 | **Selection** — consolidation range | the flag must trade through some range (`breakout` > `stop`) | — structural; rejects a halted flag, whose stop is unusable |
-| **Selection** — trigger window | 04:00 ET ≤ trigger open < 09:15 ET | `select_window_start / select_window_end` |
+| **Selection** — appearance window | scanner first-hit ET time in [04:00 ET, 05:00 ET) or [06:00 ET, 07:00 ET) or [08:00 ET, 09:00 ET) | `select_appearance_windows` |
+| **Selection** — entry cutoff | trigger bar opens ≤ 09:30 ET | `select_entry_cutoff` |
+| **Selection** — shares outstanding | ≤ 50,000,000 (a missing datum is kept, not dropped) | `select_max_shares_outstanding` |
 
 ### 3. The book — what actually gets traded
 
 | Rule | Value | `Settings` field |
 |---|---|---|
 | Starting equity | $500.00 | `portfolio_start_equity_usd` |
-| Trades per day | 2, taken first-by-trigger-time | `portfolio_max_trades_per_day` |
+| Trades per day | 1, taken first-by-trigger-time | `portfolio_max_trades_per_day` |
 | Risk target | 5% of the day's opening equity | `portfolio_risk_fraction` |
 | Notional cap | 50% of the day's opening equity | `portfolio_position_fraction` |
 | Exit target | 2R fallback | `portfolio_target_r` |

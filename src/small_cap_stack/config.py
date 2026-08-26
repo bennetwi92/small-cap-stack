@@ -380,19 +380,21 @@ class Settings(BaseSettings):
     # equivalent: offset = 3 × tick / price is monotone in price, so `offset <= 0.010` *is*
     # `price >= $3.00`. There is no sharper rule available on that axis.
     #
-    # ⚠️ The **cap stays at $50 and should not be narrowed.** No candidate in the whole record has
-    # ever exceeded it, so it has never bound. The >$20 population is flat (n=21, avg −0.174R) and
-    # is 100% notional-cap-sized at ~1.3% actual risk, so it costs almost nothing in dollars
-    # (−$26.87 over 9 trades) — expensive names are nearly free to keep.
+    # ⚠️ **Cap narrowed $50 → $20 on 2026-08-26 (#694, D-45)**, reversing the #643-era finding above
+    # that ">$20 is flat and free to keep" — that was measured against the wider 61-session record
+    # under the OLD stop/window bounds; the Excel opportunity-workbook pass, on the current 125-row
+    # filtered population (price/stop/window/shares all changed together), found the same population
+    # is no longer merely flat but negative enough to cut. Re-widen only after re-measuring the >$20
+    # band under the D-45 bounds specifically — the two records are not directly comparable.
     #
-    # The **scan** floor is unchanged at $1, so sub-$3 names keep being collected and scored; this
-    # only moves what is `takeable`. That split is the point of `passed` vs `takeable`.
+    # The **scan** floor is unchanged at $1, so sub-$3 and >$20 names keep being collected and
+    # scored; this only moves what is `takeable`. That split is the point of `passed` vs `takeable`.
     #
     # History: $1 until #386 raised it to $2 on 2026-07-31 (an owner's call on the book, NOT a cost
     # argument — `research/broker-costs.md` §3 stands either way); #608 returned it to $1 on
     # 2026-08-07 for collection; this is the shrink-back that decision anticipated.
     select_price_min: float = 3.0
-    select_price_max: float = 50.0
+    select_price_max: float = 20.0
     # Minimum stop distance, as a fraction of `entry_fill` (#584, 2026-08-08). A flag compressed to
     # a few ticks is one the entry model and the spread decide, not the setup: AIIO 2026-05-18 run 2
     # stops 2.32% from entry (10.9 ticks), so the engine's own 3-tick fill offset is 27% of planned
@@ -420,7 +422,14 @@ class Settings(BaseSettings):
     # inside all five price bands while a max-price rule fails outright.
     #
     # 0.0 disables it. See research/decisions.md D-40.
-    select_min_stop_pct: float = 0.025
+    #
+    # ⚠️ **Loosened 2.5% → 2.0% on 2026-08-26 (#694, D-45)**, reversing D-40's "do not raise it, and
+    # 2.5% is the only value clearing both bootstrap tests" finding. As with the price cap above,
+    # D-40 measured the 61-session record under the OLD price/window bounds; the workbook pass
+    # re-swept the current 125-row population (price/window/shares all moved together) and found 2%
+    # clearing where 2.5% no longer did. Re-tightening needs a re-measurement under D-45's bounds,
+    # not a reapplication of D-40's numbers, which no longer describe this population.
+    select_min_stop_pct: float = 0.02
     # Trigger-time window: `start` <= trigger bar open < `end` (floor inclusive, cutoff strict).
     #
     # ⚠️ This is NOT the scan window. `scan_start`/`scan_end` (04:00–11:59) bound when the scanner
@@ -445,8 +454,54 @@ class Settings(BaseSettings):
     # Cutoff tightened 09:30 → 09:15 (2026-07-21): the final pre-open ramp/auction trades like the
     # open, which this strategy excludes (a VMAR entry at ~09:25 on 2026-07-20 lost). Spike
     # #379/#380 only swept relaxations (10:00–12:00), all worse. Last takeable bar opens 09:10.
+    #
+    # ⚠️ **No longer the takeable window** as of 2026-08-26 (#694, D-45) — kept only as the bound for
+    # the `trigger_in_window` CONTEXT feature (`bullflag/features.py`, scored not gated, per
+    # `gates.py`'s note that it lost its only gating reader at #567). The rule that actually decides
+    # `in_window` moved to `select_appearance_windows` / `select_entry_cutoff` below: the workbook
+    # pass found the edge lives in when the scanner first SAW the run, not when the trigger bar
+    # opened, and the two are different enough (staleness can separate them by up to 30 minutes)
+    # that one continuous window on the trigger no longer describes it.
     select_window_start: time = time(4, 0)
     select_window_end: time = time(9, 15)
+    # Selection window, take 2 (#694, D-45): three disjoint bands on the scanner-**appearance**
+    # time (`first_hit`, ET, DST-aware — `.astimezone(clock.ET)` throughout, never a hardcoded UTC
+    # offset), floor inclusive/cutoff exclusive per band, replacing the single continuous
+    # `select_window_start`/`_end` range above as the gate that feeds `DaySetup.in_window`. Found on
+    # the current 125-row filtered population (Excel opportunity workbook, `spikes/README.md`); the
+    # gaps between bands (05:00–06:00, 07:00–08:00) tested negative and are deliberately excluded,
+    # not merely unswept. Empty tuple or `None` disables the gate (shape-only callers, unit tests).
+    select_appearance_windows: tuple[tuple[time, time], ...] = (
+        (time(4, 0), time(5, 0)),
+        (time(6, 0), time(7, 0)),
+        (time(8, 0), time(9, 0)),
+    )
+    # The trigger (entry) bar's own deadline, independent of the appearance window: the bell,
+    # inclusive — a bar opening exactly at 09:30 is still takeable. Redundant with the appearance
+    # windows for most of the record (the latest band already ends at 09:00, and staleness caps the
+    # appearance-to-trigger gap at `entry_staleness_min`), but it binds at the margin: a run seen in
+    # [08:00, 09:00) can still trigger as late as 09:30 under the 30-minute staleness cap, and this
+    # is what stops it there. `None` disables it.
+    select_entry_cutoff: time | None = time(9, 30)
+    # A ceiling on shares outstanding, ANDed into `DaySetup.takeable` as `in_shares_band` beside
+    # `in_price_band` / `in_window` / `has_stop_room`. Historical float is never available (no
+    # vendor covers it retroactively — see D-41), so this reads `shares_outstanding` instead, the
+    # buyable ceiling on float. A **missing** value is KEPT, not dropped — consistent with
+    # `in_price_band`'s own None-disables convention, and deliberate here:
+    # `spikes/engine_lab/validate/adversarial/
+    # FINDINGS.md` (2026-08-26) found a superficially similar rule was mostly measuring
+    # `shares_outstanding is not null` rather than the threshold, so a missing datum must stay
+    # neutral rather than silently failing the gate.
+    #
+    # **50,000,000, not the workbook's 500,000,000** (#694, D-45). The workbook pass alone found no
+    # edge below $500M; the adversarial validation lab landed on `main` the same day testing a
+    # different (runup/rvol/shares) rule and found the only clause that survived a permutation null
+    # AND walk-forward was `shares_outstanding <= 50e6` (settling 35–50M across refits, `PROMISING`
+    # not `REAL` at p≈0.01–0.09 on 36–60 trades). The two records were never jointly validated — the
+    # adversarial lab held price/stop/window at the OLD shipped values while this decision changes
+    # all three at once — so treat this combination as unverified until it is re-measured whole.
+    # `None` disables it.
+    select_max_shares_outstanding: float | None = 50_000_000.0
 
     # Capture (issue #14). The intraday tick only does discovery (scanner_hits + opportunities +
     # news/fundamentals). The day's 5-min bars are fetched once in an end-of-day batch (#62) —
@@ -491,7 +546,10 @@ class Settings(BaseSettings):
     # the cap is always the upper bound — that is what keeps the settled-cash invariant intact.
     portfolio_risk_fraction: float = 0.05  # target risk per trade, as a fraction of opening equity
     portfolio_position_fraction: float = 0.50  # max position notional, as a fraction of opening eq.
-    portfolio_max_trades_per_day: int = 2  # cap 50% × 2 = at most fully deployed → 2 concurrent
+    # 1, not 2, since 2026-08-26 (#694, D-45): the workbook pass found the daily cap itself binds on
+    # the current filtered population (sorted by trigger time, ties broken on symbol) and that a
+    # single slot outperforms two on the 125-row record. Cap 50% × 1 = at most half-deployed.
+    portfolio_max_trades_per_day: int = 1
     # Capacity/execution rule (#650), not a selection one: how much the account will lose in a
     # session, not which setups are good — so it lives in the book beside the trade cap, not in the
     # engine. Stop taking new trades once the realised R of trades ALREADY KNOWN TO HAVE CLOSED

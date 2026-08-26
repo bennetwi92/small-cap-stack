@@ -186,6 +186,7 @@ def seed_premarket(
     symbol: str = "AZI",
     price_scale: float = 1.0,
     float_shares: int | None = 8_000_000,
+    shares_outstanding: int | None = 16_000_000,
 ) -> None:
     """Seed a clean pre-market bull flag (AZI, triggers to ~2.8R) + a no-setup name (DUD).
 
@@ -199,7 +200,10 @@ def seed_premarket(
     based) while moving it in the price band — used to seed a sub-$2 name for the #386 floor.
 
     ``float_shares`` seeds the fundamentals row the candidate's float is read from (#390); pass
-    None to seed no fundamentals at all, which is the 'source returned nothing' case."""
+    None to seed no fundamentals at all, which is the 'source returned nothing' case.
+    ``shares_outstanding`` is independent of ``float_shares`` (#694, D-45) — it feeds the
+    shares-out selection band, so callers testing that float never gates can hold it under the
+    default cap while pushing float arbitrarily high."""
 
     assert isinstance(store, Store)
     day = oid_time_utc.date()
@@ -249,7 +253,7 @@ def seed_premarket(
         [{"opportunity_id": oid, "symbol": symbol, "ts_utc": t0, "rank": 0}],
         partition_date=day,
     )
-    if float_shares is not None:
+    if float_shares is not None or shares_outstanding is not None:
         store.append(
             "fundamentals",
             [
@@ -258,7 +262,7 @@ def seed_premarket(
                     "symbol": symbol,
                     "ts_utc": t0,
                     "float_shares": float_shares,
-                    "shares_outstanding": float_shares * 2,
+                    "shares_outstanding": shares_outstanding,
                     "short_percent": 0.1,
                     "source": "fmp",
                 }

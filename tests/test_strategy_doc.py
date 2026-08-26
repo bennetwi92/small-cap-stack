@@ -97,7 +97,8 @@ def test_retired_price_bands_cannot_reappear() -> None:
     that is the conflation #551 was about, and it does not depend on the values agreeing."""
     block = render_block(_settings())
     assert "$1.00 – $50.00" in block  # the scan — floor unchanged throughout
-    assert "$3.00 ≤ `entry_fill` ≤ $50.00" in block  # the book (#643)
+    assert "$3.00 ≤ `entry_fill` ≤ $20.00" in block  # the book (D-45, #694)
+    assert "$3.00 ≤ `entry_fill` ≤ $50.00" not in block  # the 2026-08-08 → 2026-08-26 band (#643)
     assert "$1.00 ≤ `entry_fill` ≤ $50.00" not in block  # the 2026-08-07 collection band (#608)
     assert "$2.00 ≤ `entry_fill` ≤ $20.00" not in block  # the 2026-07-31 → 2026-08-07 band (#386)
     assert "$2.00 – $10.00" not in block  # the 2026-06-29 brief
@@ -118,19 +119,28 @@ def test_float_and_news_are_rendered_as_not_gated() -> None:
 def test_the_scan_and_selection_windows_are_rendered_as_separate_rules() -> None:
     """Two different windows, and conflating them is what #551 was about.
 
-    They now share a 04:00 start (#569), which makes it *more* important that the doc renders them
-    as distinct rows: the scan bounds what gets captured, the selection window bounds what is
-    takeable, and a reader who merges them concludes the tracker stops looking at 09:15.
+    The scan bounds what gets captured; the appearance windows (D-45, #694) bound what is
+    takeable. A reader who merges them must not conclude the tracker stops looking at 09:00.
     """
     block = render_block(_settings())
     assert "| Scan window | 04:00 ET – 11:59 ET |" in block
-    assert "04:00 ET ≤ trigger open < 09:15 ET" in block
+    assert "[04:00 ET, 05:00 ET) or [06:00 ET, 07:00 ET) or [08:00 ET, 09:00 ET)" in block
 
     # Pin the distinction against the defaults rather than the strings: move one, and only one row
     # moves. A single window rendered twice would fail here.
-    moved = render_block(_settings(select_window_start=time(6, 0)))
+    moved = render_block(_settings(select_appearance_windows=((time(6, 0), time(7, 0)),)))
     assert "| Scan window | 04:00 ET – 11:59 ET |" in moved
-    assert "06:00 ET ≤ trigger open < 09:15 ET" in moved
+    assert "[06:00 ET, 07:00 ET)" in moved
+
+
+def test_the_entry_cutoff_and_shares_band_render_their_disabled_forms() -> None:
+    block = render_block(_settings(select_entry_cutoff=None, select_max_shares_outstanding=None))
+    assert "| **Selection** — entry cutoff | — disabled |" in block
+    assert "| **Selection** — shares outstanding | — disabled |" in block
+
+    live = render_block(_settings())
+    assert "trigger bar opens ≤ 09:30 ET" in live
+    assert "≤ 50,000,000 (a missing datum is kept, not dropped)" in live
 
 
 def test_disabled_knobs_render_as_disabled() -> None:

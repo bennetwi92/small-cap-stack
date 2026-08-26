@@ -606,6 +606,10 @@ def test_extract_day_trades_reads_the_harvested_store_and_stamps_recon(tmp_path:
         select_window_start=time(4, 0),
         select_window_end=time(9, 15),
         select_price_min=1.0,
+        # Widened so #694/D-45's appearance windows/entry cutoff don't reject this fixture's
+        # timing — this test is about the harvest schema, not selection.
+        select_appearance_windows=((time(4, 0), time(12, 0)),),
+        select_entry_cutoff=None,
     )
     store = harvest_store(s)
     source = FakeSource(minutes={("AAAA", DAY): _runner_minutes()})
@@ -1496,7 +1500,13 @@ def test_a_hole_in_the_consolidation_does_not_manufacture_a_shorter_flag() -> No
     """
     from small_cap_stack.bullflag.day import detect_day_with_settings
 
-    s = _settings(Path("/tmp"))
+    # Widened so #694/D-45's appearance windows/entry cutoff don't reject a 07:25 first_hit — this
+    # test isolates the consolidation candle count, not selection.
+    s = _settings(
+        Path("/tmp"),
+        select_appearance_windows=((time(4, 0), time(12, 0)),),
+        select_entry_cutoff=None,
+    )
     traded = [
         ((7, 0), 3.00, 3.05, 2.98, 3.02, 120_000.0),
         ((7, 5), 3.05, 3.40, 3.03, 3.38, 300_000.0),

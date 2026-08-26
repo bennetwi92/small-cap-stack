@@ -159,7 +159,10 @@ def _features_block(fv: FeatureVector) -> dict[str, Any]:
 
 
 def _engine_block(
-    bars: list[Bar], settings: Settings, first_hit: datetime | None
+    bars: list[Bar],
+    settings: Settings,
+    first_hit: datetime | None,
+    shares_outstanding: float | None,
 ) -> dict[str, Any]:
     """The engine-v2 detector's read of ``bars``, shaped for the review overlay (#216).
 
@@ -183,7 +186,7 @@ def _engine_block(
     token_row = [
         {"t": int(bars[i].start.timestamp()), "tok": tokens[i - 1]} for i in range(1, len(bars))
     ]
-    setup = detect_day_with_settings(bars, settings, first_hit)
+    setup = detect_day_with_settings(bars, settings, first_hit, shares_outstanding)
     if setup is None:
         return {"setup": False, "tokens": token_row}
 
@@ -212,6 +215,7 @@ def _engine_block(
         # Which selection rule vetoed it, so "passed but not takeable" is explainable (#567).
         "in_price_band": setup.in_price_band,
         "in_window": setup.in_window,
+        "in_shares_band": setup.in_shares_band,  # #694, D-45
         "has_stop_room": setup.has_stop_room,  # the stop is far enough to be a level, not a tick
         "cycle_num": setup.cycle_num,
         "total_significant_cycles": setup.total_significant_cycles,
@@ -248,6 +252,7 @@ def build_opportunity_chart(
     *,
     first_hit: datetime | None = None,
     chart_bars: list[Bar] | None = None,
+    shares_outstanding: float | None = None,
 ) -> ChartData:
     """Shape one run's trade annotations for the dashboard candlestick chart.
 
@@ -265,9 +270,15 @@ def build_opportunity_chart(
     describes the setup the R was measured from. The run window must not be used here: it ends when
     the *scanner* stops hitting, which would truncate a live trade at a boundary the trade itself
     never saw (and would hide the exhaustion cycles ``detect_day`` counts across the day, #180).
+
+    ``shares_outstanding`` (#694, D-45) is passed to BOTH the R-metrics call and ``_engine_block``
+    below — the same value each detector call, or the two verdicts can silently diverge exactly as
+    ``rmetrics.py``'s ``takeable`` comment warns about (#555).
     """
     render_bars = chart_bars if chart_bars is not None else bars
-    rm = compute_r_metrics(render_bars, settings, first_hit=first_hit)
+    rm = compute_r_metrics(
+        render_bars, settings, first_hit=first_hit, shares_outstanding=shares_outstanding
+    )
     max_r_idx = (
         rm.entry_index + rm.bars_to_max_r
         if rm.entry_index is not None and rm.bars_to_max_r is not None
@@ -302,5 +313,5 @@ def build_opportunity_chart(
         fill_above_entry_bar_high=rm.fill_above_entry_bar_high,
         halted_consolidation=rm.halted_consolidation,
         untraded_cons_bars=rm.untraded_cons_bars,
-        engine=_engine_block(render_bars, settings, first_hit),
+        engine=_engine_block(render_bars, settings, first_hit, shares_outstanding),
     )

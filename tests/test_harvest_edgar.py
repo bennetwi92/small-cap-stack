@@ -438,14 +438,15 @@ def test_the_book_reads_the_rows_through_the_live_seam_and_still_sees_no_float(
 ) -> None:
     """``portfolio.extract`` merges fundamentals through ``report._funds_for``. These rows go in
     unchanged and come out as *no float*, which is the honest answer: EDGAR never stated one.
-    Surfacing shares outstanding is a read-path change and deliberately not part of #563."""
+    ``shares_outstanding`` DOES surface (#694, D-45 reads it for the shares-out selection band) —
+    EDGAR is exactly the source that datum has, unlike float."""
     s = _settings(tmp_path)
     store = harvest_store(s)
     _opportunities(store, DAY, "AAAA")
     harvest_fundamentals(FakeShares(answers={"AAAA": 12_000_000}), store, s, DAY)
 
     funds = store.read("fundamentals", dt=DAY)
-    assert _funds_for(funds, f"{DAY.isoformat()}:AAAA") == (None, None)
+    assert _funds_for(funds, f"{DAY.isoformat()}:AAAA") == (None, None, 12_000_000)
 
 
 def test_a_symbol_edgar_has_nothing_for_is_recorded_as_a_null_rather_than_omitted(
