@@ -853,3 +853,22 @@ the holdout to run. Substitute dev-vs-val and odd-vs-even sessions.
 shape gates *differently* — Max R is fat-tailed, so a gate can raise average excursion while
 lowering the hit rate that pays. Ranking on Max R produced a confident recommendation to delete
 `cons_retracement`, which would have cost 48R.
+
+#### `exits/step10_dynamic.py` — issues #713 / #715, §D-46
+
+Extends `exits/`'s bracket replay to a stop/target that **recomputes every closed 5-min candle**
+(never the bar being walked — a policy sees only `path[:k]`), not a target fixed once at entry
+(#713 tested and rejected that). `replay_dynamic()` generalizes `replay_bracket()`; guarded by a
+no-lookahead property test (mutate every bar after a trade's resolving bar, rerun, assert identical
+outcome) and an equivalence check against `replay_bracket()` when the policy is a no-op.
+
+**A: a break-even-then-trail policy beats a correctly-benchmarked static bracket everywhere
+measured**, but stays unshipped — full reasoning in §D-46. Two things worth flagging for whoever
+runs this next: a first pass benchmarked every policy against a target parked 30% past a cliff
+`FINDINGS.md` had already documented, and gave free slippage to winning trailing-stop exits (the
+shared `Costs.usd`'s `slip = 0.0 if won` assumes a static bracket, where it's correct) — both are
+fixed in the committed version, but re-check any cost/target denomination before trusting a new
+sweep. Also: **this used the HOLDOUT look `engine_lab/`'s own rule says is spent once** — it was
+touched twice here (a mis-benchmarked run, then the corrected one) specifically because the first
+touch was invalidated by a benchmark bug rather than an honest look; treat any exit-rule number on
+the live period from here on as informative, not clean.
