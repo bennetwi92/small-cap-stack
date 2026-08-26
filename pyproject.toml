@@ -48,6 +48,12 @@ dev = [
     "mypy>=1.13",
     "pytest>=8.3",
     "pytest-cov>=6.0",
+    # The Excel writer behind `spikes/opportunity_workbook.py` (#694). Dev-only on purpose: it is a
+    # spike-side analysis tool, so it must not reach `requirements.lock` and the box image. Chosen
+    # over openpyxl because the workbook is *written*, never read — and only xlsxwriter emits
+    # tables, named ranges, data validation, conditional formats and dynamic-array formulas in one
+    # pass, which is the whole of the sheet's interactivity.
+    "xlsxwriter>=3.2",
 ]
 
 [tool.hatch.build.targets.wheel]

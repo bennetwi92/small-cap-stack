@@ -76,6 +76,7 @@ from small_cap_stack.bullflag import detect_day_with_settings
 from small_cap_stack.capture import Bar
 from small_cap_stack.clock import ET
 from small_cap_stack.config import Settings
+from small_cap_stack.harvest.edgar import EDGAR_SOURCE
 from small_cap_stack.report import _funds_for, day_chart_bars, day_opportunities, symbol_runs
 from small_cap_stack.rmetrics import measure_resolved_trade
 from small_cap_stack.storage import Store
@@ -116,6 +117,52 @@ def _partition_dates(store: Store, dataset: str = "opportunities") -> list[date]
         except ValueError:
             continue
     return out
+
+
+#: Share-count sources, best first. Mirrors ``report._FLOAT_PRIORITY`` with EDGAR appended, but the
+#: order barely bites in practice: the two live sources never write a `sec-edgar` row and the recon
+#: pass never writes anything else, so which one wins is decided by which store the day came from.
+#: `shares_source` is recorded per row anyway, so the answer is never a guess.
+_SHARES_PRIORITY = ("fmp", "yfinance", EDGAR_SOURCE)
+
+
+def _shares_for(funds: pl.DataFrame, oid: str) -> tuple[int | None, str | None, date | None]:
+    """Point-in-time shares outstanding for one opportunity, with its provenance.
+
+    Separate from ``report._funds_for`` (which returns float + short interest only) because
+    ``shares_outstanding`` has no read helper anywhere in the package — the EDGAR pass lands the
+    column and surfacing it was left as a later read-path change (#563, RUNBOOK §13.2).
+
+    ⚠️ This is **not** free float, and the two must not be conflated. EDGAR states
+    ``dei:EntityCommonStockSharesOutstanding`` — a ceiling on float, not float — which is exactly
+    why ``float_shares`` stays null on every recon row rather than being filled from here.
+
+    ``as_of`` is the recon columns only; a live row has no such key, hence ``.get`` rather than
+    indexing. It is the filing date the count was taken from, so a wide gap between it and ``dt``
+    is a stale count, which is worth being able to see in the sheet rather than trusting blind.
+    """
+    if funds.is_empty():
+        return None, None, None
+    fsub = funds.filter(pl.col("opportunity_id") == oid)
+    if fsub.is_empty():
+        return None, None, None
+    best: dict[str, object] | None = None
+    best_rank: int | None = None
+    for r in fsub.iter_rows(named=True):
+        if r.get("shares_outstanding") is None:
+            continue
+        src = str(r.get("source") or "")
+        rank = _SHARES_PRIORITY.index(src) if src in _SHARES_PRIORITY else len(_SHARES_PRIORITY)
+        if best_rank is None or rank < best_rank:
+            best, best_rank = r, rank
+    if best is None:
+        return None, None, None
+    as_of = best.get("as_of")
+    return (
+        int(best["shares_outstanding"]),  # type: ignore[arg-type]
+        str(best.get("source") or "") or None,
+        as_of if isinstance(as_of, date) else None,
+    )
 
 
 def _et_minutes(ts: datetime) -> float:
@@ -233,6 +280,9 @@ def _row_for_run(
     settings: Settings,
     float_shares: int | None,
     short_percent: float | None,
+    shares_outstanding: int | None,
+    shares_source: str | None,
+    shares_as_of: date | None,
 ) -> dict[str, object] | None:
     """One panel row: the wide detection plus its measurement, or None if no pole forms."""
     setup = detect_day_with_settings(day_bars, settings, first_hit)
@@ -287,6 +337,9 @@ def _row_for_run(
         # enrichment (live store only for float — see the module docstring)
         "float_shares": float_shares,
         "short_percent": short_percent,
+        "shares_outstanding": shares_outstanding,
+        "shares_source": shares_source,
+        "shares_as_of": shares_as_of,
         # outcome
         "triggered": triggered,
         "trigger_utc": trigger_bar.start if trigger_bar is not None else None,
@@ -365,6 +418,7 @@ def build_store(store: Store, source: str, settings: Settings) -> list[dict[str,
             if not day_bars:
                 continue
             float_shares, short_percent = _funds_for(funds, oid)
+            shares_outstanding, shares_source, shares_as_of = _shares_for(funds, oid)
             osub = (
                 scans.filter(pl.col("opportunity_id") == oid) if not scans.is_empty() else scans  # noqa: PD011
             )
@@ -388,6 +442,9 @@ def build_store(store: Store, source: str, settings: Settings) -> list[dict[str,
                     settings=settings,
                     float_shares=float_shares,
                     short_percent=short_percent,
+                    shares_outstanding=shares_outstanding,
+                    shares_source=shares_source,
+                    shares_as_of=shares_as_of,
                 )
                 if row is not None:
                     rows.append(row)

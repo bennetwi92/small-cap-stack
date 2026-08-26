@@ -436,6 +436,13 @@ cannot drift from the engine the way a copied gate would.
 ⚠️ **They expect the Mac's local analysis layout**, `data/live` alongside `data/recon` — *not* the
 box's, where the live root is `data/` itself and `data/recon/` sits inside it.
 
+**`scripts/pull-box-data.sh` (#694) is how that layout gets filled**, and it exists because the flip
+is easy to get wrong by hand: copying `/data` recursively drags `recon/` along inside the live root,
+which is the mixing #430 split the two stores up to prevent. It pulls only the four datasets the
+replay harnesses read (`opportunities`, `bars`, `scanner_hits`, `fundamentals`), takes `--dry-run`,
+and prints partition counts at the end — because the Mac's copy lags silently, and a harness run
+against a stale one does not fail, it just quietly analyses a third of the record.
+
 | harness | asks |
 |---|---|
 | `harvest_analysis.py` | the recon store's own funnel, per session, dumped to `data/spikes/harvest_runs.parquet` |
@@ -528,6 +535,39 @@ python spikes/regime_panel.py verify --panel data/spikes/regime_panel.parquet \
     --store data/live --recon-store data/recon
 python spikes/regime_panel.py summary
 ```
+
+Carries `shares_outstanding` / `shares_source` / `shares_as_of` alongside `float_shares` (#694).
+`report._funds_for` returns float and short interest only, so the panel picks the share count
+itself. ⚠️ The two are **not** interchangeable: outstanding is a *ceiling* on float. `float_shares`
+is null on every recon row and always will be — no historical float source is buyable — whereas
+outstanding covers ~83% of the panel now that the EDGAR pass has been run.
+
+### `opportunity_workbook.py` — issue #694
+
+The panel as a spreadsheet the trader drives, instead of a harness that hard-codes its cuts and
+prints a table. Writes `data/spikes/opportunities.xlsx`: **Controls** (every threshold a named cell,
+blank = no limit), **Opportunities** (the wide table plus the `Pass`/`Cand`/`Seq`/`Taken`/`R`
+block), **Daily**, **Summary**, **Buckets** (pick a feature, see quintiles of it against max R) and
+**Dictionary**. The arithmetic is Excel formulas, not Python, so moving a control recomputes
+everything. Excel 365 — the Buckets sheet uses dynamic arrays.
+
+```bash
+python spikes/opportunity_workbook.py                     # -> data/spikes/opportunities.xlsx
+python spikes/opportunity_workbook.py --premarket-cut 570 # 09:30 instead of 09:15
+```
+
+Two checks run on every build and neither can be skipped. `verify()` re-opens the written file and
+resolves every structured reference and control name in every formula — Excel opens a file with a
+bad reference and shows `#REF!` in one cell rather than refusing it, so a typo is otherwise silent
+all the way to the trader. `crosscheck()` recomputes the default controls in polars and prints the
+three numbers Summary must agree with; it is a deliberately separate implementation, because a
+shared helper would only agree with itself. **Formula *results* are still unverified until the file
+is opened** — nothing here recalculates a sheet.
+
+⚠️ The shipped-rules baseline on Summary does **not** follow the one-entry-per-symbol control.
+`portfolio/sim.py` has no per-symbol rule — the real book fills both slots by trigger time and will
+take the same ticker twice — so letting the baseline follow the control would re-score the thing
+your filter is being compared against every time you toggled it.
 
 ### `regime_scan.py`
 
