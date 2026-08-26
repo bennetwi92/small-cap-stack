@@ -872,3 +872,24 @@ sweep. Also: **this used the HOLDOUT look `engine_lab/`'s own rule says is spent
 touched twice here (a mis-benchmarked run, then the corrected one) specifically because the first
 touch was invalidated by a benchmark bug rather than an honest look; treat any exit-rule number on
 the live period from here on as informative, not clean.
+
+#### `exits/step11_ladder.py` — issue #715, redo after disregarding step10
+
+The trader rejected `step10_dynamic.py`'s whole family (ATR/chandelier/breakeven multiples) as
+traditional-TA formulas fitted after the fact, not derived from the data, and separately caught that
+its trail widths were finer than a 5-min candle can resolve. Four independent design passes then
+measured the resolution floor directly (**a single 5-min bar typically spans 0.5–1.0R on its own**;
+1-min bars only get you to ~0.38C, still not enough for a genuinely tight trail — this data cannot
+support one, full stop) and converged on a resolution-honest redesign: at each closed candle, the
+stop may only move to an already-**observed** price (last 1-2 candles' low, breakeven) — never a
+synthetic offset — chosen per state (bars elapsed × unrealized R) by an empirically-fit, shrunk,
+monotone policy, gated by a shuffled-state **null test that must clear before any other number is
+even looked at**.
+
+**A: it doesn't clear the null test.** The real fit beats a policy fit on randomly-shuffled states
+by +0.0064 R/trade against a pre-registered +0.02 gate — indistinguishable from noise on 123 DEV
+trades / 888 candle-observations. The run stopped there by design; VAL and HOLDOUT were never
+opened. 15 of the 24 state cells didn't clear the minimum-sample floor and collapsed to a shared
+default, which is consistent with (and likely explains) the null result. A clean, honestly-reported
+negative — the (bars-elapsed × unrealized-R) state does not carry a usable signal at this sample
+size, not "the data was inconvenient so we stopped."
