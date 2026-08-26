@@ -878,3 +878,43 @@ the holdout to run. Substitute dev-vs-val and odd-vs-even sessions.
 shape gates *differently* — Max R is fat-tailed, so a gate can raise average excursion while
 lowering the hit rate that pays. Ranking on Max R produced a confident recommendation to delete
 `cons_retracement`, which would have cost 48R.
+
+#### `exits/step10_dynamic.py` — issues #713 / #715, §D-46
+
+Extends `exits/`'s bracket replay to a stop/target that **recomputes every closed 5-min candle**
+(never the bar being walked — a policy sees only `path[:k]`), not a target fixed once at entry
+(#713 tested and rejected that). `replay_dynamic()` generalizes `replay_bracket()`; guarded by a
+no-lookahead property test (mutate every bar after a trade's resolving bar, rerun, assert identical
+outcome) and an equivalence check against `replay_bracket()` when the policy is a no-op.
+
+**A: a break-even-then-trail policy beats a correctly-benchmarked static bracket everywhere
+measured**, but stays unshipped — full reasoning in §D-46. Two things worth flagging for whoever
+runs this next: a first pass benchmarked every policy against a target parked 30% past a cliff
+`FINDINGS.md` had already documented, and gave free slippage to winning trailing-stop exits (the
+shared `Costs.usd`'s `slip = 0.0 if won` assumes a static bracket, where it's correct) — both are
+fixed in the committed version, but re-check any cost/target denomination before trusting a new
+sweep. Also: **this used the HOLDOUT look `engine_lab/`'s own rule says is spent once** — it was
+touched twice here (a mis-benchmarked run, then the corrected one) specifically because the first
+touch was invalidated by a benchmark bug rather than an honest look; treat any exit-rule number on
+the live period from here on as informative, not clean.
+
+#### `exits/step11_ladder.py` — issue #715, redo after disregarding step10
+
+The trader rejected `step10_dynamic.py`'s whole family (ATR/chandelier/breakeven multiples) as
+traditional-TA formulas fitted after the fact, not derived from the data, and separately caught that
+its trail widths were finer than a 5-min candle can resolve. Four independent design passes then
+measured the resolution floor directly (**a single 5-min bar typically spans 0.5–1.0R on its own**;
+1-min bars only get you to ~0.38C, still not enough for a genuinely tight trail — this data cannot
+support one, full stop) and converged on a resolution-honest redesign: at each closed candle, the
+stop may only move to an already-**observed** price (last 1-2 candles' low, breakeven) — never a
+synthetic offset — chosen per state (bars elapsed × unrealized R) by an empirically-fit, shrunk,
+monotone policy, gated by a shuffled-state **null test that must clear before any other number is
+even looked at**.
+
+**A: it doesn't clear the null test.** The real fit beats a policy fit on randomly-shuffled states
+by +0.0064 R/trade against a pre-registered +0.02 gate — indistinguishable from noise on 123 DEV
+trades / 888 candle-observations. The run stopped there by design; VAL and HOLDOUT were never
+opened. 15 of the 24 state cells didn't clear the minimum-sample floor and collapsed to a shared
+default, which is consistent with (and likely explains) the null result. A clean, honestly-reported
+negative — the (bars-elapsed × unrealized-R) state does not carry a usable signal at this sample
+size, not "the data was inconvenient so we stopped."

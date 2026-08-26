@@ -67,6 +67,7 @@ down is reading forward in time within a topic.
 | [D-43](#d-43--two-preconditions-for-live-data-live_bars-separation-and-fills-move-the-ledger-2026-08-08-676) | 2026-08-08 | Two preconditions for live data: `live_bars` separation, and fills move the ledger | #676 | LIVE — adopted before any streaming or order code exists, which is the only time it is free |
 | [D-44](#d-44--three-shape-gates-and-the-quality-score-are-removed-2026-08-14-690) | 2026-08-14 | Three shape gates and the quality score are removed | #690 | LIVE |
 | [D-45](#d-45--a-new-excel-workbook-filter-combination-pricestopwindowsharescap-all-move-2026-08-26-694) | 2026-08-26 | A new Excel-workbook filter combination: price/stop/window/shares/cap all move | #694 | LIVE — the price cap and stop-pct halves REVERSE D-37/D-40's "leave it alone" findings; |
+| [D-46](#d-46--a-candle-recalculated-exit-beats-the-static-bracket-but-stays-unshipped-pending-forward-data-2026-08-26-713715) | 2026-08-26 | A candle-recalculated exit beats the static bracket, but stays unshipped pending forward data | #713/#715 | LIVE — the decision to measure and NOT ship. No `config.py` value changes. |
 
 <!-- END DECISION INDEX -->
 
@@ -1895,3 +1896,64 @@ datum, not the threshold, was doing most of the work in the rule it broke. Treat
 as a rejection would risk reproducing exactly that artefact under a different name.
 
 Refs #694
+
+## D-46 — A candle-recalculated exit beats the static bracket, but stays unshipped pending forward data (2026-08-26, #713/#715)
+
+**Status:** LIVE — the decision to measure and NOT ship. No `config.py` value changes.
+
+The trader asked for a stop and target that recompute after every closed 5-min candle (not a target
+set once at entry, which #713/PR #714 already ruled out as no better than the fixed 2.0R book).
+Built on `spikes/engine_lab/exits/` (Agent C, #690): a new `replay_dynamic()` in
+`spikes/engine_lab/exits/step10_dynamic.py` generalizes `replay_bracket()` so a policy recomputes
+stop/target using only bars up to and including the last CLOSED bar — verified by a no-lookahead
+property test (mutate every bar after a trade's resolving bar, rerun, assert identical outcome; 60
+trades, 0 mismatches) and an equivalence check against `replay_bracket()` (1,500 checks, max
+|Δ|=0.0) — plus a policy invariant that a stop may only tighten, never loosen.
+
+**A first sweep looked strongly positive and was wrong.** It benchmarked every dynamic policy
+against a static bracket whose target sat at 2.6×C instead of 2.0×C — 30% past a cliff
+`FINDINGS.md` had already documented (max excursion clusters 2.0–2.4×C; crossing it flips ~9 trades
+from +1.54R winners to full losers) — and its cost model gave free slippage to winning trailing-stop
+exits (`common.Costs.usd` correctly assumes a static bracket's winners exit on a resting limit;
+~68% of the best dynamic candidate's "wins" were actually market-order stop-outs). Both fixed,
+re-swept.
+
+**After the fix, the pattern shrinks but survives.** `breakeven_then_ratchet` (breakeven stop at
++0.5R, then trail at `max_high − 0.4×C` once armed at +0.75R, no fixed target) beats a
+correctly-benchmarked static bracket on every slice tested: DEV+VAL (n=201) +0.210 vs +0.073
+net R/trade (edge +0.137); the untouched HOLDOUT (31 live sessions, n=33, a fresh one-time look —
+different params than the mis-benchmarked run's earlier holdout touch) −0.199 vs −0.225 (edge
++0.026); and with the `stop_pct` floor correctly restated against the actual bracket stop rather
+than the shipped one (n=228 dev+val / n=38 holdout), the edge widens further in both. The
+mechanism is loss truncation, not "let winners run" — win rate roughly doubles, mean hold time
+collapses from ~52 to ~16 minutes, and the edge is consistently largest exactly where the baseline
+is worst, the signature of cutting losers rather than extending winners.
+
+**Entangled with a second, also-unshipped change.** Every family only turns positive on a widened
+stop (1.30×C vs the shipped 1.00×C) — itself a real but never-holdout-confirmed finding from Agent
+C's earlier work in the same directory, whose own +13.4R DEV+VAL number leaned 78% on a single month
+(May 2026) and was measured against an 80-trade `SHIPPED()` selection that no longer exists (today's
+is 243 rows, post-#690/#697). The wider stop and the trail are not two independent confirmations —
+the trail only pays because the wider stop gives it room to arm — so this is one finding observed
+twice, not two.
+
+**Why this stays unshipped: the holdout is spent, and the level is not established.** DEV+VAL is
+100% recon-reconstructed (2025-10-30 → 2026-06-30); HOLDOUT is 100% live-recorded (2026-07-01 →
+2026-08-13) — `source` and `split` are perfectly collinear on this panel, so the DEV+VAL→HOLDOUT gap
+is not cleanly in-sample-vs-out — and HOLDOUT has now been looked at twice for this question
+(across the pre-fix and post-fix runs, two selection variants each). Nothing further measured on
+the live period is a fresh out-of-sample test anymore. The *direction* (dynamic exit beats static
+bracket) is consistent everywhere including holdout; the *level* is not — DEV+VAL's absolute edge
+leans on the same May-2026-concentration risk as the stop-widening finding, and the candidate itself
+is still net-negative in absolute R on holdout under both selection variants.
+
+**Decision: do not change `config.py`.** The exit was measurably costing money relative to a
+correctly-run trail; that doesn't establish the trail makes the underlying setup profitable, and
+the record's only live confirmation window is used up. The recommended next step — not yet built —
+is to compute this exit as a second, parallel metric alongside the shipped one on every new day
+going forward (Phase-1 is a tracker; compute-on-read makes this free and retroactively revisable),
+pre-registered exactly as specified here (`m=1.30`, `breakeven_then_ratchet`, `be_r=0.5`,
+`arm_r=0.75`, `trail_k=0.4`, `stop_pct` floor stated against the m=1.30 bracket) so a future decision
+is made on genuinely forward data rather than another sweep of the same recon-heavy record.
+
+Refs #713 #715
