@@ -23,6 +23,7 @@ from .config import Settings
 from .logging import get_logger
 from .report import (
     EodReport,
+    _funds_for,
     analysis_records,
     day_chart_bars,
     day_opportunities,
@@ -271,11 +272,16 @@ def build_charts(
             # share across every run of the symbol (#109).
             float_srcs = float_sources_for(funds, oid)
             news_items = news_headlines_for(news, oid)
+            _float_shares, _short_percent, shares_outstanding = _funds_for(funds, oid)
             for run in symbol_runs(row, bars, scans, settings):
                 if not run.bars:
                     continue
                 cd = build_opportunity_chart(
-                    run.bars, settings, first_hit=run.first_hit, chart_bars=full_day
+                    run.bars,
+                    settings,
+                    first_hit=run.first_hit,
+                    chart_bars=full_day,
+                    shares_outstanding=shares_outstanding,
                 )
                 charts.append(
                     {

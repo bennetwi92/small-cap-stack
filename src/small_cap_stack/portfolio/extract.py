@@ -119,11 +119,13 @@ def extract_day_trades(
     scans = store.read("scanner_hits", dt=trading_date)
     # Float is context, never a filter — and NOT because it "already ran upstream". It never runs.
     # The IBKR scan gates on price / change / 5-min volume only; float is enrichment written after a
-    # name is flagged (`capture._open_opportunity`), and nothing in the engine's selection rules
-    # (price band, trigger window) or the book's sizing reads it. `gates.py::float_gate` exists, but
-    # its only consumer is the EOD report's `float_ok` count. So the book does take names over
-    # `float_max_shares` — put the gate in the engine's selection tier if that should change; don't
-    # assume it happened somewhere else. `tests/test_portfolio_extract.py` pins this.
+    # name is flagged (`capture._open_opportunity`). `gates.py::float_gate` exists, but its only
+    # consumer is the EOD report's `float_ok` count — the book still takes names over
+    # `float_max_shares`. `tests/test_portfolio_extract.py` pins this for float specifically.
+    #
+    # ⚠️ Shares outstanding is DIFFERENT since #694/D-45: it IS a selection rule now
+    # (`select_max_shares_outstanding` → `DaySetup.in_shares_band` → `takeable`, computed inside
+    # `compute_r_metrics` below), same enrichment timing as float but the opposite gating decision.
     # Read through the same `_funds_for` seam the EOD report uses so the book quotes the same
     # source-merged number the results/review pages do (fmp first), rather than a second opinion.
     # NOTE: adding this read means `payload._EXTRACT_DATASETS` must list `fundamentals` too, or the
@@ -139,9 +141,11 @@ def extract_day_trades(
         day_bars = day_chart_bars(bars_df, oid, s)
         if not day_bars:
             continue
-        float_shares, _short_percent = _funds_for(funds, oid)
+        float_shares, _short_percent, shares_outstanding = _funds_for(funds, oid)
         for run in symbol_runs(row, bars_df, scans, s):
-            rm = compute_r_metrics(day_bars, s, first_hit=run.first_hit)
+            rm = compute_r_metrics(
+                day_bars, s, first_hit=run.first_hit, shares_outstanding=shares_outstanding
+            )
             if not _qualify(
                 rm.entry_index,
                 rm.entry_price,

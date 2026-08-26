@@ -147,14 +147,20 @@ def _measure(
 
 
 def compute_r_metrics(
-    bars: Sequence[Bar], settings: Settings, *, first_hit: datetime | None = None
+    bars: Sequence[Bar],
+    settings: Settings,
+    *,
+    first_hit: datetime | None = None,
+    shares_outstanding: float | None = None,
 ) -> RMetrics:
     """Measure the notional trade for a day's ``bars`` via ``detect_day`` (see the module doc).
 
     ``bars`` is the whole trading day (engine-v2 counts exhaustion across it); ``first_hit`` is the
-    run's scanner appearance (gates the entry). Returns ``setup_found=False`` when no pole forms.
+    run's scanner appearance (gates the entry). ``shares_outstanding`` feeds the D-45 shares-out
+    band (``None`` when there's no datum yet — kept, not dropped). Returns ``setup_found=False``
+    when no pole forms.
     """
-    setup = detect_day_with_settings(list(bars), settings, first_hit)
+    setup = detect_day_with_settings(list(bars), settings, first_hit, shares_outstanding)
     if setup is None:
         return RMetrics(setup_found=False)
     seg, fv = setup.segment, setup.features

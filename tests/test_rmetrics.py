@@ -34,11 +34,11 @@ def test_triggers_and_measures_max_r() -> None:
         _bar(3, 5.7, 7.0, 5.7, 6.9),  # high 7.0 >= 6.11 -> entry at bar 3; run up
         _bar(4, 6.9, 7.64, 6.8, 7.5),  # higher high -> Max R
     ]
-    # The shared bar epoch sits at 10:00 ET, outside the 05:30–09:15 SELECTION window (#567), so
+    # The trigger bar opens at 10:15 ET, after the default 09:30 SELECTION cutoff (#694, D-45), so
     # the default settings would report this well-formed setup as not takeable. This test is about
-    # R measurement, not selection, so it widens the window to the scan's — selection has its own
-    # tests in test_bullflag_day.py.
-    m = compute_r_metrics(bars, _settings(select_window_end=time(11, 59)))
+    # R measurement, not selection, so it disables the cutoff — selection has its own tests in
+    # test_bullflag_day.py.
+    m = compute_r_metrics(bars, _settings(select_entry_cutoff=None))
     assert m.setup_found and m.triggered and m.takeable
     assert m.entry_trigger == 6.11
     assert m.entry_fill == 6.13

@@ -539,23 +539,34 @@ def test_news_recent_follows_a_manual_closure_override() -> None:
 
 
 def _funds_df(rows: list[dict]) -> pl.DataFrame:  # type: ignore[type-arg]
-    cols = ["opportunity_id", "float_shares", "short_percent", "source"]
+    cols = ["opportunity_id", "float_shares", "short_percent", "shares_outstanding", "source"]
     return pl.DataFrame(
         rows,
         schema={
             c: (
-                pl.Int64 if c == "float_shares" else pl.Float64 if c == "short_percent" else pl.Utf8
+                pl.Int64
+                if c in ("float_shares", "shares_outstanding")
+                else pl.Float64
+                if c == "short_percent"
+                else pl.Utf8
             )
             for c in cols
         },
     )
 
 
-def _fr(oid: str, float_shares: int | None, short: float | None, source: str) -> dict:  # type: ignore[type-arg]
+def _fr(
+    oid: str,
+    float_shares: int | None,
+    short: float | None,
+    source: str,
+    shares_outstanding: int | None = None,
+) -> dict:  # type: ignore[type-arg]
     return {
         "opportunity_id": oid,
         "float_shares": float_shares,
         "short_percent": short,
+        "shares_outstanding": shares_outstanding,
         "source": source,
     }
 
@@ -568,7 +579,7 @@ def test_funds_for_prefers_fmp_float_over_yfinance() -> None:
             _fr("O", 7_900_000, None, "fmp"),
         ]
     )
-    assert _funds_for(df, "O") == (7_900_000, 0.21)
+    assert _funds_for(df, "O") == (7_900_000, 0.21, None)
 
 
 def test_funds_for_falls_back_to_yfinance_when_fmp_float_null() -> None:
@@ -578,23 +589,23 @@ def test_funds_for_falls_back_to_yfinance_when_fmp_float_null() -> None:
             _fr("O", 8_100_000, 0.21, "yfinance"),
         ]
     )
-    assert _funds_for(df, "O") == (8_100_000, 0.21)
+    assert _funds_for(df, "O") == (8_100_000, 0.21, None)
 
 
 def test_funds_for_single_yfinance_row() -> None:
-    df = _funds_df([_fr("O", 8_000_000, 0.21, "yfinance")])
-    assert _funds_for(df, "O") == (8_000_000, 0.21)
+    df = _funds_df([_fr("O", 8_000_000, 0.21, "yfinance", shares_outstanding=9_000_000)])
+    assert _funds_for(df, "O") == (8_000_000, 0.21, 9_000_000)
 
 
 def test_funds_for_unknown_source_still_used_last() -> None:
     # A source not in the priority list must not be silently dropped when it's all we have.
     df = _funds_df([_fr("O", 5_000_000, None, "sec")])
-    assert _funds_for(df, "O") == (5_000_000, None)
+    assert _funds_for(df, "O") == (5_000_000, None, None)
 
 
 def test_funds_for_missing_opportunity() -> None:
     df = _funds_df([_fr("OTHER", 8_000_000, 0.21, "yfinance")])
-    assert _funds_for(df, "O") == (None, None)
+    assert _funds_for(df, "O") == (None, None, None)
 
 
 # --- float_sources_for (per-source, review workbench #109) ---------------------------------------

@@ -178,25 +178,98 @@ def test_price_band_bounds_are_inclusive() -> None:
     assert detect_day(_PASS, price_max=fill - 0.01).in_price_band is False  # type: ignore[union-attr]
 
 
-def test_window_rejects_a_trigger_outside_it() -> None:
-    # _PASS triggers at 10:15 ET. A 05:30-09:15 selection window excludes it.
+def test_window_start_and_end_no_longer_gate_takeable() -> None:
+    """`window_start`/`window_end` feed only the `trigger_in_window` FEATURE since #694/D-45 — the
+    takeable gate moved to `appearance_windows`/`entry_cutoff` below. Left unconfigured, a
+    05:30-09:15 window (which used to reject _PASS's 10:15 trigger) now does nothing."""
     d = detect_day(_PASS, window_start=time(5, 30), window_end=time(9, 15))
+    assert d is not None and d.in_window is True
+
+
+def test_appearance_window_rejects_a_first_hit_outside_every_band() -> None:
+    # _PASS's first_hit is 10:00 ET (_T0) — outside a 04:00-05:00 band.
+    d = detect_day(_PASS, first_hit=_PASS[0].start, appearance_windows=((time(4, 0), time(5, 0)),))
     assert d is not None
     assert d.passed is True  # again: well-formed, just not selected
     assert d.in_window is False
     assert d.takeable is False
 
 
-def test_window_floor_is_inclusive_and_cutoff_is_strict() -> None:
-    trigger_et = _PASS[3].start.astimezone(ET).time()
-    assert detect_day(_PASS, window_start=trigger_et, window_end=time(23, 59)).in_window is True  # type: ignore[union-attr]
-    assert detect_day(_PASS, window_start=time(0, 0), window_end=trigger_et).in_window is False  # type: ignore[union-attr]
+def test_appearance_window_accepts_a_first_hit_inside_a_band() -> None:
+    d = detect_day(_PASS, first_hit=_PASS[0].start, appearance_windows=((time(9, 0), time(11, 0)),))
+    assert d is not None and d.in_window is True
+
+
+def test_appearance_window_floor_is_inclusive_and_cutoff_is_strict() -> None:
+    appearance_et = _PASS[0].start.astimezone(ET).time()  # 10:00 ET
+    assert (
+        detect_day(
+            _PASS,
+            first_hit=_PASS[0].start,
+            appearance_windows=((appearance_et, time(23, 59)),),
+        ).in_window  # type: ignore[union-attr]
+        is True
+    )
+    assert (
+        detect_day(
+            _PASS, first_hit=_PASS[0].start, appearance_windows=((time(0, 0), appearance_et),)
+        ).in_window  # type: ignore[union-attr]
+        is False
+    )
+
+
+def test_appearance_windows_pass_by_default_with_no_first_hit() -> None:
+    """A caller with no `first_hit` (a spike, a shape-only unit test) can't be windowed on
+    appearance — the check has nothing to test, so it passes rather than rejecting silently."""
+    d = detect_day(_PASS, appearance_windows=((time(4, 0), time(5, 0)),))
+    assert d is not None and d.in_window is True
+
+
+def test_entry_cutoff_rejects_a_trigger_after_it() -> None:
+    # _PASS triggers at 10:15 ET — after a 09:30 cutoff.
+    d = detect_day(_PASS, entry_cutoff=time(9, 30))
+    assert d is not None and d.in_window is False and d.takeable is False
+
+
+def test_entry_cutoff_is_inclusive() -> None:
+    """A bar opening exactly on the cutoff is still in — a deadline, not a strict bound (#586's
+    staleness precedent, applied here to the new cutoff)."""
+    trigger_et = _PASS[3].start.astimezone(ET).time()  # 10:15 ET
+    assert detect_day(_PASS, entry_cutoff=trigger_et).in_window is True  # type: ignore[union-attr]
+    assert detect_day(_PASS, entry_cutoff=time(10, 14)).in_window is False  # type: ignore[union-attr]
+
+
+def test_shares_band_accepts_within_the_cap() -> None:
+    d = detect_day(_PASS, shares_outstanding=10_000_000, max_shares_outstanding=50_000_000)
+    assert d is not None and d.in_shares_band is True and d.takeable is True
+
+
+def test_shares_band_rejects_over_the_cap() -> None:
+    d = detect_day(_PASS, shares_outstanding=60_000_000, max_shares_outstanding=50_000_000)
+    assert d is not None and d.in_shares_band is False and d.takeable is False
+
+
+def test_shares_band_bound_is_inclusive() -> None:
+    d = detect_day(_PASS, shares_outstanding=50_000_000, max_shares_outstanding=50_000_000)
+    assert d is not None and d.in_shares_band is True
+
+
+def test_shares_band_missing_datum_is_kept_not_dropped() -> None:
+    """No fundamentals yet for this run (async fetch lagging, or never resolved) reads as *pass*,
+    not fail — the adversarial validation lab (`spikes/engine_lab/validate/adversarial/
+    FINDINGS.md`) found a similar rule was mostly measuring presence-vs-absence rather than the
+    threshold, so a missing datum must stay neutral."""
+    d = detect_day(_PASS, shares_outstanding=None, max_shares_outstanding=50_000_000)
+    assert d is not None and d.in_shares_band is True
 
 
 def test_selection_defaults_are_permissive() -> None:
     """A caller configuring neither selects on shape alone — spikes and unit tests need that."""
     d = detect_day(_PASS)
-    assert d is not None and d.in_price_band is True and d.in_window is True
+    assert d is not None
+    assert d.in_price_band is True
+    assert d.in_window is True
+    assert d.in_shares_band is True
 
 
 # --- #584: the minimum stop distance -------------------------------------------------------
@@ -205,11 +278,12 @@ def test_selection_defaults_are_permissive() -> None:
 # because that is just UNDER the shipped 2.5%, so these exercise the rule rather than assert it.
 
 
-def test_the_shipped_minimum_stop_distance_is_two_and_a_half_percent() -> None:
-    """2.5% and not the 3% #584 first proposed: it is the only threshold clearing both bootstrap
-    tests, and it sits in a natural gap (sorted stop distances run 2.407% → 2.548%, so any cut
-    between them gives the identical partition)."""
-    assert settings().select_min_stop_pct == 0.025
+def test_the_shipped_minimum_stop_distance_is_two_percent() -> None:
+    """D-40 set 2.5% (not the 3% #584 first proposed) as the only threshold clearing both bootstrap
+    tests on the 61-session record. D-45 (2026-08-26, #694) loosened it to 2.0% on the current
+    125-row filtered population — see config.py's select_min_stop_pct for why the two records
+    aren't directly comparable."""
+    assert settings().select_min_stop_pct == 0.02
 
 
 def test_a_stop_too_close_to_the_fill_is_not_selected_but_still_passes() -> None:
@@ -262,10 +336,10 @@ def test_the_minimum_stop_is_measured_against_the_fill_not_the_breakout() -> Non
     assert detect_day(_PASS, min_stop_pct=0.019).has_stop_room is True  # type: ignore[union-attr]
 
 
-def test_the_shipped_floor_is_three_dollars_and_the_cap_is_fifty() -> None:
-    """#643. The floor completes the shrink #608 promised; the cap has never bound and stays put."""
+def test_the_shipped_floor_is_three_dollars_and_the_cap_is_twenty() -> None:
+    """#643 set the floor; #694/D-45 narrowed the cap $50 -> $20 (config.py has the why)."""
     s = settings()
-    assert (s.select_price_min, s.select_price_max) == (3.0, 50.0)
+    assert (s.select_price_min, s.select_price_max) == (3.0, 20.0)
 
 
 def test_a_sub_three_dollar_setup_stays_well_formed_but_is_not_selected() -> None:

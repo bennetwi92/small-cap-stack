@@ -138,6 +138,7 @@ def _hit_times(scans: pl.DataFrame, oid: str) -> list[datetime]:
 # source not listed still counts, ranked last — so we never silently drop a number.
 _FLOAT_PRIORITY = ("fmp", "yfinance")
 _SHORT_PRIORITY = ("yfinance",)
+_SHARES_OUT_PRIORITY = ("fmp", "yfinance")
 
 
 def _pick_by_source(
@@ -157,18 +158,26 @@ def _pick_by_source(
     return best
 
 
-def _funds_for(funds: pl.DataFrame, oid: str) -> tuple[int | None, float | None]:
+def _funds_for(funds: pl.DataFrame, oid: str) -> tuple[int | None, float | None, int | None]:
+    """(float_shares, short_percent, shares_outstanding), source-merged per field.
+
+    ``shares_outstanding`` feeds the D-45 shares-out selection band (#694) — reused from the same
+    seam ``portfolio/extract.py`` and ``dashboard.py`` already read fundamentals through, so every
+    consumer quotes the same source-merged number the results/review pages do.
+    """
     if funds.is_empty():
-        return None, None
+        return None, None, None
     fsub = funds.filter(pl.col("opportunity_id") == oid)
     if fsub.is_empty():
-        return None, None
+        return None, None, None
     rows = list(fsub.iter_rows(named=True))
     float_shares = _pick_by_source(rows, "float_shares", _FLOAT_PRIORITY)
     short_percent = _pick_by_source(rows, "short_percent", _SHORT_PRIORITY)
+    shares_outstanding = _pick_by_source(rows, "shares_outstanding", _SHARES_OUT_PRIORITY)
     return (
         int(float_shares) if isinstance(float_shares, int | float) else None,
         float(short_percent) if isinstance(short_percent, int | float) else None,
+        int(shares_outstanding) if isinstance(shares_outstanding, int | float) else None,
     )
 
 
@@ -335,6 +344,7 @@ def _analyze_run(
     news_recent: bool,
     float_shares: int | None,
     short_percent: float | None,
+    shares_outstanding: int | None,
     scanner_hits: int,
     run: int,
     run_count: int,
@@ -345,7 +355,7 @@ def _analyze_run(
     # Engine-v2 (#180) runs over the WHOLE trading day (day_bars) with the run's first_hit, so
     # exhaustion counts pump/fade cycles across the day; ``obars`` (the run window) is just the bar
     # count shown in the UI.
-    rm = compute_r_metrics(day_bars, s, first_hit=first_hit)
+    rm = compute_r_metrics(day_bars, s, first_hit=first_hit, shares_outstanding=shares_outstanding)
     # Single source of truth for the two counted predicates: reuse `gates.py` rather than
     # re-deriving them here (a None datum stays None to distinguish "no data" from "fails gate").
     # Neither gates anything — they become the report's `float_ok` / `with_recent_news` counts.
@@ -402,7 +412,7 @@ def _analyses_for_symbol(
     # broke in its window. Undated news (unparseable / legacy) falls back to run 1 so it's not lost.
     news_times, news_undated = _news_for(news, oid)
     news_recent = _news_recent(news_times, row["trading_date"], s)  # day-level recency (#101)
-    float_shares, short_percent = _funds_for(funds, oid)
+    float_shares, short_percent, shares_outstanding = _funds_for(funds, oid)
     # Engine-v2 detection runs over the full trading day (#180); shared across the symbol's runs.
     day_bars = day_chart_bars(bars, oid, s)
 
@@ -424,6 +434,7 @@ def _analyses_for_symbol(
                 news_recent=news_recent,
                 float_shares=float_shares,
                 short_percent=short_percent,
+                shares_outstanding=shares_outstanding,
                 scanner_hits=hits,
                 run=run.idx,
                 run_count=run.run_count,

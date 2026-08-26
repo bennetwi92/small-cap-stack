@@ -66,7 +66,9 @@ def test_cap_dropped_setups_are_tagged_cap() -> None:
         _cand("BBB", 6, 10.0, 9.0, win),
         _cand("CCC", 7, 10.0, 9.0, loss),  # 3rd by trigger time -> cap drops it
     ]
-    res = simulate_portfolio([(date(2026, 7, 14), cands)], _s(), target_r=2.0)
+    res = simulate_portfolio(
+        [(date(2026, 7, 14), cands)], _s(portfolio_max_trades_per_day=2), target_r=2.0
+    )
 
     assert [(sk.symbol, sk.skip_reason) for sk in res.skipped] == [("CCC", "cap")]
     assert res.skipped_total_r == res.skipped[0].realized_r  # cap-only headline still counts it
@@ -101,7 +103,7 @@ def test_take_day_selection_follows_select_day(monkeypatch: pytest.MonkeyPatch) 
         _cand("BBB", 6, 10.0, 9.0, win),
         _cand("CCC", 7, 10.0, 9.0, win),
     ]
-    s = _s()
+    s = _s(portfolio_max_trades_per_day=2)
     assert [c.symbol for c in _select_day(cands, s)] == ["AAA", "BBB"]  # earliest N by trigger
 
     # A selection rule the inline slice would never produce: one trade, not max_trades_per_day.

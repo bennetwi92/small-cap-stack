@@ -147,7 +147,8 @@ def test_day_samples_divides_both_trades_by_the_days_opening_equity() -> None:
     # silent, small, always-in-one-direction error in every projected return.
     d = date(2026, 7, 14)
     res = simulate_portfolio(
-        [(d, [_cand(d, "AAA", 5, _win(d, 0)), _cand(d, "BBB", 6, _win(d, 1))])], _s()
+        [(d, [_cand(d, "AAA", 5, _win(d, 0)), _cand(d, "BBB", 6, _win(d, 1))])],
+        _s(portfolio_max_trades_per_day=2),
     )
     assert res.n_trades == 2
     opening = res.trades[0].equity_before
@@ -300,7 +301,7 @@ def test_projection_of_a_losing_book_pays_nothing_and_refuses_an_income_answer()
 def test_projection_of_a_winning_book_dates_the_first_payout_and_the_first_cgt_bill() -> None:
     # A year-long horizon so the quarterly withdrawal cadence and the 6-Apr tax boundary both fall
     # inside it — the two dates the "when does this start paying me" question actually asks for.
-    s = _s(portfolio_projection_days=252)
+    s = _s(portfolio_projection_days=252, portfolio_max_trades_per_day=2)
     out = build_projection(_winning_book(s), s)
     assert out["first_withdrawal"]["probability"] > 0.0
     first_wd = date.fromisoformat(str(out["first_withdrawal"]["median_date"]))
@@ -428,7 +429,7 @@ def test_annualised_growth_handles_a_wiped_out_path() -> None:
 def test_income_ladder_shows_the_position_size_each_rung_implies() -> None:
     # The whole ladder assumes percentage returns are scale-free, which for small-cap momentum they
     # are not. The position column is where that assumption becomes visible instead of buried.
-    s = _s(portfolio_projection_days=252)
+    s = _s(portfolio_projection_days=252, portfolio_max_trades_per_day=2)
     out = build_projection(_winning_book(s), s)
     rungs = [r for r in out["ladder"] if r["capital_usd"] is not None]
     assert rungs, "a winning book should produce a priced ladder"
@@ -478,7 +479,7 @@ def test_an_absurd_growth_rate_is_flagged_rather_than_quoted() -> None:
     # year, and `capital_for_income` then DIVIDES by that rate — so the page would state, in
     # crisp dollars, that replacing a £91k salary needs $551 of capital. The arithmetic is right
     # and the answer is garbage; the flag is what lets the page say so instead of printing it.
-    s = _s(portfolio_projection_days=252)
+    s = _s(portfolio_projection_days=252, portfolio_max_trades_per_day=2)
     hot = build_projection(_winning_book(s), s)
     assert hot["growth"]["p50"] > 9.0
     assert hot["growth_implausible"] is True
@@ -486,13 +487,15 @@ def test_an_absurd_growth_rate_is_flagged_rather_than_quoted() -> None:
     # carries the warning, so the page can dim it rather than losing the information.
     assert hot["ladder"][-1]["capital_usd"] is not None
 
-    calm = build_projection(_book(0.45, seed=5, s=_s(portfolio_risk_fraction=0.01)), s)
+    calm = build_projection(
+        _book(0.45, seed=5, s=_s(portfolio_risk_fraction=0.01, portfolio_max_trades_per_day=2)), s
+    )
     assert 0 < calm["growth"]["p50"] < 9.0
     assert calm["growth_implausible"] is False
 
 
 def test_day_rate_years_ranks_slower_growth_as_a_longer_wait() -> None:
-    s = _s(portfolio_projection_days=252)
+    s = _s(portfolio_projection_days=252, portfolio_max_trades_per_day=2)
     out = build_projection(_winning_book(s), s)
     years = out["day_rate_years"]
     if years["p25"] is not None and years["p75"] is not None:

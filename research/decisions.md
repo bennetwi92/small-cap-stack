@@ -60,12 +60,13 @@ down is reading forward in time within a topic.
 | [D-36](#d-36--the-selection-window-opens-to-0400-2026-08-07-569) | 2026-08-07 | The selection window opens to 04:00 | #569 | LIVE — reverses #405 |
 | [D-37](#d-37--the-selection-price-band-widens-to-150-for-collection-2026-08-07-608) | 2026-08-07 | The selection price band widens to $1–$50 for collection | #608 | LIVE — temporary and intended to be reversed once the record can say where the band belongs; supersedes #386 |
 | [D-38](#d-38--the-adaptive-r-target-optimiser-is-retired-2026-08-08-644) | 2026-08-08 | The adaptive R-target optimiser is retired | #644 | LIVE — the layer is disabled by grid width, not deleted; re-enabling is one field |
-| [D-39](#d-39--the-selection-price-floor-rises-to-3-2026-08-08-643) | 2026-08-08 | The selection price floor rises to $3 | #643 | LIVE — completes the shrink D-37 said it intended; the cap is deliberately untouched |
-| [D-40](#d-40--a-minimum-stop-distance-of-25-2026-08-08-584) | 2026-08-08 | A minimum stop distance of 2.5% | #584 | LIVE — a selection rule in the engine, deliberately not a shape gate |
+| [D-39](#d-39--the-selection-price-floor-rises-to-3-2026-08-08-643) | 2026-08-08 | The selection price floor rises to $3 | #643 | LIVE — the floor stands; the cap half ("deliberately untouched") is REVERSED by §D-45 (2026-08-26, #694), measured on the old bounds and not comparable to the new ones |
+| [D-40](#d-40--a-minimum-stop-distance-of-25-2026-08-08-584) | 2026-08-08 | A minimum stop distance of 2.5% | #584 | REVERSED — by §D-45 (2026-08-26, #694), loosened to 2.0% on the current filtered population; was a selection rule in the engine, deliberately not a shape gate |
 | [D-41](#d-41--reconstructed-days-get-shares-outstanding-from-edgar-not-float-from-a-vendor-2026-08-08-563) | 2026-08-08 | Reconstructed days get shares outstanding from EDGAR, not float from a vendor | #563 | LIVE |
 | [D-42](#d-42--prefix-stability-measured-the-live-detector-is-causal-2026-08-08-675) | 2026-08-08 | Prefix stability measured: the live detector is causal | #675 | LIVE — retires the roadmap's "sleeper" risk for the algorithm; the input question stands |
 | [D-43](#d-43--two-preconditions-for-live-data-live_bars-separation-and-fills-move-the-ledger-2026-08-08-676) | 2026-08-08 | Two preconditions for live data: `live_bars` separation, and fills move the ledger | #676 | LIVE — adopted before any streaming or order code exists, which is the only time it is free |
 | [D-44](#d-44--three-shape-gates-and-the-quality-score-are-removed-2026-08-14-690) | 2026-08-14 | Three shape gates and the quality score are removed | #690 | LIVE |
+| [D-45](#d-45--a-new-excel-workbook-filter-combination-pricestopwindowsharescap-all-move-2026-08-26-694) | 2026-08-26 | A new Excel-workbook filter combination: price/stop/window/shares/cap all move | #694 | LIVE — the price cap and stop-pct halves REVERSE D-37/D-40's "leave it alone" findings; |
 
 <!-- END DECISION INDEX -->
 
@@ -1475,7 +1476,7 @@ switching to 1.5 on 18 days and lands at $333.02 — worse than either endpoint.
 Compute-on-read means the whole history replays under the fixed target on the next publish.
 ## D-39 — The selection price floor rises to $3 (2026-08-08, #643)
 
-**Status:** LIVE — completes the shrink D-37 said it intended; the cap is deliberately untouched
+**Status:** LIVE — the floor stands; the cap half ("deliberately untouched") is REVERSED by §D-45 (2026-08-26, #694), measured on the old bounds and not comparable to the new ones
 
 `select_price_min` 1.00 → **3.00**. `select_price_max` stays **50.00**.
 
@@ -1546,7 +1547,7 @@ Interacts with D-40 (the 2.5% minimum stop): the two rules remove near-disjoint 
 
 ## D-40 — A minimum stop distance of 2.5% (2026-08-08, #584)
 
-**Status:** LIVE — a selection rule in the engine, deliberately not a shape gate
+**Status:** REVERSED — by §D-45 (2026-08-26, #694), loosened to 2.0% on the current filtered population; was a selection rule in the engine, deliberately not a shape gate
 
 New `select_min_stop_pct = 0.025`, ANDed into `DaySetup.takeable` as `has_stop_room` beside
 `in_price_band` / `in_window`: `(entry_fill − stop) / entry_fill >= select_min_stop_pct`.
@@ -1840,3 +1841,57 @@ the average excursion while lowering the hit rate that actually pays. Judge a ga
 you would bank, per period, or not at all.
 
 Refs #690
+
+## D-45 — A new Excel-workbook filter combination: price/stop/window/shares/cap all move (2026-08-26, #694)
+
+**Status:** LIVE — the price cap and stop-pct halves REVERSE D-37/D-40's "leave it alone" findings;
+the shares-out clause is `PROMISING`, not `REAL`, per the adversarial lab cited below
+
+The trader's Excel opportunity workbook (`spikes/opportunity_workbook.py`, #694) swept the current
+125-row filtered population — 2.44 avg R, 0.875 median R, 48.8% reached 1R, 20.8% reached 3R — and
+proposed a new combination of row filters plus a tightened daily cap. Deployed as specified, with
+one exception (below):
+
+- `select_price_max`: **$50 → $20**. Reverses D-37/#643's "the cap has never bound, do not narrow
+  it" finding — that was measured on the 61-session record under the OLD stop/window bounds; on the
+  current 125-row population, under the bounds this decision ships together, the >$20 slice is no
+  longer flat but negative enough to cut. The two records are not comparable; re-widening needs a
+  fresh measurement under D-45's bounds, not a reapplication of D-37's numbers.
+- `select_min_stop_pct`: **2.5% → 2.0%**. Reverses D-40's "2.5% is the only value clearing both
+  bootstrap tests, do not raise it" finding, for the same reason: D-40 measured the old bounds.
+- `select_window_start`/`select_window_end` (the single continuous trigger-time window) are
+  **retired as the takeable gate**, kept only for the `trigger_in_window` context feature. In their
+  place, two new rules on the scanner-**appearance** time and the trigger bar's own deadline:
+  - `select_appearance_windows`: three disjoint bands, `[04:00,05:00)`, `[06:00,07:00)`,
+    `[08:00,09:00)` ET, on `first_hit`. The gaps (05:00–06:00, 07:00–08:00) tested negative and are
+    deliberately excluded, not merely unswept.
+  - `select_entry_cutoff`: 09:30 ET (the bell), inclusive, on the trigger bar's own open. Mostly
+    redundant with the appearance windows (the latest band already ends 09:00, and
+    `entry_staleness_min` caps the appearance-to-trigger gap at 30 minutes) but binds at the margin:
+    a run seen at 08:59 can still trigger as late as 09:29 and this is what stops it going further.
+- `portfolio_max_trades_per_day`: **2 → 1**. The workbook found the daily cap itself binds on the
+  filtered population and that one slot outperforms two on the 125-row record.
+
+**The one deviation from the workbook: `select_max_shares_outstanding` is 50,000,000, not the
+workbook's 500,000,000.** `spikes/engine_lab/validate/` — an independent adversarial validation lab
+testing a *different* rule (runup/rvol/shares-outstanding on top of the OLD shipped bounds) — landed
+on `main` the same day. Two validators, different methods, converged: the three-clause rule they
+tested is an `ARTEFACT` (it collapsed under a permutation null and was mostly measuring
+`shares_outstanding is not null` rather than any threshold), but a **residue survived**:
+`shares_outstanding <= 50e6` on top of the shipped rules, `PROMISING` at p≈0.01–0.09 on 36–60
+trades, walk-forward positive in 5/6 blocks, refitted cuts settling 33M–50M across windows. The
+workbook's own 500M cap found no edge on its own sweep. Given a rigorously-adversarially-tested ~50M
+threshold and an untested 500M one on the exact same variable, this decision takes the more-tested
+number.
+
+⚠️ **This combination has never been jointly validated.** The adversarial lab held price/stop/window
+at the OLD shipped values while testing shares_outstanding in isolation; the workbook pass changed
+price/stop/window/cap together but only swept shares_outstanding at 500M, not 50M. Re-measure the
+whole D-45 configuration together before leaning on it for anything beyond Phase-1 collection.
+
+**Missing `shares_outstanding` is KEPT, not dropped** — consistent with `in_price_band`'s own
+None-disables convention, and deliberate here: the adversarial lab's own finding was that a missing
+datum, not the threshold, was doing most of the work in the rule it broke. Treating "no datum yet"
+as a rejection would risk reproducing exactly that artefact under a different name.
+
+Refs #694
