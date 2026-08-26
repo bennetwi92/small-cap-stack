@@ -40,6 +40,7 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`adaptive_book_sweep.py`](#adaptive_book_sweeppy) | #690 | Switch the retired adaptive target (§D-38) and risk ladder (§D-23) back on, over 197 sessions |
 | [`rule_sweep.py`](#rule_sweeppy) | #690 | Which single selection rules actually pick better setups, judged on old and recent data separately |
 | [`engine_lab/`](#engine_lab) | #690 | Three parallel investigations — selection rules, risk/capacity, stop-and-target — over one shared pre-market population, with the holdout spent once |
+| [`regime_tail_cluster.py`](#regime_tail_clusterpy) | #710 | Cluster trailing ~20-session blocks on tail-shaped outcome features (rate of large `max_r`) to define "hot"/"cold" empirically, then a permutation null test on the split |
 
 ### `viz_engine.py`
 
@@ -559,6 +560,24 @@ python spikes/regime_scan.py scan --detrend
 python spikes/regime_scan.py persist --draws 3000
 python spikes/regime_scan.py terciles --feature p2r_w10
 python spikes/regime_scan.py interact --feature p2r_w10
+```
+
+### `regime_tail_cluster.py`
+
+#710's follow-on to `regime_scan.py`: the trader's belief is specifically about **+8R runs** —
+outsized outcomes a fixed 2.0R target structurally can't capture — alternating with longer cool
+stretches, not just a mean/2R-hit-rate shift. Rather than fit a threshold and eyeball where it
+splits, defines "hot" directly from the shape of the outcome tail per trailing ~20-session block,
+via unsupervised (k-means) clustering on tail-only features (rate/count of `max_r >= T`, `sum_max_r`,
+p75/max). Two population definitions (`--population {takeable,passed}` — see the module docstring
+for why `passed` is the one that avoids re-filtering through today's fitted selection rules) and a
+permutation null (`null` mode) that shuffles block assignment and reruns the same pipeline, to check
+whether an observed hot/cold split beats chance rather than being an artifact of k-means always
+carving *some* split out of a small number of blocks.
+
+```bash
+python spikes/regime_tail_cluster.py --population passed --tail-threshold 8
+python spikes/regime_tail_cluster.py --population passed --null-trials 2000 --null-thresholds 2,4,8
 ```
 
 ### `adaptive_book_sweep.py`
