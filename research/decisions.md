@@ -68,6 +68,7 @@ down is reading forward in time within a topic.
 | [D-44](#d-44--three-shape-gates-and-the-quality-score-are-removed-2026-08-14-690) | 2026-08-14 | Three shape gates and the quality score are removed | #690 | LIVE |
 | [D-45](#d-45--a-new-excel-workbook-filter-combination-pricestopwindowsharescap-all-move-2026-08-26-694) | 2026-08-26 | A new Excel-workbook filter combination: price/stop/window/shares/cap all move | #694 | LIVE — the price cap and stop-pct halves REVERSE D-37/D-40's "leave it alone" findings; |
 | [D-46](#d-46--a-candle-recalculated-exit-beats-the-static-bracket-but-stays-unshipped-pending-forward-data-2026-08-26-713715) | 2026-08-26 | A candle-recalculated exit beats the static bracket, but stays unshipped pending forward data | #713/#715 | LIVE — the decision to measure and NOT ship. No `config.py` value changes. |
+| [D-47](#d-47--full-buying-power-position-sizing-replacing-risk-basednotional-capped-sizing-2026-08-27-720) | 2026-08-27 | Full-buying-power position sizing, replacing risk-based/notional-capped sizing | #720 | LIVE — `size_position()` now sizes to the day's opening equity with no risk ceiling; |
 
 <!-- END DECISION INDEX -->
 
@@ -1955,5 +1956,39 @@ going forward (Phase-1 is a tracker; compute-on-read makes this free and retroac
 pre-registered exactly as specified here (`m=1.30`, `breakeven_then_ratchet`, `be_r=0.5`,
 `arm_r=0.75`, `trail_k=0.4`, `stop_pct` floor stated against the m=1.30 bracket) so a future decision
 is made on genuinely forward data rather than another sweep of the same recon-heavy record.
+
+## D-47 — Full-buying-power position sizing, replacing risk-based/notional-capped sizing (2026-08-27, #720)
+
+**Status:** LIVE — `size_position()` now sizes to the day's opening equity with no risk ceiling;
+`portfolio_risk_fraction` and `portfolio_position_fraction` are removed from `Settings`
+
+The book's sizer previously targeted `risk_fraction` (5%) of equity at risk against the stop
+distance, capped at `position_fraction` (50%) of equity in notional — `qty = min(risk_qty,
+cap_qty)`. This models a discretionary trader normalizing size to the stop. It is not this
+strategy's actual capital-management style: the trader's small-account-challenge approach (after
+Ross Cameron / Warrior Trading) sizes to **one position per day, as many shares as the account's
+funds allow** — no risk-fraction ceiling, no notional cap competing with it.
+
+`qty = floor(equity / entry_price)` replaces the two-constraint formula. `risk_usd`/`risk_pct` are
+kept on `SizedPosition` as post-hoc reporting (`qty × (entry − stop)` and its share of equity), but
+nothing sizes off them anymore. `risk_qty`, `cap_qty` and `sized_by` are removed — there is only one
+sizing path now, so "which constraint bound" is no longer a question the book answers.
+`portfolio_max_trades_per_day` was already 1 (§D-45), so the "one position per day" half of the
+style needed no change.
+
+**This directly reverses the premise behind the open-drive spike's (#418) "unmonetisable at $500"
+finding.** That spike found +5.67R but concluded the edge couldn't be captured because tight stops
+kept sizing notional-cap-bound (`position_fraction` binding below the risk target). Under full-
+buying-power sizing there is no notional cap to bind against — that constraint doesn't exist in the
+real style, so the finding needs re-measuring under this sizer before being treated as settled
+either way.
+
+⚠️ **Not yet re-validated against the cost model.** `engine_lab`'s net-of-cost figures (§D-44,
++11.0R gross → +0.9R net) were measured at $500 starting equity with the old sizer. Full-buying-
+power sizing changes position size on every trade, which changes the dollar cost drag as a share of
+R (fixed per-share/per-order fees become a smaller fraction of a bigger position) — re-run the cost
+model under this sizer before drawing any conclusion about net edge, in either direction.
+
+Refs #720
 
 Refs #713 #715
