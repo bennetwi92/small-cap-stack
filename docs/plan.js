@@ -246,7 +246,7 @@ function phaseMetrics(id, collection, book, gates) {
   }
   return [
     ["Capital", book.startEquity != null ? `$${Number(book.startEquity).toFixed(0)}` : "—"],
-    ["Risk / trade", cfg.risk_fraction != null ? fmtPctPlain(cfg.risk_fraction, 1) : "—"],
+    ["Sizing", "full buying power"],
     ["Trades / day", cfg.max_trades_per_day != null ? `≤ ${cfg.max_trades_per_day}` : "—"],
   ];
 }
@@ -611,19 +611,19 @@ function renderChecks(c, book, status) {
     // one-rung ladder is the throttle switched off (#474) — there is no rung to report, and
     // "FULL" would imply a ladder that could be somewhere else.
     checkRow({
-      label: "Risk in force",
-      valueHtml: next ? fmtPctPlain(next.risk_fraction, 1) : "—",
+      label: "Activity in force",
+      valueHtml: next ? (next.active_fraction === 0 ? "Sitting out" : "Active") : "—",
       sub: !next
         ? "no next-session state"
         : (throttleOff
-            ? `flat — kill-switch off · `
+            ? `always active — kill-switch off · `
             : `rung ${next.rung}/${next.n_rungs - 1} · `) +
-          `target ${Number(next.target_r).toFixed(1)}R · $${Number(next.risk_budget_usd).toFixed(2)} budget`,
+          `target ${Number(next.target_r).toFixed(1)}R · $${Number(next.buying_power_usd).toFixed(2)} buying power`,
       status: !next
         ? null
         : throttleOff
           ? "FLAT"
-          : next.risk_fraction === 0
+          : next.active_fraction === 0
             ? "SITTING OUT"
             : atTopRung
               ? "FULL"
@@ -632,14 +632,14 @@ function renderChecks(c, book, status) {
         ? "none"
         : throttleOff
           ? "ok"
-          : next.risk_fraction === 0
+          : next.active_fraction === 0
             ? "bad"
             : atTopRung
               ? "ok"
               : "warn",
       title: throttleOff
-        ? "What the adaptive book will risk on its next setup. The kill-switch ladder is switched off, so this does not vary with recent results."
-        : "What the adaptive book will risk on its next setup — the kill-switch rung and the target now in force.",
+        ? "Whether the adaptive book trades its next setup. The kill-switch ladder is switched off, so this does not vary with recent results."
+        : "Whether the adaptive book trades its next setup, sized full buying power when active — the kill-switch rung and the target now in force.",
     }),
     targetFitRow(next, cfg),
     checkRow({

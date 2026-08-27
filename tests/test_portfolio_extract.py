@@ -54,7 +54,7 @@ def test_extract_day_trades_selects_premarket_v2_setup(tmp_path: Path) -> None:
     assert res.n_trades == 1
     t = res.trades[0]
     assert t.reason == "target" and t.realized_r == 2.0
-    assert t.qty == 40  # floor(250 / 6.13)
+    assert t.qty == 81  # floor(500 / 6.13), full buying power
     assert res.end_equity > res.start_equity  # a winning day
 
 
@@ -519,17 +519,17 @@ def test_build_portfolio_payload_shape(tmp_path: Path) -> None:
     assert payload["config"]["target_switch_z"] == 1.0
     trade = adaptive["trades"][0]
     assert trade["symbol"] == "AZI" and trade["reason"] == "target"
-    # Per-trade risk attribution + the next-session state reach the page (#286).
-    assert {"risk_fraction", "risk_usd", "risk_pct", "sized_by"} <= set(trade)
-    assert trade["sized_by"] in {"risk", "cap"}
-    assert trade["risk_pct"] <= payload["config"]["risk_fraction"]
+    # Per-trade risk attribution (post-hoc, full-buying-power sizing) + the next-session state
+    # reach the page (#694 follow-up, full-buying-power sizing).
+    assert {"risk_usd", "risk_pct"} <= set(trade)
+    assert "sized_by" not in trade
     assert adaptive["stats"]["avg_risk_pct"] is not None
-    assert "cap_bound_count" in adaptive["stats"]
+    assert "cap_bound_count" not in adaptive["stats"]
     state = adaptive["next_session"]
     assert state["as_of"] == "2026-06-30"  # the day after the last collected one
-    assert state["risk_fraction"] in payload["config"]["risk_ladder"]
-    assert state["risk_budget_usd"] == round(
-        adaptive["stats"]["end_equity"] * state["risk_fraction"], 4
+    assert state["active_fraction"] in payload["config"]["risk_ladder"]
+    assert state["buying_power_usd"] == (
+        round(adaptive["stats"]["end_equity"], 4) if state["active_fraction"] > 0 else 0.0
     )
     # The target in force is published with its provenance, so the page can say "fallback" rather
     # than presenting it as an adaptive choice (#463).

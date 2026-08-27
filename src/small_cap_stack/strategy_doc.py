@@ -253,7 +253,7 @@ def render_engine(s: Settings) -> str:
 def render_book(s: Settings) -> str:
     """Execution: given the setups the engine selected, what happens to $500."""
     throttle = (
-        "off (flat risk)"
+        "off (always active)"
         if s.portfolio_risk_rungs <= 1
         else (
             f"{s.portfolio_risk_rungs} rungs, "
@@ -282,14 +282,10 @@ def render_book(s: Settings) -> str:
             _field("portfolio_max_trades_per_day"),
         ),
         _row(
-            "Risk target",
-            f"{_pct(s.portfolio_risk_fraction)} of the day's opening equity",
-            _field("portfolio_risk_fraction"),
-        ),
-        _row(
-            "Notional cap",
-            f"{_pct(s.portfolio_position_fraction)} of the day's opening equity",
-            _field("portfolio_position_fraction"),
+            "Sizing",
+            "full buying power — floor(opening equity / entry price), no risk-fraction target "
+            "and no notional cap",
+            _field("costs.size_position"),
         ),
         _row("Exit target", f"{s.portfolio_target_r:g}R fallback", _field("portfolio_target_r")),
         _row(

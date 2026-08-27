@@ -539,13 +539,14 @@ class Settings(BaseSettings):
     # dataset. Rules locked in research/decisions.md (2026-07-15): UK cash account, capital-based
     # sizing, strict pre-market fills, engine-v2 takeable setups only, fixed-R exit + breakeven.
     portfolio_start_equity_usd: float = 500.0
-    # Sizing = risk-based, capped by notional (#237). Each position targets `risk_fraction` of the
-    # day's opening equity at risk (qty ≈ equity × risk_fraction / (entry − stop)) but is capped at
-    # `position_fraction` of opening equity in notional (qty ≤ equity × position_fraction / entry).
-    # The cap binds on wide stops, the risk target on tight ones; qty = min(risk_qty, cap_qty), so
-    # the cap is always the upper bound — that is what keeps the settled-cash invariant intact.
-    portfolio_risk_fraction: float = 0.05  # target risk per trade, as a fraction of opening equity
-    portfolio_position_fraction: float = 0.50  # max position notional, as a fraction of opening eq.
+    # Sizing = full buying power, not risk-based (#694 follow-up, full-buying-power sizing). One
+    # position a day (`portfolio_max_trades_per_day` below, already 1 since #694/D-45), sized to as
+    # many shares as the day's opening equity can buy: `qty = floor(opening_equity / entry_price)`.
+    # This matches how the trader (and Ross Cameron's "Warrior" small-account-challenge style)
+    # actually sizes — no risk-fraction target, no notional cap; the whole account is deployable
+    # on the single trade of the day. The prior risk-based/notional-capped model (target
+    # `risk_fraction` of equity at risk, capped at `position_fraction` of equity in notional) is
+    # gone, not disabled — see `costs.size_position`.
     # 1, not 2, since 2026-08-26 (#694, D-45): the workbook pass found the daily cap itself binds on
     # the current filtered population (sorted by trigger time, ties broken on symbol) and that a
     # single slot outperforms two on the 125-row record. Cap 50% × 1 = at most half-deployed.
@@ -612,16 +613,19 @@ class Settings(BaseSettings):
     # least one standard error"; 1.96 is the strict two-sided 95% bar, which this sample cannot yet
     # satisfy for any target. 0 disables the gate (pure argmax, the pre-#476 behaviour).
     portfolio_target_switch_z: float = 1.0
-    # Adaptive risk throttle / kill-switch (#239): the per-trade `risk_fraction` itself walks a
-    # small ladder from 0 up to `portfolio_risk_fraction`, driven by recent daily results. The
-    # adaptive book starts at full risk (top rung) and steps ONE rung only after `risk_step_days`
-    # net-positive days *in a row* (up) or the same run of net-negative days (down); a day's result
-    # is the aggregate realised R over its qualifying setups, and a flat / no-setup day holds both
-    # the rung and the streak (an info-less day carries no momentum — "in a row" counts decisive
-    # days). At the 0% rung no capital is committed, but the day's *would-be* setups are still
-    # scored (the signal is size-independent by design) so the switch re-arms when the tape turns.
-    # Few rungs = a fast wind-up to full risk. `risk_rungs=1` disables the throttle. Only the
-    # adaptive book throttles; fixed-target books stay at full `risk_fraction` as a baseline.
+    # Adaptive activity throttle / kill-switch (#239): the day's *activity* — take the setup at
+    # full buying power, or sit out entirely — walks a small ladder from 0 up to 1, driven by
+    # recent daily results (since #694 follow-up, full-buying-power sizing, there is no partial
+    # size left to throttle: only the 0 rung has any effect, and it means the day sits out). The
+    # adaptive book starts fully active (top rung) and steps ONE rung only after `risk_step_days`
+    # net-positive days *in a row* (up) or the same run of net-negative days (down); a day's
+    # result is the aggregate realised R over its qualifying setups, and a flat / no-setup day
+    # holds both the rung and the streak (an info-less day carries no momentum — "in a row"
+    # counts decisive days). At the 0 rung no capital is committed, but the day's *would-be*
+    # setups are still scored (the signal is size-independent by design) so the switch re-arms
+    # when the tape turns. Few rungs = a fast wind-up back to active. `risk_rungs=1` disables the
+    # throttle. Only the adaptive book throttles; fixed-target books stay fully active as a
+    # baseline.
     #
     # ⚠️ DISABLED 2026-08-06 (#474), reversing #239. The ladder is a bet on serial correlation of
     # daily results and there is none to be found: lag-1 autocorrelation +0.31 over 12 active days
@@ -634,7 +638,7 @@ class Settings(BaseSettings):
     # same information. On the live path it cost $32.84 (5.3% of the book) for 0.01pp of drawdown.
     # Nothing is deleted: `risk_ladder` / `step_risk_rung` / `_day_signal_r` stay tested, so this is
     # a one-line re-enable once the sample can detect the effect (~85 active days; we have 12).
-    portfolio_risk_rungs: int = 1  # 1 = throttle OFF (always full risk). 3 → (0, 2.5%, 5%).
+    portfolio_risk_rungs: int = 1  # 1 = throttle OFF (always active). 3 → activity (0, 0.5, 1).
     portfolio_risk_step_days: int = 2  # consecutive same-direction days to move a rung (1 = eager)
     # Costs, netted out of every trade so the equity curve is honest at ~$250 notional. Full IBKR
     # TIERED US-stock schedule per research/broker-costs.md (#232) — tiered UNBUNDLES the exchange /

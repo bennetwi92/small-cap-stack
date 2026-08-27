@@ -174,97 +174,86 @@ def test_exit_requires_positive_risk() -> None:
         simulate_exit([_bar(10, 11, 9, 10)], 9.0, 9.0, 0, target_r=2.0)
 
 
-# --- --- sizing & costs ---------------------------------------------------------------
+# --- --- sizing & costs -----------------------------------------------------------------
+# Full-buying-power sizing (#694 follow-up, full-buying-power sizing): one position a day, sized to
+# as many shares as the day's opening equity can buy — no risk-fraction target, no notional cap.
 
 
 def _size(equity: float, entry: float, stop: float) -> int:
-    return size_position(equity, entry, stop, risk_fraction=0.05, max_position_fraction=0.50).qty
+    return size_position(equity, entry, stop).qty
 
 
 def _sized(equity: float, entry: float, stop: float) -> SizedPosition:
-    return size_position(equity, entry, stop, risk_fraction=0.05, max_position_fraction=0.50)
-
-
-# NB the names of the next two were swapped until #286 — each asserted the opposite of what it
-# said, matching the inverted claim in the package docstring. The condition is
-# `risk_qty < cap_qty  <=>  (entry - stop) / entry > risk_fraction / max_position_fraction`, i.e.
-# the RISK target binds on a WIDE stop and the CAP binds on a TIGHT one.
-def test_size_position_notional_cap_binds_on_tight_stop() -> None:
-    # $500 eq, 5% risk = $25. Entry 10 / stop 9.5 -> risk/sh $0.50 -> floor(25/0.5)=50 by risk,
-    # but the 50% cap is floor(250/10)=25 -> the CAP binds (25 < 50).
-    assert _size(500.0, 10.0, 9.5) == 25
-    # Entry 20 / stop 19 -> risk floor(25/1)=25; cap floor(250/20)=12 -> the CAP binds.
-    assert _size(500.0, 20.0, 19.0) == 12
-
-
-def test_size_position_risk_target_binds_on_wide_stop() -> None:
-    # Entry 10 / stop 5 -> risk/sh $5 -> floor(25/5)=5 by risk; cap floor(250/10)=25 -> RISK binds.
-    assert _size(500.0, 10.0, 5.0) == 5
-    # Entry 3 / stop 2 -> risk/sh $1 -> floor(25/1)=25 by risk; cap floor(250/3)=83 -> RISK binds
-    # (the cheap stock is risk-limited, not capital-limited, so it no longer buys 83 shares).
-    assert _size(500.0, 3.0, 2.0) == 25
+    return size_position(equity, entry, stop)
 
 
 def test_size_position_floors_to_whole_shares() -> None:
-    # risk/sh $0.30 -> floor(25/0.30)=83.33 -> 83, and the cap (floor(250/3)=83) coincides here.
-    assert _size(500.0, 3.0, 2.70) == 83
+    # floor(500 / 3) = 166.66... -> 166, no risk or notional ceiling to also check against.
+    assert _size(500.0, 3.0, 2.70) == 166
 
 
-def test_size_position_zero_when_unaffordable() -> None:
-    assert _size(500.0, 300.0, 299.0) == 0  # cap floor(250/300)=0 -> can't afford a share
+def test_size_position_uses_the_whole_account_regardless_of_stop_distance() -> None:
+    # A wide stop and a tight stop size IDENTICALLY — there is no risk budget left to bind on
+    # either. Only the entry price (via floor(equity / entry)) decides the quantity.
+    assert _size(500.0, 10.0, 5.0) == 50  # $5/share risk (50% of entry)
+    assert _size(500.0, 10.0, 9.5) == 50  # $0.50/share risk (5% of entry) — same qty
 
 
-def test_size_position_zero_when_stop_too_wide_for_risk_budget() -> None:
-    # Affordable (cap floor(250/100)=2) but risk/sh $30 > the $25 budget -> risk_qty 0 wins.
-    assert _size(500.0, 100.0, 70.0) == 0
+def test_size_position_zero_when_equity_below_entry_price() -> None:
+    assert _size(5.0, 10.0, 9.0) == 0  # can't afford a single $10 share on $5
 
 
-def test_size_position_nonpositive_risk_falls_back_to_cap() -> None:
-    # Degenerate stop >= entry (caller guarantees this never happens) -> cap-bound defensively.
-    assert _size(500.0, 10.0, 10.0) == 25
+def test_size_position_zero_when_entry_price_nonpositive() -> None:
+    assert _size(500.0, 0.0, -1.0) == 0
+    assert _size(500.0, -10.0, -11.0) == 0
 
 
-# --- --- sizing: which constraint bound, and the risk actually taken (#286) -------------
+def test_size_position_zero_when_equity_nonpositive() -> None:
+    assert _size(0.0, 10.0, 9.0) == 0
+    assert _size(-500.0, 10.0, 9.0) == 0
 
 
-def test_sized_position_reports_cap_as_the_binding_constraint() -> None:
-    # The tight-stop case: risk wanted 50 shares, the cap allowed 25 -> the cap gave up 25 shares,
-    # and the position risks 25 x $0.50 = $12.50 = 2.5% of equity, HALF the configured 5% ceiling.
+def test_size_position_nonpositive_risk_still_sizes_but_reports_zero_risk() -> None:
+    # Degenerate stop >= entry (caller guarantees this never happens) — the qty still floors off
+    # the whole account; only the post-hoc risk figures fall back to 0 rather than going negative.
+    sp = _sized(500.0, 10.0, 10.0)
+    assert sp.qty == 50
+    assert sp.risk_usd == 0.0
+    assert sp.risk_pct == 0.0
+
+
+# --- --- sizing: the realised risk, reported post-hoc (#694 follow-up) -------------------
+
+
+def test_sized_position_reports_the_realised_risk_post_hoc() -> None:
+    # $10 entry, $9.50 stop -> $0.50/share risk. qty = floor(500/10) = 50, so risk_usd = $25,
+    # risk_pct = 5% of equity — computed from the size, never the other way round.
     sp = _sized(500.0, 10.0, 9.5)
-    assert (sp.qty, sp.risk_qty, sp.cap_qty, sp.sized_by) == (25, 50, 25, "cap")
-    assert sp.risk_usd == 12.5
-    assert sp.risk_pct == 0.025
-
-
-def test_sized_position_reports_risk_as_the_binding_constraint() -> None:
-    # The wide-stop case: the risk budget is spent almost exactly, so risk_pct ~= risk_fraction.
-    sp = _sized(500.0, 10.0, 5.0)
-    assert (sp.qty, sp.risk_qty, sp.cap_qty, sp.sized_by) == (5, 5, 25, "risk")
+    assert sp.qty == 50
     assert sp.risk_usd == 25.0
     assert sp.risk_pct == 0.05
 
 
-def test_sized_position_tie_reports_risk_not_cap() -> None:
-    # risk_qty == cap_qty == 83: the cap did not REDUCE the size, so nothing was given up to it.
-    # Calling this "cap" would report a constraint that cost the trade nothing.
-    sp = _sized(500.0, 3.0, 2.70)
-    assert (sp.risk_qty, sp.cap_qty, sp.sized_by) == (83, 83, "risk")
-
-
-def test_sized_position_risk_pct_never_exceeds_the_configured_fraction() -> None:
-    # The invariant the page's "up to N% risk / trade" claim rests on, over a wide sweep of stops.
-    for entry in (1.0, 3.0, 7.5, 20.0):
-        for stop_frac in (0.005, 0.02, 0.05, 0.1, 0.25, 0.5):
-            sp = _sized(500.0, entry, round(entry * (1 - stop_frac), 4))
-            assert sp.risk_pct <= 0.05 + 1e-9, (entry, stop_frac, sp)
-            # And the cap binds exactly when the stop is inside risk/position = 10% of entry.
-            if sp.qty > 0:
-                assert sp.sized_by == ("cap" if stop_frac < 0.10 else "risk"), (entry, stop_frac)
+def test_sized_position_realised_risk_scales_with_stop_distance() -> None:
+    # Same qty (full buying power) but a wider stop puts strictly more of the account at risk —
+    # the reverse of the old risk-based model, where a wider stop bought FEWER shares to compensate.
+    tight = _sized(500.0, 10.0, 9.9)  # $0.10/share
+    wide = _sized(500.0, 10.0, 5.0)  # $5.00/share
+    assert tight.qty == wide.qty == 50
+    assert tight.risk_pct < wide.risk_pct
+    assert wide.risk_pct == 0.5  # the whole account is at risk to the stop
 
 
 def test_sized_position_unaffordable_is_reported_not_crashed() -> None:
-    sp = _sized(500.0, 300.0, 299.0)
+    sp = _sized(5.0, 300.0, 299.0)
     assert (sp.qty, sp.risk_usd, sp.risk_pct) == (0, 0.0, 0.0)
+
+
+def test_sized_position_shape_has_no_leftover_risk_fraction_fields() -> None:
+    """SizedPosition no longer reports which constraint bound (#694 follow-up) — just one."""
+    sp = _sized(500.0, 10.0, 9.0)
+    fields = set(sp.__dataclass_fields__)
+    assert fields == {"qty", "risk_usd", "risk_pct"}
 
 
 def test_commission_respects_minimum() -> None:
@@ -429,21 +418,21 @@ def test_a_winning_first_trade_does_not_stop_the_day() -> None:
 
 
 def test_portfolio_both_trades_size_off_opening_equity() -> None:
-    # $500 open. Entry 10 / stop 9 -> risk/sh $1 -> 5% risk floor(25/1)=25; 50% cap floor(250/10)=25
-    # (they coincide here) -> 25 shares each, regardless of the first trade's outcome.
+    # $500 open, full buying power. Entry 10 for both -> floor(500/10)=50 shares each — the SAME
+    # opening equity, independently — regardless of the first trade's outcome.
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
     s = _s(portfolio_max_trades_per_day=2)
     res = simulate_portfolio([(date(2026, 7, 14), cands)], s, target_r=2.0)
-    assert [t.qty for t in res.trades] == [25, 25]
+    assert [t.qty for t in res.trades] == [50, 50]
 
 
 def test_portfolio_pnl_and_equity_bookkeeping() -> None:
-    # Single winner: 25 sh × (12.0 - 10.0) = $50 gross.
-    #   commission = 2 × max(0.35, 25×0.0035=0.0875) = 2 × 0.35 = $0.70
-    #   fees       = 2×25×(0.0030+0.0002) + min(25×0.000166, 8.30) + (25×12.0)×0.0000278
-    #              = 0.16 + 0.00415 + 0.00834 = $0.1725
-    # -> round trip $0.8725, matching research/broker-costs.md's $0.87 for 25 sh of a $10 stock.
+    # Single winner, full buying power: floor(500/10)=50 sh × (12.0 - 10.0) = $100 gross.
+    #   commission = 2 × max(0.35, 50×0.0035=0.175) = 2 × 0.35 = $0.70
+    #   fees       = 2×50×(0.0030+0.0002) + min(50×0.000166, 8.30) + (50×12.0)×0.0000278
+    #              = 0.32 + 0.0083 + 0.01668 = $0.345
+    # -> round trip $1.045 (costs.trade_costs pins this).
     # The market-data + VPS fees are zeroed here so this stays a test of *trade* bookkeeping; the
     # subscription and the getting-paid layer have their own tests below.
     win = [_bar(10, 12.5, 9.95, 12.3)]
@@ -453,12 +442,12 @@ def test_portfolio_pnl_and_equity_bookkeeping() -> None:
         target_r=2.0,
     )
     t = res.trades[0]
-    assert t.qty == 25
-    assert t.gross_pnl_usd == 50.0
+    assert t.qty == 50
+    assert t.gross_pnl_usd == 100.0
     assert t.commission_usd == 0.70
-    assert t.fees_usd == 0.1725
-    assert t.net_pnl_usd == 49.1275
-    assert res.end_equity == 549.1275
+    assert t.fees_usd == 0.345
+    assert t.net_pnl_usd == 98.955
+    assert res.end_equity == 598.955
     assert res.wins == 1 and res.losses == 0
     assert res.win_rate == 1.0
 
@@ -565,19 +554,15 @@ def test_best_target_none_when_no_expectancy() -> None:
 
 
 def test_risk_ladder_shape() -> None:
-    # 3 rungs incl. the 0 floor at the 5% default -> (0, 2.5%, 5%).
-    assert risk_ladder(_s(portfolio_risk_rungs=3)) == (0.0, 0.025, 0.05)
+    # 3 rungs incl. the 0 floor -> (0, 0.5, 1.0) activity, evenly spaced.
+    assert risk_ladder(_s(portfolio_risk_rungs=3)) == (0.0, 0.5, 1.0)
     # The SHIPPED default is 1 rung: the throttle is switched off (#474).
-    assert risk_ladder(_s()) == (0.05,)
-    assert risk_ladder(_s(portfolio_risk_rungs=1)) == (0.05,)  # 1 rung -> throttle disabled
-    assert risk_ladder(_s(portfolio_risk_rungs=2)) == (0.0, 0.05)  # binary kill-switch
-    # honours a different max + rung count (evenly spaced).
-    assert risk_ladder(_s(portfolio_risk_fraction=0.06, portfolio_risk_rungs=4)) == (
-        0.0,
-        0.02,
-        0.04,
-        0.06,
-    )
+    assert risk_ladder(_s()) == (1.0,)
+    assert risk_ladder(_s(portfolio_risk_rungs=1)) == (1.0,)  # 1 rung -> throttle disabled
+    assert risk_ladder(_s(portfolio_risk_rungs=2)) == (0.0, 1.0)  # binary kill-switch
+    # honours a different rung count (evenly spaced, always topping out at 1.0 — full buying
+    # power, #694 follow-up, no risk-fraction ceiling left to scale the top rung against).
+    assert risk_ladder(_s(portfolio_risk_rungs=4)) == (0.0, round(1 / 3, 6), round(2 / 3, 6), 1.0)
 
 
 def test_step_risk_rung_needs_consecutive_days() -> None:
@@ -651,7 +636,7 @@ def test_adaptive_risk_eager_step_throttles_down_then_rearms_from_zero() -> None
     days = [(base + timedelta(days=i), [c]) for i, c in enumerate(seq)]
     book = simulate_portfolio_adaptive(days, s)
     res, daily_risk = book.result, book.daily_risk
-    assert [r for _d, r in daily_risk] == [0.05, 0.025, 0.0, 0.025, 0.05]
+    assert [r for _d, r in daily_risk] == [1.0, 0.5, 0.0, 0.5, 1.0]
     assert res.n_trades == 4  # the 0% day (W2) took nothing
     assert {t.symbol for t in res.trades} == {"L0", "L1", "W3", "W4"}
 
@@ -671,15 +656,15 @@ def test_adaptive_risk_two_day_step_needs_a_streak() -> None:
     res, daily_risk = book.result, book.daily_risk
     # L L  L L  W W  W W  W   (two days per rung move)
     assert [r for _d, r in daily_risk] == [
-        0.05,
-        0.05,  # 2 losses -> now dropping
-        0.025,
-        0.025,  # 2 more losses -> dropping again
+        1.0,
+        1.0,  # 2 losses -> now dropping
+        0.5,
+        0.5,  # 2 more losses -> dropping again
         0.0,  # parked at 0 (1st would-be win)
         0.0,  # 2nd would-be win -> re-arm
-        0.025,
-        0.025,  # 2 wins -> climb
-        0.05,  # back to full
+        0.5,
+        0.5,  # 2 wins -> climb
+        1.0,  # back to full
     ]
     assert res.n_trades == 7  # the two 0% days sat out
 
@@ -690,45 +675,43 @@ def test_adaptive_risk_stays_full_in_a_good_market() -> None:
     base = date(2026, 7, 1)
     days = [(base + timedelta(days=i), [_win_cand(f"W{i}")]) for i in range(4)]
     daily_risk = simulate_portfolio_adaptive(days, s).daily_risk
-    assert [r for _d, r in daily_risk] == [0.05, 0.05, 0.05, 0.05]
+    assert [r for _d, r in daily_risk] == [1.0, 1.0, 1.0, 1.0]
 
 
-# --- --- per-trade risk attribution (#286) ---------------------------------------------
+# --- --- per-trade risk attribution, post-hoc (#694 follow-up) -------------------------
 
 
 def test_paper_trade_records_the_risk_it_actually_took() -> None:
-    # _win_cand: entry 10 / stop 9 -> risk/sh $1. At $500 open equity the 5% budget buys 25 shares
-    # and the 50% cap allows 25 -> a tie, so risk binds and the full $25 budget is spent.
+    # _win_cand: entry 10 / stop 9 -> risk/sh $1. Full buying power at $500 open equity buys
+    # floor(500/10) = 50 shares, so the position risks 50 x $1 = $50 = 10% of equity.
     s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
     trades, _sk = _take_day([_win_cand("W")], 500.0, s, 2.0, 0.0)
     (t,) = trades
-    assert (t.qty, t.sized_by) == (25, "risk")
-    assert (t.risk_fraction, t.risk_usd, t.risk_pct) == (0.05, 25.0, 0.05)
+    assert t.qty == 50
+    assert (t.risk_usd, t.risk_pct) == (50.0, 0.10)
 
 
-def test_paper_trade_records_cap_bound_risk_well_under_the_ceiling() -> None:
-    # The live case this issue opened on (SUNE): a stop 1.6% below entry. The risk budget would buy
-    # far more than the cap allows, so the trade risks a fraction of the advertised 5% — and the
-    # trade row has to say so rather than repeating the ceiling.
+def test_paper_trade_records_a_tight_stop_as_proportionally_less_risk() -> None:
+    # The live case this issue opened on (SUNE): a stop 1.6% below entry. Full buying power still
+    # buys floor(500/10)=50 shares — the SAME quantity as any other stop distance — but the tight
+    # stop means only a small fraction of the account is actually at risk to it.
     s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
     cand = _cand("SUNE", 5, 10.0, 9.84, [_bar(10, 10.5, 9.9, 10.4)])  # risk/sh $0.16
     trades, _sk = _take_day([cand], 500.0, s, 2.0, 0.0)
     (t,) = trades
-    assert t.sized_by == "cap"
-    assert t.qty == 25  # cap floor(250/10)=25, vs risk floor(25/0.16)=156
-    assert t.risk_usd == 4.0  # 25 x $0.16
-    assert t.risk_pct == 0.008  # 0.8% of equity, against a 5% risk_fraction
-    assert t.risk_fraction == 0.05  # the ceiling is still recorded, just not confused for the risk
+    assert t.qty == 50  # floor(500/10), independent of the stop
+    assert t.risk_usd == 8.0  # 50 x $0.16
+    assert t.risk_pct == 0.016  # 1.6% of equity
 
 
-def test_paper_trade_risk_fraction_follows_the_throttled_rung() -> None:
-    # On a throttled day risk_fraction must be the RUNG, not the configured ceiling — otherwise the
-    # trade log would claim 5% on a day the kill-switch deliberately halved the size.
+def test_paper_trade_sizing_is_the_same_at_any_positive_activity_fraction() -> None:
+    # Under full-buying-power sizing there is no risk-fraction ceiling left for the activity ladder
+    # to scale — an active (non-zero) rung sizes identically to fully active. Only the 0 rung
+    # (day sits out entirely) differs, and that path takes no trade at all.
     s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
-    trades, _sk = _take_day([_win_cand("W")], 500.0, s, 2.0, 0.0, risk_fraction=0.025)
+    trades, _sk = _take_day([_win_cand("W")], 500.0, s, 2.0, 0.0, active_fraction=0.025)
     (t,) = trades
-    assert t.risk_fraction == 0.025
-    assert (t.qty, t.risk_usd, t.risk_pct) == (12, 12.0, 0.024)  # floor(12.50/1)=12 shares
+    assert (t.qty, t.risk_usd, t.risk_pct) == (50, 50.0, 0.10)
 
 
 # --- --- the next-session state (#286) -------------------------------------------------
@@ -736,8 +719,8 @@ def test_paper_trade_risk_fraction_follows_the_throttled_rung() -> None:
 
 def test_next_session_state_is_forward_looking_not_the_last_collected_day() -> None:
     # The bug this exists to kill: the page rendered daily_risk[-1] as "Latest risk". After two
-    # losing days the LAST day still traded at 5% (the step applies from tomorrow), so "latest"
-    # said 5% while the book was in fact about to size the next setup at 2.5%.
+    # losing days the LAST day still traded fully active (the step applies from tomorrow), so
+    # "latest" said fully active while the book was in fact about to size the next setup at rung 1.
     s = _s(
         portfolio_risk_rungs=3,  # default is 1 (throttle off, #474); this tests the ladder
         portfolio_adaptive_min_samples=999,
@@ -746,10 +729,10 @@ def test_next_session_state_is_forward_looking_not_the_last_collected_day() -> N
     base = date(2026, 7, 1)
     days = [(base + timedelta(days=i), [_loss_cand(f"L{i}")]) for i in range(2)]
     book = simulate_portfolio_adaptive(days, s)
-    assert [r for _d, r in book.daily_risk] == [0.05, 0.05]  # what the collected days DID
+    assert [r for _d, r in book.daily_risk] == [1.0, 1.0]  # what the collected days DID
     st = book.state
     assert st is not None
-    assert st.risk_fraction == 0.025  # what the next session WILL do — the knocked-down rung
+    assert st.active_fraction == 0.5  # what the next session WILL do — the knocked-down rung
     assert st.as_of == base + timedelta(days=2)  # the day after the last collected one
     assert (st.rung, st.n_rungs) == (1, 3)
 
@@ -766,17 +749,32 @@ def test_next_session_state_reports_streak_progress_toward_a_step() -> None:
     st = simulate_portfolio_adaptive(days, s).state
     assert st is not None
     assert (st.streak, st.step_days, st.rung) == (-1, 2, 2)
-    assert st.risk_fraction == 0.05  # still full risk — a single day is not a streak
+    assert st.active_fraction == 1.0  # still fully active — a single day is not a streak
 
 
-def test_next_session_state_budgets_are_derived_from_the_end_equity() -> None:
+def test_next_session_state_buying_power_is_the_end_equity_when_active() -> None:
+    # Full-buying-power sizing (#694 follow-up): the next session's ceiling is simply the end
+    # equity when the throttle is active, or 0 when it has parked the book at rung 0.
     s = _s(portfolio_adaptive_min_samples=999, portfolio_exit_slippage_ticks=0)
     book = simulate_portfolio_adaptive([(date(2026, 7, 1), [_win_cand("W0")])], s)
     st = book.state
     assert st is not None
-    eq = book.result.end_equity
-    assert st.risk_budget_usd == round(eq * st.risk_fraction, 4)
-    assert st.max_position_usd == round(eq * s.portfolio_position_fraction, 4)
+    assert st.active_fraction == 1.0  # the shipped default (rungs=1) is always active
+    assert st.buying_power_usd == round(book.result.end_equity, 4)
+
+
+def test_next_session_state_buying_power_is_zero_when_parked_at_rung_zero() -> None:
+    s = _s(
+        portfolio_risk_rungs=2,  # binary kill-switch: one losing day parks the book at 0
+        portfolio_risk_step_days=1,
+        portfolio_adaptive_min_samples=999,
+        portfolio_exit_slippage_ticks=0,
+    )
+    book = simulate_portfolio_adaptive([(date(2026, 7, 1), [_loss_cand("L0")])], s)
+    st = book.state
+    assert st is not None
+    assert st.active_fraction == 0.0
+    assert st.buying_power_usd == 0.0
 
 
 def test_next_session_state_target_uses_every_collected_day() -> None:
@@ -970,10 +968,10 @@ def test_the_shipped_default_has_the_throttle_switched_off() -> None:
     base = date(2026, 7, 1)
     days = [(base + timedelta(days=i), [_loss_cand(f"L{i}")]) for i in range(4)]
     book = simulate_portfolio_adaptive(days, s)
-    assert {r for _d, r in book.daily_risk} == {s.portfolio_risk_fraction}  # flat through the run
+    assert {r for _d, r in book.daily_risk} == {1.0}  # flat through the run
     st = book.state
     assert st is not None
-    assert (st.risk_fraction, st.rung, st.n_rungs) == (s.portfolio_risk_fraction, 0, 1)
+    assert (st.active_fraction, st.rung, st.n_rungs) == (1.0, 0, 1)
     assert book.result.n_trades == 4  # four losing days and it never sat one out
 
 
@@ -988,7 +986,7 @@ def test_single_rung_disables_the_throttle() -> None:
     days = [(base + timedelta(days=i), [_loss_cand(f"L{i}")]) for i in range(3)]
     book = simulate_portfolio_adaptive(days, s)
     res, daily_risk = book.result, book.daily_risk
-    assert [r for _d, r in daily_risk] == [0.05, 0.05, 0.05]
+    assert [r for _d, r in daily_risk] == [1.0, 1.0, 1.0]
     assert res.n_trades == 3  # every day still trades at full risk
 
 

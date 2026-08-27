@@ -434,9 +434,8 @@ def test_income_ladder_shows_the_position_size_each_rung_implies() -> None:
     rungs = [r for r in out["ladder"] if r["capital_usd"] is not None]
     assert rungs, "a winning book should produce a priced ladder"
     for rung in rungs:
-        assert rung["position_usd"] == pytest.approx(
-            round(rung["capital_usd"] * s.portfolio_position_fraction, 2)
-        )
+        # Full-buying-power sizing (#694 follow-up): one position IS the whole capital.
+        assert rung["position_usd"] == pytest.approx(round(rung["capital_usd"], 2))
     # Ascending by income, and the day rate is the last rung.
     assert out["ladder"][-1]["label"] == "Day rate"
     assert out["ladder"][-1]["gbp_per_year"] == pytest.approx(day_rate_net_annual_gbp(s))
@@ -487,9 +486,9 @@ def test_an_absurd_growth_rate_is_flagged_rather_than_quoted() -> None:
     # carries the warning, so the page can dim it rather than losing the information.
     assert hot["ladder"][-1]["capital_usd"] is not None
 
-    calm = build_projection(
-        _book(0.45, seed=5, s=_s(portfolio_risk_fraction=0.01, portfolio_max_trades_per_day=2)), s
-    )
+    # Full-buying-power sizing (#694 follow-up) leaves no risk-fraction knob to shrink positions
+    # with, so the calm fixture is tuned via win rate/seed instead of a smaller configured risk.
+    calm = build_projection(_book(0.3, seed=5, s=_s(portfolio_max_trades_per_day=2)), s)
     assert 0 < calm["growth"]["p50"] < 9.0
     assert calm["growth_implausible"] is False
 

@@ -431,14 +431,13 @@ def _milestone(
         "gbp_per_year": round(per_year, 2),
         "capital_usd": capital,
         "years": None if capital is None else years_to_capital(capital, start, growth),
-        # The notional ONE position would carry at that capital. This is the reality check the
-        # rest of the row can't give you: the whole ladder assumes percentage returns are
-        # scale-free, and this column is where you see what that assumption is actually claiming —
-        # that the same bull-flag entries fill the same way at $X0,000 a clip on a 20M-float name.
-        # Judging that is the trader's call, so the number is shown rather than a cap invented.
-        "position_usd": None
-        if capital is None
-        else round(capital * s.portfolio_position_fraction, 2),
+        # The notional ONE position would carry at that capital. Full-buying-power sizing (#694
+        # follow-up) means this is now the whole capital — the reality check the rest of the row
+        # can't give you: the ladder assumes percentage returns are scale-free, and this column is
+        # where you see what that assumption is actually claiming — that the same bull-flag entries
+        # fill the same way at $X0,000 a clip on a 20M-float name. Judging that is the trader's
+        # call, so the number is shown rather than a cap invented.
+        "position_usd": None if capital is None else round(capital, 2),
     }
 
 

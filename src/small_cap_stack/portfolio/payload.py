@@ -53,12 +53,10 @@ def _trade_json(t: PaperTrade) -> dict[str, object]:
         "entry": t.entry_price,
         "stop": t.stop,
         "qty": t.qty,
-        # What the position actually risked vs the ceiling it was sized against (#286). `risk_pct`
-        # is the honest number; `sized_by` says whether the notional cap held it under the ceiling.
-        "risk_fraction": t.risk_fraction,
+        # Sized full-buying-power (#694 follow-up) — no ceiling to compare against any more.
+        # `risk_usd`/`risk_pct` are what this size actually put at risk, computed post-hoc.
         "risk_usd": t.risk_usd,
         "risk_pct": t.risk_pct,
-        "sized_by": t.sized_by,
         "target_r": t.target_r,
         "realized_r": t.realized_r,
         # What the setup offered vs what this exit took (#390): `max_r - realized_r` is the R left
@@ -118,13 +116,12 @@ def _state_json(st: AdaptiveState) -> dict[str, object]:
         "target_edge_r": st.target_edge_r,
         "target_edge_z": st.target_edge_z,
         "target_considered_r": st.target_considered_r,
-        "risk_fraction": st.risk_fraction,
+        "active_fraction": st.active_fraction,
         "rung": st.rung,
         "n_rungs": st.n_rungs,
         "streak": st.streak,
         "step_days": st.step_days,
-        "risk_budget_usd": st.risk_budget_usd,
-        "max_position_usd": st.max_position_usd,
+        "buying_power_usd": st.buying_power_usd,
     }
 
 
@@ -183,10 +180,9 @@ def _book_json(
             "total_r": res.total_r,
             "avg_r": res.avg_r,
             "expectancy_usd": res.expectancy_usd,
-            # Sizing reality-check (#286): what was risked on average, and how many trades the
-            # notional cap held below the configured ceiling.
+            # Sizing reality-check: what was risked on average under full-buying-power sizing
+            # (#694 follow-up) — there is no notional cap any more, so no cap-bound count.
             "avg_risk_pct": avg_risk_pct,
-            "cap_bound_count": sum(1 for t in trades if t.sized_by == "cap"),
             "end_equity": res.end_equity,
             "return_pct": res.return_pct,
             "max_drawdown_pct": res.max_drawdown_pct,
@@ -626,8 +622,8 @@ def build_portfolio_payload(
         "start_equity": s.portfolio_start_equity_usd,
         "gbpusd_rate": s.portfolio_gbpusd_rate,
         "config": {
-            "risk_fraction": s.portfolio_risk_fraction,
-            "position_fraction": s.portfolio_position_fraction,
+            # Full-buying-power sizing (#694 follow-up) — no risk_fraction / position_fraction
+            # knobs left; qty = floor(opening_equity / entry_price), see costs.size_position.
             "max_trades_per_day": s.portfolio_max_trades_per_day,
             "premarket_earliest_et": s.select_window_start.isoformat(),
             "premarket_cutoff_et": s.select_window_end.isoformat(),

@@ -43,8 +43,8 @@ from tests.support import (
 def test_unaffordable_setup_is_recorded_not_silently_dropped() -> None:
     """A selected setup the book can't size to one share must not vanish from every log (#251).
 
-    It used to `continue` past both `trades` and `skipped`. Needs a tiny equity to reach — at the
-    default $500 book both cap_qty and risk_qty stay >= 1 unless equity falls to ~$40.
+    It used to `continue` past both `trades` and `skipped`. Needs a tiny equity to reach — under
+    full-buying-power sizing (#694 follow-up) that means equity below the entry price.
     """
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win)]
@@ -75,13 +75,13 @@ def test_cap_dropped_setups_are_tagged_cap() -> None:
 
 
 def test_throttled_sitout_is_logged_as_throttled_not_cap_or_unaffordable() -> None:
-    """rung-0 (risk_fraction=0) sizes every position to 0 on purpose — the kill-switch sitting the
-    day out. Attributing that to the cap or to the equity would misname the constraint (#251), but
+    """rung-0 (active_fraction=0) sits the day out entirely on purpose — the kill-switch.
+    Attributing that to the cap or to the equity would misname the constraint (#251), but
     logging nothing at all deleted the setup from every view the page has (#465)."""
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
 
-    trades, skipped = _take_day(cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
+    trades, skipped = _take_day(cands, 500.0, _s(), 2.0, 0.0, active_fraction=0.0)
 
     assert trades == []
     assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [
@@ -117,28 +117,26 @@ def test_take_day_selection_follows_select_day(monkeypatch: pytest.MonkeyPatch) 
     assert [sk.symbol for sk in skipped] == ["BBB", "CCC"]  # ...and the rest is the remainder
 
 
-def test_throttled_rung_sizing_to_zero_is_not_called_unaffordable() -> None:
-    """Any throttled rung can size to 0 on a wide stop — that's the ladder, not the equity (#251).
-
-    Guarding on `rf > 0` only excluded rung 0. Rung 1 (rf=0.025) is a $12.50 risk budget at $500,
-    so a $15/share-risk setup sizes to 0 while the book is perfectly healthy — and telling the
-    trader it was "unaffordable" blames their equity for what the kill-switch did.
+def test_any_active_rung_sizes_identically_to_full_buying_power() -> None:
+    """Under full-buying-power sizing (#694 follow-up) there is no partial size between rungs any
+    more — an `active_fraction` of 0.025 or 1.0 sizes the same trade, since only whether it is
+    positive matters. A wide-stop setup that used to size to 0 on a throttled rung's risk budget now
+    just sizes at full buying power, same as at any other positive rung.
     """
     wide = [_bar(10, 21.0, 4.0, 20.0)]  # entry 20, stop 5 -> $15/share risk
     cands = [_cand("AAA", 5, 20.0, 5.0, wide)]
     s = _s()
-    assert size_position(500.0, 20.0, 5.0, risk_fraction=0.025, max_position_fraction=0.5).qty == 0
+    assert size_position(500.0, 20.0, 5.0).qty == 25  # floor(500 / 20), no risk ceiling to bind
 
-    trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0, risk_fraction=0.025)
+    trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0, active_fraction=0.025)
 
-    assert trades == []
-    # Throttled, not unaffordable — the book could afford it at full risk. Recorded either way,
-    # because a setup that is in neither log is a setup the page cannot show at all (#465).
-    assert [(sk.symbol, sk.skip_reason) for sk in skipped] == [("AAA", "throttled")]
+    assert skipped == []
+    assert [t.symbol for t in trades] == ["AAA"]
+    assert trades[0].qty == 25
 
 
-def test_unaffordable_still_recorded_at_full_risk() -> None:
-    """The genuine case — full configured risk and still not one share — is still logged."""
+def test_unaffordable_still_recorded_at_full_buying_power() -> None:
+    """The genuine case — full buying power and still not one share — is still logged."""
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win)]
     s = _s()
@@ -157,7 +155,7 @@ def test_every_candidate_leaves_by_exactly_one_door() -> None:
     rung-specific, so a single-rung test would have passed throughout.
     """
     win = [_bar(10, 12.5, 9.95, 12.3)]
-    wide = [_bar(10, 21.0, 4.0, 20.0)]  # $15/share risk: sizes to 0 at a throttled rung
+    wide = [_bar(10, 21.0, 4.0, 20.0)]  # $15/share risk — affordable at full buying power
     cands = [
         _cand("AAA", 5, 10.0, 9.0, win),
         _cand("BBB", 6, 20.0, 5.0, wide),
@@ -165,11 +163,11 @@ def test_every_candidate_leaves_by_exactly_one_door() -> None:
     ]
     s = _s()
 
-    for rf in (0.0, 0.025, 0.05):
-        trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0, risk_fraction=rf)
+    for af in (0.0, 0.5, 1.0):
+        trades, skipped = _take_day(cands, 500.0, s, 2.0, 0.0, active_fraction=af)
         seen = [t.symbol for t in trades] + [sk.symbol for sk in skipped]
-        assert sorted(seen) == ["AAA", "BBB", "CCC"], rf
-        assert len(seen) == len(set(seen)), rf  # and never through two doors at once
+        assert sorted(seen) == ["AAA", "BBB", "CCC"], af
+        assert len(seen) == len(set(seen)), af  # and never through two doors at once
 
 
 def test_throttled_skips_stay_out_of_the_cap_headline() -> None:
@@ -204,7 +202,7 @@ def test_rung_zero_day_does_not_blame_the_daily_cap() -> None:
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand(x, i + 5, 10.0, 9.0, win) for i, x in enumerate(["AAA", "BBB", "CCC"])]
 
-    trades, skipped = _take_day(cands, 500.0, _s(), 2.0, 0.0, risk_fraction=0.0)
+    trades, skipped = _take_day(cands, 500.0, _s(), 2.0, 0.0, active_fraction=0.0)
 
     assert trades == []
     assert [sk.symbol for sk in skipped] == ["AAA", "BBB", "CCC"]
@@ -234,11 +232,11 @@ def test_take_day_tolerates_a_non_prefix_selector(monkeypatch: pytest.MonkeyPatc
 def test_skipped_is_returned_in_trigger_order() -> None:
     """The page reverses this list for "newest first", so it must arrive in trigger order."""
     win = [_bar(10, 12.5, 9.95, 12.3)]
-    # AAA (earliest) is unaffordable at full risk; DDD (latest) is dropped by the 2/day cap.
+    # AAA (earliest) is unaffordable at full buying power; CCC (latest) is dropped by the 2/day cap.
     cands = [_cand(x, i + 5, 10.0, 9.0, win) for i, x in enumerate(["AAA", "BBB", "CCC"])]
-    s = _s(portfolio_max_trades_per_day=2, portfolio_start_equity_usd=20.0)
+    s = _s(portfolio_max_trades_per_day=2, portfolio_start_equity_usd=5.0)
 
-    _, skipped = _take_day(cands, 20.0, s, 2.0, 0.0)
+    _, skipped = _take_day(cands, 5.0, s, 2.0, 0.0)
 
     triggers = [sk.trigger_at for sk in skipped]
     assert triggers == sorted(triggers)
