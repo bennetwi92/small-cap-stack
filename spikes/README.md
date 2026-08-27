@@ -24,6 +24,7 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`review_metaanalysis.py`](#review_metaanalysispy) | #173 | One flat row per run: engine vs the trader's ground truth |
 | [`review_meta_sweep.py`](#review_meta_sweeppy) | #173 | Replay candidate gate/param changes over the reviewed day-set |
 | [`warrior_library.py`](#warrior_librarypy) | #304 | Warrior Trading transcript corpus for rule provenance |
+| [`warrior_library_synthesis.py`](#warrior_library_synthesispy) | #304 | Aggregate the transcript library's per-video analysis into frequency findings |
 | [`portfolio_cutoff_sweep.py`](#portfolio_cutoff_sweeppy) | #379 | Replay the virtual book under different selection filters |
 | [`open_drive_sweep.py`](#open_drive_sweeppy) | #418 | Quantify a second strategy: a 10-min ORB with a consolidation requirement |
 | [`scanner_reconstruct.py`](#scanner_reconstructpy) | #428 | Rebuild a scanner appearance from bars alone, and calibrate it against what we actually saw · **shipped as `harvest/reconstruct.py`** |
@@ -106,6 +107,22 @@ python spikes/warrior_library.py --limit 5        # smoke test
 
 YouTube requires a JS runtime to hand over caption URLs, so yt-dlp is pointed at the local `node`
 (`--js-runtimes node`).
+
+### `warrior_library_synthesis.py`
+
+Aggregates `data/warrior-library/analysis_records.json` — 200 videos, each already run through an
+LLM extraction pass (mood, market read, chasing/fading setups, catalysts, lessons) that had never
+been synthesized into a finding. Prints frequency tables; `--json` writes the same summary to
+`data/spikes/`.
+
+```bash
+python spikes/warrior_library_synthesis.py
+python spikes/warrior_library_synthesis.py --json data/spikes/warrior_synthesis.json
+```
+
+Findings recorded on #304 (2026-08-27): chasing/avoiding patterns and catalyst frequency track the
+locked selection rules in `research/decisions.md` — nothing here argues for a rule change, but it
+grounds the rules' provenance in what Ross Cameron actually says rather than recollection.
 
 ### `portfolio_cutoff_sweep.py`
 
