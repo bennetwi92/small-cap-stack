@@ -1,6 +1,20 @@
 {
-  "generated_utc": "2026-08-08T20:59:58+00:00",
+  "generated_utc": "2026-08-27T21:45:33+00:00",
   "reports": [
+    {
+      "slug": "2026-08-27-what-the-warrior-trading-tapes-actually-say",
+      "file": "2026-08-27-what-the-warrior-trading-tapes-actually-say.md",
+      "title": "What the Warrior Trading tapes actually say",
+      "published": "2026-08-27",
+      "summary": "200 transcripts checked against the locked selection rules — provenance, not new signal.",
+      "tags": [
+        "strategy",
+        "data"
+      ],
+      "author": "Claude",
+      "words": 389,
+      "correction": ""
+    },
     {
       "slug": "2026-08-08-prefix-stability",
       "file": "2026-08-08-prefix-stability.md",
