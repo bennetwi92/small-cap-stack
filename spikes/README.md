@@ -42,6 +42,7 @@ were deleted for exactly this reason (#296) — the engine-v2 golden-parity test
 | [`rule_sweep.py`](#rule_sweeppy) | #690 | Which single selection rules actually pick better setups, judged on old and recent data separately |
 | [`engine_lab/`](#engine_lab) | #690 | Three parallel investigations — selection rules, risk/capacity, stop-and-target — over one shared pre-market population, with the holdout spent once |
 | [`regime_tail_cluster.py`](#regime_tail_clusterpy) | #710 | Cluster trailing ~20-session blocks on tail-shaped outcome features (rate of large `max_r`) to define "hot"/"cold" empirically, then a permutation null test on the split |
+| [`vix_regime.py`](#vix_regimepy) | #723 | Does ^VIX (absolute level, or vs its own trailing 45-day average) carry a usable day-level regime signal? |
 
 ### `viz_engine.py`
 
@@ -760,6 +761,27 @@ third direction.
 
 ⚠️ **This is why the `$576` book in #694 looked good** — it was fitted on the old half. Read the
 two together.
+
+### `vix_regime.py` — issue #723
+
+Tests the trader's September-2025 theory — VIX quiet (absolute level, or today's VIX vs. its own
+trailing 45-day average) predicts a better small-cap day — against `engine_lab/common.py`'s shared
+197-session population. External input (`^VIX` via yfinance), never tested by #690's day-level
+regime work, which was built entirely from the small-cap universe's own tape.
+
+```bash
+python spikes/vix_regime.py pull      # fetch ^VIX via yfinance, cache to data/spikes/
+python spikes/vix_regime.py sweep     # coverage + distribution + DEV+VAL sweep + HOLDOUT look
+```
+
+**A: no signal found, and the direction is if anything the opposite.** On DEV+VAL, no `vix_abs`
+threshold (14/15/16/17/18) or `vix_rel` cut (<0.85/0.90/0.95/1.00) beat the unrestricted SHIPPED
+book's +0.0762R/trade net — the least-bad were the loosest cuts tested (`vix_abs<18`: +0.0403,
+`vix_rel<1.00`: +0.0091), both still below baseline; tighter cuts near the trader's recalled ~16 /
+<0.9 did worse. On the one HOLDOUT look (thresholds fixed beforehand from DEV+VAL: `vix_abs<18`,
+`vix_rel<1.00`), both cuts moved the SHIPPED book from -0.0110R/trade to -0.1900R/trade — worse,
+same direction as DEV+VAL. VIX coverage was complete (all 197 session dates matched). No go/no-go
+recommendation drawn — measurement only, per findings on issue #723.
 
 ## Answered
 
