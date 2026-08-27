@@ -85,14 +85,12 @@ class PaperTrade:
     entry_price: float
     stop: float
     qty: int
-    # How the size was arrived at (#286). `risk_fraction` is the ceiling the day sized against (the
-    # configured value, or the kill-switch rung on an adaptive day); `risk_usd`/`risk_pct` are what
-    # the position ACTUALLY risked, which is strictly less whenever `sized_by == "cap"`. Reporting
-    # only the ceiling told the trader every trade risked 5% when the tight-stop ones risked ~1%.
-    risk_fraction: float
+    # Sized full-buying-power (#694 follow-up): `qty = floor(opening_equity / entry_price)` — no
+    # risk-fraction ceiling, no notional cap, so there is no longer a "which constraint bound" to
+    # report. `risk_usd`/`risk_pct` are reported post-hoc — what this size actually put at risk
+    # given the stop — for the dashboard; see costs.SizedPosition.
     risk_usd: float
     risk_pct: float
-    sized_by: str  # "risk" | "cap" — see costs.SizedPosition
     target_r: float
     breakeven_r: float
     realized_r: float
@@ -125,14 +123,15 @@ class SkippedTrade:
     - ``"cap"`` — the day's ``max_trades_per_day`` was already filled by earlier (lower
       trigger-time) trades. This is the population the "what did the 2/day cap cost me?" R-log
       answers, and the only one the headline ``skipped_total_r`` counts.
-    - ``"unaffordable"`` — it was selected, but ``size_position`` returned ``qty < 1`` **at full
-      configured risk**, so the book couldn't buy a single share. These used to vanish into neither
-      log (#251). Practically unreachable at the default book (it needs equity ~$40, a >90%
-      drawdown), but a silently dropped setup is worse than a rare one.
+    - ``"unaffordable"`` — it was selected, but full-buying-power ``size_position`` returned
+      ``qty < 1``: the day's opening equity couldn't buy even one share at the entry price. These
+      used to vanish into neither log (#251). Practically unreachable at the default book (it needs
+      equity below the entry price, a near-total drawdown), but a silently dropped setup is worse
+      than a rare one.
     - ``"throttled"`` — the adaptive kill-switch, not the cap and not the equity, is why it wasn't
-      taken: either the day sat at rung 0 (risk 0%, nothing taken at all) or a throttled rung's
-      budget sized it to ``qty < 1``. Keeping these out of the two populations above is deliberate
-      and predates this reason — attributing a kill-switch day to the cap would inflate "what the
+      taken: the day sat at activity rung 0, so nothing was taken at all. Keeping these out of the
+      two populations above is deliberate and predates this reason — attributing a kill-switch day
+      to the cap would inflate "what the
       cap cost me", and calling a throttled rung "unaffordable" would blame the trader's equity for
       the ladder's decision. What was wrong was leaving them out of the log *entirely* (#465): a
       qualifying setup then appeared nowhere on the page, and the combined book silently lost three

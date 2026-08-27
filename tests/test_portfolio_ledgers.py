@@ -79,16 +79,19 @@ def test_data_fee_compounds_into_sizing() -> None:
 def test_settled_cash_invariant_holds_by_construction() -> None:
     """#232 §6: total daily buy notional must not exceed the day's OPENING settled cash.
 
-    The book never simulates settlement — the 50% × 2/day cap *is* the constraint. This pins that
-    the config can't drift into a book the cash account couldn't actually have traded."""
+    The book never simulates settlement. Under full-buying-power sizing (#694 follow-up) each
+    position sizes independently off the SAME opening equity — there is no per-trade cap left to
+    stack a second concurrent trade under — so the invariant only holds while at most one trade is
+    taken a day. This pins that the config can't drift into a book the cash account couldn't
+    actually have traded."""
     s = _s()
-    assert s.portfolio_position_fraction * s.portfolio_max_trades_per_day <= 1.0
+    assert s.portfolio_max_trades_per_day <= 1
 
     win = [_bar(10, 12.5, 9.95, 12.3)]
     cands = [_cand("AAA", 5, 10.0, 9.0, win), _cand("BBB", 6, 10.0, 9.0, win)]
     res = simulate_portfolio([(date(2026, 7, 14), cands)], s, target_r=2.0)
     spent = sum(t.qty * t.entry_price for t in res.trades)
-    assert spent <= s.portfolio_start_equity_usd  # 2 × 25sh × $10 = $500 exactly, never more
+    assert spent <= s.portfolio_start_equity_usd  # 1 × 50sh × $10 = $500 exactly, never more
 
 
 # --- --- Getting-paid layer: VPS ledger ------------------------------------------------

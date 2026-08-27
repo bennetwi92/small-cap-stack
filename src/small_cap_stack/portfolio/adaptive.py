@@ -60,16 +60,22 @@ def best_target(stats: Sequence[TargetStat]) -> TargetStat | None:
 
 
 def risk_ladder(s: Settings) -> tuple[float, ...]:
-    """The risk-fraction rungs the kill-switch walks: 0 up to ``portfolio_risk_fraction``, evenly.
+    """The activity-ladder rungs the kill-switch walks: 0 (day sits out) up to 1 (full buying
+    power), evenly.
 
-    ``portfolio_risk_rungs`` rungs *including* the 0 floor, so 3 → ``(0.0, 0.025, 0.05)`` at the 5%
-    default. A single rung disables the throttle (always full risk). Fewer rungs ⇒ a faster wind-up
-    back to full risk after a knock-down, which is the point of keeping the ladder coarse."""
+    ``portfolio_risk_rungs`` rungs *including* the 0 floor, so 3 → ``(0.0, 0.5, 1.0)``. A single
+    rung disables the throttle (always active). Fewer rungs ⇒ a faster wind-up back to active after
+    a knock-down, which is the point of keeping the ladder coarse.
+
+    Sizing is full-buying-power (#694 follow-up, full-buying-power sizing) — there is no partial
+    size between rungs any more, so only the 0 rung has any effect on a trade: it means the day sits
+    out; every rung above it means the day's setup is taken at full buying power. The graduated
+    values are kept only so the stepping mechanics (:func:`step_risk_rung` and its tests) are
+    unchanged from the risk-fraction ladder this replaces."""
     n = max(1, s.portfolio_risk_rungs)
-    top = s.portfolio_risk_fraction
     if n == 1:
-        return (top,)
-    return tuple(round(top * i / (n - 1), 6) for i in range(n))
+        return (1.0,)
+    return tuple(round(i / (n - 1), 6) for i in range(n))
 
 
 def step_risk_rung(
