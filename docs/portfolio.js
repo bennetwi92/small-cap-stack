@@ -748,8 +748,8 @@ function inputRows(pj, cfg) {
     ["Horizon", `${pj.sessions} sessions · ${isoDay(pj.start_date)} → ${isoDay(pj.end_date)}`],
     ["Paths", `${pj.paths} · resampled in ${pj.block_days}-day blocks`],
     ["Start balance", usd(pj.start_equity)],
-    ["Risk / trade", `${pct(cfg.risk_fraction)} · ladder ${(cfg.risk_ladder || []).map(pct).join(" / ")}`],
-    ["Trades / day", `≤ ${cfg.max_trades_per_day} · ${pct(cfg.position_fraction)} position cap`],
+    ["Sizing", `full buying power · activity ladder ${(cfg.risk_ladder || []).map(pct).join(" / ")}`],
+    ["Trades / day", `≤ ${cfg.max_trades_per_day}`],
     [
       "Withdrawals",
       `${pct(cfg.withdraw_fraction)} of profit above the high-water mark · every ` +
@@ -894,7 +894,7 @@ function streakNote(st) {
   // With the ladder off (#474) the streak still accrues in the state but moves nothing — saying
   // "N days in a row steps risk a rung" would promise machinery that has been switched out.
   if (throttleOff(st)) {
-    return `Risk is flat at ${pct(st.risk_fraction)} per trade — the kill-switch is off.`;
+    return `Sizing is full buying power on every trade — the kill-switch is off.`;
   }
   if (st.streak === 0) {
     return `No run either way — ${dayWord(st.step_days)} in a row moves risk a rung.`;
@@ -954,29 +954,23 @@ function fitTitle(st, c) {
 const throttleOff = (st) => st.n_rungs <= 1;
 
 function todayTiles(st, c) {
-  const parked = st.risk_fraction === 0;
+  const parked = st.active_fraction === 0;
   return (
     tile("Target", `${st.target_r}R ${fitTag(st, c)}`, "", fitTitle(st, c)) +
     tile(
-      "Risk / trade",
-      pct(st.risk_fraction) +
+      "Activity",
+      (parked ? "Sitting out" : "Full buying power") +
         (throttleOff(st) ? "" : ` <span class="muted">(rung ${st.rung}/${st.n_rungs - 1})</span>`),
       parked ? "pf-neg" : "",
       throttleOff(st)
-        ? "Flat risk per trade — the kill-switch ladder is switched off, so this does not vary with recent results."
+        ? "The kill-switch ladder is switched off, so the book is always active and this does not vary with recent results."
         : `The kill-switch rung in force. Ladder: ${(c.risk_ladder || []).map(pct).join(" / ")}`
     ) +
     tile(
-      "Risk budget",
-      parked ? "—" : fmtPrice(st.risk_budget_usd),
+      "Buying power",
+      fmtPrice(st.buying_power_usd),
       parked ? "pf-neg" : "",
-      "Dollars the next setup may risk = balance × risk/trade. A setup is sized so entry−stop × qty lands here, unless the position cap binds first."
-    ) +
-    tile(
-      "Max position",
-      fmtPrice(st.max_position_usd),
-      "",
-      `Notional ceiling per position = balance × ${pct(c.position_fraction)}. On a tight stop this — not the risk budget — sets the size.`
+      "Dollars available to the next setup — the whole balance when active, $0 when the throttle sits the day out. qty = floor(buying power / entry price)."
     )
   );
 }
@@ -999,7 +993,7 @@ function renderToday(book) {
   }
   wrap.hidden = false;
   el("pf-today-tiles").innerHTML = todayTiles(st, PAYLOAD.config);
-  const parked = st.risk_fraction === 0;
+  const parked = st.active_fraction === 0;
   const sitting = parked
     ? ` The book is <strong>sitting out</strong> — it still watches the tape and re-arms once setups work again.`
     : "";
@@ -1076,20 +1070,13 @@ function cashFlowRows(book, cfg) {
 
 const REASON_LBL = { target: "target", stop: "stop", breakeven: "b/e", close: "close" };
 
-// The risk a trade actually took, plus a badge when the notional cap — not the risk target — set
-// the size (#286). `risk_pct` is absent from books published before that; show "—" rather than
-// silently falling back to the configured ceiling, which is the very overstatement this fixes.
+// The risk a trade actually took, sized full buying power (#694 follow-up) — there is no notional
+// cap or risk target any more, so `risk_pct` is purely a post-hoc read of entry/stop/qty. `risk_pct`
+// is absent from books published before that; show "—" rather than silently falling back to zero.
 function riskCell(t) {
   if (t.risk_pct == null) return '<td class="r muted" title="Not recorded for this trade">—</td>';
-  const capped = t.sized_by === "cap";
-  const tip =
-    `${fmtPrice(t.risk_usd)} at risk` +
-    (capped
-      ? ` — the ${pct(PAYLOAD.config.position_fraction)} position cap held this under the ` +
-        `${pct(t.risk_fraction)} risk target (stop is tight relative to entry)`
-      : ` — sized by the ${pct(t.risk_fraction)} risk target`);
-  const badge = capped ? ' <span class="pf-reason pf-reason-stop">cap</span>' : "";
-  return `<td class="r" title="${esc(tip)}"><span class="${capped ? "muted" : ""}">${pct(t.risk_pct)}</span>${badge}</td>`;
+  const tip = `${fmtPrice(t.risk_usd)} at risk — sized full buying power (qty = floor(balance / entry))`;
+  return `<td class="r" title="${esc(tip)}">${pct(t.risk_pct)}</td>`;
 }
 
 // Stop distance as a share of the entry price — the risk per share in plain price terms, which is
@@ -1335,40 +1322,32 @@ function riskNote(book) {
   const ladder = (c.risk_ladder || []).map(pct).join(" / ");
   const d = c.risk_step_days || 1;
   const days = d === 1 ? "day" : `${d} days`;
-  // One rung = the throttle is off (#474). The flat line below is then the CONFIGURED risk, not a
+  // One rung = the throttle is off (#474). The flat line below is then the CONFIGURED state, not a
   // ladder that happened to stay put, and the difference matters to anyone reading the chart.
   if ((c.risk_rungs || 1) <= 1) {
     return (
-      `Risk per trade is flat at ${pct(c.risk_fraction)} — the kill-switch ladder is switched off. ` +
-      `That ceiling still caps the risk, not the size: a tight stop can leave the ` +
-      `${pct(c.position_fraction)} position cap binding first, so the risk actually taken lands below it.`
+      `Sizing is full buying power on every trade — the kill-switch ladder is switched off.`
     );
   }
   // Deliberately no "Latest risk: N%" here (#286): the forward-looking number
   // lives in the Next session panel.
   return (
-    `Risk throttle (kill-switch): position risk walks ${c.risk_rungs} rungs (${ladder}), starting ` +
-    `at full risk. It takes ${days} in a row of net-positive results to step risk up a rung (and ` +
-    `${days} of net-negative to step down); at 0% the book sits out but still watches the tape to ` +
-    `re-arm. The rung caps the risk — a tight stop can still leave the ` +
-    `${pct(c.position_fraction)} position cap binding first, so the risk actually taken lands below it.`
+    `Activity throttle (kill-switch): the book walks ${c.risk_rungs} rungs (${ladder}), starting ` +
+    `active. It takes ${days} in a row of net-positive results to step activity up a rung (and ` +
+    `${days} of net-negative to step down); at 0% the book sits out entirely but still watches the ` +
+    `tape to re-arm. Above 0% every setup is sized full buying power — the rung only affects how ` +
+    `fast the throttle re-arms after sitting out.`
   );
 }
 
-// The header used to promise a flat "up to 5% risk / trade", which read as a description of what
-// the book does. It is only a ceiling: the 50% notional cap binds on any stop tighter than
-// risk/position (10%) of entry — most bull-flag setups — so trades routinely risk a fraction of it
-// (#286). Lead with the ceiling, then the risk actually taken, so the gap is visible not implied.
+// Sizing is full buying power (#694 follow-up) — no risk-fraction ceiling and no notional cap, so
+// there is nothing to promise up front beyond "the whole balance, when active". Lead with that,
+// then the risk actually taken on average, which is what a tight-stop bull-flag book realises.
 function riskMeta(book, c) {
-  const ceiling =
-    `≤ ${(c.risk_fraction * 100).toFixed(0)}% risk / trade (adaptive throttles), ` +
-    `max ${(c.position_fraction * 100).toFixed(0)}% size`;
+  const ceiling = "full buying power sizing (adaptive activity throttle)";
   const s = (book && book.stats) || {};
   if (s.avg_risk_pct == null || !s.n_trades) return ceiling;
-  const capped = s.cap_bound_count
-    ? ` (${s.cap_bound_count} of ${s.n_trades} sized by the ${pct(c.position_fraction)} cap, not the risk target)`
-    : "";
-  return `${ceiling} · <strong>actually risked ${pct(s.avg_risk_pct)}/trade on average</strong>${capped}`;
+  return `${ceiling} · <strong>actually risked ${pct(s.avg_risk_pct)}/trade on average</strong>`;
 }
 
 // The takeable trigger window, "05:30–09:15" (floor inclusive, cutoff strict). The floor is newer
