@@ -69,7 +69,6 @@ def test_doc_exists_and_keeps_its_markers() -> None:
         ("select_price_min", 7.5, "$7.50 ≤ `entry_fill`"),
         ("select_price_max", 25.0, "≤ $25.00"),
         ("portfolio_max_trades_per_day", 4, "4, taken first-by-trigger-time"),
-        ("portfolio_risk_fraction", 0.02, "2% of the day's opening equity"),
         ("portfolio_start_equity_usd", 1500.0, "$1,500.00"),
         ("float_max_shares", 5_000_000, "5,000,000"),
     ],
@@ -147,7 +146,7 @@ def test_disabled_knobs_render_as_disabled() -> None:
     """`breakeven_r=0` and `risk_rungs=1` ship inert — the doc must say so, not print the number."""
     block = render_block(_settings())
     assert "| Breakeven arm | disabled |" in block
-    assert "| Risk throttle | off (flat risk) |" in block
+    assert "| Risk throttle | off (always active) |" in block
 
     live = render_block(_settings(portfolio_breakeven_r=1.5, portfolio_risk_rungs=3))
     assert "| Breakeven arm | 1.5R |" in live

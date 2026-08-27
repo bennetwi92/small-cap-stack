@@ -63,7 +63,7 @@ def _take_day(
     target_r: float,
     breakeven_r: float,
     *,
-    risk_fraction: float | None = None,
+    active_fraction: float | None = None,
 ) -> tuple[list[PaperTrade], list[SkippedTrade]]:
     """Take a single day's ≤N trades (trigger-time order), all sized off the day's opening equity.
 
@@ -91,9 +91,12 @@ def _take_day(
     trade's outcome unless that trade's exit bar closed strictly before the later trigger; see the
     ``exit_end`` computation below.
 
-    ``risk_fraction`` defaults to the configured value; the adaptive kill-switch passes the day's
-    throttled fraction, and a 0 fraction sizes every position to 0 (the day takes no trades)."""
-    rf = s.portfolio_risk_fraction if risk_fraction is None else risk_fraction
+    ``active_fraction`` defaults to fully active (1.0); the adaptive kill-switch passes the day's
+    activity-ladder rung, and 0 (or below) sits the whole day out — every candidate skips
+    ``"throttled"`` rather than being sized. Sizing itself is full-buying-power (#694 follow-up,
+    full-buying-power sizing): once a day is active there is no partial size, so any positive
+    ``active_fraction`` sizes exactly the same as full."""
+    af = 1.0 if active_fraction is None else active_fraction
     opening_equity = equity
     # Ask _select_day rather than re-slicing here (#256). It is documented as the single source of
     # truth for which trades a day acts on, but only the throttle signal (_day_signal_r) actually
@@ -113,7 +116,7 @@ def _take_day(
     # altogether (#465). They get their own reason, which keeps `skipped_total_r` cap-only while
     # still putting every qualifying setup somewhere a reader can find it.
     skipped = [
-        _skipped(c, s, target_r, breakeven_r, "cap" if rf > 0 else "throttled") for c in dropped
+        _skipped(c, s, target_r, breakeven_r, "cap" if af > 0 else "throttled") for c in dropped
     ]
     out: list[PaperTrade] = []
     # Trades taken so far that have RESOLVED (exit_end, realized_r) — the running loss total below
@@ -122,30 +125,23 @@ def _take_day(
     # nothing; that is what keeps this rule causal rather than a look-ahead.
     closed: list[tuple[datetime, float]] = []
     for c in taken:
+        if af <= 0:
+            # The kill-switch sat the whole day out (rung 0) — nothing is sized at all.
+            skipped.append(_skipped(c, s, target_r, breakeven_r, "throttled"))
+            continue
         if s.portfolio_daily_loss_limit_r > 0:
             known_r = sum(r for exit_end, r in closed if exit_end <= c.trigger_at)
             if known_r <= -s.portfolio_daily_loss_limit_r:
                 skipped.append(_skipped(c, s, target_r, breakeven_r, "day_stopped"))
                 continue
-        sized = size_position(
-            opening_equity,
-            c.entry_price,
-            c.stop,
-            risk_fraction=rf,
-            max_position_fraction=s.portfolio_position_fraction,
-        )
+        sized = size_position(opening_equity, c.entry_price, c.stop)
         qty = sized.qty
         if qty < 1:
-            # Too small to afford a share — record it rather than dropping it on the floor (#251).
-            # WHICH constraint bit decides the label. At full configured risk it is the equity:
-            # "unaffordable". At a throttled rung it is the kill-switch — rung 1's rf=0.025 is a
-            # $12.50 risk budget at $500 equity, so a $15/share-risk setup sizes to 0 while the book
-            # is perfectly healthy, and rung 0 sizes everything to 0 by design. Calling that
-            # "unaffordable" would tell the trader their equity was the constraint when the ladder
-            # was. Recording it under its own reason instead of not at all (#465) keeps the
-            # attribution honest without making the setup disappear.
-            reason = "unaffordable" if rf >= s.portfolio_risk_fraction else "throttled"
-            skipped.append(_skipped(c, s, target_r, breakeven_r, reason))
+            # Too small to afford even a single share at full buying power (#251) — the day's
+            # opening equity sits below the entry price. Record it rather than dropping it on the
+            # floor. The kill-switch is already ruled out above (af > 0 here), so this can only be
+            # the equity: "unaffordable".
+            skipped.append(_skipped(c, s, target_r, breakeven_r, "unaffordable"))
             continue
         outcome = c.exit_under(s, target_r, breakeven_r)
         if s.portfolio_daily_loss_limit_r > 0:
@@ -166,10 +162,8 @@ def _take_day(
                 entry_price=c.entry_price,
                 stop=c.stop,
                 qty=qty,
-                risk_fraction=rf,
                 risk_usd=sized.risk_usd,
                 risk_pct=sized.risk_pct,
-                sized_by=sized.sized_by,
                 target_r=target_r,
                 breakeven_r=breakeven_r,
                 realized_r=outcome.realized_r,
@@ -276,7 +270,7 @@ def _run_book(
     risk_for_day: Callable[[int, date, Sequence[CandidateTrade], float], float] | None = None,
 ) -> PortfolioResult:
     """The shared day-walk both books ride on — the differences are how the R target is chosen and,
-    optionally, how the per-trade risk fraction is throttled.
+    optionally, how the day's activity is throttled.
 
     Each day, the four boundary ledgers settle *before* the day is sized (so every charge / payout
     compounds into the capital that sizes the next trades): the VPS bill and market-data fee at
@@ -285,7 +279,7 @@ def _run_book(
     taken and their realised P&L accrued into the tax ledger. Final charges settle at close.
 
     ``risk_for_day`` (adaptive book only) receives the day's candidates + chosen target and returns
-    the throttled risk fraction to size that day with; ``None`` sizes at the configured fraction."""
+    the throttled activity-ladder fraction to take that day with; ``None`` is fully active."""
     equity = s.portfolio_start_equity_usd
     trades: list[PaperTrade] = []
     skipped: list[SkippedTrade] = []
@@ -300,9 +294,9 @@ def _run_book(
         equity = round(equity - tax.roll(day), 4)  # settle CGT before deciding the withdrawal
         equity = round(equity - wd.roll(day, equity, tax.reserve_usd()), 4)
         target = target_for_day(i, day)
-        risk_fraction = None if risk_for_day is None else risk_for_day(i, day, cands, target)
+        active_fraction = None if risk_for_day is None else risk_for_day(i, day, cands, target)
         day_trades, day_skipped = _take_day(
-            cands, equity, s, target, breakeven_r, risk_fraction=risk_fraction
+            cands, equity, s, target, breakeven_r, active_fraction=active_fraction
         )
         data_fees.observe(day_trades)
         tax.observe(day_trades)
@@ -452,13 +446,14 @@ class AdaptiveState:
     target_edge_r: float | None
     target_edge_z: float | None
     target_considered_r: float | None  # the pick the margin gate rejected, if it did
-    risk_fraction: float
+    active_fraction: float  # 0 = the day sits out, >0 = the day's setup is taken at full size
     rung: int  # index into risk_ladder(s)
     n_rungs: int
     streak: int  # signed run of decisive days (see step_risk_rung); ± days from a rung move
     step_days: int
-    risk_budget_usd: float  # end_equity × risk_fraction — the dollars a setup may risk
-    max_position_usd: float  # end_equity × position_fraction — the notional cap
+    # Full-buying-power sizing (#694 follow-up) — the whole account is deployable on the one trade,
+    # so the ceiling is just end_equity when active, 0 when the throttle sits the day out.
+    buying_power_usd: float
 
 
 @dataclass(frozen=True)
@@ -481,7 +476,7 @@ def simulate_portfolio_adaptive(
     *,
     breakeven_r: float | None = None,
 ) -> AdaptiveBook:
-    """Walk days chronologically, re-fitting BOTH the R target and the risk fraction each day.
+    """Walk days chronologically, re-fitting BOTH the R target and the activity throttle each day.
 
     **Target** — each day's target = the highest-expectancy grid target over the candidates from the
     prior ``portfolio_adaptive_window_days`` days, or over **every** prior day when that is ``None``
@@ -491,16 +486,17 @@ def simulate_portfolio_adaptive(
     a plateau-preferring :func:`best_target`, and the ``portfolio_target_switch_z`` margin gate that
     makes a non-fallback pick prove a paired edge before the book acts on it. None is a cure.
 
-    **Risk (kill-switch)** — the per-trade risk fraction walks the :func:`risk_ladder` (0 →
-    ``portfolio_risk_fraction`` over ``portfolio_risk_rungs`` rungs). It starts at full risk (top
-    rung) and steps ONE rung only after ``portfolio_risk_step_days`` net-positive days in a row (up)
-    or the same run of net-negative days (down) — see :func:`step_risk_rung`; the day's result is
-    its aggregate realised R over its qualifying setups, and a flat/no-setup day holds the streak.
-    The signal is *size-independent* — the day's would-be setups, not its sized P&L — so a
-    book throttled to the 0 rung (which takes no trades) still re-arms once setups start working.
-    Applying today's rung, then stepping from today's result, keeps it causal (no look-ahead).
+    **Activity (kill-switch)** — the day's activity walks the :func:`risk_ladder` (0 → 1 over
+    ``portfolio_risk_rungs`` rungs; sizing is full-buying-power, so only the 0 rung — sit the day
+    out — has any effect, #694 follow-up). It starts fully active (top rung) and steps ONE rung only
+    after ``portfolio_risk_step_days`` net-positive days in a row (up) or the same run of
+    net-negative days (down) — see :func:`step_risk_rung`; the day's result is its aggregate
+    realised R over its qualifying setups, and a flat/no-setup day holds the streak. The signal is
+    *size-independent* — the day's would-be setups, not its sized P&L — so a book throttled to the 0
+    rung (which takes no trades) still re-arms once setups start working. Applying today's rung,
+    then stepping from today's result, keeps it causal (no look-ahead).
 
-    Returns the book plus the per-day ``(date, TargetFit)`` and ``(date, risk_fraction)`` lists so
+    Returns the book plus the per-day ``(date, TargetFit)`` and ``(date, active_fraction)`` lists so
     the page can show how each knob drifted — and, from ``TargetFit``, whether the optimiser was
     running at all on a given day (#463) — and an :class:`AdaptiveState` for the next session
     (#286): the same fit and the same ladder state, applied one day past the last collected one."""
@@ -535,13 +531,13 @@ def simulate_portfolio_adaptive(
     ) -> float:
         # Apply today's rung, then step the ladder for TOMORROW from today's setups
         # (size-independent → the book re-arms even when throttled to the 0 rung).
-        risk_fraction = ladder[rung_state[0]]
-        daily_risk.append((day, risk_fraction))
+        active_fraction = ladder[rung_state[0]]
+        daily_risk.append((day, active_fraction))
         signal = _day_signal_r(_select_day(cands, s), s, target, be)
         rung_state[0], streak_state[0] = step_risk_rung(
             rung_state[0], streak_state[0], signal, len(ladder), s.portfolio_risk_step_days
         )
-        return risk_fraction
+        return active_fraction
 
     res = _run_book(days, s, target_for_day, be, risk_for_day)
     state = None
@@ -553,7 +549,7 @@ def simulate_portfolio_adaptive(
         # that are about to age out anyway — and guessing the exchange calendar here would be worse.
         next_day = days[-1][0] + timedelta(days=1)
         rung = rung_state[0]
-        rf = ladder[rung]
+        af = ladder[rung]
         fit = _fit_target(trailing_for(len(days), next_day), s, grid, be)
         state = AdaptiveState(
             as_of=next_day,
@@ -564,12 +560,11 @@ def simulate_portfolio_adaptive(
             target_edge_r=fit.edge_r,
             target_edge_z=fit.edge_z,
             target_considered_r=fit.considered_r,
-            risk_fraction=rf,
+            active_fraction=af,
             rung=rung,
             n_rungs=len(ladder),
             streak=streak_state[0],
             step_days=s.portfolio_risk_step_days,
-            risk_budget_usd=round(res.end_equity * rf, 4),
-            max_position_usd=round(res.end_equity * s.portfolio_position_fraction, 4),
+            buying_power_usd=round(res.end_equity, 4) if af > 0 else 0.0,
         )
     return AdaptiveBook(res, chosen, daily_risk, state)

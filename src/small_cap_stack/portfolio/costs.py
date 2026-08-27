@@ -1,7 +1,12 @@
-"""Sizing and IBKR cost model for the virtual book (#232, #237).
+"""Sizing and IBKR cost model for the virtual book (#232, #237, #694/D-45).
 
-Risk-based whole-share sizing capped by notional, plus the tiered commission + pass-through fees.
-Split out of the old single-file ``portfolio.py`` (#259) with no behaviour change.
+Full-buying-power whole-share sizing, plus the tiered commission + pass-through fees. Sizing was
+risk-based/notional-capped until the full-buying-power rewrite (matching the one-trade-a-day,
+whole-account Warrior-style sizing the trader actually uses): the whole account's opening equity is
+deployable on the single position the book takes each day, so there is no risk fraction or notional
+cap left to bind — just ``floor(equity / entry_price)``.
+
+Split out of the old single-file ``portfolio.py`` (#259) with no behaviour change (at the time).
 """
 
 from __future__ import annotations
@@ -13,73 +18,46 @@ from ..config import Settings
 
 @dataclass(frozen=True)
 class SizedPosition:
-    """A sized position plus *why* it came out that size (#286).
+    """A sized position, full-buying-power sized (qty = floor(equity / entry_price)).
 
-    ``qty = min(risk_qty, cap_qty)`` throws away which constraint actually bound, and that answer is
-    the difference between "this trade risked what I asked it to" and "this trade risked a fifth of
-    that because the stop was tight". ``sized_by`` names the binding one and ``risk_usd`` /
-    ``risk_pct`` report what the position *actually* puts at risk, which is what the page shows —
-    never the configured ``risk_fraction``, which is only the ceiling."""
+    ``risk_usd`` / ``risk_pct`` are reported post-hoc — what this size *actually* puts at risk given
+    the stop — for the dashboard; they no longer bound the size (there is no risk-fraction target
+    any more, only the account's buying power)."""
 
     qty: int
-    risk_qty: int  # what the risk budget alone would have bought
-    cap_qty: int  # what the notional cap alone would have allowed
-    sized_by: str  # "risk" | "cap" — the constraint that bound (see below for the tie)
-    risk_usd: float  # qty × (entry − stop): the dollars actually at risk
-    risk_pct: float  # risk_usd / equity — the *realised* fraction, ≤ the configured risk_fraction
+    risk_usd: float  # qty × (entry − stop): the dollars actually at risk, post-hoc
+    risk_pct: float  # risk_usd / equity — the realised fraction of equity at risk
 
 
 def size_position(
     equity: float,
     entry_price: float,
     stop: float,
-    *,
-    risk_fraction: float,
-    max_position_fraction: float,
 ) -> SizedPosition:
-    """Risk-based whole-share quantity, capped at a max position notional (#237).
+    """Full-buying-power whole-share quantity: ``qty = floor(equity / entry_price)`` (#694/D-45).
 
-    Targets ``risk_fraction`` of equity at risk — ``qty × (entry − stop) ≈ equity × risk_fraction``,
-    so ``risk_qty = floor(equity × risk_fraction / (entry − stop))`` — then caps the position at
-    ``cap_qty = floor(equity × max_position_fraction / entry)`` so a tight stop can't size past the
-    concentration / settled-cash limit. Takes ``min(risk_qty, cap_qty)``.
+    One position a day (the book's capacity cap, ``portfolio_max_trades_per_day``), sized to as many
+    shares as the account's opening equity can buy — no risk-fraction target, no notional cap. This
+    matches how the trader (and Ross Cameron's "Warrior" small-account-challenge style) actually
+    sizes: the whole account is deployable on the one trade of the day.
 
-    **Which one binds is the opposite of the intuition** (and of what this module's docs claimed
-    until #286): ``risk_qty < cap_qty ⟺ (entry − stop) / entry > risk_fraction /
-    max_position_fraction``, so the risk target binds on a **wide** stop and the notional cap binds
-    on a **tight** one — at the 5%/50% default, any stop within 10% of entry is cap-bound. A
-    cap-bound position risks ``max_position_fraction × (entry − stop) / entry`` of equity — well
-    under the configured ``risk_fraction``. Hence :class:`SizedPosition`, not a bare int.
+    ``risk_usd`` / ``risk_pct`` are still reported, computed post-hoc from the resulting ``qty`` and
+    the stop, purely for display — they do not feed back into sizing.
 
-    Which one binds *in practice* was stated here as "the cap is the usual constraint, bull-flag
-    stops sit a few percent below entry" until #416 measured it: over the book's realised
-    candidates (2026-07, 11 trades) stops run 2.8%–18.2% with a **13.9% median**, and the **risk
-    target binds on 8 of 11**. The mechanism above is unchanged; only the claim about which side of
-    the 10% crossover this strategy's setups actually land on. Small sample — it is a description
-    of the record, not a law. See ``docs/reports/2026-08-01-the-2-trade-a-day-cap-…md``.
-
-    ``sized_by`` is ``"cap"`` only when the cap strictly *reduced* the size below what the risk
-    budget wanted (``cap_qty < risk_qty``). On a tie the risk target got exactly what it asked for,
-    so nothing was given up and it reports ``"risk"``.
-
-    ``risk = entry − stop`` is guaranteed positive by the caller (candidates are pre-filtered on
-    ``risk > 0``); a non-positive risk falls back to cap."""
-    if entry_price <= 0:
-        return SizedPosition(0, 0, 0, "cap", 0.0, 0.0)
-    cap_qty = int((equity * max_position_fraction) // entry_price)
+    Non-positive ``entry_price`` or non-positive equity size to zero. ``risk = entry − stop`` is
+    guaranteed positive by the caller (candidates are pre-filtered on ``risk > 0``); a non-positive
+    risk reports zero realised risk rather than raising."""
+    if entry_price <= 0 or equity <= 0:
+        return SizedPosition(0, 0.0, 0.0)
+    qty = int(equity // entry_price)
     risk_per_share = entry_price - stop
-    if risk_per_share <= 0:  # degenerate; caller guarantees risk > 0, cap-bound defensively
-        return SizedPosition(cap_qty, cap_qty, cap_qty, "cap", 0.0, 0.0)
-    risk_qty = int((equity * risk_fraction) // risk_per_share)
-    qty = min(risk_qty, cap_qty)
+    if risk_per_share <= 0:  # degenerate; caller guarantees risk > 0
+        return SizedPosition(qty, 0.0, 0.0)
     risk_usd = round(qty * risk_per_share, 4)
     return SizedPosition(
         qty=qty,
-        risk_qty=risk_qty,
-        cap_qty=cap_qty,
-        sized_by="cap" if cap_qty < risk_qty else "risk",
         risk_usd=risk_usd,
-        risk_pct=round(risk_usd / equity, 6) if equity > 0 else 0.0,
+        risk_pct=round(risk_usd / equity, 6),
     )
 
 

@@ -110,12 +110,11 @@ between §1 and §2.
 |---|---|---|
 | Starting equity | $500.00 | `portfolio_start_equity_usd` |
 | Trades per day | 1, taken first-by-trigger-time | `portfolio_max_trades_per_day` |
-| Risk target | 5% of the day's opening equity | `portfolio_risk_fraction` |
-| Notional cap | 50% of the day's opening equity | `portfolio_position_fraction` |
+| Sizing | full buying power — floor(opening equity / entry price), no risk-fraction target and no notional cap | `costs.size_position` |
 | Exit target | 2R fallback | `portfolio_target_r` |
 | Adaptive target | grid 2R, fit over all history, ≥ 8 prior trades, 1σ paired margin to switch | `portfolio_target_grid / _adaptive_* / _target_switch_z` |
 | Breakeven arm | disabled | `portfolio_breakeven_r` |
-| Risk throttle | off (flat risk) | `portfolio_risk_rungs / _risk_step_days` |
+| Risk throttle | off (always active) | `portfolio_risk_rungs / _risk_step_days` |
 | Exit slippage | 2 ticks ($0.02) on stop / close exits, 0 on the limit target | `portfolio_exit_slippage_ticks` |
 | Excluded symbols | CCUP, CRCG, OKLL, SNDQ | `portfolio_exclude_symbols` |
 

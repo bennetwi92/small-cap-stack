@@ -12,18 +12,14 @@ Rules locked in ``research/decisions.md`` (#230, 2026-07-15):
   *triggered*, whose **trigger bar opens strictly pre-market** (before 09:30 ET — stricter than the
   ``first_hit``-based results-page "premarket" label), with an ``entry_fill`` price in the
   configured band ($1–20). At most ``portfolio_max_trades_per_day`` per day, in trigger-time order.
-- **Size** — risk-based, capped by notional (#237): each position targets ``risk_fraction`` (5%)
-  of opening equity at risk — ``floor(opening_equity × risk_fraction / (entry − stop))`` — but is
-  capped at ``position_fraction`` (50%) of opening equity in notional, i.e. ``min(risk_qty,
-  cap_qty)``. Both of the day's trades size off the *day's opening equity* (they're concurrent
-  positions committed before either resolves), so at the cap 50% × 2 fully deploys the account; the
-  risk target sizes smaller whenever the stop is **wider** than ``risk_fraction /
-  position_fraction`` (10%) of the entry, and the **cap** sizes smaller on anything tighter — which
-  at bull-flag stop distances is most setups, so a taken trade routinely risks well under the
-  configured 5%. That asymmetry was stated backwards here until #286 and is why the page could
-  advertise "5% risk / trade" over trades that risked 0.8%; :class:`SizedPosition` now reports the
-  binding constraint and the realised risk. In the *adaptive* book ``risk_fraction`` is itself
-  throttled day-by-day by a kill-switch ladder (#239) — see :func:`simulate_portfolio_adaptive`.
+- **Size** — full buying power, not risk-based (#694 follow-up, full-buying-power sizing): the
+  book's one trade a day (``portfolio_max_trades_per_day``, already 1 since #694/D-45) sizes to
+  ``floor(opening_equity / entry_price)`` — as many shares as the day's opening equity can buy. No
+  risk-fraction target, no notional cap; this matches how the trader (and Ross Cameron's "Warrior"
+  small-account-challenge style) actually sizes. :class:`SizedPosition` still reports the realised
+  ``risk_usd``/``risk_pct`` post-hoc, for the dashboard, but they no longer bound the size. In the
+  *adaptive* book the day's activity — take the setup, or sit out entirely — is itself throttled
+  day-by-day by a kill-switch ladder (#239) — see :func:`simulate_portfolio_adaptive`.
 - **Exit** — a fixed R target with an optional breakeven arm, simulated bar-by-bar with the same
   conservative stop-first / gap-through convention as :mod:`rmetrics`. Costs + exit slippage are
   netted out so the equity curve is honest at ~$250 notional.
@@ -38,13 +34,15 @@ with capital.
 
 **Settled-cash invariant** — this is a UK *cash* account, so a purchase needs settled funds, and
 buying with unsettled proceeds then selling before they settle is a good-faith violation (#232 §6).
-The book is compliant *by construction* rather than by simulating settlement: the notional **cap**
-bounds every position at 50% of ``opening_equity`` (the risk target only ever sizes *smaller*), so
-with a 2/day cap max daily buy notional
-``= 2 × floor(0.50 × opening_equity / entry) × entry ≤ opening_equity``; and since every trade
-closes same-day, no unsettled position is carried and T+1 opens each day settled. The *cap* is
-the constraint — see ``test_settled_cash_invariant``, which fails loudly if the config is ever
-changed such that ``position_fraction × max_trades_per_day > 1``.
+The book is compliant *by construction* rather than by simulating settlement: every position sizes
+to ``floor(opening_equity / entry) ≤ opening_equity / entry``, so buy notional never exceeds
+``opening_equity`` for a single trade — and under full-buying-power sizing (#694 follow-up) there is
+no per-trade cap to stack a second concurrent trade *under*, so this only holds for
+``portfolio_max_trades_per_day ≤ 1`` (already the case since #694/D-45: a wider cap would size a
+second position off the SAME full opening equity a first position already spent). Every trade closes
+same-day, so no unsettled position is carried and T+1 opens each day settled. See
+``test_settled_cash_invariant_holds_by_construction``, which fails loudly if the config is ever
+changed such that ``portfolio_max_trades_per_day > 1``.
 """
 
 # Split into focused modules (#259) — this file is the package's public face. `portfolio.py` had
