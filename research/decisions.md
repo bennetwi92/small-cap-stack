@@ -69,6 +69,7 @@ down is reading forward in time within a topic.
 | [D-45](#d-45--a-new-excel-workbook-filter-combination-pricestopwindowsharescap-all-move-2026-08-26-694) | 2026-08-26 | A new Excel-workbook filter combination: price/stop/window/shares/cap all move | #694 | LIVE — the price cap and stop-pct halves REVERSE D-37/D-40's "leave it alone" findings; |
 | [D-46](#d-46--a-candle-recalculated-exit-beats-the-static-bracket-but-stays-unshipped-pending-forward-data-2026-08-26-713715) | 2026-08-26 | A candle-recalculated exit beats the static bracket, but stays unshipped pending forward data | #713/#715 | LIVE — the decision to measure and NOT ship. No `config.py` value changes. |
 | [D-47](#d-47--full-buying-power-position-sizing-replacing-risk-basednotional-capped-sizing-2026-08-27-720) | 2026-08-27 | Full-buying-power position sizing, replacing risk-based/notional-capped sizing | #720 | LIVE — `size_position()` now sizes to the day's opening equity with no risk ceiling; |
+| [D-48](#d-48--the-phase-2-gono-go-bar-and-the-verdict-it-returns-today-2026-08-28-310) | 2026-08-28 | The Phase-2 go/no-go bar, and the verdict it returns today | #310 | LIVE — NO-GO on funding; Phase-1 collection continues unchanged; the bar below is re-read on forward-only data no earlier than 2027-03-01 |
 
 <!-- END DECISION INDEX -->
 
@@ -1992,3 +1993,109 @@ model under this sizer before drawing any conclusion about net edge, in either d
 Refs #720
 
 Refs #713 #715
+
+## D-48 — The Phase-2 go/no-go bar, and the verdict it returns today (2026-08-28, #310)
+
+**Status:** LIVE — NO-GO on funding; Phase-1 collection continues unchanged; the bar below is re-read on forward-only data no earlier than 2027-03-01
+
+Gate 2 of [`phase-2-roadmap.md`](./phase-2-roadmap.md), open since 2026-07-17 and the only unblocked
+gate on the ladder. It closes here in two parts, because it has to: **the bar, and the verdict the
+bar returns.**
+
+### 1. This bar is late, and that costs something
+
+#310's own title is *"write the bar before we see the data"*. That did not happen. It is being
+written on 2026-08-28 with 197 sessions, ~20 spikes and eleven rule decisions already visible, so
+**a threshold chosen now cannot be a pre-registration of anything already measured** — the exact
+failure the issue was opened to prevent. Saying so plainly is the only way the number below means
+anything.
+
+What is still writable honestly is a bar over data that has informed nothing. So this decision does
+two separate things and does not mix them: it **records the verdict on the evidence in hand** (§3),
+which the evidence makes easy because the sign is not marginal, and it **pre-registers a bar for
+forward sessions** (§2) that no rule has been fitted to.
+
+### 2. The bar
+
+Read against **forward** sessions only — sessions collected after this decision, under a
+configuration frozen on its date. All five clauses, together:
+
+- **Sample floor.** N ≥ **100 booked trades** from forward sessions. At the current ~0.6 takeable
+  per session that is roughly six months, which is where 2027-03-01 comes from.
+- **Expectancy.** Mean **net** R per trade ≥ **+0.20R** after `portfolio/costs.py` at the account
+  size actually intended, with a one-sided **t ≥ 1.66**. Net, not gross: §D-44 measured +11.0R
+  gross collapsing to **+0.9R net** at $500, and #310's own cost comment puts the floor near
+  **0.20R/trade** at the $3 price floor — so a bar phrased in gross R is a bar the strategy can pass
+  while losing money.
+- **Plateau, not argmax.** Expectancy positive at **1.5R, 2.0R and 2.5R**, not only at whichever
+  target scores best. A single-point maximum is what a search returns from noise.
+- **Stability.** Positive in **≥2 of 3** equal consecutive thirds of the forward window.
+- **The freeze.** ⚠️ **Any change to a selection rule, gate, target or sizer during the forward
+  window resets N to zero.** This clause is the load-bearing one — every failure in §3 is a rule
+  fitted to the record it was then judged on.
+
+**On a marginal result: extend collection.** Never lower the bar, never read down the column and
+keep what held up — `rule_sweep.combos` measured what that buys (best-by-luck on shuffled outcomes:
+**36.7 in 100** median against a 25% base rate, 43.7 at best of 200), which is why anything scoring
+in the low 40s on fitted data is indistinguishable from chance.
+
+**What passing would license, and what it would not.** Passing licenses **Phase 2 — paper orders and
+the $10/mo L1 feed**. It does **not** license Phase 3. Per [`broker-costs.md`](./broker-costs.md) §9
+and the #662 review, **$500 is plumbing validation, not strategy validation**: a 9–13%/month cost
+floor swamps the signal, so Phase-2 P&L must not be read as evidence about live edge. Phase 3 needs
+its own bar, written when Phase 2 lands, at the size it would actually trade (~2.9% drag at $2,000).
+
+### 3. The verdict today: NO-GO
+
+Not marginal, and consistent across every method tried:
+
+| measurement | fitted / in-sample | carried forward |
+|---|---|---|
+| `rule_sweep.system` — filter × target, 20,531 systems (#690) | **+0.328 R/session** | **−0.194 R/session**; 19 of the top 20 negative |
+| `rule_sweep.stack` — the three-rule book (#694) | +16.72R over 166 sessions | **+1.81R** over 31 |
+| the shipped book, `adaptive_book_sweep` over 197 sessions | — | **$500 → $204**, 41% max drawdown |
+| §D-39/§D-40, fitted on 61 sessions | cleared both bootstrap tests | **reversed by §D-45** once the record grew |
+
+Three more findings point the same way:
+
+- **The shape gates do not select.** `rule_sweep.single`: all gates passing gives **0.247** against a
+  **0.249** base rate (−0.002), failing the both-halves test. §D-44 kept `cons_retracement` only
+  because *"on a negative-expectancy pool rationing is worth real money"* — that sentence is a
+  finding about the pool, not about the gate.
+- **Nothing clears break-even.** Break-even is 0.333 gross and **~0.429 after what a $500 account
+  pays**. 14 of 35 candidate rules survive both halves; the strongest (`≤1 scan hit before the
+  break`) reaches **0.309**. None of them clears it, alone or stacked.
+- **No regime, from any direction.** The #690 day-level work found none in the tape;
+  `regime_tail_cluster` found no tail-shape split beating its permutation null; #723's VIX test
+  found none and the holdout moved the book from −0.0110 to **−0.1900 R/trade**, i.e. the wrong way.
+
+And the level has never been significant on its own. The 81-session book that read +18.00R /
+$500 → $791.84 had **t = 1.62** against the 1.68 it needed, with Sharpe's 95% CI at
+**[−0.78, +5.80]**. What has repeatedly been significant is the *improvement of one fit over an
+earlier fit* — which is not evidence of edge, and is the thing this log has mistaken for it twice.
+
+### 4. What this changes
+
+- **No capital, no data subscription.** Gates 4–7 stop where they are. Nothing downstream of funding
+  proceeds.
+- **Rule development stops.** Further sweeps of the 197-session record have negative expected value:
+  each one raises the fitted number and, on the measured evidence, lowers the forward one.
+- **Phase-1 collection continues, untouched.** It is deployed, costs nothing, and is now the only
+  source of evidence that can legitimately move this decision.
+- **The frozen configuration is what ships today — §D-45 plus §D-47.** ⚠️ §D-45 records that this
+  combination *"has never been jointly validated"* and §D-47 that it is not re-costed. That is
+  accepted deliberately rather than overlooked: the forward window **is** the validation, and what
+  it needs is a configuration that is *fixed*, not one that is already proven. Re-measuring it first
+  would only re-fit it to the same record.
+- **§D-03's mandated revisit lands here** and is answered narrowly: *collect before you filter*
+  stands for Phase 1 and is unaffected. What it never licensed is filtering the same record it
+  collected and then judging the filter on it — §D-39/§D-40/§D-45 each did that, and each is in the
+  table above.
+
+### 5. What would reverse this
+
+Forward sessions clearing §2's bar in full. Nothing else — not a new feature, not a new combination,
+not a better sweep of the existing 197 sessions. If the bar is cleared, Phase 2 opens for **paper
+orders only**, and Phase 3 remains a separate decision with its own unwritten bar.
+
+Closes #310. Refs #1, #308, #462, #690, #694, #723
