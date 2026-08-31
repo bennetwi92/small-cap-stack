@@ -1,6 +1,21 @@
 {
-  "generated_utc": "2026-08-08T20:59:58+00:00",
+  "generated_utc": "2026-08-31T09:24:34+00:00",
   "reports": [
+    {
+      "slug": "2026-08-31-what-actually-makes-trading-profitable",
+      "file": "2026-08-31-what-actually-makes-trading-profitable.md",
+      "title": "Back to basics — what the evidence says actually makes trading profitable",
+      "published": "2026-08-31",
+      "summary": "A survey of the systematic and retail-trading literature on where profit comes from. The single most transferable finding — from the one large-sample day-trading paper that found a real edge — is that selection is the alpha and the pattern is not. Our own data already says the same thing, twice.",
+      "tags": [
+        "strategy",
+        "research",
+        "process"
+      ],
+      "author": "Claude",
+      "words": 5636,
+      "correction": ""
+    },
     {
       "slug": "2026-08-08-prefix-stability",
       "file": "2026-08-08-prefix-stability.md",
