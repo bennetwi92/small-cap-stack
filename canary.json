@@ -1,0 +1,22 @@
+{
+  "generated_utc": "2026-09-05T17:20:15.327215+00:00",
+  "trading_date": "2026-09-05",
+  "assertions": {
+    "float_coverage": {
+      "ok": true,
+      "covered": 0,
+      "total": 0,
+      "pct": null
+    },
+    "news_recent": {
+      "ok": true,
+      "rows": 0,
+      "newest_age_h": null
+    },
+    "bars_sane": {
+      "ok": null,
+      "symbols": 0,
+      "offenders": []
+    }
+  }
+}
