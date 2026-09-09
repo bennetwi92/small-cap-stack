@@ -73,6 +73,13 @@ not funded until the bar is written (2) and the sample clears it (3); the feed f
 (4); spread capture reads that feed, so gate 1 — numbered before 4 — actually runs after it. Gate
 numbers are labels, not order. Gates 5–7 are the build and start whenever Gate 4 lands.
 
+> ⚠️ **Gate 2 closed on 2026-08-28 and the answer was NO-GO** (`decisions.md` §D-48). The bar is
+> written; the collected record does not clear it, and the gap is not marginal. **Nothing downstream
+> of funding proceeds** — gates 4–7 stop where they are, and the ladder below is retained as the
+> sequence that *would* run if the bar is ever cleared, not as work in flight. §D-48 re-reads the
+> same bar against **forward** sessions no earlier than 2027-03-01; Phase-1 collection runs
+> unchanged until then, and the shipped configuration is frozen so those sessions stay uninformed.
+
 **Gate 3 is no longer a calendar wait (#49, closed 2026-08-07).** It was "3 months of live
 collection completes (~2026-10-01)", on the premise that there wasn't enough data to judge the
 strategy. The harvest (#431) retired that premise: it rebuilt 31 pre-market sessions in ~3 nights
