@@ -31,6 +31,11 @@ on:
         type: boolean
         required: false
         default: false
+      ignore_window:
+        description: "Deploy even inside a protected window (restarts the tracker mid-session)."
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: deploy-vps
@@ -51,6 +56,33 @@ jobs:
     # A hang holds the single vps runner and CI queues behind it (#544). p95 0.9 min; covers an image pull plus the health-gate wait.
     timeout-minutes: 25
     steps:
+      # Deploy RESTARTS the tracker, so unlike its read-only siblings the cost here is lost
+      # in-flight state rather than CPU contention (#673). Every other box workflow —
+      # backfill-dashboard, data-export, harvest, deploy-backfill-publish — already refuses inside
+      # a window via `box-job.sh`; this one, the only one that restarts the process, had no guard
+      # at all and could be dispatched straight into the scan.
+      #
+      # Deliberately NOT the siblings' 04:00-16:10. That is 09:00-21:10 BST for a UK operator —
+      # the whole usable evening — and a freeze you override every week is one you have taught
+      # yourself to ignore. These two ranges are the times a restart actually destroys something:
+      # `eod_backfill` (03:45) through the 04:00-11:59 scan, and the 16:20/16:30 EOD pair.
+      # Times come from config.py; change them together.
+      #
+      # Refuses rather than waits, for the same reason box-job.sh does: sleeping would hold the
+      # single self-hosted runner and queue CI behind it (#544).
+      - name: Refuse to restart the tracker mid-session
+        if: ${{ !inputs.ignore_window }}
+        run: |
+          now_et="$(TZ=America/New_York date +%H%M)"
+          # `[ -ge ]` parses base 10 — `$(( ))` would read 0345 as octal and error (box-job.sh).
+          if { [ "$now_et" -ge 340 ] && [ "$now_et" -lt 1215 ]; } ||
+             { [ "$now_et" -ge 1615 ] && [ "$now_et" -lt 1645 ]; }; then
+            echo "refusing to deploy at ${now_et%??}:${now_et#??} ET — a deploy restarts the app" >&2
+            echo "container, and this window holds eod_backfill (03:45), the 04:00-11:59 scan, or" >&2
+            echo "the 16:20/16:30 EOD jobs. Re-dispatch outside it, or set ignore_window." >&2
+            exit 1
+          fi
+
       # Composite actions resolve from the workspace, so the action directory must exist locally.
       # Sparse: these jobs otherwise never check out — they operate on /opt/small-cap-stack.
       - name: Check out the deploy action
