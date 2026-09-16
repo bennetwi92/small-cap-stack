@@ -1,0 +1,5 @@
+store=/data/recon datasets=['bars', 'bars_1m', 'daily_universe', 'fundamentals', 'opportunities', 'scanner_hits']
+sql=SELECT * FROM "opportunities"
+rows=7202 cols=9
+schema={'opportunity_id': String, 'symbol': String, 'con_id': Int64, 'exchange': String, 'currency': String, 'trading_date': Date, 'first_seen_utc': Datetime(time_unit='us', time_zone='UTC'), 'first_rank': Int64, 'dt': Date}
+out=/data/exports/recon_opportunities_35065271202.parquet
