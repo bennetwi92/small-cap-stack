@@ -1,0 +1,5 @@
+store=/data/recon datasets=['bars', 'bars_1m', 'daily_universe', 'fundamentals', 'opportunities', 'scanner_hits']
+sql=SELECT * FROM "daily_universe"
+rows=145402 cols=8
+schema={'symbol': String, 'high': Float64, 'low': Float64, 'close': Float64, 'day_volume': Float64, 'prev_close': Float64, 'day_change_pct': Float64, 'dt': Date}
+out=/data/exports/recon_daily_universe_35065420615.parquet
