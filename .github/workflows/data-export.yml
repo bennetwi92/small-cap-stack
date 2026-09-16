@@ -21,8 +21,16 @@ on:
         description: "Run even inside the tracker's 04:00-16:10 ET session window (contends for CPU)."
         type: boolean
         default: false
+      store:
+        description: "Which store root: live = /data (the tracker), recon = /data/recon (the harvest, #430)"
+        type: choice
+        required: true
+        default: live
+        options:
+          - live
+          - recon
       dataset:
-        description: "Dataset to export (or 'query' to run raw SQL below)"
+        description: "Dataset to export (or 'query' to run raw SQL below). bars_1m/daily_universe are recon-only."
         type: choice
         required: true
         default: opportunities
@@ -33,6 +41,8 @@ on:
           - news
           - fundamentals
           - analysis
+          - bars_1m
+          - daily_universe
           - query
       start_date:
         description: "Inclusive start date YYYY-MM-DD (dataset mode; blank = no lower bound)"
@@ -87,6 +97,7 @@ jobs:
 
       - name: Query /data inside the app container
         env:
+          IN_STORE: ${{ inputs.store }}
           IN_DATASET: ${{ inputs.dataset }}
           IN_QUERY: ${{ inputs.query }}
           IN_START: ${{ inputs.start_date }}
@@ -104,11 +115,19 @@ jobs:
             ndjson)  ext=ndjson ;;
             *) echo "unknown format: $IN_FORMAT" >&2; exit 1 ;;
           esac
-          name="${IN_DATASET}_${GITHUB_RUN_ID}.${ext}"
+          # The harvest writes a SEPARATE store root (#430) — the live datasets and the
+          # reconstructed ones share names, so the store is part of the filename too.
+          case "$IN_STORE" in
+            live)  data_dir=/data ;;
+            recon) data_dir=/data/recon ;;
+            *) echo "unknown store: $IN_STORE" >&2; exit 1 ;;
+          esac
+          name="${IN_STORE}_${IN_DATASET}_${GITHUB_RUN_ID}.${ext}"
 
           # Inputs are passed as container env values (never interpolated into the shell), so a
           # stray quote in SQL/symbols can't break out. The exporter script is piped in over stdin.
           docker_env=(
+            -e "SCS_DATA_DIR=$data_dir"
             -e "SCS_FORMAT=$IN_FORMAT"
             -e "SCS_OUT=/data/exports/$name"
             -e "SCS_START=$IN_START"
@@ -143,6 +162,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           # Via env:, not interpolated — see the note at the top of this file (#548).
+          IN_STORE: ${{ inputs.store }}
           IN_DATASET: ${{ inputs.dataset }}
           IN_FORMAT: ${{ inputs.format }}
         run: |
@@ -167,7 +187,7 @@ jobs:
           git -C "$pub" \
             -c user.name='github-actions[bot]' \
             -c user.email='github-actions[bot]@users.noreply.github.com' \
-            commit -m "data: export run ${GITHUB_RUN_ID} (${IN_DATASET}, ${IN_FORMAT})"
+            commit -m "data: export run ${GITHUB_RUN_ID} (${IN_STORE}/${IN_DATASET}, ${IN_FORMAT})"
           git -C "$pub" push origin HEAD:data-export
 
       - name: Job summary

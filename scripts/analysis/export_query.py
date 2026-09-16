@@ -15,7 +15,11 @@ impossible from a web session — HTTP-only proxy, no secret store; see the ``bo
         -- - < scripts/analysis/export_query.py
 
 Env (all optional unless noted):
-  SCS_DATASET   one of: bars, opportunities, scanner_hits, news, fundamentals, analysis.
+  SCS_DATASET   a dataset that exists in the chosen store — the live store holds bars,
+                opportunities, scanner_hits, news, fundamentals, analysis; the recon store (#430)
+                holds opportunities, scanner_hits, bars, bars_1m, daily_universe, fundamentals.
+                Validated against what is actually on disk, so a store's own datasets are always
+                exportable without editing a list here.
                 Mutually exclusive with SCS_QUERY; one of the two is required.
   SCS_QUERY     raw DuckDB SQL against the dataset views (see storage.Store.query). Overrides
                 SCS_DATASET. Use for joins / aggregates the dataset+filter form can't express.
@@ -24,7 +28,9 @@ Env (all optional unless noted):
   SCS_SYMBOLS   comma-separated symbols to keep (dataset mode, symbol-keyed datasets only).
   SCS_FORMAT    parquet | csv | ndjson  (default parquet — compressed; prefer it for wide ranges).
   SCS_OUT       output file path (default /data/exports/export.<ext>).
-  SCS_DATA_DIR  store root (default /data) — override to run against a fixture dir offline.
+  SCS_DATA_DIR  store root (default /data). The harvest writes a SEPARATE root, /data/recon
+                (#430, ``Settings.recon_subdir``); point this at it to export reconstructed days.
+                Also the hook for running against a fixture dir offline.
 """
 
 import os
@@ -33,6 +39,9 @@ from pathlib import Path
 
 from small_cap_stack.storage import Store
 
+#: The live store's datasets. Only a fallback for the error message when the store root is empty
+#: or unreadable — the real check is against :meth:`Store.datasets`, so the recon root's own names
+#: (``bars_1m``, ``daily_universe``) need no entry here.
 DATASETS = ("bars", "opportunities", "scanner_hits", "news", "fundamentals", "analysis")
 EXT = {"parquet": "parquet", "csv": "csv", "ndjson": "ndjson"}
 
@@ -50,14 +59,14 @@ def _valid_date(value: str, field: str) -> None:
         raise SystemExit(f"{field}={value!r} is not an ISO date (YYYY-MM-DD)") from None
 
 
-def build_sql(dataset: str, start: str, end: str, symbols: str) -> str:
+def build_sql(dataset: str, start: str, end: str, symbols: str, available: tuple[str, ...]) -> str:
     """Build ``SELECT * FROM <dataset>`` with optional dt-range and symbol filters.
 
     ``dt`` is the Hive partition column (ISO ``YYYY-MM-DD`` strings), so lexical comparison is
     also chronological — we compare as strings and validate the bounds parse as real dates.
     """
-    if dataset not in DATASETS:
-        raise SystemExit(f"unknown SCS_DATASET={dataset!r}; choose from {list(DATASETS)}")
+    if dataset not in available:
+        raise SystemExit(f"unknown SCS_DATASET={dataset!r}; this store holds {list(available)}")
     clauses = []
     if start:
         _valid_date(start, "SCS_START")
@@ -77,6 +86,12 @@ def main() -> None:
     if fmt not in EXT:
         raise SystemExit(f"unknown SCS_FORMAT={fmt!r}; choose from {list(EXT)}")
 
+    store = Store(Path(os.environ.get("SCS_DATA_DIR") or "/data"))
+    available = tuple(store.datasets()) or DATASETS
+
+    out = Path(os.environ.get("SCS_OUT") or f"/data/exports/export.{EXT[fmt]}")
+    out.parent.mkdir(parents=True, exist_ok=True)
+
     query = (os.environ.get("SCS_QUERY") or "").strip()
     if query:
         sql = query
@@ -89,12 +104,10 @@ def main() -> None:
             (os.environ.get("SCS_START") or "").strip(),
             (os.environ.get("SCS_END") or "").strip(),
             (os.environ.get("SCS_SYMBOLS") or "").strip(),
+            available,
         )
 
-    out = Path(os.environ.get("SCS_OUT") or f"/data/exports/export.{EXT[fmt]}")
-    out.parent.mkdir(parents=True, exist_ok=True)
-
-    df = Store(Path(os.environ.get("SCS_DATA_DIR") or "/data")).query(sql)
+    df = store.query(sql)
     if fmt == "parquet":
         df.write_parquet(out)
     elif fmt == "csv":
@@ -103,6 +116,7 @@ def main() -> None:
         df.write_ndjson(out)
 
     # stdout is captured into the workflow's job summary — keep it to metadata (no binary).
+    print(f"store={store.data_dir} datasets={list(available)}")
     print(f"sql={sql}")
     print(f"rows={df.height} cols={df.width}")
     print(f"schema={dict(df.schema)}")
