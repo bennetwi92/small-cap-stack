@@ -1,5 +1,0 @@
-store=/data/recon datasets=['bars', 'bars_1m', 'daily_universe', 'fundamentals', 'opportunities', 'scanner_hits']
-sql=SELECT * FROM "bars"
-rows=974773 cols=9
-schema={'opportunity_id': String, 'symbol': String, 'bar_start_utc': Datetime(time_unit='us', time_zone='UTC'), 'open': Float64, 'high': Float64, 'low': Float64, 'close': Float64, 'volume': Float64, 'dt': Date}
-out=/data/exports/recon_bars_35065509993.parquet
