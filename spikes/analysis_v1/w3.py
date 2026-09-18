@@ -856,6 +856,69 @@ def cmd_sensitivity() -> None:
     )
 
 
+def cmd_null_r4() -> None:
+    """A robustness check on §7.3's null, not a trial.
+
+    Three of W3's four features are functions of the panel alone, so holding their masks fixed
+    while the outcome series is permuted is exactly the right construction. **R4 is not** — it is
+    the trailing mean of the outcome series itself, so a search run against a permuted record
+    would have re-derived R4, and its cuts, from the permuted outcomes. This re-runs the T1 null
+    that way: R1/R2/R3's masks fixed, R4 rebuilt inside every replicate. If `p` moves, the
+    headline null was measuring the wrong thing.
+    """
+    verify()
+    panel, sessions = load()
+    fit_sessions = sorted(sessions.filter(pl.col("split") == "FIT")["dt"].to_list())
+    trades = trade_stream(panel, "FIT", ("F2",))
+    state = _state_with_r4(panel, sessions, trades)
+    fit_state = state.filter(pl.col("split") == "FIT")
+    r = _session_r(trades, fit_sessions)
+    n = len(fit_sessions)
+
+    fixed = []
+    for feat in ("R1_breadth", "R2_attention", "R3_vix"):
+        side = STAND_ASIDE_SIDE[feat]
+        for x in FRACTIONS:
+            cut = fit_quantile(state, feat, x if side == "low" else 1 - x)
+            keep = gate_mask(fit_state, feat, cut, side)
+            fixed.append(np.array([keep.get(d, True) for d in fit_sessions], dtype=bool))
+
+    def r4_masks(series: np.ndarray) -> list[np.ndarray]:
+        """Filter A takes one trade per session, so the trailing 20 trades are the trailing 20
+        sessions. Undefined during the warm-up ⇒ trade, as everywhere else."""
+        trail = np.full(len(series), np.nan)
+        for i in range(R4_TRADES, len(series)):
+            trail[i] = series[i - R4_TRADES : i].mean()
+        ok = ~np.isnan(trail)
+        out = []
+        for x in FRACTIONS:
+            cut = float(np.quantile(trail[ok], x))
+            out.append(~ok | (trail >= cut))
+        return out
+
+    real = max(float(r[m].sum()) / n for m in fixed + r4_masks(r))
+    rng = np.random.default_rng(SEED)
+    nulls = np.array(
+        [
+            max(float(r[perm][m].sum()) / n for m in fixed + r4_masks(r[perm]))
+            for perm in block_permutations(n, B_NULL, NULL_BLOCK, rng)
+        ]
+    )
+    dump(
+        "W3-null-r4-refit.json",
+        {
+            "note": "R4 and its cuts rebuilt inside every replicate; R1/R2/R3 masks fixed",
+            "B": B_NULL,
+            "block_sessions": NULL_BLOCK,
+            "grid_points": 12,
+            "real_best_J": round(real, 4),
+            "null_best_J_q50": round(float(np.quantile(nulls, 0.5)), 4),
+            "null_best_J_q95": round(float(np.quantile(nulls, 0.95)), 4),
+            "p": round(float((1 + (nulls >= real).sum()) / (1 + B_NULL)), 4),
+        },
+    )
+
+
 def main() -> None:
     cmd = sys.argv[1] if len(sys.argv) > 1 else "stage0"
     {
@@ -866,6 +929,7 @@ def main() -> None:
         "t2": cmd_t2,
         "t4": cmd_t4,
         "sens": cmd_sensitivity,
+        "nullr4": cmd_null_r4,
     }[cmd]()
 
 
