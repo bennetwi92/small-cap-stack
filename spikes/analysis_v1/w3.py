@@ -919,6 +919,117 @@ def cmd_null_r4() -> None:
     )
 
 
+def cmd_extras() -> None:
+    """Three free strengthening runs, all exempt from the budget under protocol §5.2 — a
+    permutation null is not a trial, a ±20 % sensitivity band is not a trial, and a quantile of a
+    feature column reads no outcome. None of them may select anything, and there is no candidate
+    to select.
+
+    1. The T1 search null at block lengths 1, 5, 20 and 40. Block 20 was the pre-registered choice
+       and it is the same scale as R4's own 20-trade memory, so a replicate that keeps a block
+       intact keeps part of R4's alignment with it. Reported across lengths, never chosen among.
+    2. The two T4 cells amendment W3-A2 released, **trajectory only** — no J, so no trial. This
+       de-confounds the window-versus-cadence question for the stability claim, which is the only
+       part §9.2 needs.
+    3. The §7.4 band re-expressed in **quantile** space. §5.3 says a grid is a quantile of the fit
+       distribution; multiplying a cut in feature units by 0.8–1.2 is not the same perturbation and
+       moves the stand-aside fraction from 2 % to 78 %. The faithful band perturbs the fraction.
+    """
+    verify()
+    panel, sessions = load()
+    fit_sessions = sorted(sessions.filter(pl.col("split") == "FIT")["dt"].to_list())
+    all_sessions = sorted(sessions["dt"].to_list())
+    trades = trade_stream(panel, "FIT", ("F2",))
+    state = _state_with_r4(panel, sessions, trades)
+    fit_state = state.filter(pl.col("split") == "FIT")
+    base = score_gated(trades, fit_sessions, None)
+    grid = grid_for(state, FEATURES)
+
+    nulls = {
+        f"block_{b}": search_null(fit_state, trades, fit_sessions, grid, block=b)
+        for b in (1, 5, 20, 40)
+    }
+
+    band = (FILTER_A_CONSTANT * 0.8, FILTER_A_CONSTANT * 1.2)
+    traj = {}
+    for name, window, cadence in (
+        ("w125_quarterly", 125, QUARTERLY),
+        ("w125_semiannual", 125, SEMIANNUAL),
+        ("w250_quarterly", 250, QUARTERLY),
+        ("w250_semiannual", 250, SEMIANNUAL),
+    ):
+        sched = refit_schedule(panel, all_sessions, window, cadence)
+        vals = [c for _d, c in sched[1:]]  # sched[0] is the frozen seed, not a refit
+        traj[name] = {
+            "refits": len(vals),
+            "constants_millions": [round(c / 1e6, 3) for c in vals],
+            "min": round(min(vals), 2),
+            "max": round(max(vals), 2),
+            "spread_vs_frozen": round((max(vals) - min(vals)) / FILTER_A_CONSTANT, 3),
+            "inside_band": f"{sum(band[0] <= c <= band[1] for c in vals)} of {len(vals)}",
+        }
+
+    qband = []
+    for mult in (0.8, 0.9, 1.0, 1.1, 1.2):
+        x = 0.30 * mult
+        cut = fit_quantile(state, "R2_attention", x)
+        keep = gate_mask(fit_state, "R2_attention", cut, "low")
+        rep = score_gated(trades, fit_sessions, keep)
+        qband.append(
+            {
+                "mult": mult,
+                "stand_aside_frac": round(x, 3),
+                "cut": round(cut, 4),
+                "J": rep["J_net_r_per_session"],
+                "J_minus_baseline": round(
+                    rep["J_net_r_per_session"] - base["J_net_r_per_session"], 4
+                ),
+                "trades_per_session": rep["trades_per_session"],
+                "stood_aside": rep["sessions_stood_aside"],
+            }
+        )
+
+    # The zero-information benchmark: what a gate carrying no information scores, which is simply
+    # the baseline scaled by the fraction of sessions it keeps.
+    t1 = json.loads((OUT / "W3-T1.json").read_text())
+    t2 = json.loads((OUT / "W3-T2.json").read_text())
+    bj = base["J_net_r_per_session"]
+    zero_info = []
+    for g in t1["gates"]:
+        kept = g["trades_per_session"]
+        zero_info.append(
+            {
+                "gate": f"{g['feature']}@{int(g['stand_aside_frac'] * 100)}%",
+                "kept": kept,
+                "zero_info_J": round(bj * kept, 4),
+                "actual_J": g["J"],
+                "excess_over_zero_info": round(g["J"] - bj * kept, 4),
+            }
+        )
+    for g in t2["gates"]:
+        kept = g["trades_per_session"]
+        a, b = (int(f * 100) for f in g["stand_aside_fracs"])
+        zero_info.append(
+            {
+                "gate": f"union@{a}/{b}%",
+                "kept": kept,
+                "zero_info_J": round(bj * kept, 4),
+                "actual_J": g["J"],
+                "excess_over_zero_info": round(g["J"] - bj * kept, 4),
+            }
+        )
+    dump(
+        "W3-extras.json",
+        {
+            "trials_spent": 0,
+            "null_by_block_length": nulls,
+            "t4_trajectories_all_four_cells": traj,
+            "sensitivity_in_quantile_space": qband,
+            "zero_information_benchmark": zero_info,
+        },
+    )
+
+
 def main() -> None:
     cmd = sys.argv[1] if len(sys.argv) > 1 else "stage0"
     {
@@ -930,6 +1041,7 @@ def main() -> None:
         "t4": cmd_t4,
         "sens": cmd_sensitivity,
         "nullr4": cmd_null_r4,
+        "extras": cmd_extras,
     }[cmd]()
 
 
