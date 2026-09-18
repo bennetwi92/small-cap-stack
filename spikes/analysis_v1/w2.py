@@ -230,6 +230,10 @@ def _rebuild_from_minute(data: Data, row: dict[str, Any], fill_idx: int) -> Entr
     if not len(where):
         return Entry(None, None, "fill bucket absent from the stored path")
     bi = int(where[0])
+    if fill <= float(row["stop"]):
+        # The next minute opened at or through the consolidation low: there is no risk to measure
+        # R against, so the setup is not a trade. Labelled rather than folded into "unaffordable".
+        return Entry(None, None, "the 1-minute fill printed at or below the stop")
     same = mb[(mb[:, 0] >= fm) & (mb[:, 0] < bucket + 5)]
     head = np.array([[fill, float(same[:, 2].max()), float(same[:, 3].min()), float(same[-1, 4])]])
     path = np.vstack([head, data.path[row["key"]][bi + 1 :]])
@@ -625,6 +629,28 @@ def _sub_null(
 # =================================================================================================
 # E6 / E7 — walk-forward refits (3 trials) and the single CHECK score (1 trial)
 # =================================================================================================
+def cmd_e7(data: Data, candidate: str) -> None:
+    """The single CHECK score. 1 trial.
+
+    ⚠️ Run as the **confirmation of a null**, not the validation of a candidate: every FIT point
+    was negative, so §9.1 condition 2 fails for all of them and nothing can be frozen. Ledgered as
+    amendment W2-A3 before it was run.
+    """
+    allpts = {**_grid_points("e2"), **_grid_points("e3"), **_grid_points("e4")}
+    mech, fn = allpts[candidate]
+    rows = data.stream("CHECK").to_dicts()
+    sess = data.session_dates("CHECK")
+    out = {
+        "trials": 1,
+        "scored": candidate,
+        "role": "confirmation of the null; not a carried candidate",
+        "block": "CHECK, Filter-A stream",
+        "sessions": len(sess),
+        "report": score_point(data, rows, mech, fn, sess, precompute_entries(data, rows)),
+    }
+    _dump("w2-e7.json", out)
+
+
 def cmd_e6e7(data: Data, candidate: str) -> None:
     allpts = {**_grid_points("e2"), **_grid_points("e3"), **_grid_points("e4")}
     fit_rows = data.stream("FIT").to_dicts()
@@ -737,7 +763,7 @@ def _capital_sweep(data: Data, rows: list[dict[str, Any]]) -> dict[str, Any]:
     res = {}
     for eq in (500, 1000, 2500, 5000, 10000, 25000):
         sizing = Sizing(equity=float(eq), risk_fraction=1.0e9, position_fraction=1.0)
-        cl, cw, n = [], [], 0
+        cl, cw, fee, slp, n = [], [], [], [], 0
         for r in rows:
             e, s = float(r["entry_fill"]), float(r["stop"])
             qty, _ = sizing.qty(e, s)
@@ -748,14 +774,23 @@ def _capital_sweep(data: Data, rows: list[dict[str, Any]]) -> dict[str, Any]:
             f2, s2 = stage0.leg_costs(qty, [Leg(1.0, e + 2 * (e - s), True, 2.0)], costs, 2.0)
             cl.append((f1 + s1) / risk)
             cw.append((f2 + s2) / risk)
+            # §11.1's two terms, separated: the fee term shrinks with buying power (the per-order
+            # minimum stops binding); the slippage term is ticks per share and does not.
+            fee.append(f1 / risk)
+            slp.append(s1 / risk)
             n += 1
         m_l, m_w = float(np.mean(cl)), float(np.mean(cw))
         res[f"${eq}"] = {
             "affordable_trades": n,
             "c_loss_mean": round(m_l, 4),
             "c_win_mean": round(m_w, 4),
+            "c_loss_fee_term": round(float(np.mean(fee)), 4),
+            "c_loss_slip_term": round(float(np.mean(slp)), 4),
             "F1_breakeven": round(stage0._breakeven(m_l, m_w, 0.5) * 100, 1),
             "F2_breakeven": round(stage0._breakeven(m_l, m_w, 2.0) * 100, 1),
+            "F1_breakeven_slip0": round(
+                stage0._breakeven(float(np.mean(fee)), float(np.mean(fee)), 0.5) * 100, 1
+            ),
         }
     return res
 
@@ -780,6 +815,8 @@ def main() -> None:
         cmd_e5(data, sys.argv[2].split(","))
     elif cmd == "null":
         cmd_null(data)
+    elif cmd == "e7":
+        cmd_e7(data, sys.argv[2])
     elif cmd == "e6e7":
         cmd_e6e7(data, sys.argv[2])
     elif cmd == "viability":
