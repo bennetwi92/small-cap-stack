@@ -708,7 +708,7 @@ Argued, not assumed.
 2. **W2 second (36)** — it attacks the *declared binding constraint*: at $500 the cost floor decides
    which exit families exist at all (§11). A large share of its trials are **estimations with no free
    parameter** rather than searches, so each one buys more certainty than a W1 grid point. It also
-   owns the largest untouched asset in the record, `bars_1m` (32 M rows, nothing has ever read it) —
+   owns the largest untouched asset in the record, `bars_1m` (1.47 M rows, nothing has ever read it) —
    the highest-novelty-per-trial work available. And its Stage-0 contribution (S0-F) *gates the other
    two*: if F1 is arithmetically dead, W1 saves a third of its crossed design before spending it.
 3. **W3 third (24)** — it is the most under-powered, and a null is its likeliest honest result. It
@@ -724,7 +724,7 @@ Argued, not assumed.
 |---|---|
 | the **Mac** | direct `data/live` + `data/recon`; the `review-analysis` skill. **Bar-level work lives here.** |
 | the **box** | [`scripts/box-job.sh`](../scripts/box-job.sh), **per date, one at a time**. ⚠️ never `docker exec` into the app; never `--all`. It is a 2 vCPU / 4 GB CX23 and a heavy job takes it down hard. |
-| a **cloud session** | the `box-data` skill → `data-export.yml` → the `data-export` branch. The frozen panel (~9 k rows) is trivially portable this way; **the recon `bars` and `bars_1m` datasets are not** — tens of millions of rows against a GitHub branch. Push bar-level work down as an aggregation, never a transfer. |
+| a **cloud session** | the panel, the paths and the **FIT + CHECK-bounded raw tapes** under `data-export/panel-v1/` (amendment A4; hashed in `panel-v1-spec.md` §1). The recon `bars` (0.97 M rows) and `bars_1m` (1.47 M) are portable, not the tens of millions first estimated. ⚠️ Never dispatch `data-export.yml` for a date ≥ 2026-04-01 and never read an earlier `data-export` commit: both reach HOLDOUT outcomes. |
 
 ### 13.4 Measurement and interpretation stay separate
 
@@ -756,7 +756,7 @@ Named here so it is a known gap rather than a later surprise. None of these is f
 | Stage 0 — panel build, redaction, S0-A…S0-J | Mac | `builder` (sonnet) | 2–3 |
 | S0-F cost audit + S0-H dispersion | Mac | `builder`, interpreted by `strategy-analyst` | 1 + 1 |
 | W1 | cloud, off the exported panel | `builder`/`spike-runner` measuring, `strategy-analyst` interpreting | 6–8 |
-| W2 | **Mac** (32 M rows of `bars_1m` cannot leave the box/Mac) | `spike-runner` measuring, `strategy-analyst` interpreting | 6–8 |
+| W2 | cloud, off the bounded tapes (amendment A4 — `bars_1m` is 1.47 M rows, not 32 M) | `spike-runner` measuring, `strategy-analyst` interpreting | 6–8 |
 | W3 | cloud, off exported session-level aggregates | `builder`/`spike-runner`, `strategy-analyst` | 4–5 |
 | Holdout pass + report | Mac | `strategy-analyst` (opus), custodian | 1–2 |
 | Board and ledger hygiene throughout | — | `board-keeper` (haiku) | as needed |

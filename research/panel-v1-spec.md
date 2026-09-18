@@ -15,10 +15,21 @@ Published on the **`data-export`** branch under `panel-v1/`. The standalone chec
 | `panel-v1.parquet` | `ff77c4516e78db9cd05081ce0c9f5bf7db3b6052eaccbbc9c557950c1cde37e7` | 9,195 rows, every split; HOLDOUT outcomes nulled (§3) |
 | `paths-v1/paths-v1.parquet` | `2b5bd485ca0010f925ec343c4174ab0ef28a78029424489f75e4af79b3f594a0` | post-trigger 5-min paths, **FIT + CHECK only**: 6,740 keys, 718,263 bars (`key, bar, etmin, open, high, low, close`; `bar == 0` is the trigger bar) |
 | `sessions-v1.parquet` | `d797f739329d0c8dff7b7b4abe6baa14507815a2c7d4e0504989fe3539026b60` | the session universe (`source, dt, split`), which is J's denominator: flat sessions count as 0 |
+| `tapes/recon_bars_1m_fitcheck.parquet` | `fd468524880f252ea0ba61f98c1965088a769e3e6be14405cef04ef2fe8acf89` | raw recon 1-minute OHLCV, `dt ≤ 2026-03-31`: 1,219,320 rows / 391 sessions |
+| `tapes/recon_bars_fitcheck.parquet` | `8b2ab3e815ae13350b06ce04554c8429f0120c6f0eb9b657754500029ac9bfbf` | raw recon 5-minute OHLCV, `dt ≤ 2026-03-31`: 816,369 rows / 391 sessions |
+| `tapes/recon_scanner_hits_fitcheck.parquet` | `10af44874bdc70ab9d5549fb75dc6c139914c04065a5e27a861ca0ce178ebf45` | raw recon scanner hits, `dt ≤ 2026-03-31`: 392,566 rows |
+| `tapes/recon_opportunities_fitcheck.parquet` | `fcfc40f7452738804eafb64ef930a18a7ef232cc18decc15f7d63632508c5255` | raw recon opportunities, `dt ≤ 2026-03-31`: 6,053 rows (⚠️ recon `first_rank` is lookahead) |
+| `tapes/recon_daily_universe_fitcheck.parquet` | `d94aac8a8996c12b88f01e45fcddc21b387d740662b8bdca88aeca62c6f33d10` | raw recon daily universe, `dt ≤ 2026-03-31`: 123,493 rows |
 | `custodian/panel-v1-custodian.parquet` | `db8c12d7efb6e87f5e371b286551b64126e0431f73e12206dea03f77bbf23207` | **custodian only, never published**: the unredacted panel |
 | `custodian/paths-v1-full.parquet` | `eba52871d9a189e3572e23050fa666a522467e2719f4489ab664315bfbf0c21d` | **custodian only, never published**: every split's paths, with volume |
 
 Verify: `cd panel-v1 && sha256sum -c panel-v1.sha256`.
+
+⚠️ **Raw tapes — amendment A4 (#735).** Earlier full-range `recon/*` exports on the branch covered
+HOLDOUT dates, so they were removed from the tip. The `tapes/` files above are FIT + CHECK only, and
+they are **the only raw tapes a workstream may read**. Two things still reach HOLDOUT, and neither
+is a physical barrier: the branch's git history, and `data-export.yml` dispatched for a date
+≥ 2026-04-01. Using either is a look at the holdout.
 
 Load: `spikes/analysis_v1/stage0.py` → `load_panel_v1()`, `load_paths_v1()` (the
 `engine_lab.load_paths` dict format), `load_sessions_v1()`. That module is also the **one**
