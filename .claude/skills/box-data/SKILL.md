@@ -40,8 +40,29 @@ across-store outcome comparison — see **#462** before reading one.
 one per dataset), and the files accumulate on `data-export` — check what is already there before
 spending a run.
 
+## ⚠️ The trigger needs the Mac — only the read-back is self-service
+A Claude Code **web/mobile** session cannot dispatch the workflow. Its GitHub App token carries
+**read-only Actions** scope, so `actions_run_trigger` returns
+`403 Resource not accessible by integration` (#730). It *can* list runs, read jobs and logs, push
+branches and comment — and it can read the result off `data-export` — but the run has to be kicked
+from the **Mac** (`gh workflow run`) or the Actions UI. Plan for that: ask for the dispatch, then
+do the analysis when the file lands.
+
+⚠️ **Dispatch the datasets ONE AT A TIME.** The workflow's `concurrency: data-export` group keeps
+only the most recent *pending* run, so firing six back-to-back silently cancels four of them.
+
+```bash
+for ds in opportunities scanner_hits fundamentals analysis news bars; do
+  gh workflow run data-export.yml -f store=live -f dataset="$ds" -f format=parquet -f ref=main
+  sleep 10
+  id=$(gh run list --workflow=data-export.yml --limit 1 --json databaseId -q '.[0].databaseId')
+  gh run watch "$id" --exit-status || { echo "FAILED on $ds (run $id)"; break; }
+done
+```
+
 ## The loop (GitHub MCP tools)
-1. **Dispatch** `.github/workflows/data-export.yml` (`workflow_dispatch`) with `actions_run_trigger`.
+1. **Dispatch** `.github/workflows/data-export.yml` (`workflow_dispatch`) — from the Mac, per the
+   warning above; `actions_run_trigger` works only for a session whose token can write Actions.
    Inputs:
    - `store` — `live` (`/data`, the tracker) | `recon` (`/data/recon`, the harvest — #430/#728).
      It also joins the filename, since the two roots share dataset names.
