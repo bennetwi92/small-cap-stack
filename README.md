@@ -44,7 +44,10 @@ Work is tracked via [GitHub issues](https://github.com/bennetwi92/small-cap-stac
 for the full record — start with [`research/strategy.md`](./research/strategy.md) (the canonical
 spec), then [`research/decisions.md`](./research/decisions.md) for why each rule is what it is.
 
-The rest of `research/`: [`bull-flag.md`](./research/bull-flag.md) (the pattern grammar) and
+The rest of `research/`: [`data-inventory.md`](./research/data-inventory.md) (what data exists, at
+what grain, and what it will not support) and [`analysis-brief.md`](./research/analysis-brief.md)
+(the brief for the end-to-end analysis design pass);
+[`bull-flag.md`](./research/bull-flag.md) (the pattern grammar) and
 [`engine-v2.md`](./research/engine-v2.md) (how the detector is built);
 [`how-we-work.md`](./research/how-we-work.md) (the reasoning behind `CLAUDE.md`);
 [`phase-2-roadmap.md`](./research/phase-2-roadmap.md) (tracker → paper orders);
