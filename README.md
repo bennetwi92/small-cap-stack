@@ -48,7 +48,13 @@ The rest of `research/`: [`data-inventory.md`](./research/data-inventory.md) (wh
 what grain, and what it will not support) and [`analysis-brief.md`](./research/analysis-brief.md)
 (the brief for the end-to-end analysis design pass) and
 [`analysis-design-prompt.md`](./research/analysis-design-prompt.md) (the prompt for the
-three-way analysis design pass that supersedes it);
+three-way analysis design pass that supersedes it), whose output is
+[`analysis-protocol.md`](./research/analysis-protocol.md) (the shared contract for the three-agent
+execution pass — splits, budget, frozen panel, ledger, custodian) and the three workstream plans
+[`analysis-plan-1-selection.md`](./research/analysis-plan-1-selection.md) (*which setups*),
+[`analysis-plan-2-execution.md`](./research/analysis-plan-2-execution.md) (*how to enter and exit
+them*) and [`analysis-plan-3-regime.md`](./research/analysis-plan-3-regime.md) (*when to be trading
+at all*), each carrying its copy-paste starting prompt;
 [`bull-flag.md`](./research/bull-flag.md) (the pattern grammar) and
 [`engine-v2.md`](./research/engine-v2.md) (how the detector is built);
 [`how-we-work.md`](./research/how-we-work.md) (the reasoning behind `CLAUDE.md`);
