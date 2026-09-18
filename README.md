@@ -46,7 +46,9 @@ spec), then [`research/decisions.md`](./research/decisions.md) for why each rule
 
 The rest of `research/`: [`data-inventory.md`](./research/data-inventory.md) (what data exists, at
 what grain, and what it will not support) and [`analysis-brief.md`](./research/analysis-brief.md)
-(the brief for the end-to-end analysis design pass);
+(the brief for the end-to-end analysis design pass) and
+[`analysis-design-prompt.md`](./research/analysis-design-prompt.md) (the prompt for the
+three-way analysis design pass that supersedes it);
 [`bull-flag.md`](./research/bull-flag.md) (the pattern grammar) and
 [`engine-v2.md`](./research/engine-v2.md) (how the detector is built);
 [`how-we-work.md`](./research/how-we-work.md) (the reasoning behind `CLAUDE.md`);
