@@ -85,7 +85,8 @@ unresolved trade to the last bar it can see, so truncating at 09:30 would close 
 09:10 entry at 09:25 and bias exactly the trades that were working.
 
 Estimated recon volume: ~453 sessions × ~217 candidates × ~144 bars ≈ **14 M rows**. Measure, do
-not trust, this figure.
+not trust, this figure. *Measured 2026-09-18: **974,773 rows**. Only the opportunity symbols carry
+bars, not all ~217 candidates.*
 
 ### 2.4 `bars_1m` — recon only, the raw minute series
 1-minute OHLCV, `[04:00, 09:30) ET`, ~330 rows per symbol-day. **Nothing in the package reads it.**
@@ -321,11 +322,15 @@ full buying power for exactly this reason).
 | the box | `scripts/box-job.sh`, **per date, one at a time**. ⚠️ never `docker exec` into the app; never `--all` |
 | a cloud session | the **`box-data`** skill → `data-export.yml` on the self-hosted runner → result committed to the `data-export` branch. Takes `store` (live/recon), `dataset`, a date range, symbols, or raw DuckDB SQL; parquet/csv/ndjson |
 
-⚠️ The box is a 2 vCPU / 4 GB CX23 and a heavy job takes it down hard. **The full recon `bars` and
-`bars_1m` datasets cannot be moved into a cloud session** — tens of millions of rows against a
-GitHub branch. The workable shape is: build the panel where the data is, export the *panel*
-(~9,000 rows, trivially portable), and do the modelling on that. Push bar-level work down to the
-box or the Mac as an aggregation, not a transfer.
+⚠️ The box is a 2 vCPU / 4 GB CX23 and a heavy job takes it down hard.
+
+*Corrected 2026-09-18 (Stage 0, amendment A4):* the full recon `bars` (0.97 M rows, 13 MB) and
+`bars_1m` (1.47 M rows, 17 MB) **do fit through a GitHub branch**. This section used to say "tens of
+millions of rows" and that they could not.
+- For the analysis pass, FIT + CHECK-bounded copies (`dt ≤ 2026-03-31`) live at
+  `data-export/panel-v1/tapes/`, hashed in [`panel-v1-spec.md`](./panel-v1-spec.md) §1.
+- The full-range exports were removed from the branch tip, because they carried HOLDOUT outcomes.
+- Build derived tables where the data is, and export the smallest thing that answers the question.
 
 ---
 

@@ -29,7 +29,7 @@ Why it is worth 36 of the 120 global trials:
 - Much of its budget buys **estimation, not search** — fixed-parameter measurements with no free
   parameter to overfit. A trial spent on "what is the achievable fill, really?" buys more certainty
   than a trial spent on another threshold.
-- It owns the **largest untouched asset in the record**: `bars_1m`, ~32 M rows of 1-minute
+- It owns the **largest untouched asset in the record**: `bars_1m` (measured at 1.47 M rows, not ~32 M) of 1-minute
   pre-market tape that nothing in the package has ever read (inventory §2.4). It is the only place a
   question about the microstructure of the break, fill realism or a finer trigger can be asked at
   all.
@@ -334,15 +334,20 @@ here.
 
 ## 11. Execution shape and cost
 
-⚠️ **W2 is the Mac workstream.** `bars_1m` is ~32 M rows and the recon `bars` ~14 M; neither can be
-moved into a cloud session against a GitHub branch (inventory §9), and the box is a 2 vCPU / 4 GB
-CX23 that a job this shape takes down hard.
+⚠️ **Corrected at Stage 0 (amendment A4, #735): W2 runs from the cloud.** `bars_1m` is 1.47 M rows
+(17 MB), not ~32 M, and the recon `bars` is 0.97 M rows, not ~14 M. The FIT + CHECK-bounded tapes
+(`dt ≤ 2026-03-31`) are published at `data-export/panel-v1/tapes/` and hashed in
+`panel-v1-spec.md` §1. **Read only those.**
+- The Mac's raw store and the `data-export.yml` workflow both reach HOLDOUT dates, so neither is
+  the place for W2's work.
+- W2-0a's coverage audit is already done, by S0-E: 453 / 453 recon sessions.
+- The box stays off-limits for this shape of job: it is a 2 vCPU / 4 GB CX23.
 
 | piece | where | tier |
 |---|---|---|
-| W2-0a, W2-0b, W2-0c — coverage, grid reconciliation, session window | **Mac**, direct store access | `builder` |
-| E1 fill realism on `bars_1m` | **Mac** | `spike-runner` — measurement only |
-| E2–E5, the nulls (B = 200 × 25 points), the walk-forward | **Mac**; the 5-minute path replays may be exported as a per-setup path bundle and run in a cloud session if the Mac is the bottleneck | `spike-runner` |
+| W2-0a, W2-0b, W2-0c — coverage, grid reconciliation, session window | **cloud**, off the bounded tapes (W2-0a/0c are already answered by S0-E) | `builder` |
+| E1 fill realism on `bars_1m` | **cloud**, off `recon_bars_1m_fitcheck.parquet` | `spike-runner` — measurement only |
+| E2–E5, the nulls (B = 200 × 25 points), the walk-forward | **cloud**, off `paths-v1` and the bounded tapes; the Mac if a cloud session runs out of room | `spike-runner` |
 | every interpretation step: family viability, which mechanic wins, the freeze report | separate session | `strategy-analyst` (opus) |
 
 If any part must touch the box: `scripts/box-job.sh`, **per date, one at a time**, never `docker
@@ -426,8 +431,10 @@ specification against your ledger entries, and one that does not match is not sc
 - **Stage 3** — freeze one specification (or the null) plus the viability table, post to the ledger,
   **stop**. The holdout pass is not yours.
 
-**Where you run.** You are the **Mac** workstream. `bars_1m` is ~32 M rows and the recon `bars` ~14 M
-— neither can be moved into a cloud session against a GitHub branch. ⚠️ **The box is a 2 vCPU / 4 GB
+**Where you run.** A cloud session is fine (amendment A4): `bars_1m` is 1.47 M rows. **Read raw tapes
+only from `data-export/panel-v1/tapes/`**, which is bounded to FIT + CHECK and hashed in the spec.
+Never check out an earlier `data-export` commit, and never dispatch `data-export.yml` for a date
+≥ 2026-04-01; either one is a look at the holdout. ⚠️ **The box is a 2 vCPU / 4 GB
 CX23 and a heavy job takes it down hard**: if you must touch it, use `scripts/box-job.sh`, per date,
 one at a time, never `docker exec` into the app, never `--all`, and watch `free -m`. The frozen panel
 is on the `data-export` branch; verify `sha256sum` against `panel-v1-spec.md` on `main`. **Never
