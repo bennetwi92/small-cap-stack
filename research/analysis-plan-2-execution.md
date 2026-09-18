@@ -43,7 +43,7 @@ Why it is worth 36 of the 120 global trials:
 ## 2. The population and the panel
 
 **Population:** the **Filter A stream** — the frozen panel restricted by protocol §9: pre-market
-triggers, `hits_before_trigger ≥ 1`, `cum_dollar_vol_to_trigger ≥ q50(FIT)`, capacity `N = 1`
+triggers, `hits_before_trigger ≥ 1`, `cum_dollar_vol_pre_trigger ≥ q50(FIT)` (Stage-0 amendment A1), capacity `N = 1`
 earliest by time. Filter A is a priori, frozen, never tuned, and costs no trials. Its constants are
 literals published in `panel-v1-spec.md`.
 

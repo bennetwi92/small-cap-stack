@@ -197,8 +197,9 @@ there are three agents; 12–13 are added by this design and argued where they a
    `day_dollar_volume`, `day_high`, `day_low`, `n_scanner_hits_day`, `first_rank`, `run_count`) read
    as context and are lookahead. Within-day **ranking** is lookahead — you cannot rank a day's
    setups against each other at 07:00. Capacity takes the **earliest N triggers by time**. Use
-   `cum_volume_to_trigger`, `cum_dollar_vol_to_trigger`, `ext_at_trigger`, `hits_before_trigger`.
-   Enforced mechanically — §5.1.
+   `cum_volume_pre_trigger`, `cum_dollar_vol_pre_trigger`, `ext_at_trigger`, `hits_before_trigger`.
+   The `*_to_trigger` volume columns include the trigger bar itself and were removed from
+   `RULE_COLUMNS` at S0-C. Enforced mechanically — §5.1.
 2. **Never report a statistic on opportunities that could not have been traded.** Not as a contrast,
    not as a "lookahead delta", not as an upper bound. There is no exception and no framing that
    makes one acceptable.
@@ -481,9 +482,12 @@ here, **before any data was opened**, and its one data-dependent element is fitt
 
 1. `trigger_et_min < 570` — pre-market, both halves (forced by constraint 7; not a filter choice).
 2. `hits_before_trigger >= 1` — the name was on the attention series before it broke.
-3. `cum_dollar_vol_to_trigger >= q50(FIT)` — the median of the **fit split only**, computed once by
+3. `cum_dollar_vol_pre_trigger >= q50(FIT)` — the median of the **fit split only**, computed once by
    Stage 0, published as a literal constant in `panel-v1-spec.md`, and frozen thereafter. It is
-   applied unchanged to CHECK and HOLDOUT.
+   applied unchanged to CHECK and HOLDOUT. ⚠️ **Amended at Stage 0 (A1, 2026-09-18, ledger #735):**
+   this was `cum_dollar_vol_to_trigger`, which sums the trigger bar's full volume and close, and
+   those are not known when the order fires mid-bar. The strict variant sums only bars before the
+   trigger. The frozen constant is in [`panel-v1-spec.md`](./panel-v1-spec.md) §5.
 4. Capacity: the **earliest 1 trigger per session by trigger time**. No ranking (constraint 1).
 
 Filter A is **never tuned**. It costs no trials, because it was chosen without reading an outcome.
@@ -598,6 +602,13 @@ global budget unspent. Killing a branch in arithmetic costs one Stage-0 item; ki
 execution costs a third of W1's budget and half of W2's.
 
 This inconsistency should also be corrected in `data-inventory.md` once S0-F resolves it.
+
+> **Resolved by S0-F (2026-09-18; [`panel-v1-spec.md`](./panel-v1-spec.md) §6).** There are no
+> real fills yet, so `c` is the pinned fee schedule priced per leg on the panel's own geometry.
+> Sizing is full buying power; slippage is 2 ticks on non-limit exits.
+> - A losing trade costs a **mean 0.274 R** (median 0.224 R). A limit winner costs **0.118 R**.
+> - Net break-even on the FIT panel: **F1 77.0 %** (not cancelled) and **F2 40.4 %**.
+> - F1 exceeds 80 % in the tightest `stop_pct` decile, and reaches 78.9 % at 4 ticks.
 
 ### 11.3 The recon session window — resolved, and the inventory should say so
 

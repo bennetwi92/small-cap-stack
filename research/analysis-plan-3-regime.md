@@ -42,7 +42,7 @@ Why it is worth 24 of the 120 global trials, and why it is third rather than fir
 ## 2. The population and the panel
 
 **Population:** the **Filter A stream** — the frozen panel restricted by protocol §9: pre-market
-triggers, `hits_before_trigger ≥ 1`, `cum_dollar_vol_to_trigger ≥ q50(FIT)`, capacity `N = 1`
+triggers, `hits_before_trigger ≥ 1`, `cum_dollar_vol_pre_trigger ≥ q50(FIT)` (Stage-0 amendment A1), capacity `N = 1`
 earliest by time, scored under **F2** unless stated otherwise.
 
 **This is prior (3), and it is the whole reason W3 is shaped this way.** The trader's stated belief
