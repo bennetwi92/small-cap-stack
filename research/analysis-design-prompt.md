@@ -7,6 +7,13 @@ This file holds the prompt handed to a single **opus** session whose deliverable
 starting prompts that supersede [`analysis-brief.md`](./analysis-brief.md)'s single-track design
 pass.
 
+**The pass has been run. Its output is four documents:**
+[`analysis-protocol.md`](./analysis-protocol.md) — the shared contract all three workstreams obey —
+plus [`analysis-plan-1-selection.md`](./analysis-plan-1-selection.md),
+[`analysis-plan-2-execution.md`](./analysis-plan-2-execution.md) and
+[`analysis-plan-3-regime.md`](./analysis-plan-3-regime.md), each carrying one plan and its
+copy-paste starting prompt. Read the protocol first; the plans assume it.
+
 It supersedes nothing else. `analysis-brief.md` stays in place: its blind list, its hard
 constraints and its shape are inputs to this pass, and the three prompts it produces inherit them.
 
