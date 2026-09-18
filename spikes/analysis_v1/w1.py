@@ -4,6 +4,11 @@ Plan: `research/analysis-plan-1-selection.md`. Shared contract: `research/analys
 Machinery: `stage0.py` — imported, never forked (panel-v1-spec §1).
 
     .venv/bin/python spikes/analysis_v1/w1.py stage0     # W1-0a … W1-0e — free, no outcome read
+    .venv/bin/python spikes/analysis_v1/w1.py 2a|2b|2c   # the FIT search, cumulative (12/24/6)
+    .venv/bin/python spikes/analysis_v1/w1.py null       # the matched-intensity null (not a trial)
+    .venv/bin/python spikes/analysis_v1/w1.py 2d         # walk-forward refits + ±20 % band (6)
+
+Every scoring command is ledgered on #735 before it runs.
 
 Reads ONLY the published, redacted artefacts under `data/spikes/panel-v1/publish/`, after checking
 their sha256 against `research/panel-v1.sha256`. Never the custodian copy, never `panel-v1-full`.
