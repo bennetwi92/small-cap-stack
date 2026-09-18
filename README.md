@@ -44,6 +44,16 @@ Work is tracked via [GitHub issues](https://github.com/bennetwi92/small-cap-stac
 for the full record — start with [`research/strategy.md`](./research/strategy.md) (the canonical
 spec), then [`research/decisions.md`](./research/decisions.md) for why each rule is what it is.
 
+The rest of `research/`: [`bull-flag.md`](./research/bull-flag.md) (the pattern grammar) and
+[`engine-v2.md`](./research/engine-v2.md) (how the detector is built);
+[`how-we-work.md`](./research/how-we-work.md) (the reasoning behind `CLAUDE.md`);
+[`phase-2-roadmap.md`](./research/phase-2-roadmap.md) (tracker → paper orders);
+[`broker-costs.md`](./research/broker-costs.md), [`ibkr-integration.md`](./research/ibkr-integration.md)
+and [`free-tier-services.md`](./research/free-tier-services.md) (the cost and infrastructure
+models); [`throughput.md`](./research/throughput.md) (estimation anchors); and the prior-repo
+audits [`tradepilot.md`](./research/tradepilot.md) and
+[`entresys_light.md`](./research/entresys_light.md).
+
 ## Getting started
 
 ```bash
@@ -77,8 +87,8 @@ flagged, and nothing downstream filters on them.
 | `src/small_cap_stack/` | The package (typed, tested) |
 | `tests/` | Pytest suite, incl. 25 real-market regression fixtures |
 | `spikes/` | De-risking experiments (run against IBKR locally / on the VPS) |
-| `research/` | ⚠️ **The documentation** — `strategy.md` (the spec), `decisions.md` (the log), `findings-index.md` |
-| `docs/` | ⚠️ **NOT documentation** — the GitHub Pages dashboard frontend (HTML/CSS/JS). Its one prose exception is `docs/reports/`, the published analyses |
+| `research/` | ⚠️ **The documentation** — `strategy.md` (the spec), `decisions.md` (the log), and the standing reference docs |
+| `docs/` | ⚠️ **NOT documentation** — the GitHub Pages dashboard frontend (HTML/CSS/JS). Its one prose exception is `docs/reports/`, where published analyses land |
 | `deploy/` | Host runbook and systemd units for the VPS |
 | `data/` | Local runtime data — **gitignored**, never committed |
 | `scripts/` | Repo helpers (e.g. `board.sh`) |

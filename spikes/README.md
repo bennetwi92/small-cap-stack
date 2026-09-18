@@ -191,8 +191,7 @@ decidable at trigger time here, unlike the bull-flag. The refined rule — commi
 planned stop inside the sizing band `[3%, risk/pos = 10%)`, one working order, roll to the next
 setup on a pre-fill stop breach — turns the same month from **$497.67 (−0.5%, 10.4% dd)** into
 **$529.80 (+6.0%, 4.2% dd)** with every trade deploying ≥ ~1.5% of equity instead of the ~1% the
-cap squeezed out of the tight-stop picks. See
-`docs/reports/2026-08-02-open-drive-picking-the-days-stock.md`.
+cap squeezed out of the tight-stop picks.
 
 Replays from the **Parquet store**, so it needs the box. `--validate` replays the current book
 through the production `simulate_portfolio_adaptive` and refuses to report anything unless it
@@ -840,8 +839,7 @@ first-trade / second-trade notional split deploy more of the book?
 never been the binding constraint under any configuration the book has run. A slot split leaves
 **total R unchanged** by construction and moves end equity by ~±1.5% in *opposite directions* in the
 adaptive and fixed-2R books. The real limiter is the 5% risk budget, which binds before the notional
-cap on 8 of 11 trades. Full write-up:
-`docs/reports/2026-08-01-the-2-trade-a-day-cap-is-it-wasting-capital.md`.
+cap on 8 of 11 trades.
 
 Unlike the other portfolio spikes this replays the **published payload** (`portfolio.json` +
 `charts/` from the `dashboard-data` branch) rather than the Parquet store, so it runs from a cloud

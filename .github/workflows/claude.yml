@@ -10,8 +10,8 @@ name: claude
 #
 # This is the ONE piece rebuilt from the layer rolled back in #377. Deliberately absent, and to
 # stay absent unless it earns its way back: the /spec gate, auto-triage, the slash-command control
-# plane, the watchdogs, the overnight analyst, the auto-merge risk policy. Read
-# `research/archive/github-automation.md` before adding to this file.
+# plane, the watchdogs, the overnight analyst, the auto-merge risk policy. Read `§D-27` and
+# `§D-32` in `research/decisions.md` before adding to this file.
 #
 # Security posture (#343/#348, non-negotiable):
 # - HOSTED runner only — never the VPS. A public repo plus a self-hosted runner means any fork PR

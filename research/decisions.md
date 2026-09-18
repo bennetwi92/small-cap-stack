@@ -1,6 +1,6 @@
 # Resolved Decisions — Research Phase Closeout
 
-**Date:** 2026-06-29. Resolves the open questions in [`findings-index.md`](./findings-index.md) §3.
+**Date:** 2026-06-29. Resolves the open questions raised by the 2026-06-29 research phase (§3 of its index, since removed).
 
 > **This file is the log — *why* each rule is what it is, and when it changed. It is not the spec.**
 > For what the system does *right now*, read [`strategy.md`](./strategy.md): it is generated from
@@ -87,7 +87,7 @@ down is reading forward in time within a topic.
 | 7 | Weekly 2FA | **Accepted for now** (one manual phone tap/week). User aware of a second-username / relaxed-2FA workaround to apply later himself. |
 | 8 | Branching | **Trunk-based: protected `main` + short-lived branches, all work via PRs**, required CI checks before merge. Chosen because much work happens in PRs / Claude Code on mobile. |
 | 9 | Stack | **Python + `ib_async`** (the maintained fork). Prior repos' raw-`ibapi` code is adapted, not lifted verbatim. |
-| 10 | Storage | ⚠️ **SUPERSEDED 2026-06-29 by [architecture-review.md](./archive/architecture-review.md): use DuckDB-over-Parquet** (not Postgres/TimescaleDB) for Phase 1. ~~Self-hosted PostgreSQL (+ TimescaleDB) on the Oracle VM's 200 GB block volume.~~ Parquet-on-disk + growth-friendly intent unchanged; the embedded analytical engine changed. |
+| 10 | Storage | ⚠️ **SUPERSEDED 2026-06-29 by the architecture review *(since removed)*: use DuckDB-over-Parquet** (not Postgres/TimescaleDB) for Phase 1. ~~Self-hosted PostgreSQL (+ TimescaleDB) on the Oracle VM's 200 GB block volume.~~ Parquet-on-disk + growth-friendly intent unchanged; the embedded analytical engine changed. |
 | 11 | Phase-1 scope | **Tracker only — places no orders.** Records every scanner-flagged opportunity, which gates it passed, whether a notional entry would have triggered, and Max R achieved + other stats. **All stats computed on the fly from cached raw data** so methodology can change retroactively. |
 
 ## D-02 — Core architectural principle: store raw, compute derived on read (Q11) (2026-06-29, #62)
@@ -181,7 +181,7 @@ closing once the harvest lands; not worth building against 30 sessions.
 
 - **A. API scanner vs Mosaic** (issue #8): ⏳ **largely validated 2026-06-29** — the API scanner returned a ranked candidate list **pre-market**, addressing the main suspected weak spot. `reqScannerParameters` confirmed IBKR exposes **trailing 5-min volume natively** (`stVolume5minAbove`, `stVolumeVsAvg5minAbove`, scan code `HIGH_STVOLUME_5MIN`), so the strategy's "5-min volume > 100k" is a built-in filter — NOT day volume, NOT derived from bars. Recommended scan: `TOP_PERC_GAIN` + ~~price 2–10~~ + `changePercAbove 10` + `stVolume5minAbove 100000` @ `STK.US.MAJOR` (**the price leg was widened to $1–50 by #126, below; the shipped subscription is [`strategy.md`](./strategy.md) §1**). Remaining: user to confirm API top 1–3 == Mosaic top 1–3 at the same moment.
 
-  > **Criterion #5 (5-min volume > 100k) resolved:** native `stVolume5minAbove` scanner filter. This was a previously-open data-feasibility item in [`archive/strategy-validation.md`](./archive/strategy-validation.md).
+  > **Criterion #5 (5-min volume > 100k) resolved:** native `stVolume5minAbove` scanner filter. This was a previously-open data-feasibility item in the archived strategy-validation review *(since removed)*.
 - **B. Pre-market bar completeness** (#9): ✅ **GREEN** — active names get contiguous gap-free 5-min bars from 04:00 ET; only a leading absence before first trade. No interpolation needed.
 - **C. IBKR news sufficiency** (#10): ✅ **GREEN to start** — account entitled to 8 providers incl. Dow Jones DJ-N (per-symbol headlines + retrievable bodies + halt notices). Start with included feed; measure timeliness in Phase 1 before paying.
 - **D. Tradability gate** (#25, new): ✅ **GREEN** — `whatIfOrder` + error 201 reliably flags symbols IBKR blocks for the account even while they trade. Confirmed CBRG BLOCKED (PRIIPs/KID). **Account is under EU/UK PRIIPs rules** → expect some US small-cap SPAC/warrant/ETP runners to be un-orderable. **Add a tradability gate to the gate engine (#15).** ⚠️ **AMENDED 2026-08-07 (#517):** the
@@ -195,7 +195,7 @@ closing once the harvest lands; not worth building against 30 sessions.
 
 **Status:** LIVE
 
-Full writeup: [`archive/architecture-review.md`](./archive/architecture-review.md).
+Full writeup: the 2026-06-29 architecture review *(since removed)*.
 
 - **Trading core:** assemble on **`ib_async`** (no framework) for P1–P2; revisit NautilusTrader at P3 only if justified.
 - **Runtime (#12):** one long-lived **asyncio** process — `TaskGroup`/`anyio` for in-process task dependencies + **APScheduler 3.x** for time triggers. No external orchestrator (Airflow/Prefect/Dagster).
@@ -574,7 +574,7 @@ in P2). Locks the following execution parameters (chosen by the user 2026-07-15)
 
 Deliverable: a typed, exhaustively-tested simulator in `src/small_cap_stack/` (per CLAUDE.md, this is
 trading logic — the product), a `portfolio.json` export to the `dashboard-data` branch, and a thin
-`docs/portfolio.html`/`.js` page. Open exit questions from `findings-index.md` §3 Q3 are **resolved
+`docs/portfolio.html`/`.js` page. Open exit questions from the research index §3 Q3 *(since removed)* are **resolved
 for this account** by the fixed-R-target-from-trailing-expectancy model above.
 
 ## D-22 — Getting paid: withdrawals, UK tax, running cost (2026-07-16)
@@ -682,7 +682,7 @@ loss-based kill-switch for now — 2 trades/day makes it moot"); this decision a
 
 The decision above was never tested against data; it was adopted on the reasoning that exposure
 *should* track how hot the market is. Measured on the first 29 sessions (13 trades, 12 active days)
-in the report *"Does past behaviour predict future performance?"* (`docs/reports/`, 2026-08-06), the
+in a 2026-08-06 report *(since removed)*, the
 premise does not hold and the machinery is not free:
 
 - **The premise is a bet on serial correlation of daily results, and none is detectable.** Lag-1
@@ -793,7 +793,7 @@ too.
 
 **Status:** LIVE — the automation layer it was hosting was rolled back in D-27; the hosting decision stands
 
-Deciding how to host the GitHub-native automation layer (`research/archive/github-automation.md`) under a
+Deciding how to host the GitHub-native automation layer (design writeup since removed) under a
 **hard $0 constraint** (no paid plan). $0 is decisive and rules the topology:
 - **GitHub Pages on the Free plan works only from a *public* repo** — a private repo would take the
   `docs/` cockpit dashboard offline (private-repo Pages needs Pro+).
@@ -828,7 +828,7 @@ P2/P3 (#340/#341), and (c) supply-chain hardening — SHA-pinned actions, least-
 The agent/automation layer built on 2026-07-17 (PRs #358–#369) is **removed**. Nine workflows
 deleted — `claude`, `spec`, `triage`, `self-heal`, `overnight-analyst`, `commands`, `watchdog`,
 `workflow-keepalive`, `oom-victim-test` — plus `src/small_cap_stack/watchdog.py` and the
-`spike-request` issue form. The design writeup is archived at `research/archive/github-automation.md`.
+`spike-request` issue form. The design writeup has since been removed.
 
 **Why.** It cost protocol and returned nothing measurable. Over its life the agent workflows
 opened **zero** issues and **zero** PRs; `commands` and `spec` fired only as skips; `self-heal`
@@ -1210,8 +1210,7 @@ link is hidden rather than pointed at a page that would load empty). The appeara
 
 **Status:** LIVE — specified, not traded. Its selection half and finding 1 are superseded by #535 (banded sequential commit).
 
-Spec: [`open-drive.md`](./open-drive.md). Measurement:
-`docs/reports/2026-08-02-the-0930-open-a-second-strategy.md`. Harness: `spikes/open_drive_sweep.py`.
+Spec and measurement *(both since removed)*. Harness: `spikes/open_drive_sweep.py`.
 
 The engine trades the pre-market only. The time-of-day report (#387) measured the tape's forward
 excursion peaking at 09:00–10:00 (+8.5% / +5.6% median 60-min upside, against +1.1% at 04:00–06:00)
@@ -1290,8 +1289,7 @@ loosening of #379: every OD-5/5 setup is **clock-fixed and final at 09:40**, bef
 fire, so the ranking set is complete. The bull-flag's triggers arrive over hours, so ranking one
 against another needs candidates that haven't happened yet. The population rule above is unchanged.
 The 3% floor is in-sample (one month) and provisional; the 10% ceiling is the structural sizing
-crossover. See `research/open-drive.md` §4/§6.7 and
-`docs/reports/2026-08-02-open-drive-picking-the-days-stock.md`.
+crossover. The spec and the report that measured it have since been removed.
 
 **Finding 1 above is superseded with it.** The banded rule exists to escape the notional cap and
 does — the same month ends at $529.80 (+6.0%) at 4.2% drawdown rather than $497.67 — so "the R

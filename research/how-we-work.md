@@ -45,7 +45,7 @@ Phase-1 stance, not a trading philosophy; it gets revisited at the Phase-2 gate)
 Float and news follow the same logic one step further: they are enrichment written *after* a name is
 flagged. Neither the shape gates nor the selection rules read them, and `gates.py::float_gate` /
 `news_gate` feed EOD **counts** only. So the book really does take high-float names — it holds CLSK
-(246M) and XRX (119M). Evidence: `docs/reports/2026-07-31-float-vs-max-r.md`. If that should change,
+(246M) and XRX (119M). If that should change,
 the gate goes in the engine's selection tier; `tests/test_portfolio_extract.py` pins today's
 behaviour and the float test's failure message tells you to delete it if you meant it.
 
@@ -160,8 +160,9 @@ least-privilege permissions, wall-clock timeout. `id-token: write` is not option
 exchanges an OIDC token before it does anything, so without it every dispatch dies in
 `setupGitHubToken` having done no work (#499, the same gap as #370).
 
-Before adding a *second* agent workflow, read `research/archive/github-automation.md` — the design,
-the post-mortem, and the `git show` range to resurrect from.
+Before adding a *second* agent workflow, read `§D-27`/`§D-32` in `research/decisions.md` — the
+rollback and what brought the delegation loop back on its own. The design writeup that used to
+sit in `research/archive/` was removed; `git log` still carries it.
 
 **Liveness monitoring** is the app's own Healthchecks.io dead-man's switch (`monitoring.py`,
 `HEALTHCHECKS_PING_URL`). It predates the automation layer and is the signal to trust.
