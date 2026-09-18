@@ -2,8 +2,7 @@
 
 Automated systematic trading system for US small-cap momentum (Warrior-style), via IBKR.
 **Read `research/strategy.md` for what the system does** (the canonical spec, generated from
-`config.py`), `research/decisions.md` for why each rule is what it is, and
-`research/findings-index.md` for the research record.
+`config.py`) and `research/decisions.md` for why each rule is what it is.
 
 This file is the **rules**. The reasoning, incidents and post-mortems behind them live in
 **[`research/how-we-work.md`](./research/how-we-work.md)** — cited below as *(why: §n)*. Read a
@@ -169,9 +168,10 @@ Run them with **`spike-runner`**; interpret with `strategy-analyst`.
   `fixtures/review_cases/`, 25 real-market regression cases). `spikes/` — experiments.
   `scripts/` — repo helpers. `deploy/` — host runbook + systemd units.
 - `research/` — the **documentation root**: `strategy.md` (the spec — the state) + `decisions.md`
-  (the log) + `findings-index.md` (the research record) + `how-we-work.md` (the reasoning behind this
-  file) + the grammar specs (`bull-flag.md` = *what*, `engine-v2.md` = *how*) and standing reports.
-  `research/archive/` holds one-off reports that already did their job.
+  (the log) + `how-we-work.md` (the reasoning behind this file) + the grammar specs
+  (`bull-flag.md` = *what*, `engine-v2.md` = *how*) + the standing reference docs
+  (`broker-costs.md`, `ibkr-integration.md`, `free-tier-services.md`, `phase-2-roadmap.md`,
+  `throughput.md`) and the prior-repo audits (`tradepilot.md`, `entresys_light.md`).
 - ⚠️ **`docs/` is NOT documentation** — it is the GitHub Pages dashboard frontend. Docs live in
   `research/`; only root keeps `README`/`CLAUDE`/`CONTRIBUTING`/`DISCLAIMER` (#300). Renaming `docs/`
   means changing `pages.yml`'s `path:` and every reference *(why: §7)*.
@@ -242,8 +242,8 @@ auto-triage, no watchdog, no agent that opens issues on its own *(why: §10)*. N
   `delegate-issue` skill.
   ⚠️ **On Pro, a delegated run draws on the same quota as this session** and re-reads the repo from
   scratch — it buys wall-clock parallelism, not capacity. Use it only when you genuinely have
-  something else to do meanwhile. ⚠️ Before adding a *second* agent workflow, read
-  [`research/archive/github-automation.md`](./research/archive/github-automation.md).
+  something else to do meanwhile. ⚠️ A previous automation layer was rolled back in #377 —
+  read `§D-27`/`§D-32` in `research/decisions.md` before adding a *second* agent workflow.
 - The other workflows are hands-off and human-triggered: `ci` (every PR), `deploy`, `build-image`,
   `publish-dashboard` (scheduled), `backfill-dashboard`, `deploy-backfill-publish`, `data-export`.
 - **Liveness monitoring** is the app's own Healthchecks.io dead-man's switch — the signal to trust.

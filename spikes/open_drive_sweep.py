@@ -1,7 +1,7 @@
 """Spike #418: Open Drive — a 10-minute ORB with a consolidation requirement.
 
 The book trades one strategy, the pre-market bull-flag, gated to ``[05:30, 09:15)`` ET. The
-time-of-day report (`docs/reports/2026-07-31-time-of-day-…`) measures the tape's forward excursion
+time-of-day analysis (#387) measured the tape's forward excursion
 peaking at 09:00–10:00 (+8.52% median 60-min upside pre-bell, +5.60% at 09:30–10:00) against
 +1.12% at 04:00–06:00, with liquidity **170×** the pre-market — and the engine puts 32 of its 787
 triggers there. Its recommendation #4 is to look harder at that window. This is that look.

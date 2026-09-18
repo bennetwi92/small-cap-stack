@@ -163,9 +163,9 @@ between §1 and §2.
 
 - **Phase 2/3 execution** — order types, the app-side stop, the limit-through parameter. Nothing
   here places an order. See [`phase-2-roadmap.md`](./phase-2-roadmap.md).
-- **The Open Drive strategy** ([`open-drive.md`](./open-drive.md)) — specified, **not traded**, and
-  deliberately not merged into the book. Its 09:40 trigger falls outside §3's window by
-  construction, so the two strategies' selection rules cannot both fire on one name.
+- **The Open Drive strategy** (#418) — specified, **not traded**, and deliberately not merged
+  into the book. Its 09:40 trigger falls outside §3's window by construction, so the two
+  strategies' selection rules cannot both fire on one name.
 - **The recon book.** Vendor-reconstructed sessions run the same §1–§3 rules over a separate store
   and are published as `books_all`, never merged into the live `books`.
 

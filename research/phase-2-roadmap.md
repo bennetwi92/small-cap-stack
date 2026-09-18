@@ -114,8 +114,7 @@ Gate 1's spread data is what lets us set it from evidence instead of guesswork.
 > **2,018 of 2,018 fired runs match the full-day answer exactly, with zero churn at any
 > intermediate prefix**, over 81 sessions (1,220 recon runs / 909 fired; 1,454 live runs / 1,109
 > fired). At minute resolution **762 of 909 fires happen on a partially formed bar** and all 909
-> still match. Harness: `spikes/prefix_stability.py`. Report:
-> `docs/reports/2026-08-08-prefix-stability.md`.
+> still match. Harness: `spikes/prefix_stability.py`.
 >
 > It is structural. `day.py`'s candidate loop takes the **earliest** cycle with a valid trigger and
 > breaks; `entry_trigger`/`entry_fill` come from `bars[cons_end].high` and `stop` from the
@@ -142,7 +141,7 @@ so live and replay disagreeing would **silently invalidate the sim as a predicto
 Gate 5 is log-only and comes *before* any order code precisely to measure this: detect live, diff
 against the EOD replay, and either prove they agree or characterise where they can't.
 
-> **The second strategy is immune to this (#418).** `open-drive.md`'s two candles are fixed by the
+> **The second strategy is immune to this (#418).** Open Drive's two candles are fixed by the
 > clock — the opening range is 09:30–09:35, the consolidation 09:35–09:40 — so both are final at
 > 09:40 and the entry/stop levels never move. There is no growing prefix and nothing to re-segment,
 > so live and replay cannot diverge. If prefix stability turns out to be expensive to prove for the

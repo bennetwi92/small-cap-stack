@@ -1,8 +1,7 @@
 # Broker Costs — IBKR cost model for a small UK cash account
 
 **Date:** 2026-07-15. **Status:** Complete. Answers open question #6 (market-data entitlement) and
-the §4 unknown "actual IBKR market-data monthly cost for this exact use case" from
-[`findings-index.md`](./findings-index.md).
+the research phase's §4 unknown, "actual IBKR market-data monthly cost for this exact use case".
 
 **Scope:** what it costs to run the live strategy through IBKR from a UK-resident cash account at a
 ~$500 starting balance, and whether that account size is viable.
