@@ -114,7 +114,7 @@ models, no ranking (constraint 1).
 | id | family | the columns it draws on | why it is a family |
 |---|---|---|---|
 | **S1** | **Attention** | `hits_before_trigger`, time since first hit at trigger (staleness), hit density before the break | the scanner-attention series is the only record of *how much attention* a name had and *when it started* (inventory §2.2) |
-| **S2** | **Participation** | `cum_volume_to_trigger`, `cum_dollar_vol_to_trigger` | the trigger-safe liquidity quantities; the inventory names them explicitly as the safe substitutes for the day aggregates |
+| **S2** | **Participation** | `cum_volume_pre_trigger`, `cum_dollar_vol_pre_trigger` | the trigger-safe liquidity quantities, the safe substitutes for the day aggregates. ⚠️ Stage-0 amendment A1: the `*_to_trigger` versions include the trigger bar's full volume and are out of `RULE_COLUMNS` (`panel-v1-spec.md` §4) |
 | **S3** | **Shape** | the FeatureVector's SHAPE / VOL / WICK / CONS fields — `retracement`, `cons_tightness`, `cons_strictness`, `vol_ratio`, `pole_vol_concentration`, `cons_len`, `pole_len`, `holds_base` | the pattern grammar. ⚠️ Carried as **one candidate filter, never as an axiom** — the inventory (§7.9) records that the shape gates selected no better than taking everything on a 197-session population. If S3 fails again on 511 sessions, that is a result worth having. |
 | **S4** | **Geometry and cost** | `stop_pct` (stop distance as a percent of price), `ext_at_trigger`, `pole_height_pct`, `pole_extension_atr`, `trigger_et_min` | protocol §11.1: **percentage stop distance is a cost lever**, so this is the family whose gross and net behaviour should diverge most. It is in the design precisely to be checked against §11.1's prediction. |
 

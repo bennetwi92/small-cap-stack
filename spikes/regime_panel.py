@@ -233,6 +233,7 @@ def _row_for_run(
     settings: Settings,
     float_shares: int | None,
     short_percent: float | None,
+    shares_outstanding: int | None = None,
 ) -> dict[str, object] | None:
     """One panel row: the wide detection plus its measurement, or None if no pole forms."""
     setup = detect_day_with_settings(day_bars, settings, first_hit)
@@ -287,6 +288,8 @@ def _row_for_run(
         # enrichment (live store only for float — see the module docstring)
         "float_shares": float_shares,
         "short_percent": short_percent,
+        # source-merged via report._funds_for (recon: EDGAR; live: yfinance)
+        "shares_outstanding": shares_outstanding,
         # outcome
         "triggered": triggered,
         "trigger_utc": trigger_bar.start if trigger_bar is not None else None,
@@ -364,7 +367,7 @@ def build_store(store: Store, source: str, settings: Settings) -> list[dict[str,
             day_bars = day_chart_bars(bars_df, oid, settings)
             if not day_bars:
                 continue
-            float_shares, short_percent = _funds_for(funds, oid)
+            float_shares, short_percent, shares_outstanding = _funds_for(funds, oid)
             osub = (
                 scans.filter(pl.col("opportunity_id") == oid) if not scans.is_empty() else scans  # noqa: PD011
             )
@@ -388,6 +391,7 @@ def build_store(store: Store, source: str, settings: Settings) -> list[dict[str,
                     settings=settings,
                     float_shares=float_shares,
                     short_percent=short_percent,
+                    shares_outstanding=shares_outstanding,
                 )
                 if row is not None:
                     rows.append(row)

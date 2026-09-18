@@ -22,7 +22,7 @@ Two Parquet stores, same dataset names, different provenance, deliberately kept 
 |---|---|---|
 | what it is | the tracker's own observations | pre-market days rebuilt from purchased vendor minute bars |
 | coverage | 2026-07-01 → 2026-09-17 | 2024-09-09 → 2026-06-30 |
-| sessions | 58 | 453 (of 501 in window; 469 daily-universe days) |
+| sessions | 55 with bars (58 `opportunities` partitions: 07-03 holiday, 07-04/05 weekend have none) | 453 (of 501 in window; 469 daily-universe days) |
 | observation window | 04:00 – 11:59 ET scan, bars to 16:00 | **04:00 – 09:30 ET only** (`reconstruct.PREMARKET`) |
 | scanner | IBKR `TOP_PERC_GAIN`, live, 60 s ticks | *reconstructed* from minute bars + previous daily close |
 | news | yes | **no** |
@@ -94,7 +94,8 @@ that has to re-fetch costs another 45 nights of harvest. Estimated ~32 M rows.
 
 This is the largest untouched asset in the record. Any question that needs sub-5-minute resolution
 — microstructure of the break, fill realism, a finer trigger — can only be asked of this dataset,
-and only on the recon half.
+and only on the recon half. ⚠️ *Measured 2026-09-18 (S0-E):* present on 453 / 453 recon sessions,
+but **1,468,265 rows** — not the ~32 M estimated above.
 
 ### 2.5 `news` — live only
 `opportunity_id · symbol · time` (raw provider string) `· ts_utc · provider · headline · article_id`
@@ -186,8 +187,8 @@ the raw quantity each one reads, so the shipped book is re-derivable from the pa
 - **Grain:** one row per triggered setup — `(date, source, symbol, run)`.
 - **Size as last built:** 3,639 rows / 197 sessions (166 recon + 31 live), pre-market only,
   `cons_has_range` required. At ~18.5 setups/session, the **full 511-session record should yield
-  ~9,000–9,500 rows.** ⚠️ **The panel is stale — it predates 287 recon sessions and 27 live ones.
-  Rebuilding it is step one of any analysis.**
+  ~9,000–9,500 rows.** *Rebuilt 2026-09-18 as the frozen **panel-v1**: 9,195 rows / 508 sessions
+  ([`panel-v1-spec.md`](./panel-v1-spec.md)). Use it, not the stale build.*
 - **Feature dictionary:** `TRIGGER_TIME_SAFE` (46 columns a rule MAY read) and `OUTCOME_COLS`
   (the lookahead set), with `assert_no_lookahead()` enforcing the boundary mechanically.
 - **Harness:** `load_panel` · `load_paths` (post-trigger bar paths as numpy, for exit replay) ·
@@ -198,7 +199,10 @@ the raw quantity each one reads, so the shipped book is re-derivable from the pa
 ⚠️ Four columns feel like trigger-time context and are **not**: `day_volume`, `day_dollar_volume`,
 `day_high`, `day_low`, plus `n_scanner_hits_day`, `first_rank`, `run_count`. Each one topped every
 feature ranking a previous pass ran — which is exactly what lookahead looks like from the inside.
-Use `cum_volume_to_trigger`, `cum_dollar_vol_to_trigger`, `ext_at_trigger`, `hits_before_trigger`.
+Use `cum_volume_pre_trigger`, `cum_dollar_vol_pre_trigger`, `ext_at_trigger`, `hits_before_trigger`.
+⚠️ The `*_to_trigger` volume columns (and `vol_share_pole`) include the trigger bar's **full**
+volume and close, which are not known when the order fires mid-bar. S0-C replaced them with strict
+`*_pre_trigger` variants in panel-v1.
 
 ---
 
@@ -230,8 +234,18 @@ annotations{pole{t0,t1,low,high}, consolidation{t0,t1,high,low}, entry, stop, en
 - **VIX** — `^VIX` via yfinance, cached by `spikes/vix_regime.py`. The only external regime input
   wired so far. Coverage complete over the 197-session population.
 - **Broker cost model** — `research/broker-costs.md`, pinned to the cent by
-  `tests/test_portfolio_sim.py`. At $500, the $0.35/side commission minimum against ~$16.58 mean
-  risk eats ~7 % of every R before slippage, ~10 % after.
+  `tests/test_portfolio_sim.py`. ⚠️ **Corrected 2026-09-18 by Stage-0 S0-F**
+  ([`panel-v1-spec.md`](./panel-v1-spec.md) §6).
+  - **Setup of the measurement:** $500 cash account at full buying power; the tiered schedule
+    priced per order leg; 2 ticks of stop slippage.
+  - **Result:** a losing trade costs a **mean 0.274 R** (median 0.224 R, q90 0.560 R). A winner
+    that fills at a limit pays no slippage and costs **0.118 R**.
+  - **Cost scales inversely with percentage stop distance.** A loss costs 0.47 R in the
+    tightest-stop decile and 0.07 R in the widest. It is a distribution, not a scalar.
+  - **What the old line measured:** "~7 % of every R before slippage, ~10 % after" was a scalar at
+    one population's mean risk. It matches the commission-only *median* (0.097 R) and hides both
+    the slippage and the tight-stop tail.
+  - No real fill exists yet, so the slippage figure is an assumption, not a measurement.
 
 ---
 
@@ -284,8 +298,13 @@ Stated as fact, not interpretation, because the analysis should start from it.
 | `books` — live only, 58 sessions | 18 | 27.8 % | **−3.84** | $398 | 29.5 % |
 | `books_all` — live + recon, 511 sessions | 78 | 29.5 % | **−7.22** | **−$154** | 48.4 % |
 
-Break-even at a 2R target is a 33.3 % hit rate before costs and ~42.9 % after what a $500 account
-pays. **The shipped strategy is below break-even on the full record.** Nothing in the harvest has
+Break-even at a 2R target is a 33.3 % hit rate before costs. After what a $500 account pays it is
+**40.4 %**, measured on the FIT panel at full buying power with 2-tick stop slippage. Across
+`stop_pct` deciles it runs from 45.5 % (tightest) to 35.2 % (widest) (S0-F,
+[`panel-v1-spec.md`](./panel-v1-spec.md) §6).
+⚠️ *Corrected 2026-09-18:* this line previously said ~42.9 %. That back-solves to ~0.286 R of cost
+charged on every trade, which overstates winners — they fill at a limit and pay ~0.118 R. **The
+shipped strategy is below break-even on the full record.** Nothing in the harvest has
 yet been analysed; this is the state the analysis inherits, not a verdict on it.
 
 Also of note: `books_all` shows **49 cap-bound and 51 unaffordable** trades against 78 taken —
@@ -326,7 +345,8 @@ box or the Mac as an aggregation, not a transfer.
 - Anything needing the live scanner's ranking: live only.
 
 **Does not support**
-- Post-09:30 behaviour on the recon half (not reconstructed).
+- Post-09:30 *appearances* on the recon half (not reconstructed). Post-09:30 *price* is there: the
+  recon `bars` reach 15:55 ET on 98.9 % of sessions (S0-E), so a trade can be held past the bell.
 - A universe question — the record only contains names that already gapped.
 - A per-rule answer with the confidence a 15,000-combination search implies. The data has already
   demonstrated, on its own record, that it cannot distinguish that many hypotheses.
