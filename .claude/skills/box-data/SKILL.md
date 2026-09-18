@@ -18,11 +18,35 @@ ports**. So data comes out the same way deploys go in — through GitHub and the
 **Prerequisite:** the `[self-hosted, vps]` runner must be registered on the box (issue #6, same gate
 as `deploy.yml`). If it isn't up, the dispatched run just queues.
 
+## The corpus has two halves — say which store you mean
+The dataset is contiguous but not homogeneous. `plan_sessions` excludes dates the tracker already
+collected live (#430), so the harvest stops exactly where live collection starts:
+
+| | **recon** (`/data/recon`) | **live** (`/data`) |
+|---|---|---|
+| span | 2024-09-09 → 2026-06-30 (453 sessions) | 2026-07-01 → present |
+| opportunities | 7,202 (~16/day) | ~43/day |
+| `scanner_hits` | *reconstructed* appearance timing (#460) | real per-tick appearances |
+| `bars` | 5-min, rebuilt from vendor minute bars | 5-min, EOD batch (#62) |
+| `bars_1m`, `daily_universe` | ✅ recon only | ❌ never captured live |
+| `news` | ❌ not reconstructed | ✅ |
+| `analysis` | ❌ | ✅ EOD per-opportunity rows |
+| `fundamentals` | EDGAR shares outstanding (§D-41) | vendor float — check the `source` column |
+
+⚠️ Recon days are simultaneously *reconstructed* and *out-of-sample*, which confounds any
+across-store outcome comparison — see **#462** before reading one.
+
+**Both halves must be exported separately** (`store: live` and `store: recon` are separate runs,
+one per dataset), and the files accumulate on `data-export` — check what is already there before
+spending a run.
+
 ## The loop (GitHub MCP tools)
 1. **Dispatch** `.github/workflows/data-export.yml` (`workflow_dispatch`) with `actions_run_trigger`.
    Inputs:
+   - `store` — `live` (`/data`, the tracker) | `recon` (`/data/recon`, the harvest — #430/#728).
+     It also joins the filename, since the two roots share dataset names.
    - `dataset` — `bars` | `opportunities` | `scanner_hits` | `news` | `fundamentals` | `analysis` |
-     `query`
+     `bars_1m` | `daily_universe` (the last two are recon-only) | `query`
    - `start_date` / `end_date` — inclusive `YYYY-MM-DD` (dataset mode; blank = unbounded)
    - `symbols` — comma-separated, symbol-keyed datasets only (e.g. `SNDQ,AAPL`)
    - `query` — raw DuckDB SQL over the dataset views (only when `dataset = query`); e.g.
