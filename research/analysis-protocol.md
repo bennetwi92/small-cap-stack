@@ -8,11 +8,17 @@ must agree on — the blind list, the operator facts and priors, the hard constr
 panel, the splits, the objective function, the exit families, the cost identity, the trials ledger,
 the custodian and the single holdout opening — so that the three plans carry only what differs.
 
-The three plans:
+The three plans, and where each one records its findings:
 
-- [`analysis-plan-1-selection.md`](./analysis-plan-1-selection.md) — **W1**, *which setups*
-- [`analysis-plan-2-execution.md`](./analysis-plan-2-execution.md) — **W2**, *how to enter and exit them*
-- [`analysis-plan-3-regime.md`](./analysis-plan-3-regime.md) — **W3**, *when to be trading at all*
+| plan | workstream | issue |
+|---|---|---|
+| [`analysis-plan-1-selection.md`](./analysis-plan-1-selection.md) | **W1** — *which setups* | [#737](https://github.com/bennetwi92/small-cap-stack/issues/737) |
+| [`analysis-plan-2-execution.md`](./analysis-plan-2-execution.md) | **W2** — *how to enter and exit them* | [#738](https://github.com/bennetwi92/small-cap-stack/issues/738) |
+| [`analysis-plan-3-regime.md`](./analysis-plan-3-regime.md) | **W3** — *when to be trading at all* | [#739](https://github.com/bennetwi92/small-cap-stack/issues/739) |
+
+Shared Stage 0 is [#736](https://github.com/bennetwi92/small-cap-stack/issues/736); the trials
+ledger is [#735](https://github.com/bennetwi92/small-cap-stack/issues/735); the design pass itself is
+[#734](https://github.com/bennetwi92/small-cap-stack/issues/734).
 
 Each plan doc ends with a copy-paste starting prompt for a fresh agent. Every one of those prompts
 opens by pointing here. Read this first; it is the contract.
@@ -410,7 +416,7 @@ reported as fragile and, unless the plan says otherwise, is not the one that get
 
 ### 8.1 The ledger — where, and how it cannot be quietly rewritten
 
-**A dedicated GitHub issue**, "Analysis trials ledger", one comment per entry. Chosen over a file on
+**A dedicated GitHub issue** — [#735, "Analysis trials ledger — global budget 120, append-only"](https://github.com/bennetwi92/small-cap-stack/issues/735) — one comment per entry. Chosen over a file on
 a branch because comments are append-only, server-timestamped, attributable to their author, and
 carry a visible edit history — three concurrent agents writing to one file on one branch is a merge
 conflict pretending to be an audit trail.
