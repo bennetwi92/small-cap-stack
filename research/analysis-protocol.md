@@ -763,3 +763,100 @@ Named here so it is a known gap rather than a later surprise. None of these is f
 
 **Total ≈ 21–28 sessions**, of which ~5–6 are opus (interpretation and the holdout pass) and the
 rest sonnet or haiku. The subscription is Pro: one task per session, then `/clear`.
+
+---
+
+## 16. Amendments — the joint pass (W4), 2026-09-19
+
+**Status of §§0–15:** unchanged as the record of the three-agent pass, which is closed. All three
+workstreams froze documented nulls (W1 42 / 54 trials, W2 32 / 36, W3 18 / 24; 98 of 120 spent;
+the holdout was never opened, and CHECK was opened once, by W2's E7).
+
+**These five amendments govern [`analysis-plan-4-joint.md`](./analysis-plan-4-joint.md)**, the joint
+pass that supersedes the three-way split as a *design*. The three workstream plans are marked
+SUPERSEDED; their **results stand** and are inputs to W4. Where §§0–15 and §16 disagree, §16 wins for
+W4 and §§0–15 remain the record of what W1/W2/W3 ran under.
+
+The defect being corrected is argued in plan §1 and was **pre-identified by §14 of this document**:
+a selection rule that works only in some regimes is invisible to W1 (which pools across regimes) and
+to W3 (which holds selection fixed at Filter A, a stream that keeps 100 % of sessions and is
+gross-negative at −0.1450 R/session). §14 said that if W1 and W3 both returned nulls, the interaction
+was the first thing to fund. Both did.
+
+### P-1 — Exit-path lookahead is permitted as a ceiling; selection lookahead is not
+
+Constraint 2 forbids *"a statistic on opportunities that could not have been traded"*. W4's Stage-A
+objective `C` — the oracle-exit ceiling — is computed over opportunities that **could** have been
+traded: selection is decidable at trigger time and capacity is earliest-by-time. What is oracular is
+the **exit timing**, not the choice. Constraint 2 is therefore not engaged, and this amendment makes
+the boundary explicit rather than leaving it to judgement:
+
+| | ruling |
+|---|---|
+| **Selection lookahead** — anything not known at trigger time, **including ranking a session's setups against each other** | ❌ **Forbidden absolutely.** Unchanged. Constraints 1 and 2, enforced by `RULE_COLUMNS` subsetting and earliest-N capacity. |
+| **The "oracle selection" ceiling** — the best of a session's ~17 setups | ❌ **Forbidden outright.** It requires ranking. It is the most tempting number in the design and it may not be computed, quoted or estimated. |
+| **Exit-path lookahead** — `C = mean over sessions of [ max(max_r, −1) − c ]` on a trigger-time-safe stream | ✅ **Permitted as a screen and a denominator only.** |
+| **`C` reported as a result** | ❌ **Forbidden.** `C` is published only alongside the realised `J` and the capture ratio `κ = J / C`, and never appears in a report, a dashboard or an issue without the word **ceiling** and the realised number. **A candidate freezes on `J`, never on `C` or `κ`.** |
+
+⚠️ **`max_r` must be the panel's stop-truncated value** — `replay_bracket(target_r=None)` walks with
+the stop armed and halts at it. W2's E1 `R_max` (raw path maximum, no stop) is **not harvestable** and
+scoring it in Stage A is a stop-and-report. Plan §3.2.
+
+### P-2 — Capacity and the throughput band
+
+- **Capacity stays `N = 1`, earliest trigger by time.** Not a search dimension. Concentration without
+  amplification, matching the book.
+- **The throughput band widens from [0.6, 1.0] to [0.45, 1.0]** average trades/session over the block.
+
+**Why.** Under the old band a candidate could stand aside on at most 40 % of sessions and never take
+more than one trade on a strong day: an expressible hot-to-cold dynamic range of **1.67 : 1**.
+Operator prior (1) says this market pays in bursts, so the old band constrained every candidate out
+of the region where the operator says the structure lives. W3 hit this from its own side — the band
+is why its grid ran 10/20/30 % stand-aside instead of 30/50/70 %.
+
+**The price, stated rather than hidden:** at 0.45 trades/session a FIT block holds ~120 trades and the
+minimum detectable effect rises to ~0.437 R/trade (plan §7.3). Standing aside buys expressiveness and
+costs power. A candidate below **0.6** ships **flagged as a throughput departure** the operator must
+accept explicitly, since the declared target is 0.8/day.
+
+### P-3 — The global budget, and a tighter gate to pay for it
+
+- **The global budget goes 120 → 240.** W4 is allocated **120**; the 98 already spent are declared as
+  **prior search intensity**, not forgiven.
+- **The significance threshold for any W4 freeze is `p ≤ 0.01`**, not 0.05, against a permutation null
+  run at matched intensity over the **entire joint search sequence**. Bonferroni cross-check at
+  0.05/120 reported beside it.
+- **CHECK now carries two looks** — W2's E7 and W4's single composed candidate. Declared here; the
+  custodian carries it into the holdout pass.
+- ⚠️ **120 is an authorisation, not a spending plan.** Four mechanical gates (plan §7.2) stand between
+  the cheap stages and the expensive ones, each returning its unspent trials to the global budget. On
+  the previous pass's evidence the modal spend is **41–75**.
+
+### P-4 — Filter A is retired as an analysis population
+
+Filter A keeps a setup on **266 of 266 FIT sessions at 1.000 trades/session**. It is a tie-break
+rule, not a filter, and studying regimes on it is studying them on the unfiltered population that
+operator prior (3) forbids — the leak block worked, the filter did not.
+
+Filter A survives **only as a published reference baseline**, so W4's numbers stay commensurable with
+W1/W2/W3's. **Nothing is fitted on it and nothing is conditioned on it.**
+
+Prior (3)'s intent is served instead by the mechanism a joint fit actually requires (plan §6.4):
+selection and state fitted on **FIT only**, one CHECK score, the holdout sealed, and a permutation
+null over the **whole joint sequence** with the self-referential state feature rebuilt inside every
+replicate. **The correct reading of prior (3) is that the filter a regime study conditions on must be
+the *real* filter — which means selection and regime are one fit, not two.**
+
+### P-5 — Constraints 8–11 no longer bind; §13.4 still does
+
+Constraints 8–11 (one panel, one split set, one ledger, one holdout opening, and the ban on
+cross-reading another workstream's intermediates) existed because three agents ran concurrently.
+W4 is **one agent running one search**, so:
+
+- **8, 9, 10, 11 are retained in substance** — the panel stays frozen and byte-verified, the splits
+  are not re-drawn, the ledger is appended to before data is opened, and the holdout is opened once by
+  the custodian — but the **cross-reading ban is lifted**: W4 reads W1's, W2's and W3's plans, ledger
+  entries and results. That pass is closed and frozen, and it is this analysis's own output, not the
+  incumbent's record. **The blind list (§1) is untouched.**
+- **§13.4 still binds absolutely:** measurement and interpretation run in **separate sessions**. It is
+  the reason the previous pass's nulls are trustworthy.

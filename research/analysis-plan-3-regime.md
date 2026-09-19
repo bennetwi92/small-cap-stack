@@ -1,7 +1,8 @@
 # Analysis plan 3 — time structure and the re-tuning protocol: *when to be trading at all*
 
-**Status:** LIVE (2026-09-18). Workstream **W3** of the three-agent analysis of the 2-year Phase-1
-record.
+**Status:** EXECUTED (2026-09-18); **SUPERSEDED as a design (2026-09-19)**. Workstream **W3** of
+the three-agent analysis of the 2-year Phase-1 record. **The result is a documented null:** 18 of 24
+trials spent, best-of-search `J = −0.1742` against a null median of −0.1740, `p = 0.5025`. **SUPERSEDED as a design (2026-09-19)** by [`analysis-plan-4-joint.md`](./analysis-plan-4-joint.md), which fits selection and market state **jointly** — see its §1 for why the marginal split could not compose a system, and `analysis-protocol.md` §16 for the amendments. **The results below stand and are inputs to W4.**
 
 > **Read [`analysis-protocol.md`](./analysis-protocol.md) first, in full.** It carries the blind
 > list, the operator facts and priors, the thirteen hard constraints, the frozen panel, the splits,

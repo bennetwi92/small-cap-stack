@@ -3,7 +3,8 @@
 **Status:** EXECUTED (2026-09-18). Workstream **W2** of the three-agent analysis of the 2-year
 Phase-1 record. **The result is a documented null plus the §9.2 viability table —
 [`analysis-w2-result.md`](./analysis-w2-result.md).** 32 of 36 trials spent; 4 returned unspent.
-No candidate is carried to the holdout. This document is the plan as pre-registered, amended in
+No candidate is carried to the holdout. **SUPERSEDED as a design (2026-09-19)** by [`analysis-plan-4-joint.md`](./analysis-plan-4-joint.md), which fits selection and market state **jointly** — see its §1 for why the marginal split could not compose a system, and `analysis-protocol.md` §16 for the amendments. **The results below stand and are inputs to W4.**
+This document is the plan as pre-registered, amended in
 place where execution changed it (W2-A1 … W2-A3, ledgered on
 [#735](https://github.com/bennetwi92/small-cap-stack/issues/735) before each was acted on).
 
