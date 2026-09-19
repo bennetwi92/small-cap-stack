@@ -69,6 +69,7 @@ down is reading forward in time within a topic.
 | [D-45](#d-45--a-new-excel-workbook-filter-combination-pricestopwindowsharescap-all-move-2026-08-26-694) | 2026-08-26 | A new Excel-workbook filter combination: price/stop/window/shares/cap all move | #694 | LIVE — the price cap and stop-pct halves REVERSE D-37/D-40's "leave it alone" findings; |
 | [D-46](#d-46--a-candle-recalculated-exit-beats-the-static-bracket-but-stays-unshipped-pending-forward-data-2026-08-26-713715) | 2026-08-26 | A candle-recalculated exit beats the static bracket, but stays unshipped pending forward data | #713/#715 | LIVE — the decision to measure and NOT ship. No `config.py` value changes. |
 | [D-47](#d-47--full-buying-power-position-sizing-replacing-risk-basednotional-capped-sizing-2026-08-27-720) | 2026-08-27 | Full-buying-power position sizing, replacing risk-based/notional-capped sizing | #720 | LIVE — `size_position()` now sizes to the day's opening equity with no risk ceiling; |
+| [D-48](#d-48--the-analysis-is-re-planned-as-one-joint-fit-selection--market-state-on-the-r-pool-then-execution-on-the-capture-2026-09-19-734) | 2026-09-19 | The analysis is re-planned as one joint fit: selection × market state on the R pool, then execution on the capture | #734 | LIVE — supersedes the three-way marginal split (`analysis-plan-1/2/3`) **as a design**; |
 
 <!-- END DECISION INDEX -->
 
@@ -1990,3 +1991,61 @@ model under this sizer before drawing any conclusion about net edge, in either d
 Refs #720
 
 Refs #713 #715
+
+---
+
+## D-48 — The analysis is re-planned as one joint fit: selection × market state on the R pool, then execution on the capture (2026-09-19, #734)
+
+**Status:** LIVE — supersedes the three-way marginal split (`analysis-plan-1/2/3`) **as a design**;
+their executed results stand and are inputs.
+
+The three-agent analysis of the 2-year record returned three documented nulls (W1 42/54 trials, W2
+32/36, W3 18/24; 98 of 120 spent, holdout never opened). The nulls are sound. **The design that
+produced them was not**, for a reason that is structural rather than statistical:
+
+- **W2 and W3 both held selection fixed at Filter A**, a stream that keeps a setup on **266 of 266
+  FIT sessions at 1.000 trades/session** and is **gross-negative at −0.1450 R/session**. So
+  "which execution harvests this?" and "when is this hot?" were asked of a stream with nothing to
+  harvest and nothing to time. Operator prior (3) — *don't look for hot and cold markets in the
+  unfiltered dataset* — was honoured in letter and broken in spirit: a filter that keeps 100 % of
+  sessions **is** the unfiltered dataset.
+- **Nothing in the design ever composed the three into a system.** Three candidates, each valid only
+  under the others' placeholder assumptions, were to be scored side by side and never together.
+- **The burst shape prior (1) declares real was inexpressible**: `N = 1` plus a [0.6, 1.0] throughput
+  band caps the hot-to-cold dynamic range at **1.67 : 1**.
+- ⚠️ **`analysis-protocol.md` §14 pre-identified exactly this** and pre-authorised the remedy: *"a
+  selection rule that works only in some regimes will be missed by both W1 and W3 […] if W1 and W3
+  both return nulls, this interaction is the first thing the next pass should fund."* Both did.
+
+**What is decided.** [`analysis-plan-4-joint.md`](./analysis-plan-4-joint.md) replaces the split, with
+the protocol amendments in `analysis-protocol.md` §16. Three elements are new and are the substance
+of the decision:
+
+1. **A two-stage objective.** Stage A maximises `C` — the **oracle-exit ceiling net of costs**,
+   `mean over sessions of [max(max_r, −1) − c]` — over (selection × state) pairs fitted **together**.
+   Stage B maximises the realised net `J`, reporting the capture ratio `κ = J / C`. Stage C verifies
+   the two compose. `C` decouples "are these good setups" from "does this bracket fit them", which
+   the old `J`-under-F2 family gate confounded. ⚠️ **`C ≤ 0` proves no exit can win** — W2 spent 32
+   trials discovering by exhaustion what one `C` shows for one.
+2. **`max_r` is the panel's stop-truncated value**, so `C` is reachable. W2's E1 `R_max` (raw path
+   maximum, no stop; FIT mean 5.72 R) is **not** harvestable and scoring it is a stop-and-report.
+   Exit-path lookahead is permitted only as a ceiling and a denominator (§16 P-1); **selection**
+   lookahead, including the oracle-selection ceiling, stays forbidden absolutely.
+3. **The selection grid moves to `q80`/`q90`/`q95`.** The panel carries ~17 setups per session and
+   the book takes one, so a filter does not reduce the trade count until whole sessions run out of
+   qualifying setups. **W1's `q30`/`q50`/`q70` grid was throughput-degenerate** — its tightest level
+   took 261 trades on 266 sessions, i.e. it removed *five sessions*. W1 never tested a selective
+   strategy; it varied which setup was taken on essentially every session.
+
+**What is retired.** Filter A as an analysis population (it survives as a published reference
+baseline only). The three frozen candidates — all nulls, nothing to carry.
+
+**The honest prior, recorded so the next pass cannot forget it.** All 42 of W1's points were negative
+**gross**, best −0.096 R/session, `p = 0.378`. The pooled marginal edge is not there and it is not a
+cost problem. A joint search wins only if the edge lives in a cell that pooling averages away, and at
+266 fit sessions this record can resolve only a **large** cell effect (≳ 0.33 R/trade) — a null means
+"no large effect", never "no effect". The budget is reopened to 240 with W4 allocated 120, gated so
+the modal spend is 41–75, and the freeze threshold tightened to **`p ≤ 0.01`** because 98 trials were
+already spent against the same fit split.
+
+Refs #734

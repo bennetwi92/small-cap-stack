@@ -1,7 +1,9 @@
 # Analysis plan 1 — selection × exit: *which setups*
 
-**Status:** LIVE (2026-09-18). Workstream **W1** of the three-agent analysis of the 2-year Phase-1
-record.
+**Status:** EXECUTED (2026-09-18); **SUPERSEDED as a design (2026-09-19)**. Workstream **W1** of
+the three-agent analysis of the 2-year Phase-1 record. **The result is a documented null:** 42 of 54
+trials spent, all 42 FIT points negative **net and gross**, whole-sequence null `p = 0.378`; 2d/2e
+deferred by amendment W1-A2 and CHECK never opened. **SUPERSEDED as a design (2026-09-19)** by [`analysis-plan-4-joint.md`](./analysis-plan-4-joint.md), which fits selection and market state **jointly** — see its §1 for why the marginal split could not compose a system, and `analysis-protocol.md` §16 for the amendments. **The results below stand and are inputs to W4.**
 
 > **Read [`analysis-protocol.md`](./analysis-protocol.md) first, in full.** It carries the blind
 > list, the operator facts and priors, the thirteen hard constraints, the frozen panel, the splits,

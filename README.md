@@ -54,7 +54,11 @@ execution pass — splits, budget, frozen panel, ledger, custodian) and the thre
 [`analysis-plan-1-selection.md`](./research/analysis-plan-1-selection.md) (*which setups*),
 [`analysis-plan-2-execution.md`](./research/analysis-plan-2-execution.md) (*how to enter and exit
 them*) and [`analysis-plan-3-regime.md`](./research/analysis-plan-3-regime.md) (*when to be trading
-at all*), each carrying its copy-paste starting prompt;
+at all*), each carrying its copy-paste starting prompt — all three executed to documented nulls and
+**superseded as designs** by [`analysis-plan-4-joint.md`](./research/analysis-plan-4-joint.md) (the
+joint pass: selection × market state fitted together on the R pool, then execution on the capture),
+whose result so far is [`analysis-w2-result.md`](./research/analysis-w2-result.md) and whose frozen
+panel is specified in [`panel-v1-spec.md`](./research/panel-v1-spec.md);
 [`bull-flag.md`](./research/bull-flag.md) (the pattern grammar) and
 [`engine-v2.md`](./research/engine-v2.md) (how the detector is built);
 [`how-we-work.md`](./research/how-we-work.md) (the reasoning behind `CLAUDE.md`);
