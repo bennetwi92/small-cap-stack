@@ -1,7 +1,11 @@
 # Analysis plan 2 — entry mechanics, exit interiors and the cost floor: *how to enter and exit them*
 
-**Status:** LIVE (2026-09-18). Workstream **W2** of the three-agent analysis of the 2-year Phase-1
-record.
+**Status:** EXECUTED (2026-09-18). Workstream **W2** of the three-agent analysis of the 2-year
+Phase-1 record. **The result is a documented null plus the §9.2 viability table —
+[`analysis-w2-result.md`](./analysis-w2-result.md).** 32 of 36 trials spent; 4 returned unspent.
+No candidate is carried to the holdout. This document is the plan as pre-registered, amended in
+place where execution changed it (W2-A1 … W2-A3, ledgered on
+[#735](https://github.com/bennetwi92/small-cap-stack/issues/735) before each was acted on).
 
 > **Read [`analysis-protocol.md`](./analysis-protocol.md) first, in full.** It carries the blind
 > list, the operator facts and priors, the thirteen hard constraints, the frozen panel, the splits,
@@ -107,10 +111,10 @@ W2 reduces to F2 alone and its plan is re-scoped by amendment before Stage 1, no
 | **E3 — F3 interior** | arming threshold ∈ {0.5 R, 1 R, 1.5 R} × trailing reference ∈ {prior bar low, 2-bar low} | **6** |
 | **E4 — F4 interior** | scale fraction ∈ {⅓, ½, ⅔} × scale point ∈ {1 R, 1.5 R} | **6** |
 | **E5 — selection-dependence** | the 2 best families re-scored under 2 a-priori `stop_pct` strata (below / above the FIT median) | **4** |
-| **E6 — walk-forward refits** | 3 folds × 1 candidate specification. ⚠️ **Every refit is a trial** — prior (2). | **3** |
-| **E7 — check** | the single candidate scored on CHECK | **1** |
-| **reserve** | amendments arising from Stage-0 findings | **1** |
-| **total** | | **36** |
+| **E6 — walk-forward refits** | 3 folds × 1 candidate specification. ⚠️ **Every refit is a trial** — prior (2). ⚠️ **W2-A3: not spent — the 3 trials returned unspent.** All 24 FIT points were negative, so §9.1 condition 2 fails for every specification and there was no candidate to refit. | **0** (3 returned) |
+| **E7 — check** | the single candidate scored on CHECK. ⚠️ **W2-A3: spent as the *confirmation of the null*, not a candidate's validation** — `M2×F1` on CHECK, once. **W2 carries no candidate to the holdout.** | **1** |
+| **reserve** | amendments arising from Stage-0 findings | **0** (1 returned) |
+| **total** | | **32 spent, 4 returned** |
 
 ⚠️ **If S0-F cancels F1**, E2 becomes 3 × 3 = 9 and **3 trials return to the global budget
 unspent**. **If W2-0a lands under 80 % coverage**, E1 and E2 are cancelled and **15 trials return**.
@@ -218,12 +222,16 @@ W2 does three things about it, all of them stated in the freeze report:
    as *M1's trigger with a measured fill correction expressed at 5-minute resolution*, so the
    custodian can score it on live rows. A candidate that can only be evaluated on recon is not a
    candidate — it would make constraint 7's both-halves report impossible.
-2. **A 5-minute cross-check of the fill assumption on both halves** (free — it reads only the
-   already-charged E1 outputs and the 5-minute grid): compare the realised `entry_price` versus
-   `entry_fill` gap distribution on live rows against recon rows. If the two distributions differ
-   materially, the 1-minute correction's transfer is **reported as unestablished** and the candidate
-   ships with the plain 3-tick fill instead. That is the conservative branch and it is taken by
-   default when the evidence is ambiguous.
+2. ~~**A 5-minute cross-check of the fill assumption on both halves**~~ — compare the realised
+   `entry_price` versus `entry_fill` gap distribution on live rows against recon rows.
+   ⚠️ **Amendment W2-A2 (ledgered before scoring): this cannot be run.** `entry_price` is an
+   outcome column, nulled on all 2,455 HOLDOUT rows (spec §3), and **every live row is inside
+   HOLDOUT** (§7.1) — measured: null on 1,155 / 1,155 live rows, populated on all 6,740 FIT+CHECK
+   rows. The design and the redaction are each correct and simply incompatible. Nothing is
+   substituted (§13.1). **Consequence, fixed a priori:** the transfer of a 1-minute fill correction
+   to the live half is unestablished *and unestablishable by W2*, so **the conservative branch is
+   taken by default** — if M2 or M3 wins, the candidate ships with the plain 3-tick fill and the
+   1-minute result is an execution finding for the next phase.
 3. **The limitation is named in the freeze report**, not discovered by the custodian.
 
 ---
@@ -309,6 +317,14 @@ have been detected, and — the finding that matters most —
 > cost floor at $500 under any entry mechanic, then the next phase's question is **capital, not
 > rules**: what account size moves F1 or F4 from dead to viable, given `c ∝ 1 / (BP × stop_pct)`.
 > That is a directly actionable null and it is worth the whole workstream.
+
+⚠️ **Measured, and the branch above is wrong** ([`analysis-w2-result.md`](./analysis-w2-result.md)
+§1.1). Only the *fee* term of `c` sees the account, it is already the smaller term at $500
+(0.082 R of 0.183 R), and it is exhausted by ~$2,500 once the per-order minimum stops binding. The
+slippage term is ticks per share against a percentage stop and **does not depend on buying power at
+all**. Fifty times the account buys **0.8 percentage points** of F1 break-even (73.9 % → 73.1 %);
+even at $25,000 with zero slippage F1 needs 71.3 % and gets 54.9 %. **The binding constraint is the
+strategy, not the account** — the next phase's question is not capital.
 
 What gets retired on a null: the 3-tick fill assumption, if E1 shows it is wrong. What the next
 phase does instead: size the account, or restrict selection to a `stop_pct` band where the cost
