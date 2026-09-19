@@ -9,7 +9,10 @@ record.
 > the single holdout opening. This document carries only what is specific to W1. Where the two
 > appear to disagree, the protocol wins and the disagreement is a stop-and-report.
 
-The copy-paste starting prompt for the W1 agent is [§12](#12-the-starting-prompt).
+The copy-paste starting prompt for the W1 agent is [§12](#12-the-starting-prompt). The separate
+prompt for the `strategy-analyst` session that §11 funds to interpret the result — the §9 gate, not
+the search — is [`analysis-w1-interpretation-prompt.md`](./analysis-w1-interpretation-prompt.md)
+(added 2026-09-19; a pointer only, it changes nothing in this plan).
 
 ---
 
