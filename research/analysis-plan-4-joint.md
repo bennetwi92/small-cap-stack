@@ -12,6 +12,10 @@
 
 The copy-paste starting prompt is [§13](#13-the-starting-prompt).
 
+**Stage 0 is measured** (2026-09-19, 8 / 120 trials): the record is
+[`analysis-w4-stage0.md`](./analysis-w4-stage0.md), which carries the starting prompt for the
+interpretation session that reads the §5.2 fork and pre-registers Stage A.
+
 ---
 
 ## 1. Why this exists — the defect in the three-way split
