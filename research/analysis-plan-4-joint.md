@@ -16,6 +16,11 @@ The copy-paste starting prompt is [§13](#13-the-starting-prompt).
 [`analysis-w4-stage0.md`](./analysis-w4-stage0.md), which carries the starting prompt for the
 interpretation session that reads the §5.2 fork and pre-registers Stage A.
 
+**Stage 0 is interpreted** (2026-09-19, 0 further trials):
+[`analysis-w4-stage-a.md`](./analysis-w4-stage-a.md) reads the fork as the **capture** row, carries
+amendment **W4-A1** (Stage B 24 → 32; reserve 6 → 0; A5 3 → 1), confirms the Stage-0 exit gate, and
+**pre-registers Stage A**. Where it and §7.1's table disagree on the allocation, W4-A1 wins.
+
 ---
 
 ## 1. Why this exists — the defect in the three-way split
