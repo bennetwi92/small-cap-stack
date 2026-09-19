@@ -11,6 +11,11 @@ record.
 
 The copy-paste starting prompt for the W3 agent is [§12](#12-the-starting-prompt).
 
+> **Executed 2026-09-18. The results are in
+> [`analysis-w3-findings.md`](./analysis-w3-findings.md)** — a documented null on the timing
+> overlay, plus the §9.2 tuning protocol and the §6 period-outcome distribution, which shipped
+> regardless. This plan is the design and is not rewritten by the outcome.
+
 ---
 
 ## 1. The question
