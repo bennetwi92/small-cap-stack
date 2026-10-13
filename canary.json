@@ -1,0 +1,22 @@
+{
+  "generated_utc": "2026-10-13T15:56:15.337584+00:00",
+  "trading_date": "2026-10-13",
+  "assertions": {
+    "float_coverage": {
+      "ok": true,
+      "covered": 36,
+      "total": 38,
+      "pct": 0.947
+    },
+    "news_recent": {
+      "ok": false,
+      "rows": 313,
+      "newest_age_h": 171.82
+    },
+    "bars_sane": {
+      "ok": null,
+      "symbols": 0,
+      "offenders": []
+    }
+  }
+}
