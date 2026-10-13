@@ -1,5 +1,13 @@
 # small-cap-stack
 
+> **MOTHBALLED 2026-10-13.** The strategy did not show a tradeable edge, so all runtime
+> infrastructure was shut down. Nothing is running: the Hetzner box is deleted, the
+> self-hosted runner is deregistered, and every scheduled/dispatch workflow is disabled
+> (`gh workflow enable <name>` restores one). The dashboard at the link below is frozen at its
+> last publish. The code, `research/` (spec, decisions, spikes' write-ups), and the
+> `review-data` branch (hand-made reviews, irreplaceable) are kept. Revival = new VM per
+> `deploy/RUNBOOK.md`, re-register a runner, restore the data archive, re-enable workflows.
+
 this repo will deliver an automated systematic trading system that trades US small cap stocks in a manner similar to warrior trading.
 
 📊 **Live tracker dashboard:** https://bennetwi92.github.io/small-cap-stack/ — scanner activity, task status, data collected, and EOD statistics (refreshes ~every 15 min).
