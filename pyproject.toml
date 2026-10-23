@@ -26,7 +26,7 @@ dependencies = [
     # `.pl()`, which goes through Arrow and hard-requires it — and NOTHING pulls it in for us:
     # duckdb declares it only under `extra == "all"`, polars only under `extra == "pyarrow"`.
     # Dropping it as "unused" breaks every store read (#521).
-    "pyarrow>=17",
+    "pyarrow>=25.0.1",
     "yfinance>=0.2.40",
     "prometheus-client>=0.20",
 ]
